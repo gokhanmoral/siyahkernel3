@@ -2407,7 +2407,6 @@ dhd_stop(struct net_device *net)
 	if (ifidx == 0 && !dhd_download_fw_on_driverload)
 		wl_android_wifi_off(net);
 #endif
-	dhd->pub.hang_was_sent = 0;
 	dhd->pub.rxcnt_timeout = 0;
 	dhd->pub.txcnt_timeout = 0;
 	OLD_MOD_DEC_USE_COUNT;
@@ -2449,6 +2448,8 @@ dhd_open(struct net_device *net)
 #endif
 		firmware_path[0] = '\0';
 	}
+
+	dhd->pub.hang_was_sent = 0;
 
 #if !defined(WL_CFG80211)
 	/*
@@ -4577,6 +4578,8 @@ int net_os_send_hang_message(struct net_device *dev)
 #endif
 #if defined(WL_CFG80211)
 			ret = wl_cfg80211_hang(dev, WLAN_REASON_UNSPECIFIED);
+			dev_close(dev);
+			dev_open(dev);
 #endif
 		}
 	}
