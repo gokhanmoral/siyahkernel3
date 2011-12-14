@@ -1557,9 +1557,7 @@ wl_run_iscan(struct wl_iscan_ctrl *iscan, struct cfg80211_scan_request *request,
 		goto done;
 	}
 
-	if (request != NULL)
-		wl_scan_prep(&params->params, request);
-
+	wl_scan_prep(&params->params, request);
 	params->version = htod32(ISCAN_REQ_VERSION);
 	params->action = htod16(action);
 	params->scan_duration = htod16(0);
@@ -1699,8 +1697,7 @@ wl_run_escan(struct wl_priv *wl, struct net_device *ndev,
 			goto exit;
 		}
 
-		if (request != NULL)
-			wl_scan_prep(&params->params, request);
+		wl_scan_prep(&params->params, request);
 		params->version = htod32(ESCAN_REQ_VERSION);
 		params->action =  htod16(action);
 		params->sync_id = wl->escan_info.cur_sync_id;
