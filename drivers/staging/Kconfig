@@ -162,4 +162,6 @@ source "drivers/staging/mei/Kconfig"
 
 source "drivers/staging/nvec/Kconfig"
 
+source "drivers/staging/cpupower/Kconfig" 
+
 endif # STAGING
