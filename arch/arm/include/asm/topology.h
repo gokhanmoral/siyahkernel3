@@ -28,11 +28,13 @@ void init_cpu_topology(void);
 void store_cpu_topology(unsigned int cpuid);
 const struct cpumask *cpu_coregroup_mask(int cpu);
 
+void set_power_scale(unsigned int cpu, unsigned int power);
 #else
 
 static inline void init_cpu_topology(void) { }
 static inline void store_cpu_topology(unsigned int cpuid) { }
 
+static inline void set_power_scale(unsigned int cpu, unsigned int power) { }
 #endif
 
 #include <asm-generic/topology.h>
