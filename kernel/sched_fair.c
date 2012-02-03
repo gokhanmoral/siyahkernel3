@@ -4039,7 +4039,7 @@ static inline int nohz_kick_needed(struct rq *rq, int cpu)
 	ret = atomic_cmpxchg(&nohz.first_pick_cpu, nr_cpu_ids, cpu);
 	if (ret == nr_cpu_ids || ret == cpu) {
 		atomic_cmpxchg(&nohz.second_pick_cpu, cpu, nr_cpu_ids);
-		if (rq->nr_running > 1)
+		if (rq->nr_running >  DIV_ROUND_CLOSEST(rq->cpu_power, SCHED_POWER_SCALE))
 			return 1;
 	} else {
 		ret = atomic_cmpxchg(&nohz.second_pick_cpu, nr_cpu_ids, cpu);
