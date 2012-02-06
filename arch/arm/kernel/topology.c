@@ -22,6 +22,11 @@
 #include <linux/cpuset.h>
 #include <linux/notifier.h>
 
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+#include <linux/uaccess.h>	/* for copy_from_user */
+#endif
+
 #include <asm/cputype.h>
 #include <asm/topology.h>
 
@@ -354,3 +359,94 @@ void init_cpu_topology(void)
 	}
 	smp_wmb();
 }
+
+/*
+ * debugfs interface for scaling cpu power
+ */
+
+#ifdef CONFIG_DEBUG_FS
+static struct dentry *topo_debugfs_root;
+
+static ssize_t dbg_write(struct file *file, const char __user *buf,
+						size_t size, loff_t *off)
+{
+	unsigned int *value = file->f_dentry->d_inode->i_private;
+	char cdata[128];
+	unsigned long tmp;
+
+	if (size < (sizeof(cdata)-1)) {
+		if (copy_from_user(cdata, buf, size))
+			return -EFAULT;
+		cdata[size] = 0;
+		if (!strict_strtoul(cdata, 10, &tmp)) {
+			*value = tmp;
+		}
+		return size;
+	}
+	return -EINVAL;
+}
+
+static ssize_t dbg_read(struct file *file, char __user *buf,
+						size_t size, loff_t *off)
+{
+	unsigned int *value = file->f_dentry->d_inode->i_private;
+	char cdata[128];
+	unsigned int len;
+
+	len = sprintf(cdata, "%u\n", *value);
+	return simple_read_from_buffer(buf, size, off, cdata, len);
+}
+
+static const struct file_operations debugfs_fops = {
+	.read = dbg_read,
+	.write = dbg_write,
+};
+
+static struct dentry *topo_debugfs_register(unsigned int cpu,
+						struct dentry *parent)
+{
+	struct dentry *cpu_d, *d;
+	char cpu_name[16];
+
+	sprintf(cpu_name, "cpu%u", cpu);
+
+	cpu_d = debugfs_create_dir(cpu_name, parent);
+	if (!cpu_d)
+		return NULL;
+
+	d = debugfs_create_file("cpu_power", S_IRUGO  | S_IWUGO,
+				cpu_d, &per_cpu(cpu_scale, cpu), &debugfs_fops);
+	if (!d)
+		goto err_out;
+
+	return cpu_d;
+
+err_out:
+	debugfs_remove_recursive(cpu_d);
+	return NULL;
+}
+
+static int __init topo_debugfs_init(void)
+{
+	struct dentry *d;
+	unsigned int cpu;
+
+	d = debugfs_create_dir("cpu_topo", NULL);
+	if (!d)
+		return -ENOMEM;
+	topo_debugfs_root = d;
+
+	for_each_possible_cpu(cpu) {
+		d = topo_debugfs_register(cpu, topo_debugfs_root);
+		if (d == NULL)
+			goto err_out;
+	}
+	return 0;
+
+err_out:
+	debugfs_remove_recursive(topo_debugfs_root);
+	return -ENOMEM;
+}
+
+late_initcall(topo_debugfs_init);
+#endif
