@@ -18,6 +18,9 @@
 #include <linux/node.h>
 #include <linux/nodemask.h>
 #include <linux/sched.h>
+#include <linux/cpumask.h>
+#include <linux/cpuset.h>
+#include <linux/notifier.h>
 
 #include <asm/cputype.h>
 #include <asm/topology.h>
@@ -45,9 +48,150 @@
 
 struct cputopo_arm cpu_topology[NR_CPUS];
 
+/*
+ * cpu topology mask update management
+ */
+
+static unsigned int prev_sched_mc_power_savings = 0;
+static unsigned int prev_sched_smt_power_savings = 0;
+
+/*
+ * default topology function
+ */
 const struct cpumask *cpu_coregroup_mask(int cpu)
 {
 	return &cpu_topology[cpu].core_sibling;
+}
+
+/*
+ * clear cpu topology masks
+ */
+static void clear_cpu_topology_mask(void)
+{
+	unsigned int cpuid;
+	for_each_possible_cpu(cpuid) {
+		struct cputopo_arm *cpuid_topo = &(cpu_topology[cpuid]);
+		cpumask_clear(&cpuid_topo->core_sibling);
+		cpumask_clear(&cpuid_topo->thread_sibling);
+	}
+	smp_wmb();
+}
+
+/*
+ * default_cpu_topology_mask set the core and thread mask as described in the
+ * ARM ARM
+ */
+static void default_cpu_topology_mask(unsigned int cpuid)
+{
+	struct cputopo_arm *cpuid_topo = &cpu_topology[cpuid];
+	unsigned int cpu;
+
+	for_each_possible_cpu(cpu) {
+		struct cputopo_arm *cpu_topo = &cpu_topology[cpu];
+
+		if (cpuid_topo->socket_id == cpu_topo->socket_id) {
+			cpumask_set_cpu(cpuid, &cpu_topo->core_sibling);
+			if (cpu != cpuid)
+				cpumask_set_cpu(cpu,
+					&cpuid_topo->core_sibling);
+
+			if (cpuid_topo->core_id == cpu_topo->core_id) {
+				cpumask_set_cpu(cpuid,
+					&cpu_topo->thread_sibling);
+				if (cpu != cpuid)
+					cpumask_set_cpu(cpu,
+						&cpuid_topo->thread_sibling);
+			}
+		}
+	}
+	smp_wmb();
+}
+
+static void normal_cpu_topology_mask(void)
+{
+	unsigned int cpuid;
+
+	for_each_possible_cpu(cpuid) {
+		default_cpu_topology_mask(cpuid);
+	}
+	smp_wmb();
+}
+
+/*
+ * For Cortex-A9 MPcore, we emulate a multi-package topology in power mode.
+ * The goal is to gathers tasks on 1 virtual package
+ */
+static void power_cpu_topology_mask_CA9(unsigned int cpuid)
+{
+	struct cputopo_arm *cpuid_topo = &cpu_topology[cpuid];
+	unsigned int cpu;
+
+	for_each_possible_cpu(cpu) {
+		struct cputopo_arm *cpu_topo = &cpu_topology[cpu];
+
+		if ((cpuid_topo->socket_id == cpu_topo->socket_id)
+		&& ((cpuid & 0x1) == (cpu & 0x1))) {
+			cpumask_set_cpu(cpuid, &cpu_topo->core_sibling);
+			if (cpu != cpuid)
+				cpumask_set_cpu(cpu,
+					&cpuid_topo->core_sibling);
+
+			if (cpuid_topo->core_id == cpu_topo->core_id) {
+				cpumask_set_cpu(cpuid,
+					&cpu_topo->thread_sibling);
+				if (cpu != cpuid)
+					cpumask_set_cpu(cpu,
+						&cpuid_topo->thread_sibling);
+			}
+		}
+	}
+	smp_wmb();
+}
+
+static int need_topology_update(void)
+{
+	int update;
+
+	update = ((prev_sched_mc_power_savings ^ sched_mc_power_savings)
+	       || (prev_sched_smt_power_savings ^ sched_smt_power_savings));
+
+	prev_sched_mc_power_savings = sched_mc_power_savings;
+	prev_sched_smt_power_savings = sched_smt_power_savings;
+
+	return update;
+}
+
+#define ARM_CORTEX_A9_FAMILY 0x410FC090
+
+/* update_cpu_topology_policy select a cpu topology policy according to the
+ * available cores.
+ * TODO: The current version assumes that all cores are exactly the same which
+ * might not be true. We need to update it to take into account various
+ * configuration among which system with different kind of core.
+ */
+static int update_cpu_topology_mask(void)
+{
+	unsigned long cpuid;
+
+	if (sched_mc_power_savings == POWERSAVINGS_BALANCE_NONE) {
+		normal_cpu_topology_mask();
+		return 0;
+	}
+
+	for_each_possible_cpu(cpuid) {
+		struct cputopo_arm *cpuid_topo = &(cpu_topology[cpuid]);
+
+		switch (cpuid_topo->id) {
+		case ARM_CORTEX_A9_FAMILY:
+			power_cpu_topology_mask_CA9(cpuid);
+		break;
+		default:
+			default_cpu_topology_mask(cpuid);
+		break;
+		}
+	}
+
+	return 0;
 }
 
 /*
@@ -59,7 +203,6 @@ void store_cpu_topology(unsigned int cpuid)
 {
 	struct cputopo_arm *cpuid_topo = &cpu_topology[cpuid];
 	unsigned int mpidr;
-	unsigned int cpu;
 
 	/* If the cpu topology has been already set, just return */
 	if (cpuid_topo->core_id != -1)
@@ -104,31 +247,35 @@ void store_cpu_topology(unsigned int cpuid)
 		cpuid_topo->socket_id = -1;
 	}
 
-	/* update core and thread sibling masks */
-	for_each_possible_cpu(cpu) {
-		struct cputopo_arm *cpu_topo = &cpu_topology[cpu];
+	/*
+	 * The core and thread sibling masks can also be updated during the
+	 * call of arch_update_cpu_topology
+	 */
+	default_cpu_topology_mask(cpuid);
 
-		if (cpuid_topo->socket_id == cpu_topo->socket_id) {
-			cpumask_set_cpu(cpuid, &cpu_topo->core_sibling);
-			if (cpu != cpuid)
-				cpumask_set_cpu(cpu,
-					&cpuid_topo->core_sibling);
-
-			if (cpuid_topo->core_id == cpu_topo->core_id) {
-				cpumask_set_cpu(cpuid,
-					&cpu_topo->thread_sibling);
-				if (cpu != cpuid)
-					cpumask_set_cpu(cpu,
-						&cpuid_topo->thread_sibling);
-			}
-		}
-	}
-	smp_wmb();
 
 	printk(KERN_INFO "CPU%u: thread %d, cpu %d, socket %d, mpidr %x\n",
 		cpuid, cpu_topology[cpuid].thread_id,
 		cpu_topology[cpuid].core_id,
 		cpu_topology[cpuid].socket_id, mpidr);
+}
+
+/*
+ * arch_update_cpu_topology is called by the scheduler before building
+ * a new sched_domain hierarchy.
+ */
+int arch_update_cpu_topology(void)
+{
+	if (!need_topology_update())
+		return 0;
+
+	/* clear core threads mask */
+	clear_cpu_topology_mask();
+
+	/* set topology mask */
+	update_cpu_topology_mask();
+
+	return 1;
 }
 
 /*
