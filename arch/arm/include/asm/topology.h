@@ -6,6 +6,7 @@
 #include <linux/cpumask.h>
 
 struct cputopo_arm {
+	int id;
 	int thread_id;
 	int core_id;
 	int socket_id;
