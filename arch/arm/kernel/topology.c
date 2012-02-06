@@ -64,6 +64,8 @@ static DEFINE_PER_CPU(unsigned int, cpu_scale);
 static unsigned int prev_sched_mc_power_savings = 0;
 static unsigned int prev_sched_smt_power_savings = 0;
 
+ATOMIC_NOTIFIER_HEAD(topology_update_notifier_list);
+
 /*
  * Update the cpu power of the scheduler
  */
@@ -75,6 +77,20 @@ unsigned long arch_scale_freq_power(struct sched_domain *sd, int cpu)
 void set_power_scale(unsigned int cpu, unsigned int power)
 {
 	per_cpu(cpu_scale, cpu) = power;
+}
+
+int topology_register_notifier(struct notifier_block *nb)
+{
+
+	return atomic_notifier_chain_register(
+				&topology_update_notifier_list, nb);
+}
+
+int topology_unregister_notifier(struct notifier_block *nb)
+{
+
+	return atomic_notifier_chain_unregister(
+				&topology_update_notifier_list, nb);
 }
 
 /*
@@ -296,6 +312,10 @@ int arch_update_cpu_topology(void)
 
 	/* set topology mask */
 	update_cpu_topology_mask();
+
+	/* notify the topology update */
+	atomic_notifier_call_chain(&topology_update_notifier_list,
+				TOPOLOGY_POSTCHANGE, (void *)sched_mc_power_savings);
 
 	return 1;
 }
