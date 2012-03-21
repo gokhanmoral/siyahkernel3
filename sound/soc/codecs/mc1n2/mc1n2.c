@@ -85,6 +85,136 @@ static int audio_ctrl_mic_bias_gpio(struct mc1n2_platform_data *pdata, int mic, 
 static struct i2c_client *mc1n2_i2c;
 #endif
 
+enum {
+	MC1N2_MASK_NULL             = 0x00000000,
+	MC1N2_MASK_DVOL_AD0         = 0x00000001,
+	MC1N2_MASK_DVOL_AENG6       = 0x00000002,
+	MC1N2_MASK_DVOL_PDM         = 0x00000004,
+	MC1N2_MASK_DVOL_DIR0        = 0x00000008,
+	MC1N2_MASK_DVOL_DIR1        = 0x00000010,
+	MC1N2_MASK_DVOL_DIR2        = 0x00000020,
+	MC1N2_MASK_DVOL_AD0_ATT     = 0x00000040,
+	MC1N2_MASK_DVOL_DIR0_ATT    = 0x00000080,
+	MC1N2_MASK_DVOL_DIR1_ATT    = 0x00000100,
+	MC1N2_MASK_DVOL_DIR2_ATT    = 0x00000200,
+	MC1N2_MASK_DVOL_SIDETONE    = 0x00000400,
+	MC1N2_MASK_DVOL_DAC_MASTER  = 0x00000800,
+	MC1N2_MASK_DVOL_DAC_VOICE   = 0x00001000,
+	MC1N2_MASK_DVOL_DAC_ATT     = 0x00002000,
+	MC1N2_MASK_DVOL_DIT0        = 0x00004000,
+	MC1N2_MASK_DVOL_DIT1        = 0x00008000,
+	MC1N2_MASK_DVOL_DIT2        = 0x00010000,
+	MC1N2_MASK_AVOL_AD0         = 0x00020000,
+	MC1N2_MASK_AVOL_LIN1        = 0x00040000,
+	MC1N2_MASK_AVOL_MIC1        = 0x00080000,
+	MC1N2_MASK_AVOL_MIC2        = 0x00100000,
+	MC1N2_MASK_AVOL_MIC3        = 0x00200000,
+	MC1N2_MASK_AVOL_HP          = 0x00400000,
+	MC1N2_MASK_AVOL_SP          = 0x00800000,
+	MC1N2_MASK_AVOL_RC          = 0x01000000,
+	MC1N2_MASK_AVOL_LOUT1       = 0x02000000,
+	MC1N2_MASK_AVOL_LOUT2       = 0x04000000,
+	MC1N2_MASK_AVOL_MIC1_GAIN   = 0x08000000,
+	MC1N2_MASK_AVOL_MIC2_GAIN   = 0x10000000,
+	MC1N2_MASK_AVOL_MIC3_GAIN   = 0x20000000,
+	MC1N2_MASK_AVOL_HP_GAIN     = 0x40000000,
+};
+
+/* sound_class sysfs */
+extern struct class *sound_class;
+static struct device *sound_mc1n2;
+static struct snd_soc_codec *mc1n2_codec;
+static unsigned int update_vol_mask = MC1N2_MASK_NULL;
+
+#define VOL_ATTR_DEF(var)\
+	static int mc1n2_carib_##var = 0;\
+	static ssize_t mc1n2_##var##_read(struct device *dev, struct device_attribute *attr, char *buf)\
+	{\
+		printk(KERN_NOTICE "[MCDRV] mc1n2_carib_"#var"=%d\n", mc1n2_carib_##var );\
+		return sprintf(buf,"%d\n", mc1n2_carib_##var );\
+	}\
+	static ssize_t mc1n2_##var##_write(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)\
+	{\
+		int data;\
+		if (sscanf(buf, "%d\n", &data) > 0)\
+		{\
+			printk(KERN_NOTICE "[MCDRV] mc1n2_carib_"#var" data=%d\n", data);\
+			if (mc1n2_carib_##var != data) {\
+				mc1n2_carib_##var = data;\
+				update_vol_mask |= MC1N2_MASK_##var;\
+			}\
+		}\
+		return size;\
+	}\
+	static DEVICE_ATTR(var, S_IWUGO | S_IRUGO, mc1n2_##var##_read, mc1n2_##var##_write);
+
+VOL_ATTR_DEF(DVOL_AD0)
+VOL_ATTR_DEF(DVOL_AENG6)
+VOL_ATTR_DEF(DVOL_PDM)
+VOL_ATTR_DEF(DVOL_DIR0)
+VOL_ATTR_DEF(DVOL_DIR1)
+VOL_ATTR_DEF(DVOL_DIR2)
+VOL_ATTR_DEF(DVOL_AD0_ATT)
+VOL_ATTR_DEF(DVOL_DIR0_ATT)
+VOL_ATTR_DEF(DVOL_DIR1_ATT)
+VOL_ATTR_DEF(DVOL_DIR2_ATT)
+VOL_ATTR_DEF(DVOL_SIDETONE)
+VOL_ATTR_DEF(DVOL_DAC_MASTER)
+VOL_ATTR_DEF(DVOL_DAC_VOICE)
+VOL_ATTR_DEF(DVOL_DAC_ATT)
+VOL_ATTR_DEF(DVOL_DIT0)
+VOL_ATTR_DEF(DVOL_DIT1)
+VOL_ATTR_DEF(DVOL_DIT2)
+VOL_ATTR_DEF(AVOL_AD0)
+VOL_ATTR_DEF(AVOL_LIN1)
+VOL_ATTR_DEF(AVOL_MIC1)
+VOL_ATTR_DEF(AVOL_MIC2)
+VOL_ATTR_DEF(AVOL_MIC3)
+VOL_ATTR_DEF(AVOL_HP)
+VOL_ATTR_DEF(AVOL_SP)
+VOL_ATTR_DEF(AVOL_RC)
+VOL_ATTR_DEF(AVOL_LOUT1)
+VOL_ATTR_DEF(AVOL_LOUT2)
+VOL_ATTR_DEF(AVOL_MIC1_GAIN)
+VOL_ATTR_DEF(AVOL_MIC2_GAIN)
+VOL_ATTR_DEF(AVOL_MIC3_GAIN)
+VOL_ATTR_DEF(AVOL_HP_GAIN)
+
+char* vol_name_tbl[] = {
+	"DVOL_AD0",
+	"DVOL_AENG6",
+	"DVOL_PDM",
+	"DVOL_DIR0",
+	"DVOL_DIR1",
+	"DVOL_DIR2",
+	"DVOL_AD0_ATT",
+	"DVOL_DIR0_ATT",
+	"DVOL_DIR1_ATT",
+	"DVOL_DIR2_ATT",
+	"DVOL_SIDETONE",
+	"DVOL_DAC_MASTER",
+	"DVOL_DAC_VOICE",
+	"DVOL_DAC_ATT",
+	"DVOL_DIT0",
+	"DVOL_DIT1",
+	"DVOL_DIT2",
+	"AVOL_AD0",
+	"AVOL_LIN1",
+	"AVOL_MIC1",
+	"AVOL_MIC2",
+	"AVOL_MIC3",
+	"AVOL_HP",
+	"AVOL_SP",
+	"AVOL_RC",
+	"AVOL_LOUT1",
+	"AVOL_LOUT2",
+	"AVOL_MIC1_GAIN",
+	"AVOL_MIC2_GAIN",
+	"AVOL_MIC3_GAIN",
+	"AVOL_HP_GAIN",
+};
+
+
 /*
  * Driver private data structure
  */
@@ -1205,6 +1335,7 @@ EXPORT_SYMBOL_GPL(mc1n2_dai);
 struct mc1n2_vreg_info {
 	size_t offset;
 	SINT16 *volmap;
+	int size;
 };
 
 /* volmap for Digital Volumes */
@@ -1266,37 +1397,37 @@ static SINT16 mc1n2_vol_hpgain[] = {
 };
 
 struct mc1n2_vreg_info mc1n2_vreg_map[MC1N2_N_VOL_REG] = {
-	{offsetof(MCDRV_VOL_INFO, aswD_Ad0),       mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Aeng6),     mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Pdm),       mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dir0),      mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dir1),      mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dir2),      mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Ad0Att),    mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dir0Att),   mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dir1Att),   mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dir2Att),   mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_SideTone),  mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_DacMaster), mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_DacVoice),  mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_DacAtt),    mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dit0),      mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dit1),      mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswD_Dit2),      mc1n2_vol_digital},
-	{offsetof(MCDRV_VOL_INFO, aswA_Ad0),       mc1n2_vol_adc},
-	{offsetof(MCDRV_VOL_INFO, aswA_Lin1),      mc1n2_vol_ain},
-	{offsetof(MCDRV_VOL_INFO, aswA_Mic1),      mc1n2_vol_ain},
-	{offsetof(MCDRV_VOL_INFO, aswA_Mic2),      mc1n2_vol_ain},
-	{offsetof(MCDRV_VOL_INFO, aswA_Mic3),      mc1n2_vol_ain},
-	{offsetof(MCDRV_VOL_INFO, aswA_Hp),        mc1n2_vol_hpsp},
-	{offsetof(MCDRV_VOL_INFO, aswA_Sp),        mc1n2_vol_hpsp},
-	{offsetof(MCDRV_VOL_INFO, aswA_Rc),        mc1n2_vol_hpsp},
-	{offsetof(MCDRV_VOL_INFO, aswA_Lout1),     mc1n2_vol_aout},
-	{offsetof(MCDRV_VOL_INFO, aswA_Lout2),     mc1n2_vol_aout},
-	{offsetof(MCDRV_VOL_INFO, aswA_Mic1Gain),  mc1n2_vol_micgain},
-	{offsetof(MCDRV_VOL_INFO, aswA_Mic2Gain),  mc1n2_vol_micgain},
-	{offsetof(MCDRV_VOL_INFO, aswA_Mic3Gain),  mc1n2_vol_micgain},
-	{offsetof(MCDRV_VOL_INFO, aswA_HpGain),    mc1n2_vol_hpgain},
+	{offsetof(MCDRV_VOL_INFO, aswD_Ad0),       mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Aeng6),     mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Pdm),       mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dir0),      mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dir1),      mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dir2),      mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Ad0Att),    mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dir0Att),   mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dir1Att),   mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dir2Att),   mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_SideTone),  mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_DacMaster), mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_DacVoice),  mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_DacAtt),    mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dit0),      mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dit1),      mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswD_Dit2),      mc1n2_vol_digital,    ARRAY_SIZE(mc1n2_vol_digital)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Ad0),       mc1n2_vol_adc,        ARRAY_SIZE(mc1n2_vol_adc)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Lin1),      mc1n2_vol_ain,        ARRAY_SIZE(mc1n2_vol_ain)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Mic1),      mc1n2_vol_ain,        ARRAY_SIZE(mc1n2_vol_ain)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Mic2),      mc1n2_vol_ain,        ARRAY_SIZE(mc1n2_vol_ain)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Mic3),      mc1n2_vol_ain,        ARRAY_SIZE(mc1n2_vol_ain)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Hp),        mc1n2_vol_hpsp,       ARRAY_SIZE(mc1n2_vol_hpsp)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Sp),        mc1n2_vol_hpsp,       ARRAY_SIZE(mc1n2_vol_hpsp)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Rc),        mc1n2_vol_hpsp,       ARRAY_SIZE(mc1n2_vol_hpsp)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Lout1),     mc1n2_vol_aout,       ARRAY_SIZE(mc1n2_vol_aout)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Lout2),     mc1n2_vol_aout,       ARRAY_SIZE(mc1n2_vol_aout)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Mic1Gain),  mc1n2_vol_micgain,    ARRAY_SIZE(mc1n2_vol_micgain)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Mic2Gain),  mc1n2_vol_micgain,    ARRAY_SIZE(mc1n2_vol_micgain)},
+	{offsetof(MCDRV_VOL_INFO, aswA_Mic3Gain),  mc1n2_vol_micgain,    ARRAY_SIZE(mc1n2_vol_micgain)},
+	{offsetof(MCDRV_VOL_INFO, aswA_HpGain),    mc1n2_vol_hpgain,     ARRAY_SIZE(mc1n2_vol_hpgain)},
 };
 
 #ifdef ALSA_VER_ANDROID_3_0
@@ -1348,6 +1479,21 @@ static unsigned int mc1n2_read_reg(struct snd_soc_codec *codec, unsigned int reg
 #define REG_CACHE_READ(reg)	((u16 *)codec->reg_cache)[reg]
 #endif
 
+static inline int caribrate_vol(unsigned int reg, int vol, int carib_vol)
+{
+	//printk(KERN_NOTICE "[MCDRV] caribrate_vol reg=%d, vol=%d, carib_vol=%d", reg, vol, carib_vol);
+	if (vol != 0 && carib_vol != 0) {
+		if ((vol + carib_vol) >  mc1n2_vreg_map[reg].size) {
+			vol = mc1n2_vreg_map[reg].size - 1;
+		} else if ((vol + carib_vol) < 0) {
+			vol = 0;
+		} else {
+			vol = vol + carib_vol;
+		}
+	}
+	return vol;
+}
+
 static int write_reg_vol(struct snd_soc_codec *codec,
 			   unsigned int reg, unsigned int value)
 {
@@ -1367,7 +1513,106 @@ static int write_reg_vol(struct snd_soc_codec *codec,
 			SINT16 db;
 			sw = (reg < MC1N2_AVOL_MIC1_GAIN) ? (v & 0x80) : 1;
 			vol = sw ? (v & 0x7f) : 0;
+			
+			switch (reg)
+			{
+			case MC1N2_DVOL_AD0:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_AD0);
+				break;
+			case MC1N2_DVOL_AENG6:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_AENG6);
+				break;
+			case MC1N2_DVOL_PDM:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_PDM);
+				break;
+			case MC1N2_DVOL_DIR0:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR0);
+				break;
+			case MC1N2_DVOL_DIR1:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR1);
+				break;
+			case MC1N2_DVOL_DIR2:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR2);
+				break;
+			case MC1N2_DVOL_AD0_ATT:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_AD0_ATT);
+				break;
+			case MC1N2_DVOL_DIR0_ATT:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR0_ATT);
+				break;
+			case MC1N2_DVOL_DIR1_ATT:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR1_ATT);
+				break;
+			case MC1N2_DVOL_DIR2_ATT:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR2_ATT);
+				break;
+			case MC1N2_DVOL_SIDETONE:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_SIDETONE);
+				break;
+			case MC1N2_DVOL_DAC_MASTER:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DAC_MASTER);
+				break;
+			case MC1N2_DVOL_DAC_VOICE:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DAC_VOICE);
+				break;
+			case MC1N2_DVOL_DAC_ATT:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DAC_ATT);
+				break;
+			case MC1N2_DVOL_DIT0:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIT0);
+				break;
+			case MC1N2_DVOL_DIT1:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIT1);
+				break;
+			case MC1N2_DVOL_DIT2:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIT2);
+				break;
+			case MC1N2_AVOL_AD0:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_AD0);
+				break;
+			case MC1N2_AVOL_LIN1:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_LIN1);
+				break;
+			case MC1N2_AVOL_MIC1:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC1);
+				break;
+			case MC1N2_AVOL_MIC2:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC2);
+				break;
+			case MC1N2_AVOL_MIC3:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC3);
+				break;
+			case MC1N2_AVOL_HP:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_HP);
+				break;
+			case MC1N2_AVOL_SP:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_SP);
+				break;
+			case MC1N2_AVOL_RC:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_RC);
+				break;
+			case MC1N2_AVOL_LOUT1:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_LOUT1);
+				break;
+			case MC1N2_AVOL_LOUT2:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_LOUT2);
+				break;
+			case MC1N2_AVOL_MIC1_GAIN:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC1_GAIN);
+				break;
+			case MC1N2_AVOL_MIC2_GAIN:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC2_GAIN);
+				break;
+			case MC1N2_AVOL_MIC3_GAIN:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC3_GAIN);
+				break;
+			case MC1N2_AVOL_HP_GAIN:
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_HP_GAIN);
+				break;
+			}
+			
 			db = mc1n2_vreg_map[reg].volmap[vol];
+			//printk(KERN_DEBUG "[MCDRV] update_reg_vol name=%s : volindex=%d, db=%d", vol_name_tbl[reg], vol, db);
 			*vp = db | MCDRV_VOL_UPDATE;
 		}
 	}
@@ -3964,6 +4209,8 @@ static int mc1n2_probe(struct platform_device *pdev)
 #endif
 #endif
 
+	mc1n2_codec = codec;
+
 	/* init hardware */
 	if (!setup) {
 		dev_err(dev, "No initialization parameters given\n");
@@ -4542,11 +4789,279 @@ static struct i2c_driver mc1n2_i2c_driver = {
 	.id_table = mc1n2_i2c_id,
 };
 
+static ssize_t update_reg_vol(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct snd_soc_codec* codec = mc1n2_codec;
+	MCDRV_VOL_INFO update;
+	SINT16 *vp;
+	u16 *cp;
+	int err, i, reg;
+
+	printk(KERN_NOTICE "[MCDRV] update_reg_vol call update_vol_mask=0x%x", update_vol_mask);
+
+	memset(&update, 0, sizeof(MCDRV_VOL_INFO));
+
+	for (reg = MC1N2_DVOL_AD0; reg <= MC1N2_AVOL_HP_GAIN; reg++) {
+		vp = (SINT16 *)((void *)&update + mc1n2_vreg_map[reg].offset);
+		cp = (u16 *)codec->reg_cache + reg;
+		for (i = 0; i < 2; i++, vp++) {
+			unsigned int c = (*cp >> (i*8)) & 0xff;
+			int sw, vol;
+			SINT16 db;
+			sw = (reg < MC1N2_AVOL_MIC1_GAIN) ? (c & 0x80) : 1;
+			vol = sw ? (c & 0x7f) : 0;
+			switch (reg)
+			{
+			case MC1N2_DVOL_AD0:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_AD0)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_AD0);
+				break;
+			case MC1N2_DVOL_AENG6:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_AENG6)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_AENG6);
+				break;
+			case MC1N2_DVOL_PDM:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_PDM)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_PDM);
+				break;
+			case MC1N2_DVOL_DIR0:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIR0)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR0);
+				break;
+			case MC1N2_DVOL_DIR1:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIR1)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR1);
+				break;
+			case MC1N2_DVOL_DIR2:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIR2)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR2);
+				break;
+			case MC1N2_DVOL_AD0_ATT:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_AD0_ATT)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_AD0_ATT);
+				break;
+			case MC1N2_DVOL_DIR0_ATT:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIR0_ATT)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR0_ATT);
+				break;
+			case MC1N2_DVOL_DIR1_ATT:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIR1_ATT)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR1_ATT);
+				break;
+			case MC1N2_DVOL_DIR2_ATT:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIR2_ATT)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIR2_ATT);
+				break;
+			case MC1N2_DVOL_SIDETONE:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_SIDETONE)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_SIDETONE);
+				break;
+			case MC1N2_DVOL_DAC_MASTER:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DAC_MASTER)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DAC_MASTER);
+				break;
+			case MC1N2_DVOL_DAC_VOICE:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DAC_VOICE)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DAC_VOICE);
+				break;
+			case MC1N2_DVOL_DAC_ATT:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DAC_ATT)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DAC_ATT);
+				break;
+			case MC1N2_DVOL_DIT0:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIT0)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIT0);
+				break;
+			case MC1N2_DVOL_DIT1:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIT1)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIT1);
+				break;
+			case MC1N2_DVOL_DIT2:
+				if (!(update_vol_mask & MC1N2_MASK_DVOL_DIT2)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_DVOL_DIT2);
+				break;
+			case MC1N2_AVOL_AD0:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_AD0)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_AD0);
+				break;
+			case MC1N2_AVOL_LIN1:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_LIN1)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_LIN1);
+				break;
+			case MC1N2_AVOL_MIC1:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_MIC1)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC1);
+				break;
+			case MC1N2_AVOL_MIC2:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_MIC2)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC2);
+				break;
+			case MC1N2_AVOL_MIC3:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_MIC3)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC3);
+				break;
+			case MC1N2_AVOL_HP:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_HP)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_HP);
+				break;
+			case MC1N2_AVOL_SP:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_SP)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_SP);
+				break;
+			case MC1N2_AVOL_RC:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_RC)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_RC);
+				break;
+			case MC1N2_AVOL_LOUT1:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_LOUT1)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_LOUT1);
+				break;
+			case MC1N2_AVOL_LOUT2:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_LOUT2)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_LOUT2);
+				break;
+			case MC1N2_AVOL_MIC1_GAIN:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_MIC1_GAIN)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC1_GAIN);
+				break;
+			case MC1N2_AVOL_MIC2_GAIN:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_MIC2_GAIN)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC2_GAIN);
+				break;
+			case MC1N2_AVOL_MIC3_GAIN:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_MIC3_GAIN)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_MIC3_GAIN);
+				break;
+			case MC1N2_AVOL_HP_GAIN:
+				if (!(update_vol_mask & MC1N2_MASK_AVOL_HP_GAIN)) continue;
+				vol = caribrate_vol(reg, vol, mc1n2_carib_AVOL_HP_GAIN);
+				break;
+			}
+			db = mc1n2_vreg_map[reg].volmap[vol];
+			//printk(KERN_NOTICE "[MCDRV] update_reg_vol name=%s : volindex=%d, db=%d", vol_name_tbl[reg], vol, db);
+			*vp = db | MCDRV_VOL_UPDATE;
+		}
+	}
+
+    update_vol_mask = MC1N2_MASK_NULL;
+
+	err = _McDrv_Ctrl(MCDRV_SET_VOLUME, &update, 0);
+	if (err != MCDRV_SUCCESS) {
+		dev_err(codec->dev, "%d: Error in MCDRV_SET_VOLUME\n", err);
+		return size;
+	}
+
+	return size;
+}
+
+static DEVICE_ATTR(update_volume, S_IWUGO | S_IRUGO, NULL, update_reg_vol);
+
 /*
  * Module init and exit
  */
 static int __init mc1n2_init(void)
 {
+	sound_mc1n2 = device_create(sound_class, NULL, 0, NULL, "sound_mc1n2");
+	if (IS_ERR(sound_mc1n2)) {
+		printk(KERN_ERR "Failed to create device(sound_mc1n2)!\n");
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_AD0)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_AD0.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_AENG6)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_AENG6.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_PDM)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_PDM.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIR0)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIR0.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIR1)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIR1.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIR2)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIR2.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_AD0_ATT)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_AD0_ATT.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIR0_ATT)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIR0_ATT.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIR1_ATT)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIR1_ATT.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIR2_ATT)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIR2_ATT.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_SIDETONE)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_SIDETONE.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DAC_MASTER)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DAC_MASTER.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DAC_VOICE)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DAC_VOICE.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DAC_ATT)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DAC_ATT.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIT0)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIT0.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIT1)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIT1.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_DVOL_DIT2)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_DVOL_DIT2.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_AD0)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_AD0.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_LIN1)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_LIN1.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_MIC1)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_MIC1.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_MIC2)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_MIC2.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_MIC3)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_MIC3.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_HP)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_HP.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_SP)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_SP.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_RC)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_RC.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_LOUT1)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_LOUT1.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_LOUT2)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_LOUT2.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_MIC1_GAIN)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_MIC1_GAIN.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_MIC2_GAIN)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_MIC2_GAIN.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_MIC3_GAIN)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_MIC3_GAIN.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_AVOL_HP_GAIN)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_AVOL_HP_GAIN.attr.name);
+	}
+	if (device_create_file(sound_mc1n2, &dev_attr_update_volume)< 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_update_volume.attr.name);
+	}
+
 	return i2c_add_driver(&mc1n2_i2c_driver);
 }
 module_init(mc1n2_init);
