@@ -106,6 +106,12 @@ static int g_nMajor;
 #include "VibeOSKernelLinuxTime.c"
 #endif
 
+#define VIBRATOR_LEVEL_DEFAULT	6
+#define VIBRATOR_DUTY_DEFAULT	38000
+static const int vibrator_duty_levels[] = { 26000, 28000, 30000, 32000, 34000, 36000, VIBRATOR_DUTY_DEFAULT };
+static int vibrator_level = VIBRATOR_LEVEL_DEFAULT;
+int vibrator_duty = VIBRATOR_DUTY_DEFAULT;
+
 /* File IO */
 static int open(struct inode *inode, struct file *file);
 static int release(struct inode *inode, struct file *file);
@@ -123,6 +129,38 @@ static const struct file_operations fops = {
 	.release = release,
 	.llseek =	default_llseek
 };
+
+static ssize_t show_vibrator_level_max(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf,"%d\n", (ARRAY_SIZE(vibrator_duty_levels) - 1));
+}
+
+static ssize_t show_vibrator_level(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf,"%d\n", vibrator_level);
+}
+
+static ssize_t store_vibrator_level(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t len)
+{
+	int data = 0;
+	if (sscanf(buf, "%u\n", &data) == 1) {
+		if (data >= ARRAY_SIZE(vibrator_duty_levels))
+			data = ARRAY_SIZE(vibrator_duty_levels) - 1;
+		else if (data < 0)
+			data = 0;
+		vibrator_level = data;
+	} else {
+		printk(KERN_ERR "tspdrv: invalid vibrator level\n");
+	}
+	return len;
+}
+
+static DEVICE_ATTR(vibrator_level_max, S_IRUGO | S_IWUGO, show_vibrator_level_max, NULL);
+static DEVICE_ATTR(vibrator_level, S_IRUGO | S_IWUGO, show_vibrator_level, store_vibrator_level);
 
 #ifndef IMPLEMENT_AS_CHAR_DRIVER
 static struct miscdevice miscdev = {
@@ -267,6 +305,14 @@ int init_module(void)
 	}
 
 	wake_lock_init(&vib_wake_lock, WAKE_LOCK_SUSPEND, "vib_present");
+
+	if (device_create_file(&platdev.dev, &dev_attr_vibrator_level_max) < 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_vibrator_level_max.attr.name);
+	}
+	if (device_create_file(&platdev.dev, &dev_attr_vibrator_level) < 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_vibrator_level.attr.name);
+	}
+
 	return 0;
 
 err_platform_drv_reg:
