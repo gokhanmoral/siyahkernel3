@@ -1,0 +1,83 @@
+choice
+	prompt "Target Locale"
+	default TARGET_LOCALE_EUR
+
+config TARGET_LOCALE_EUR
+	bool "Europe Open"
+
+config TARGET_LOCALE_LTN
+	bool "Latin"
+
+config TARGET_LOCALE_KOR
+	bool "Kor"
+
+config TARGET_LOCALE_NAATT_TEMP
+	bool "NAGSM"
+
+config TARGET_LOCALE_EUR_U1_NFC
+	bool "Europe Open NFC"
+
+config TARGET_LOCALE_NTT
+	bool "JPN"
+
+config TARGET_LOCALE_CHN
+	bool "Chinese"
+
+endchoice
+
+choice
+	prompt "U1 KOR Target Carrier"
+	depends on MACH_U1 && TARGET_LOCALE_KOR
+	default MACH_U1_KOR_SKT
+
+config MACH_U1_KOR_SKT
+	bool "SKT"
+
+config MACH_U1_KOR_KT
+	bool "KT"
+
+config MACH_U1_KOR_LGT
+	bool "LG U+"
+endchoice
+
+choice
+	prompt "C1 KOR Target Carrier"
+	depends on (MACH_C1 || MACH_C1VZW) && TARGET_LOCALE_KOR
+	default MACH_C1_KOR_SKT
+
+config MACH_C1_KOR_SKT
+	bool "SKT"
+
+config MACH_C1_KOR_KT
+	bool "KT"
+
+config MACH_C1_KOR_LGT
+	bool "LG U+"
+endchoice
+
+choice
+	prompt "M0 KOR Target Carrier"
+	depends on MACH_M0 && TARGET_LOCALE_KOR
+	default MACH_M0_KOR_SKT
+
+config MACH_M0_KOR_SKT
+	bool "SKT"
+
+config MACH_M0_KOR_KT
+	bool "KT"
+
+config MACH_M0_KOR_LGT
+	bool "LG U+"
+endchoice
+
+choice
+	prompt "M0 Chinese Target Carrier"
+	depends on MACH_M0 && TARGET_LOCALE_CHN
+
+config MACH_M0_CMCC
+	bool "M0 CHN CMCC board"
+
+config MACH_M0_CHNOPEN
+	bool "M0 CHN OPEN board"
+
+endchoice

@@ -1,0 +1,145 @@
+#ifndef __MDNIE_DMB_H__
+#define __MDNIE_DMB_H__
+
+#include "mdnie.h"
+
+static const unsigned short tune_dmb_normal_indoor[] = {
+	/* start */
+	0x0001, 0x0041,	/* PCC 40 */
+	0x002c, 0x003C,	/* DNR bypass 0x003C */
+	0x002d, 0x1508,	/* DNR bypass 0x0a08 */
+	0x002e, 0x1005,	/* DNR bypass 0x1010 */
+	0x002f, 0x0400,	/* DNR bypass 0x0400 */
+	0x003A, 0x000D,	/* HDTR DE CS  de on = d , de off = 9 */
+	0x003C, 0x0000,	/* NOISE LEVEL */
+	0x0049, 0x0400,	/* pcc skin */
+	0x004a, 0x7a00,	/* 7300 */
+	0x004b, 0x008F,	/* 008f */
+	0x0028, 0x0000,	/* Register Mask */
+	/* end */
+	END_SEQ, 0x0000,
+};
+
+static const unsigned short tune_dmb_normal_outdoor[] = {
+	/* start */
+	0x0001, 0x0002,	/* OVE */
+	0x002c, 0x0fff,	/* DNR bypass 0x003C */
+	0x002d, 0x1900,	/* DNR bypass 0x0a08 */
+	0x002e, 0x0000,	/* DNR bypass 0x1010 */
+	0x002f, 0x0fff,	/* DNR bypass 0x0400 */
+	0x003A, 0x0009,	/* HDTR DE CS */
+	0x003B, 0x03ff,	/* DE SHARPNESS */
+	0x003C, 0x0000,	/* NOISE LEVEL */
+	0x003F, 0x00c8,	/* CS GAIN */
+	0x0042, 0x0020,	/* DE TH (MAX DIFF) */
+	0x0049, 0x0400,	/* pcc skin */
+	0x004a, 0x7300,
+	0x004b, 0x008f,
+	0x0054, 0x5a50,	/* ove */
+	0x0028, 0x0000,	/* Register Mask */
+	/* end */
+	END_SEQ, 0x0000,
+};
+
+static const unsigned short tune_dmb_warm_indoor[] = {
+	/* start */
+	0x0001, 0x0045,	/* SCR MCM PCC */
+	0x002c, 0x003c,	/* DNR bypass 0x003C */
+	0x002d, 0x1508,	/* DNR bypass 0x0a08 */
+	0x002e, 0x1005,	/* DNR bypass 0x1010 */
+	0x002f, 0x0400,	/* DNR bypass 0x0400 */
+	0x003A, 0x000d,	/* HDTR DE CS */
+	0x003C, 0x0000,	/* NOISE LEVEL */
+	0x0049, 0x0400,	/* pcc skin */
+	0x004a, 0x7300,
+	0x004b, 0x008f,
+	0x005b, 0x0064,	/* MCM */
+	0x0063, 0x7000,	/* cb */
+	0x0065, 0x0090,	/* cr */
+	0x0028, 0x0000,	/* Register Mask */
+	/* end */
+	END_SEQ, 0x0000,
+};
+
+static const unsigned short tune_dmb_warm_outdoor[] = {
+	/* start */
+	0x0001, 0x0006,	/* MCM PCC */
+	0x002c, 0x003c,	/* DNR bypass 0x003C */
+	0x002d, 0x1508,	/* DNR bypass 0x0a08 */
+	0x002e, 0x1005,	/* DNR bypass 0x1010 */
+	0x002f, 0x0400,	/* DNR bypass 0x0400 */
+	0x003A, 0x000d,	/* HDTR DE CS */
+	0x003B, 0x03ff,	/* DE SHARPNESS */
+	0x003C, 0x0000,	/* NOISE LEVEL */
+	0x003F, 0x0100,	/* CS GAIN : 256 */
+	0x0042, 0x003f,	/* DE TH (MAX DIFF) */
+	0x0049, 0x0400,	/* pcc skin */
+	0x004a, 0x7300,
+	0x004b, 0x008f,
+	0x0054, 0x5a50,	/* OVE */
+	0x005b, 0x0064,	/* MCM */
+	0x0063, 0x7000,	/* cb */
+	0x0065, 0x0090,	/* cr */
+	0x0028, 0x0000,	/* Register Mask */
+	/* end */
+	END_SEQ, 0x0000,
+};
+
+static const unsigned short tune_dmb_cold_indoor[] = {
+	/* start */
+	0x0001, 0x0045,	/* MCM PCC */
+	0x002c, 0x003C,	/* DNR bypass 0x003C */
+	0x002d, 0x1508,	/* DNR bypass 0x0a08 */
+	0x002e, 0x1005,	/* DNR bypass 0x1010 */
+	0x002f, 0x0400,	/* DNR bypass 0x0400 */
+	0x003A, 0x000D,	/* HDTR DE CS */
+	0x003C, 0x0000,	/* NOISE LEVEL */
+	0x0049, 0x0400,	/* pcc skin */
+	0x004a, 0x7300,
+	0x004b, 0x008f,
+	0x005b, 0x0064,	/* MCM */
+	0x0063, 0x9000,	/* cb */
+	0x0065, 0x0070,	/* cr */
+	0x0028, 0x0000,	/* Register Mask */
+	/* end */
+	END_SEQ, 0x0000,
+};
+
+static const unsigned short tune_dmb_cold_outdoor[] = {
+	/* start */
+	0x0001, 0x0006,	/* MCM OVE */
+	0x002c, 0x003c,	/* DNR bypass 0x003C */
+	0x002d, 0x1508,	/* DNR bypass 0x0a08 */
+	0x002e, 0x1005,	/* DNR bypass 0x1010 */
+	0x002f, 0x0400,	/* DNR bypass 0x0400 */
+	0x003A, 0x000D,	/* HDTR DE CS */
+	0x003B, 0x03ff,	/* DE SHARPNESS */
+	0x003C, 0x0000,	/* NOISE LEVEL */
+	0x003F, 0x0100,	/* CS GAIN : 300 */
+	0x0042, 0x003f,	/* DE TH (MAX DIFF) */
+	0x0049, 0x0400,	/* pcc skin */
+	0x004a, 0x7300,	/* cb */
+	0x004b, 0x008f,	/* cr */
+	0x0054, 0x5a50,	/* OVE */
+	0x005b, 0x0064,	/* MCM */
+	0x0063, 0x9000,	/* cb */
+	0x0065, 0x0070,	/* cr */
+	0x0028, 0x0000,	/* Register Mask */
+	/* end */
+	END_SEQ, 0x0000,
+};
+
+struct mdnie_tunning_info tune_dmb[2][3] = {
+	{
+		{"DMB_INDOOR_MODE",	tune_dmb_normal_indoor},
+		{"DMB_WARM_INDOOR_MODE",	tune_dmb_warm_indoor},
+		{"DMB_COLD_INDOOR_MODE",	tune_dmb_cold_indoor}
+	},
+	{
+		{"DMB_OUTDOOR_MODE",	tune_dmb_normal_outdoor},
+		{"DMB_WARM_OUTDOOR_MODE",	tune_dmb_warm_outdoor},
+		{"DMB_COLD_OUTDOOR_MODE",	tune_dmb_cold_outdoor}
+	},
+};
+
+#endif /* __MDNIE_DMB_H__ */
