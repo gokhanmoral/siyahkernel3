@@ -91,6 +91,9 @@ static void sec_reboot(char str, const char *cmd)
 		else if (!strcmp(cmd, "download"))
 			writel(REBOOT_MODE_PREFIX | REBOOT_MODE_DOWNLOAD,
 			       S5P_INFORM3);
+		else if (!strcmp(cmd, "bootloader"))
+			writel(REBOOT_MODE_PREFIX | REBOOT_MODE_DOWNLOAD,
+			       S5P_INFORM3);
 		else if (!strcmp(cmd, "upload"))
 			writel(REBOOT_MODE_PREFIX | REBOOT_MODE_UPLOAD,
 			       S5P_INFORM3);
