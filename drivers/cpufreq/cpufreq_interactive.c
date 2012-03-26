@@ -534,6 +534,9 @@ static struct attribute_group interactive_attr_group = {
 	.name = "interactive",
 };
 
+void start_interactive(void);
+void stop_interactive(void);
+
 static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		unsigned int event)
 {
@@ -572,6 +575,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		if (atomic_inc_return(&active_count) > 1)
 			return 0;
 
+		start_interactive();
 		rc = sysfs_create_group(cpufreq_global_kobject,
 				&interactive_attr_group);
 		if (rc)
@@ -601,7 +605,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 
 		sysfs_remove_group(cpufreq_global_kobject,
 				&interactive_attr_group);
-
+		stop_interactive();
 		break;
 
 	case CPUFREQ_GOV_LIMITS:
@@ -636,11 +640,30 @@ static struct notifier_block cpufreq_interactive_idle_nb = {
 	.notifier_call = cpufreq_interactive_idle_notifier,
 };
 
+void start_interactive(void)
+{
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
+
+	up_task = kthread_create(cpufreq_interactive_up_task, NULL,
+				 "kinteractiveup");
+
+	sched_setscheduler_nocheck(up_task, SCHED_FIFO, &param);
+	get_task_struct(up_task);
+
+	idle_notifier_register(&cpufreq_interactive_idle_nb);
+}
+
+void stop_interactive(void)
+{
+	kthread_stop(up_task);
+	put_task_struct(up_task);
+	idle_notifier_unregister(&cpufreq_interactive_idle_nb);
+}
+
 static int __init cpufreq_interactive_init(void)
 {
 	unsigned int i;
 	struct cpufreq_interactive_cpuinfo *pcpu;
-	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
 
 	go_hispeed_load = DEFAULT_GO_HISPEED_LOAD;
 	min_sample_time = DEFAULT_MIN_SAMPLE_TIME;
@@ -653,14 +676,6 @@ static int __init cpufreq_interactive_init(void)
 		pcpu->cpu_timer.function = cpufreq_interactive_timer;
 		pcpu->cpu_timer.data = i;
 	}
-
-	up_task = kthread_create(cpufreq_interactive_up_task, NULL,
-				 "kinteractiveup");
-	if (IS_ERR(up_task))
-		return PTR_ERR(up_task);
-
-	sched_setscheduler_nocheck(up_task, SCHED_FIFO, &param);
-	get_task_struct(up_task);
 
 	/* No rescuer thread, bind to CPU queuing the work for possibly
 	   warm cache (probably doesn't matter much). */
@@ -675,8 +690,6 @@ static int __init cpufreq_interactive_init(void)
 	spin_lock_init(&up_cpumask_lock);
 	spin_lock_init(&down_cpumask_lock);
 	mutex_init(&set_speed_lock);
-
-	idle_notifier_register(&cpufreq_interactive_idle_nb);
 
 	return cpufreq_register_governor(&cpufreq_gov_interactive);
 
