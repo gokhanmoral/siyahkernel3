@@ -199,6 +199,8 @@ struct mxt224_data {
 	bool enabled;
 };
 
+static u8 mov_hysti = 255;
+
 #define CLEAR_MEDIAN_FILTER_ERROR
 struct mxt224_data *copy_data;
 int touch_is_pressed;
@@ -645,6 +647,15 @@ static void mxt224_ta_probe(bool ta_status)
 		register_address = 13;
 		write_mem(copy_data, obj_address + (u16) register_address,
 			  size_one, &value);
+		
+		// if 255, it's not modified. by tegrak
+		if (mov_hysti != 255) {
+			value = (u8)mov_hysti;
+			register_address = 11;
+			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR "[TSP] TA_probe MXT224 T%d Byte%d is %d\n", 9, register_address, val);
+		}
 
 		value = noise_threshold;
 		register_address = 8;
@@ -2047,6 +2058,71 @@ static ssize_t qt602240_object_setting(struct device *dev,
 
 }
 
+/* 
+ * write MOVHYSTI of TOUCH_MULTITOUCHSCREEN_T9
+ * by tegrak, found by vitalij@XDA
+ */
+static ssize_t mov_hysti_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	unsigned int register_value;
+	u8 **tsp_config;
+	char buff[50];
+	int i;
+	
+	//struct i2c_client *client = to_i2c_client(dev);
+	struct mxt224_data *data = dev_get_drvdata(dev);
+	//struct mxt224_platform_data *pdata = data->client->dev.platform_data;
+	
+	sscanf(buf, "%u", &register_value);
+	
+	// store value in global variable
+	mov_hysti = register_value;
+	
+	/*
+	tsp_config = pdata->config;
+	for (i = 0; tsp_config[i][0] != RESERVED_T255; i++) {
+		if (tsp_config[i][0] == TOUCH_MULTITOUCHSCREEN_T9) {
+			printk(KERN_ERR "[TSP] T9[12]=%u\n", tsp_config[i][12]);
+			tsp_config[i][12] = (u8)register_value;
+			break;
+		}
+	}
+	*/
+	
+	i = sprintf(buff, "%u %u %u", TOUCH_MULTITOUCHSCREEN_T9, 11, register_value);
+	qt602240_object_setting(dev, attr, buff, i);
+	return count;
+}
+
+/* 
+ * read MOVHYSTI of TOUCH_MULTITOUCHSCREEN_T9
+ * by tegrak, found by vitalij@XDA
+ */
+ 
+static ssize_t mov_hysti_show(struct device* dev, 
+							 struct device_attribute *attr,
+							 char *buf)
+{
+	struct mxt224_data *data = dev_get_drvdata(dev);
+	unsigned int object_type = TOUCH_MULTITOUCHSCREEN_T9;
+	u8 val;
+	int ret;
+	u16 address;
+	u16 size;
+	
+	ret = get_object_info(data, (u8)object_type, &size, &address);
+	if (ret || size <= 11) {
+		printk(KERN_ERR "[TSP] fail to get object_info\n");
+//		sprintf(buf, "-1\n");
+		return -EINVAL;
+	}
+	
+	read_mem(data, address+11, 1, &val);
+	return sprintf(buf, "%u\n", val);
+}
+
 static ssize_t qt602240_object_show(struct device *dev,
 				    struct device_attribute *attr,
 				    const char *buf, size_t count)
@@ -3158,6 +3234,8 @@ static DEVICE_ATTR(object_write, S_IRUGO | S_IWUSR | S_IWGRP, NULL,
 		   qt602240_object_setting);
 static DEVICE_ATTR(dbg_switch, S_IRUGO | S_IWUSR | S_IWGRP, NULL,
 		   mxt224_debug_setting);
+static DEVICE_ATTR(mov_hysti, S_IRUGO | S_IWUSR | S_IWGRP, 
+		mov_hysti_show, mov_hysti_store);
 
 static int sec_touchscreen_enable(struct mxt224_data *data)
 {
@@ -3223,6 +3301,7 @@ static struct attribute *qt602240_attrs[] = {
 	&dev_attr_object_show.attr,
 	&dev_attr_object_write.attr,
 	&dev_attr_dbg_switch.attr,
+	&dev_attr_mov_hysti.attr,
 	NULL
 };
 
