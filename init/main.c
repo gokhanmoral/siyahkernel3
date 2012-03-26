@@ -129,6 +129,7 @@ static char *static_command_line;
 static char *execute_command;
 static char *ramdisk_execute_command;
 
+unsigned int rom_feature_set = 0;
 /*
  * If set, this is an indication to the drivers that reset the underlying
  * device before going ahead with the initialization otherwise driver might

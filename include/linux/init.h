@@ -149,6 +149,7 @@ extern int do_one_initcall(initcall_t fn);
 extern char __initdata boot_command_line[];
 extern char *saved_command_line;
 extern unsigned int reset_devices;
+extern unsigned int rom_feature_set;
 
 /* used by init/main.c */
 void setup_arch(char **);
