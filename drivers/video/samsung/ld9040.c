@@ -27,6 +27,10 @@
 #include <linux/lcd.h>
 #include <linux/backlight.h>
 #include <linux/ld9040.h>
+
+#include <linux/device.h> 
+#include <linux/miscdevice.h>
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
@@ -306,93 +310,104 @@ static int ld9040_panel_send_sequence(struct lcd_info *lcd,
 	return ret;
 }
 
-static int get_backlight_level_from_brightness(unsigned int brightness)
+#define MAX_BL 255
+#define MAX_GAMMA 20
+
+int min_gamma = 0, max_gamma = 20, min_bl = 40;
+static int get_backlight_level_from_brightness(unsigned int bl)
 {
-	int backlightlevel;
+	int gamma_value =0;
+	int gamma_val_x10 =0;
 
-	/* brightness setting from platform is from 0 to 255
-	 * But in this driver, brightness is only supported from 0 to 24 */
-
-	switch (brightness) {
-	case 0 ... 29:
-		backlightlevel = GAMMA_30CD;
-		break;
-	case 30 ... 39:
-		backlightlevel = GAMMA_40CD;
-		break;
-	case 40 ... 49:
-		backlightlevel = GAMMA_40CD;
-		break;
-	case 50 ... 69:
-		backlightlevel = GAMMA_40CD;
-		break;
-	case 70 ... 79:
-		backlightlevel = GAMMA_70CD;
-		break;
-	case 80 ... 89:
-		backlightlevel = GAMMA_70CD;
-		break;
-	case 90 ... 99:
-		backlightlevel = GAMMA_90CD;
-		break;
-	case 100 ... 109:
-		backlightlevel = GAMMA_100CD;
-		break;
-	case 110 ... 119:
-		backlightlevel = GAMMA_110CD;
-		break;
-	case 120 ... 129:
-		backlightlevel = GAMMA_120CD;
-		break;
-	case 130 ... 139:
-		backlightlevel = GAMMA_130CD;
-		break;
-	case 140 ... 149:
-		backlightlevel = GAMMA_140CD;
-		break;
-	case 150 ... 159:
-		backlightlevel = GAMMA_150CD;
-		break;
-	case 160 ... 169:
-		backlightlevel = GAMMA_160CD;
-		break;
-	case 170 ... 179:
-		backlightlevel = GAMMA_170CD;
-		break;
-	case 180 ... 189:
-		backlightlevel = GAMMA_180CD;
-		break;
-	case 190 ... 199:
-		backlightlevel = GAMMA_190CD;
-		break;
-	case 200 ... 209:
-		backlightlevel = GAMMA_200CD;
-		break;
-	case 210 ... 219:
-		backlightlevel = GAMMA_210CD;
-		break;
-	case 220 ... 229:
-		backlightlevel = GAMMA_220CD;
-		break;
-	case 230 ... 239:
-		backlightlevel = GAMMA_230CD;
-		break;
-	case 240 ... 249:
-		backlightlevel = GAMMA_240CD;
-		break;
-	case 250 ... 254:
-		backlightlevel = GAMMA_250CD;
-		break;
-	case 255:
-		backlightlevel = GAMMA_300CD;
-		break;
-	default:
-		backlightlevel = GAMMA_160CD;
-		break;
+	if(bl >= min_bl){
+		gamma_val_x10 = 10 *(max_gamma-1-min_gamma)*bl/(MAX_BL-min_bl) 
+		    + (10 - 10*(max_gamma-1-min_gamma)*(min_bl)/(MAX_BL-min_bl));
+		gamma_value=(gamma_val_x10 +5)/10 + min_gamma;
+	}else{
+		gamma_value =min_gamma;
 	}
-	return backlightlevel;
+	if(gamma_value > MAX_GAMMA) gamma_value = MAX_GAMMA;
+	else if(gamma_value < min_gamma) gamma_value = min_gamma;
+	return gamma_value;
 }
 
+#define declare_show(filename) \
+	static ssize_t show_##filename(struct device *dev, struct device_attribute *attr, char *buf)
+
+#define declare_store(filename) \
+	static ssize_t store_##filename(\
+		struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+
+declare_show(author) {
+	return sprintf(buf, "Siyah\n");
+}
+
+declare_show(min_gamma) {
+	return sprintf(buf, "%d\n", min_gamma);
+}
+declare_show(max_gamma) {
+	return sprintf(buf, "%d\n", max_gamma);
+}
+declare_show(min_bl) {
+	return sprintf(buf, "%d\n", min_bl);
+}
+
+declare_store(min_gamma) {	
+	int val;
+	if(sscanf(buf,"%d",&val)==1) {
+		if(val>23) val=23;
+		else if(val<0) val=0;
+		min_gamma = val;
+	}
+	return size;
+}
+declare_store(max_gamma) {	
+	int val;
+	if(sscanf(buf,"%d",&val)==1) {
+		if(val>24) val=24;
+		else if(val<0) val=0;
+		max_gamma = val;
+	}
+	return size;
+}
+declare_store(min_bl) {	
+	int val;
+	if(sscanf(buf,"%d",&val)==1) {
+		if(val>200) val=200;
+		else if(val<0) val=0;
+		min_bl = val;
+	}
+	return size;
+}
+
+#define declare_attr_rw(filename, perm) \
+	static DEVICE_ATTR(filename, perm, show_##filename, store_##filename)
+#define declare_attr_ro(filename, perm) \
+	static DEVICE_ATTR(filename, perm, show_##filename, NULL)
+#define declare_attr_wo(filename, perm) \
+	static DEVICE_ATTR(filename, perm, NULL, store_##filename)
+
+declare_attr_ro(author, 0444);
+declare_attr_rw(min_gamma, 0666);
+declare_attr_rw(max_gamma, 0666);
+declare_attr_rw(min_bl, 0666);
+
+static struct attribute *brightness_curve_attributes[] = {
+	&dev_attr_min_gamma.attr,
+	&dev_attr_max_gamma.attr,
+	&dev_attr_min_bl.attr,
+	&dev_attr_author.attr,
+	NULL
+};
+
+static struct attribute_group brightness_curve_group = {
+		.attrs  = brightness_curve_attributes,
+};
+
+static struct miscdevice brightness_curve_device = {
+		.minor = MISC_DYNAMIC_MINOR,
+		.name = "brightness_curve",
+};
 static int ld9040_gamma_ctl(struct lcd_info *lcd)
 {
 	int ret = 0;
@@ -1216,6 +1231,20 @@ static struct spi_driver ld9040_driver = {
 
 static int __init ld9040_init(void)
 {
+	int ret;
+	
+	ret = misc_register(&brightness_curve_device);
+	if (ret) {
+	   printk(KERN_ERR "failed at(%d)\n", __LINE__);
+	}
+
+	ret = sysfs_create_group(&brightness_curve_device.this_device->kobj, 
+			&brightness_curve_group);
+	if (ret)
+	{
+		printk(KERN_ERR "failed at(%d)\n", __LINE__);
+	}
+
 	return spi_register_driver(&ld9040_driver);
 }
 
