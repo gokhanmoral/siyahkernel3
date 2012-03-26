@@ -86,6 +86,7 @@ static struct delayed_work hotplug_work;
 
 static unsigned int max_performance;
 static unsigned int freq_min = -1UL;
+module_param_named(freq_min, freq_min, uint, 0644);
 
 static unsigned int hotpluging_rate = CHECK_DELAY;
 module_param_named(rate, hotpluging_rate, uint, 0644);
