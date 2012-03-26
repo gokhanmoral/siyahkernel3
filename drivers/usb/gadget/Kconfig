@@ -1016,7 +1016,7 @@ config USB_G_SLP
 	  enabled and disabled dynamically.
 
 config USB_G_ANDROID
-	boolean "Android Gadget"
+	tristate "Android Gadget"
 	depends on SWITCH
 	help
 	  The Android gadget driver supports multiple USB functions.

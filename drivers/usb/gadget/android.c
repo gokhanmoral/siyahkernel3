@@ -52,10 +52,10 @@
 #endif
 #include "f_acm.c"
 #include "f_adb.c"
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
-#include "f_mtp_samsung.c"
-#else
+#ifdef ANDROID_AOSP
 #include "f_mtp.c"
+#else
+#include "f_mtp_samsung.c"
 #endif
 #include "f_accessory.c"
 #define USB_ETH_RNDIS y
@@ -173,6 +173,39 @@ static struct usb_configuration android_config_driver = {
 	.bmAttributes	= USB_CONFIG_ATT_ONE | USB_CONFIG_ATT_SELFPOWER,
 	.bMaxPower	= 0x30, /* 96ma */
 };
+/**
+ * usb_descriptor_fillbuf - fill buffer with descriptors
+ * @buf: Buffer to be filled
+ * @buflen: Size of buf
+ * @src: Array of descriptor pointers, terminated by null pointer.
+ *
+ * Copies descriptors into the buffer, returning the length or a
+ * negative error code if they can't all be copied.  Useful when
+ * assembling descriptors for an associated set of interfaces used
+ * as part of configuring a composite device; or in other cases where
+ * sets of descriptors need to be marshaled.
+ */
+int
+usb_descriptor_fillbuf(void *buf, unsigned buflen,
+		const struct usb_descriptor_header **src)
+{
+	u8	*dest = buf;
+
+	if (!src)
+		return -EINVAL;
+
+	/* fill buffer from src[] until null descriptor ptr */
+	for (; NULL != *src; src++) {
+		unsigned		len = (*src)->bLength;
+
+		if (len > buflen)
+			return -EINVAL;
+		memcpy(dest, *src, len);
+		buflen -= len;
+		dest += len;
+	}
+	return dest - (u8 *)buf;
+}
 
 static void android_work(struct work_struct *data)
 {
