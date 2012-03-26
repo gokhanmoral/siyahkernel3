@@ -1081,16 +1081,36 @@ config EVENTFD
 
 	  If unsure, say Y.
 
-config SHMEM
-	bool "Use full shmem filesystem" if EXPERT
-	default y
+choice
+	prompt "Default shmem filesystem implementation" if EMBEDDED
 	depends on MMU
+	default SHMEM
+	help
+	  Choose the default shmem filesystem implementation to manage shared
+	  memory.
+
+	  If in doubt, select 'Full shmem filesystem'.
+
+config SHMEM
+	bool "Full shmem filesystem"
 	help
 	  The shmem is an internal filesystem used to manage shared memory.
 	  It is backed by swap and manages resource limits. It is also exported
-	  to userspace as tmpfs if TMPFS is enabled. Disabling this
-	  option replaces shmem and tmpfs with the much simpler ramfs code,
-	  which may be appropriate on small systems without swap.
+	  to userspace as tmpfs if TMPFS is enabled. Choosing 'Tiny shmem
+	  filesystem' option replaces shmem and tmpfs with the much simpler
+	  ramfs code, which may be appropriate on small systems without swap.
+
+config TINY_SHMEM
+	bool "Tiny shmem filesystem" if !SWAP
+	help
+	  Tiny shmem is a simple shmemfs and tmpfs using ramfs code.
+
+	  This is intended for small system where the benefits of the full
+	  shmem code (swap-backed and resource-limited) are outweighed by
+ 	  their complexity. On systems without swap this code should be
+	  effectively equivalent, but much lighter weight.
+
+endchoice
 
 config ASHMEM
 	bool "Enable the Anonymous Shared Memory Subsystem"
