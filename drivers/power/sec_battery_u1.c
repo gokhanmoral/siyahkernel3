@@ -28,6 +28,7 @@
 #include <linux/android_alarm.h>
 #include <plat/adc.h>
 #include <linux/power/sec_battery_u1.h>
+#include "charge_current.h"
 
 #if defined(CONFIG_TARGET_LOCALE_NA) || defined(CONFIG_TARGET_LOCALE_NAATT)
 #define POLLING_INTERVAL	(10 * 1000)
@@ -1434,15 +1435,15 @@ static int sec_bat_enable_charging_main(struct sec_bat_info *info, bool enable)
 		switch (info->cable_type) {
 		case CABLE_TYPE_USB:
 			val_type.intval = POWER_SUPPLY_STATUS_CHARGING;
-			val_chg_current.intval = 450;	/* mA */
+			val_chg_current.intval = charge_current_usb;	/* mA */
 			break;
 		case CABLE_TYPE_AC:
 			val_type.intval = POWER_SUPPLY_STATUS_CHARGING;
-			val_chg_current.intval = 650;	/* mA */
+			val_chg_current.intval = charge_current_ac;	/* mA */
 			break;
 		case CABLE_TYPE_MISC:
 			val_type.intval = POWER_SUPPLY_STATUS_CHARGING;
-			val_chg_current.intval = 450;	/* mA */
+			val_chg_current.intval = charge_current_misc;	/* mA */
 			break;
 		default:
 			dev_err(info->dev, "%s: Invalid func use\n", __func__);
@@ -1523,7 +1524,7 @@ static int sec_bat_enable_charging_sub(struct sec_bat_info *info, bool enable)
 			switch (info->cable_type) {
 			case CABLE_TYPE_USB:
 				val_type.intval = POWER_SUPPLY_STATUS_CHARGING;
-				val_chg_current.intval = 450;	/* mA */
+			val_chg_current.intval = charge_current_usb;	/* mA */
 				break;
 			case CABLE_TYPE_AC:
 				val_type.intval = POWER_SUPPLY_STATUS_CHARGING;
@@ -1533,11 +1534,11 @@ static int sec_bat_enable_charging_sub(struct sec_bat_info *info, bool enable)
 					val_chg_current.intval = 450;	/* mA */
 				else
 #endif
-					val_chg_current.intval = 650;	/* mA */
+			val_chg_current.intval = charge_current_ac;	/* mA */
 				break;
 			case CABLE_TYPE_MISC:
 				val_type.intval = POWER_SUPPLY_STATUS_CHARGING;
-				val_chg_current.intval = 450;	/* mA */
+			val_chg_current.intval = charge_current_misc;	/* mA */
 				break;
 			default:
 				dev_err(info->dev, "%s: Invalid func use\n",
@@ -2929,6 +2930,7 @@ static int sec_bat_create_attrs(struct device *dev)
 	while (i--)
 		device_remove_file(dev, &sec_battery_attrs[i]);
  succeed:
+    charge_current_start();
 	return rc;
 }
 
