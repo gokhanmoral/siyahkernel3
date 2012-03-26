@@ -126,6 +126,10 @@ static int exynos_target(struct cpufreq_policy *policy,
 	if (index == exynos_info->max_support_idx && old_index > 3)
 		index = 3;
 #endif
+/* prevent freqs going above max policy - netarchy */
+	while (exynos_info->freq_table[index].frequency > policy->max) {
+		index += 1;
+	}
 
 	freqs.new = freq_table[index].frequency;
 	freqs.cpu = policy->cpu;
