@@ -1,6 +1,6 @@
 #!/bin/sh
 export KERNELDIR=`readlink -f .`
-export INITRAMFS_SOURCE=`readlink -f $KERNELDIR/../initramfs`
+export INITRAMFS_SOURCE=`readlink -f $KERNELDIR/../initramfs3`
 export PARENT_DIR=`readlink -f ..`
 
 if [ "${1}" != "" ];then
@@ -30,6 +30,7 @@ rm -rf $INITRAMFS_TMP
 cp -ax $INITRAMFS_SOURCE $INITRAMFS_TMP
 find $INITRAMFS_TMP -name .git -exec rm -rf {} \;
 rm -rf $INITRAMFS_TMP/.hg
+mkdir -p $INITRAMFS/lib/modules
 find -name '*.ko' -exec cp -av {} $INITRAMFS_TMP/lib/modules/ \;
 
 cd $INITRAMFS_TMP
