@@ -1,4 +1,6 @@
 lib1funcs.S
+ashldi3.S
 piggy.gzip
+piggy.xzkern
 vmlinux
 vmlinux.lds
