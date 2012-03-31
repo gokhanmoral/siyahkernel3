@@ -247,7 +247,7 @@ int exynos_cpufreq_lock(unsigned int nId,
 
 	//prevent locking to a freq higher than stock freq unless overclocked -gm
 	cpufreq_level = max( min(exynos_info->max_current_idx, exynos_info->pm_lock_idx) ,
-							(int)cpufreq_level);
+							(unsigned int)cpufreq_level);
 
 	mutex_lock(&set_cpu_freq_lock);
 	g_cpufreq_lock_id |= (1 << nId);
