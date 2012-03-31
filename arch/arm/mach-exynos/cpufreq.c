@@ -517,18 +517,19 @@ static int exynos_cpufreq_policy_notifier_call(struct notifier_block *this,
 				unsigned long code, void *data)
 {
 	struct cpufreq_policy *policy = data;
+	enum cpufreq_level_index level;
 
 	switch (code) {
 	case CPUFREQ_ADJUST:
+
+	case CPUFREQ_INCOMPATIBLE:
+		break;
+	case CPUFREQ_NOTIFY:
 		exynos_cpufreq_lock_disable = !policy->governor->disableScalingDuringSuspend;
-		enum cpufreq_level_index level;
 		exynos_cpufreq_get_level(policy->max, &level);
 		if(level!=-EINVAL) exynos_info->max_current_idx = level;
 		exynos_cpufreq_get_level(policy->min, &level);
 		if(level!=-EINVAL) exynos_info->min_current_idx = level;
-
-	case CPUFREQ_INCOMPATIBLE:
-	case CPUFREQ_NOTIFY:
 	default:
 		break;
 	}
