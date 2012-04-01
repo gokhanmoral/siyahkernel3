@@ -52,11 +52,12 @@
 #endif
 #include "f_acm.c"
 #include "f_adb.c"
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
+//let's have both mtp units by commenting the following -gm
+//#ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
 #include "f_mtp_samsung.c"
-#else
+//#else
 #include "f_mtp.c"
-#endif
+//#endif
 #include "f_accessory.c"
 #define USB_ETH_RNDIS y
 #include "f_rndis.c"
@@ -318,9 +319,19 @@ static int mtp_function_init(struct android_usb_function *f, struct usb_composit
 	return mtp_setup();
 }
 
+static int mtp3sung_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
+{
+	return mtp3sung_setup();
+}
+
 static void mtp_function_cleanup(struct android_usb_function *f)
 {
 	mtp_cleanup();
+}
+
+static void mtp3sung_function_cleanup(struct android_usb_function *f)
+{
+	mtp3sung_cleanup();
 }
 
 static int mtp_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
@@ -328,7 +339,18 @@ static int mtp_function_bind_config(struct android_usb_function *f, struct usb_c
 	return mtp_bind_config(c, false);
 }
 
+static int mtp3sung_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
+{
+	return mtp3sung_bind_config(c, false);
+}
+
 static int ptp_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
+{
+	/* nothing to do - initialization is handled by mtp_function_init */
+	return 0;
+}
+
+static int ptp3sung_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
 {
 	/* nothing to do - initialization is handled by mtp_function_init */
 	return 0;
@@ -339,9 +361,19 @@ static void ptp_function_cleanup(struct android_usb_function *f)
 	/* nothing to do - cleanup is handled by mtp_function_cleanup */
 }
 
+static void ptp3sung_function_cleanup(struct android_usb_function *f)
+{
+	/* nothing to do - cleanup is handled by mtp_function_cleanup */
+}
+
 static int ptp_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
 {
 	return mtp_bind_config(c, true);
+}
+
+static int ptp3sung_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
+{
+	return mtp3sung_bind_config(c, true);
 }
 
 static int mtp_function_ctrlrequest(struct android_usb_function *f,
@@ -349,6 +381,13 @@ static int mtp_function_ctrlrequest(struct android_usb_function *f,
 						const struct usb_ctrlrequest *c)
 {
 	return mtp_ctrlrequest(cdev, c);
+}
+
+static int mtp3sung_function_ctrlrequest(struct android_usb_function *f,
+						struct usb_composite_dev *cdev,
+						const struct usb_ctrlrequest *c)
+{
+	return mtp3sung_ctrlrequest(cdev, c);
 }
 
 static struct android_usb_function mtp_function = {
@@ -359,12 +398,27 @@ static struct android_usb_function mtp_function = {
 	.ctrlrequest	= mtp_function_ctrlrequest,
 };
 
+static struct android_usb_function mtp3sung_function = {
+	.name		= "mtp",
+	.init		= mtp3sung_function_init,
+	.cleanup	= mtp3sung_function_cleanup,
+	.bind_config	= mtp3sung_function_bind_config,
+	.ctrlrequest	= mtp3sung_function_ctrlrequest,
+};
+
 /* PTP function is same as MTP with slightly different interface descriptor */
 static struct android_usb_function ptp_function = {
 	.name		= "ptp",
 	.init		= ptp_function_init,
 	.cleanup	= ptp_function_cleanup,
 	.bind_config	= ptp_function_bind_config,
+};
+
+static struct android_usb_function ptp3sung_function = {
+	.name		= "ptp",
+	.init		= ptp3sung_function_init,
+	.cleanup	= ptp3sung_function_cleanup,
+	.bind_config	= ptp3sung_function_bind_config,
 };
 
 
@@ -851,6 +905,21 @@ static struct android_usb_function *supported_functions[] = {
 	&acm_function,
 	&mtp_function,
 	&ptp_function,
+	&rndis_function,
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	&ncm_function,
+#endif
+	&mass_storage_function,
+	&accessory_function,
+	&dm_function,
+	NULL
+};
+
+static struct android_usb_function *supported3sung_functions[] = {
+	&adb_function,
+	&acm_function,
+	&mtp3sung_function,
+	&ptp3sung_function,
 	&rndis_function,
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 	&ncm_function,
@@ -1465,7 +1534,7 @@ static struct platform_driver android_platform_driver = {
 };
 #endif
 
-static int __init init(void)
+int late_init_android_gadget(int romtype)
 {
 	struct android_dev *dev;
 	int err;
@@ -1479,7 +1548,8 @@ static int __init init(void)
 	if (!dev)
 		return -ENOMEM;
 
-	dev->functions = supported_functions;
+	if(!romtype) dev->functions = supported3sung_functions;
+	else dev->functions = supported_functions;
 	INIT_LIST_HEAD(&dev->enabled_functions);
 	INIT_WORK(&dev->work, android_work);
 	mutex_init(&dev->mutex);
@@ -1524,6 +1594,11 @@ static int __init init(void)
 #endif
 
 	return usb_composite_probe(&android_usb_driver, android_bind);
+}
+
+static int __init init(void)
+{
+return 0;
 }
 module_init(init);
 

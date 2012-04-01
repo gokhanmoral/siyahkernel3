@@ -227,6 +227,27 @@ extern struct ctl_table epoll_table[];
 int sysctl_legacy_va_layout;
 #endif
 
+extern int late_init_android_gadget(int romtype);
+
+int
+rom_feature_set_sysctl(struct ctl_table *table, int write,
+                     void __user *buffer, size_t *lenp,
+                     loff_t *ppos)
+{
+	int error;
+
+	error = proc_dointvec(table, write, buffer, lenp, ppos);
+	if (error)
+		return error;
+
+	if (write) {
+		printk("Initializing USB with rom_feature_set: %d\n", rom_feature_set);
+		late_init_android_gadget(rom_feature_set);
+	}
+	return 0;
+}
+
+
 /* The default sysctl tables: */
 
 static struct ctl_table root_table[] = {
@@ -285,7 +306,7 @@ static struct ctl_table kern_table[] = {
 		.data		= &rom_feature_set,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
+		.proc_handler	= rom_feature_set_sysctl,
 	},
 #ifdef CONFIG_SCHED_DEBUG
 	{
