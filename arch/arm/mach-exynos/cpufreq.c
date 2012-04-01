@@ -512,11 +512,18 @@ static int exynos_cpufreq_policy_notifier_call(struct notifier_block *this,
 
 	switch (code) {
 	case CPUFREQ_ADJUST:
-
+		if ((!strnicmp(policy->governor->name, "powersave", CPUFREQ_NAME_LEN))
+		|| (!strnicmp(policy->governor->name, "performance", CPUFREQ_NAME_LEN))
+		|| (!strnicmp(policy->governor->name, "userspace", CPUFREQ_NAME_LEN))) {
+			printk(KERN_DEBUG "cpufreq governor is changed to %s\n",
+							policy->governor->name);
+			exynos_cpufreq_lock_disable = true;
+		} else
+			exynos_cpufreq_lock_disable = false;
+		break;
 	case CPUFREQ_INCOMPATIBLE:
 		break;
 	case CPUFREQ_NOTIFY:
-		exynos_cpufreq_lock_disable = !policy->governor->disableScalingDuringSuspend;
 		exynos_cpufreq_get_level(policy->max, &level);
 		if(level!=-EINVAL) exynos_info->max_current_idx = level;
 		exynos_cpufreq_get_level(policy->min, &level);
