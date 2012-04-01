@@ -51,7 +51,7 @@ g_dbgp-y			:= dbgp.o
 g_nokia-y			:= nokia.o
 g_webcam-y			:= webcam.o
 g_ncm-y				:= ncm.o
-g_android-y			:= android.o multi_config.o
+g_android-y			:= android.o
 g_slp-y				:= slp.o
 
 obj-$(CONFIG_USB_ZERO)		+= g_zero.o
@@ -79,4 +79,4 @@ obj-$(CONFIG_USB_ANDROID_ADB)	+= gadget_gbhc/f_adb.o
 obj-$(CONFIG_USB_ANDROID_MASS_STORAGE)	+= gadget_gbhc/f_mass_storage.o
 obj-$(CONFIG_USB_ANDROID_MTP)	+= gadget_gbhc/f_mtp.o
 obj-$(CONFIG_USB_ANDROID_RNDIS)	+= gadget_gbhc/f_rndis.o gadget_gbhc/u_ether.o
-# obj-$(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE)	+= multi_config.o
+obj-$(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE)	+= multi_config.o
