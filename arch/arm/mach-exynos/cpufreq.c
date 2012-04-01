@@ -228,21 +228,17 @@ int exynos_cpufreq_lock(unsigned int nId,
 	freq_table = exynos_info->freq_table;
 
 	if (g_cpufreq_lock_id & (1 << nId)) {
-		if(exynos_info->max_current_idx <= g_cpufreq_lock_val[nId])
-		{
 		printk(KERN_ERR "%s:Device [%d] already locked cpufreq\n",
 				__func__,  nId);
 		return 0;
-		}
-		exynos_cpufreq_lock_free(nId);
 	}
 
 	volt_table = exynos_info->volt_table;
 	policy = cpufreq_cpu_get(0);
 	freq_table = exynos_info->freq_table;
 
-	//do not lock to higher than policy->max -gm
-	cpufreq_level = max(exynos_info->max_current_idx, cpufreq_level); //max(L2,level);
+	//do not lock to higher than L2 -gm
+	cpufreq_level = max(L2, (int)cpufreq_level);
 
 	mutex_lock(&set_cpu_freq_lock);
 	g_cpufreq_lock_id |= (1 << nId);
@@ -353,12 +349,8 @@ int exynos_cpufreq_upper_limit(unsigned int nId,
 	freq_table = exynos_info->freq_table;
 
 	if (g_cpufreq_limit_id & (1 << nId)) {
-		if(exynos_info->max_current_idx <= g_cpufreq_lock_val[nId])
-		{	
 		pr_err("[CPUFREQ]This device [%d] already limited cpufreq\n", nId);
 		return 0;
-		}
-		exynos_cpufreq_upper_limit_free(nId);	
 	}
 
 	volt_table = exynos_info->volt_table;
@@ -456,6 +448,8 @@ static int exynos_cpufreq_notifier_event(struct notifier_block *this,
 	int ret = 0;
 	unsigned int safe_arm_volt, arm_volt;
 	unsigned int *volt_table;
+	enum cpufreq_level_index level;
+	struct cpufreq_policy *policy = ptr;
 
 	volt_table = exynos_info->volt_table;
 
@@ -487,17 +481,19 @@ static int exynos_cpufreq_notifier_event(struct notifier_block *this,
 		// max level should be used after sleep and wakeup
 		if (exynos_cpufreq_lock_disable) {
 			mutex_lock(&set_freq_lock);
+			exynos_cpufreq_get_level(policy->max, &level);
 
 			/* get the voltage value */
-			safe_arm_volt = exynos_get_safe_armvolt(exynos_info->pm_lock_idx, exynos_info->max_current_idx);
+			safe_arm_volt = exynos_get_safe_armvolt(exynos_info->pm_lock_idx, level);
 			if (safe_arm_volt)
 				regulator_set_voltage(arm_regulator, safe_arm_volt,
 					safe_arm_volt + 25000);
 
-			arm_volt = volt_table[exynos_info->max_current_idx];
+			arm_volt = volt_table[level];
 			regulator_set_voltage(arm_regulator, arm_volt,
 				arm_volt + 25000);
-			exynos_info->set_freq(exynos_info->pm_lock_idx, exynos_info->max_current_idx);
+
+			exynos_info->set_freq(exynos_info->pm_lock_idx, level);
 
 			mutex_unlock(&set_freq_lock);
 		}
@@ -544,6 +540,8 @@ static struct notifier_block exynos_cpufreq_policy_notifier = {
 
 static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
+	int ret;
+
 	policy->cur = policy->min = policy->max = exynos_getspeed(policy->cpu);
 
 	cpufreq_frequency_table_get_attr(exynos_info->freq_table, policy->cpu);
@@ -564,7 +562,7 @@ static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 		cpumask_setall(policy->cpus);
 	}
 
-	int ret = cpufreq_frequency_table_cpuinfo(policy, exynos_info->freq_table);
+	ret = cpufreq_frequency_table_cpuinfo(policy, exynos_info->freq_table);
 	/* set safe default min and max speeds - netarchy */
 	policy->max = exynos_info->freq_table[exynos_info->max_current_idx].frequency;
 	policy->min = exynos_info->freq_table[exynos_info->min_current_idx].frequency;
