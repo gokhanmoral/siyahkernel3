@@ -103,7 +103,7 @@ static int exynos_target(struct cpufreq_policy *policy,
 	if (exynos_cpufreq_disable)
 		goto out;
 
-	freqs.old = policy->cur;
+	freqs.old = exynos_getspeed(policy->cpu);
 
 	if (cpufreq_frequency_table_target(policy, freq_table,
 					   freqs.old, relation, &old_index)) {
