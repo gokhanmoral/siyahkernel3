@@ -117,6 +117,10 @@ static int exynos_target(struct cpufreq_policy *policy,
 		goto out;
 	}
 
+/* prevent freqs going above max policy - originally by netarchy */
+	if(exynos_info->max_current_idx > index)
+		index = exynos_info->max_current_idx;
+
 	/* Need to set performance limitation */
 	if (!exynos_cpufreq_lock_disable && (index > g_cpufreq_lock_level))
 		index = g_cpufreq_lock_level;
@@ -126,16 +130,12 @@ static int exynos_target(struct cpufreq_policy *policy,
 
 #if defined(CONFIG_CPU_EXYNOS4210)
 	/* Do NOT step up max arm clock directly to reduce power consumption */
-//	if (index == exynos_info->max_support_idx && old_index > 4)
-//		index = 4;
-//reach 1200MHz step by step starting from 800MHz -gm
-if(policy->governor->enableSmoothScaling && index <= smooth_target)
-  if(index < old_index) index = min(smooth_target + smooth_offset, old_index - smooth_step);
+	//reach 1200MHz step by step starting from 800MHz -gm
+	if(index <= smooth_target && index < old_index)
+	{
+		index = max(index,min(smooth_target + smooth_offset, old_index - smooth_step));
+	}
 #endif
-/* prevent freqs going above max policy - originally by netarchy */
-	if(exynos_info->max_current_idx > index)
-		index = exynos_info->max_current_idx;
-	
 
 	freqs.new = freq_table[index].frequency;
 	freqs.cpu = policy->cpu;
