@@ -253,11 +253,12 @@ static void hotplug_timer(struct work_struct *work)
 		}
 	}
 
-	if(cpu_rq_min == 0)
-		goto no_hotplug;
-
 	/*standallone hotplug*/
 	flag_hotplug = standalone_hotplug(load, nr_rq_min, cpu_rq_min);
+
+	/*do not ever hotplug out CPU 0*/
+	if((cpu_rq_min == 0) && (flag_hotplug == HOTPLUG_OUT))
+		goto no_hotplug;
 
 	/*cpu hotplug*/
 	if (flag_hotplug == HOTPLUG_IN && cpu_online(select_off_cpu) == CPU_OFF) {
