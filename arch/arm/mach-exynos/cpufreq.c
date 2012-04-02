@@ -245,8 +245,9 @@ int exynos_cpufreq_lock(unsigned int nId,
 	policy = cpufreq_cpu_get(0);
 	freq_table = exynos_info->freq_table;
 
-	//do not lock to higher than L2 -gm
-	cpufreq_level = max(L2, (int)cpufreq_level);
+	//do not lock to higher than max_current_idx or lower than L3 -gm
+	cpufreq_level = max( min(exynos_info->max_current_idx, exynos_info->pll_safe_idx) ,
+							(int)cpufreq_level);
 
 	mutex_lock(&set_cpu_freq_lock);
 	g_cpufreq_lock_id |= (1 << nId);
@@ -456,8 +457,6 @@ static int exynos_cpufreq_notifier_event(struct notifier_block *this,
 	int ret = 0;
 	unsigned int safe_arm_volt, arm_volt;
 	unsigned int *volt_table;
-	enum cpufreq_level_index level;
-	struct cpufreq_policy *policy = ptr;
 
 	volt_table = exynos_info->volt_table;
 
@@ -489,19 +488,18 @@ static int exynos_cpufreq_notifier_event(struct notifier_block *this,
 		// max level should be used after sleep and wakeup
 		if (exynos_cpufreq_lock_disable) {
 			mutex_lock(&set_freq_lock);
-			exynos_cpufreq_get_level(policy->max, &level);
 
 			/* get the voltage value */
-			safe_arm_volt = exynos_get_safe_armvolt(exynos_info->pm_lock_idx, level);
+			safe_arm_volt = exynos_get_safe_armvolt(exynos_info->pm_lock_idx, exynos_info->max_current_idx);
 			if (safe_arm_volt)
 				regulator_set_voltage(arm_regulator, safe_arm_volt,
 					safe_arm_volt + 25000);
 
-			arm_volt = volt_table[level];
+			arm_volt = volt_table[exynos_info->max_current_idx];
 			regulator_set_voltage(arm_regulator, arm_volt,
 				arm_volt + 25000);
 
-			exynos_info->set_freq(exynos_info->pm_lock_idx, level);
+			exynos_info->set_freq(exynos_info->pm_lock_idx, exynos_info->max_current_idx);
 
 			mutex_unlock(&set_freq_lock);
 		}
@@ -532,14 +530,13 @@ static int exynos_cpufreq_policy_notifier_call(struct notifier_block *this,
 			exynos_cpufreq_lock_disable = true;
 		} else
 			exynos_cpufreq_lock_disable = false;
-		break;
-	case CPUFREQ_INCOMPATIBLE:
-		break;
-	case CPUFREQ_NOTIFY:
 		exynos_cpufreq_get_level(policy->max, &level);
 		if(level!=-EINVAL) exynos_info->max_current_idx = level;
 		exynos_cpufreq_get_level(policy->min, &level);
 		if(level!=-EINVAL) exynos_info->min_current_idx = level;
+		break;
+	case CPUFREQ_INCOMPATIBLE:
+	case CPUFREQ_NOTIFY:
 	default:
 		break;
 	}
