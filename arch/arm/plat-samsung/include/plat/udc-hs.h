@@ -27,3 +27,12 @@ struct s3c_hsotg_plat {
 	enum s3c_hsotg_dmamode	dma;
 	unsigned int		is_osc : 1;
 };
+
+typedef enum usb_cable_status {
+	USB_CABLE_DETACHED = 0,
+	USB_CABLE_ATTACHED,
+	USB_OTGHOST_DETACHED,
+	USB_OTGHOST_ATTACHED,
+	USB_CABLE_DETACHED_WITHOUT_NOTI,
+} usb_cable_status;
+

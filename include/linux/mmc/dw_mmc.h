@@ -35,6 +35,11 @@ enum {
 
 struct mmc_data;
 
+struct dw_mci_next {
+	unsigned int	sg_len;
+	s32		cookie;
+};
+
 /**
  * struct dw_mci - MMC controller state shared between all slots
  * @lock: Spinlock protecting the queue and associated data.
@@ -114,6 +119,8 @@ struct dw_mci {
 	struct mmc_request	*mrq;
 	struct mmc_command	*cmd;
 	struct mmc_data		*data;
+	struct clk          *hclk;
+	struct clk          *cclk;
 
 	/* DMA interface members*/
 	int			use_dma;
@@ -121,6 +128,7 @@ struct dw_mci {
 	dma_addr_t		sg_dma;
 	void			*sg_cpu;
 	struct dw_mci_dma_ops	*dma_ops;
+	unsigned int		buf_size;
 #ifdef CONFIG_MMC_DW_IDMAC
 	unsigned int		ring_size;
 #else
@@ -145,7 +153,16 @@ struct dw_mci {
 	struct dw_mci_board	*pdata;
 	struct dw_mci_slot	*slot[MAX_MCI_SLOTS];
 
+	/* IP version control */
+	u32			data_addr;
+	u32			hold_bit;
+
+	/* Phase Shift Value */
+	u32			sdr_timing;
+	u32			ddr_timing;
+
 	/* FIFO push and pull */
+	u32			fifo_depth;
 	int			data_shift;
 	void (*push_data)(struct dw_mci *host, void *buf, int cnt);
 	void (*pull_data)(struct dw_mci *host, void *buf, int cnt);
@@ -154,6 +171,7 @@ struct dw_mci {
 	u32			quirks;
 
 	struct regulator	*vmmc;	/* Power regulator */
+	struct dw_mci_next	next_data;
 };
 
 /* DMA ops for Internal/External DMAC interface */
@@ -196,15 +214,24 @@ struct dw_mci_board {
 	unsigned int bus_hz; /* Bus speed */
 
 	unsigned int caps;	/* Capabilities */
+	unsigned int caps2;	/* More capabilities */
+
+	unsigned int buf_size;	/* Buffer size */
+
+	u32 fifo_depth;
 
 	/* delay in mS before detecting cards after interrupt */
 	u32 detect_delay_ms;
+
+	char *hclk_name;
+	char *cclk_name;
 
 	int (*init)(u32 slot_id, irq_handler_t , void *);
 	int (*get_ro)(u32 slot_id);
 	int (*get_cd)(u32 slot_id);
 	int (*get_ocr)(u32 slot_id);
 	int (*get_bus_wd)(u32 slot_id);
+	void (*cfg_gpio)(int width);
 	/*
 	 * Enable power to selected slot and set voltage to desired level.
 	 * Voltage levels are specified using MMC_VDD_xxx defines defined

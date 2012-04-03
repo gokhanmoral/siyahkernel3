@@ -170,6 +170,10 @@ static int mmc_decode_csd(struct mmc_card *card)
 		csd->erase_size <<= csd->write_blkbits - 9;
 	}
 
+	if (UNSTUFF_BITS(resp, 13, 1))
+		printk(KERN_ERR "%s: PERM_WRITE_PROTECT was set.\n",
+				mmc_hostname(card->host));
+
 	return 0;
 }
 
@@ -259,7 +263,7 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	}
 
 	card->ext_csd.rev = ext_csd[EXT_CSD_REV];
-	if (card->ext_csd.rev > 5) {
+	if (card->ext_csd.rev > 6) {
 		printk(KERN_ERR "%s: unrecognised EXT_CSD revision %d\n",
 			mmc_hostname(card->host), card->ext_csd.rev);
 		err = -EINVAL;
@@ -403,14 +407,52 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 			ext_csd[EXT_CSD_TRIM_MULT];
 	}
 
-	if (card->ext_csd.rev >= 5)
+	if (card->ext_csd.rev >= 5) {
+		/* check whether the eMMC card supports HPI */
+		if (ext_csd[EXT_CSD_HPI_FEATURES] & 0x1) {
+			card->ext_csd.hpi = 1;
+			if (ext_csd[EXT_CSD_HPI_FEATURES] & 0x2)
+				card->ext_csd.hpi_cmd =	MMC_STOP_TRANSMISSION;
+			else
+				card->ext_csd.hpi_cmd = MMC_SEND_STATUS;
+			/*
+			 * Indicate the maximum timeout to close
+			 * a command interrupted by HPI
+			 */
+			card->ext_csd.out_of_int_time =
+				ext_csd[EXT_CSD_OUT_OF_INTERRUPT_TIME] * 10;
+		}
+
 		card->ext_csd.rel_param = ext_csd[EXT_CSD_WR_REL_PARAM];
+		card->ext_csd.rst_n_function = ext_csd[EXT_CSD_RST_N_FUNCTION];
+	}
 
 	card->ext_csd.raw_erased_mem_count = ext_csd[EXT_CSD_ERASED_MEM_CONT];
 	if (ext_csd[EXT_CSD_ERASED_MEM_CONT])
 		card->erased_byte = 0xFF;
 	else
 		card->erased_byte = 0x0;
+
+	/* eMMC v4.5 or later */
+	if (card->ext_csd.rev >= 6) {
+		card->ext_csd.feature_support |= MMC_DISCARD_FEATURE;
+
+		card->ext_csd.generic_cmd6_time = 10 *
+			ext_csd[EXT_CSD_GENERIC_CMD6_TIME];
+		card->ext_csd.power_off_longtime = 10 *
+			ext_csd[EXT_CSD_POWER_OFF_LONG_TIME];
+
+		card->ext_csd.cache_size =
+			ext_csd[EXT_CSD_CACHE_SIZE + 0] << 0 |
+			ext_csd[EXT_CSD_CACHE_SIZE + 1] << 8 |
+			ext_csd[EXT_CSD_CACHE_SIZE + 2] << 16 |
+			ext_csd[EXT_CSD_CACHE_SIZE + 3] << 24;
+
+		card->ext_csd.max_packed_writes =
+			ext_csd[EXT_CSD_MAX_PACKED_WRITES];
+		card->ext_csd.max_packed_reads =
+			ext_csd[EXT_CSD_MAX_PACKED_READS];
+	}
 
 out:
 	return err;
@@ -437,9 +479,6 @@ static int mmc_compare_ext_csds(struct mmc_card *card, unsigned bus_width)
 			err = -EINVAL;
 		goto out;
 	}
-
-	if (bus_width == MMC_BUS_WIDTH_1)
-		goto out;
 
 	/* only compare read only fields */
 	err = (!(card->ext_csd.raw_partition_support ==
@@ -530,6 +569,86 @@ static const struct attribute_group *mmc_attr_groups[] = {
 static struct device_type mmc_type = {
 	.groups = mmc_attr_groups,
 };
+
+/*
+ * Select the PowerClass for the current bus width
+ * If power class is defined for 4/8 bit bus in the
+ * extended CSD register, select it by executing the
+ * mmc_switch command.
+ */
+static int mmc_select_powerclass(struct mmc_card *card,
+		unsigned int bus_width, u8 *ext_csd)
+{
+	int err = 0;
+	unsigned int pwrclass_val;
+	unsigned int index = 0;
+	struct mmc_host *host;
+
+	BUG_ON(!card);
+
+	host = card->host;
+	BUG_ON(!host);
+
+	if (ext_csd == NULL)
+		return 0;
+
+	/* Power class selection is supported for versions >= 4.0 */
+	if (card->csd.mmca_vsn < CSD_SPEC_VER_4)
+		return 0;
+
+	/* Power class values are defined only for 4/8 bit bus */
+	if (bus_width == EXT_CSD_BUS_WIDTH_1)
+		return 0;
+
+	switch (1 << host->ios.vdd) {
+	case MMC_VDD_165_195:
+		if (host->ios.clock <= 26000000)
+			index = EXT_CSD_PWR_CL_26_195;
+		else if	(host->ios.clock <= 52000000)
+			index = (bus_width <= EXT_CSD_BUS_WIDTH_8) ?
+				EXT_CSD_PWR_CL_52_195 :
+				EXT_CSD_PWR_CL_DDR_52_195;
+		else if (host->ios.clock <= 200000000)
+			index = EXT_CSD_PWR_CL_200_195;
+		break;
+	case MMC_VDD_32_33:
+	case MMC_VDD_33_34:
+	case MMC_VDD_34_35:
+	case MMC_VDD_35_36:
+		if (host->ios.clock <= 26000000)
+			index = EXT_CSD_PWR_CL_26_360;
+		else if	(host->ios.clock <= 52000000)
+			index = (bus_width <= EXT_CSD_BUS_WIDTH_8) ?
+				EXT_CSD_PWR_CL_52_360 :
+				EXT_CSD_PWR_CL_DDR_52_360;
+		else if (host->ios.clock <= 200000000)
+			index = EXT_CSD_PWR_CL_200_360;
+		break;
+	default:
+		pr_warning("%s: Voltage range not supported "
+			   "for power class.\n", mmc_hostname(host));
+		return -EINVAL;
+	}
+
+	pwrclass_val = ext_csd[index];
+
+	if (bus_width & (EXT_CSD_BUS_WIDTH_8 | EXT_CSD_DDR_BUS_WIDTH_8))
+		pwrclass_val = (pwrclass_val & EXT_CSD_PWR_CL_8BIT_MASK) >>
+				EXT_CSD_PWR_CL_8BIT_SHIFT;
+	else
+		pwrclass_val = (pwrclass_val & EXT_CSD_PWR_CL_4BIT_MASK) >>
+				EXT_CSD_PWR_CL_4BIT_SHIFT;
+
+	/* If the power class is different from the default value */
+	if (pwrclass_val > 0) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				 EXT_CSD_POWER_CLASS,
+				 pwrclass_val,
+				 card->ext_csd.generic_cmd6_time);
+	}
+
+	return err;
+}
 
 /*
  * Handle the detection and initialisation of a card.
@@ -670,7 +789,8 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	 */
 	if (card->ext_csd.enhanced_area_en) {
 		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-				 EXT_CSD_ERASE_GROUP_DEF, 1, 0);
+				 EXT_CSD_ERASE_GROUP_DEF, 1,
+				 card->ext_csd.generic_cmd6_time);
 
 		if (err && err != -EBADMSG)
 			goto free_card;
@@ -708,12 +828,35 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	/*
+	 * If the host supports the power_off_notify capability then
+	 * set the notification byte in the ext_csd register of device
+	 */
+	if ((host->caps2 & MMC_CAP2_POWEROFF_NOTIFY) &&
+	    (card->ext_csd.rev >= 6)) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				 EXT_CSD_POWER_OFF_NOTIFICATION,
+				 EXT_CSD_POWER_ON,
+				 card->ext_csd.generic_cmd6_time);
+		if (err && err != -EBADMSG)
+			goto free_card;
+	}
+
+	if (!err)
+		/*
+		 * The err can be -EBADMSG or 0,
+		 * so check for success and update the flag
+		 */
+		if (!err)
+			card->poweroff_notify_state = MMC_POWERED_ON;
+
+	/*
 	 * Activate high speed (if supported)
 	 */
 	if ((card->ext_csd.hs_max_dtr != 0) &&
 		(host->caps & MMC_CAP_MMC_HIGHSPEED)) {
 		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-				 EXT_CSD_HS_TIMING, 1, 0);
+				 EXT_CSD_HS_TIMING, 1,
+				 card->ext_csd.generic_cmd6_time);
 		if (err && err != -EBADMSG)
 			goto free_card;
 
@@ -725,6 +868,22 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			mmc_card_set_highspeed(card);
 			mmc_set_timing(card->host, MMC_TIMING_MMC_HS);
 		}
+	}
+
+	/*
+	 * Enable HPI feature (if supported)
+	 */
+	if (card->ext_csd.hpi) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+			EXT_CSD_HPI_MGMT, 1, 0);
+		if (err && err != -EBADMSG)
+			goto free_card;
+		if (err) {
+			pr_warning("%s: Enabling HPI failed\n",
+				   mmc_hostname(card->host));
+			err = 0;
+		} else
+			card->ext_csd.hpi_en = 1;
 	}
 
 	/*
@@ -782,10 +941,18 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			bus_width = bus_widths[idx];
 			if (bus_width == MMC_BUS_WIDTH_1)
 				ddr = 0; /* no DDR for 1-bit width */
+			err = mmc_select_powerclass(card, ext_csd_bits[idx][0],
+						    ext_csd);
+			if (err)
+				pr_err("%s: power class selection to "
+				       "bus width %d failed\n",
+				       mmc_hostname(card->host),
+				       1 << bus_width);
+
 			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 					 EXT_CSD_BUS_WIDTH,
 					 ext_csd_bits[idx][0],
-					 0);
+					 card->ext_csd.generic_cmd6_time);
 			if (!err) {
 				mmc_set_bus_width(card->host, bus_width);
 
@@ -805,10 +972,21 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		}
 
 		if (!err && ddr) {
+			/* to inform to mshci driver
+			   that it is working as DDR mode */
+			(host->ios).ddr = (unsigned char)ddr;
+			err = mmc_select_powerclass(card, ext_csd_bits[idx][1],
+						    ext_csd);
+			if (err)
+				pr_err("%s: power class selection to "
+				       "bus width %d ddr %d failed\n",
+				       mmc_hostname(card->host),
+				       1 << bus_width, ddr);
+
 			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 					 EXT_CSD_BUS_WIDTH,
 					 ext_csd_bits[idx][1],
-					 0);
+					 card->ext_csd.generic_cmd6_time);
 		}
 		if (err) {
 			printk(KERN_WARNING "%s: switch to bus width %d ddr %d "
@@ -839,6 +1017,51 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			mmc_card_set_ddr_mode(card);
 			mmc_set_timing(card->host, MMC_TIMING_UHS_DDR50);
 			mmc_set_bus_width(card->host, bus_width);
+		}
+	}
+
+	/*
+	 * If cache size is higher than 0, this indicates
+	 * the existence of cache and it can be turned on.
+	 */
+	if ((host->caps2 & MMC_CAP2_CACHE_CTRL) &&
+			card->ext_csd.cache_size > 0) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				EXT_CSD_CACHE_CTRL, 1,
+				card->ext_csd.generic_cmd6_time);
+		if (err && err != -EBADMSG)
+			goto free_card;
+
+		/*
+		 * Only if no error, cache is turned on successfully.
+		 */
+		if (err) {
+			pr_warning("%s: Cache is supported, "
+					"but failed to turn on (%d)\n",
+					mmc_hostname(card->host), err);
+			card->ext_csd.cache_ctrl = 0;
+			err = 0;
+		} else {
+			card->ext_csd.cache_ctrl = 1;
+		}
+	}
+
+	if ((host->caps2 & MMC_CAP2_PACKED_CMD) &&
+			(card->ext_csd.max_packed_writes > 0) &&
+			(card->ext_csd.max_packed_reads > 0)) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				EXT_CSD_EXP_EVENTS_CTRL,
+				EXT_CSD_PACKED_EVENT_EN,
+				card->ext_csd.generic_cmd6_time);
+		if (err && err != -EBADMSG)
+			goto free_card;
+		if (err) {
+			pr_warning("%s: Enabling packed event failed\n",
+					mmc_hostname(card->host));
+			card->ext_csd.packed_event_en = 0;
+			err = 0;
+		} else {
+			card->ext_csd.packed_event_en = 1;
 		}
 	}
 

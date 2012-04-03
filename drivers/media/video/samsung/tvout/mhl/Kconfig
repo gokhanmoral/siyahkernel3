@@ -1,0 +1,21 @@
+#
+# mhl drivers configuration
+#
+
+menu "Mhl(sii9244) device support"
+
+
+config SAMSUNG_MHL
+        bool "Enable Sii9244 MHL Chip Driver"
+        default n
+        ---help---
+          support Sii9244 MHL Chip Driver
+
+
+config SAMSUNG_USE_11PIN_CONNECTOR
+	bool "11pin micro-usb connector support"
+	default n
+	---help---
+	  use 11pin micro usb connector instead of 5pin
+
+endmenu

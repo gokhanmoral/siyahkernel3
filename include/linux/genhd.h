@@ -190,6 +190,9 @@ struct gendisk {
 	struct blk_integrity *integrity;
 #endif
 	int node_id;
+#ifdef CONFIG_USB_HOST_NOTIFY
+	int media_present;
+#endif
 };
 
 static inline struct gendisk *part_to_disk(struct hd_struct *part)

@@ -33,6 +33,12 @@
 #include <linux/fs_stack.h>
 #include "ecryptfs_kernel.h"
 
+#ifdef CONFIG_WTL_ENCRYPTION_FILTER
+#define ECRYPTFS_IOCTL_GET_ATTRIBUTES	_IOR('l', 0x10, __u32)
+#define ECRYPTFS_WAS_ENCRYPTED 128
+#endif
+
+
 /**
  * ecryptfs_read_update_atime
  *
@@ -237,6 +243,35 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 		rc = 0;
 		goto out;
 	}
+/* change@wtl.fzhang encryption filter */
+#ifdef CONFIG_WTL_ENCRYPTION_FILTER
+	mutex_lock(&crypt_stat->cs_mutex);
+	if ((mount_crypt_stat->flags & ECRYPTFS_ENABLE_NEW_PASSTHROUGH)
+			&& (crypt_stat->flags & ECRYPTFS_ENCRYPTED)) {
+		if (ecryptfs_read_metadata(ecryptfs_dentry)) {
+			crypt_stat->flags &= ~(ECRYPTFS_I_SIZE_INITIALIZED
+					       | ECRYPTFS_ENCRYPTED);
+			mutex_unlock(&crypt_stat->cs_mutex);
+			goto out;
+		}
+	} else if ((mount_crypt_stat->flags & ECRYPTFS_ENABLE_FILTERING)
+			&& (crypt_stat->flags & ECRYPTFS_ENCRYPTED)) {
+		struct dentry *fp_dentry =
+			ecryptfs_inode_to_private(inode)->lower_file->f_dentry;
+		char filename[256];
+		strcpy(filename, fp_dentry->d_name.name);
+		if (is_file_name_match(mount_crypt_stat, fp_dentry)
+			|| is_file_ext_match(mount_crypt_stat, filename)) {
+			if (ecryptfs_read_metadata(ecryptfs_dentry))
+				crypt_stat->flags &=
+				~(ECRYPTFS_I_SIZE_INITIALIZED
+				| ECRYPTFS_ENCRYPTED);
+			mutex_unlock(&crypt_stat->cs_mutex);
+			goto out;
+		}
+	}
+	mutex_unlock(&crypt_stat->cs_mutex);
+#endif
 	mutex_lock(&crypt_stat->cs_mutex);
 	if (!(crypt_stat->flags & ECRYPTFS_POLICY_APPLIED)
 	    || !(crypt_stat->flags & ECRYPTFS_KEY_VALID)) {
@@ -319,7 +354,33 @@ ecryptfs_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct file *lower_file = NULL;
 	long rc = -ENOTTY;
+#ifdef CONFIG_WTL_ENCRYPTION_FILTER
+	if (cmd == ECRYPTFS_IOCTL_GET_ATTRIBUTES) {
+		u32 __user *user_attr = (u32 __user *)arg;
+		u32 attr = 0;
+		char filename[256];
+		struct dentry *ecryptfs_dentry = file->f_path.dentry;
+		struct ecryptfs_mount_crypt_stat *mount_crypt_stat =
+			&ecryptfs_superblock_to_private(ecryptfs_dentry->d_sb)
+				->mount_crypt_stat;
 
+		struct inode *inode = ecryptfs_dentry->d_inode;
+		struct ecryptfs_crypt_stat *crypt_stat =
+			&ecryptfs_inode_to_private(inode)->crypt_stat;
+		struct dentry *fp_dentry =
+			ecryptfs_inode_to_private(inode)->lower_file->f_dentry;
+		strcpy(filename, fp_dentry->d_name.name);
+		mutex_lock(&crypt_stat->cs_mutex);
+		if ((crypt_stat->flags & ECRYPTFS_ENCRYPTED) ||
+			((mount_crypt_stat->flags & ECRYPTFS_ENABLE_FILTERING)
+			&& (is_file_name_match(mount_crypt_stat, fp_dentry)
+			|| is_file_ext_match(mount_crypt_stat, filename))))
+			attr = ECRYPTFS_WAS_ENCRYPTED;
+		mutex_unlock(&crypt_stat->cs_mutex);
+		put_user(attr, user_attr);
+		return 0;
+	}
+#endif
 	if (ecryptfs_file_to_private(file))
 		lower_file = ecryptfs_file_to_lower(file);
 	if (lower_file && lower_file->f_op && lower_file->f_op->unlocked_ioctl)

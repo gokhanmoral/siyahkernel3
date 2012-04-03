@@ -901,6 +901,7 @@ static void ohci_stop (struct usb_hcd *hcd)
 
 	ohci_usb_reset (ohci);
 	ohci_writel (ohci, OHCI_INTR_MIE, &ohci->regs->intrdisable);
+	(void)ohci_readl(ohci, &ohci->regs->intrdisable);
 	free_irq(hcd->irq, hcd);
 	hcd->irq = -1;
 
@@ -1006,6 +1007,11 @@ MODULE_LICENSE ("GPL");
 #if defined(CONFIG_ARCH_S3C2410) || defined(CONFIG_ARCH_S3C64XX)
 #include "ohci-s3c2410.c"
 #define PLATFORM_DRIVER		ohci_hcd_s3c2410_driver
+#endif
+
+#ifdef CONFIG_USB_OHCI_S5P
+#include "ohci-s5p.c"
+#define PLATFORM_DRIVER		ohci_hcd_s5p_driver
 #endif
 
 #ifdef CONFIG_USB_OHCI_HCD_OMAP1

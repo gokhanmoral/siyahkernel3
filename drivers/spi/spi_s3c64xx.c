@@ -56,7 +56,7 @@
 #define S3C64XX_SPI_CLKSEL_SRCMSK	(3<<9)
 #define S3C64XX_SPI_CLKSEL_SRCSHFT	9
 #define S3C64XX_SPI_ENCLK_ENABLE	(1<<8)
-#define S3C64XX_SPI_PSR_MASK 		0xff
+#define S3C64XX_SPI_PSR_MASK		0xff
 
 #define S3C64XX_SPI_MODE_CH_TSZ_BYTE		(0<<29)
 #define S3C64XX_SPI_MODE_CH_TSZ_HALFWORD	(1<<29)
@@ -184,6 +184,13 @@ static void flush_fifo(struct s3c64xx_spi_driver_data *sdd)
 	void __iomem *regs = sdd->regs;
 	unsigned long loops;
 	u32 val;
+
+#if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) || \
+	defined(CONFIG_PHONE_IPC_SPI)
+	val = readl(regs + S3C64XX_SPI_CH_CFG);
+	val &= ~(S3C64XX_SPI_CH_RXCH_ON | S3C64XX_SPI_CH_TXCH_ON);
+	writel(val, regs + S3C64XX_SPI_CH_CFG);
+#endif
 
 	writel(0, regs + S3C64XX_SPI_PACKET_CNT);
 

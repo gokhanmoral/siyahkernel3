@@ -66,6 +66,12 @@
 /* flag to ignore all characters coming in */
 #define RXSTAT_DUMMY_READ (0x10000000)
 
+#if defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_MIDAS)
+/* Devices	*/
+#define CONFIG_BT_S3C_UART	0
+#define CONFIG_GPS_S3C_UART	1
+#endif
+
 static inline struct s3c24xx_uart_port *to_ourport(struct uart_port *port)
 {
 	return container_of(port, struct s3c24xx_uart_port, port);
@@ -351,6 +357,26 @@ static unsigned int s3c24xx_serial_get_mctrl(struct uart_port *port)
 static void s3c24xx_serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 	/* todo - possibly remove AFC and do manual CTS */
+
+#if defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_MIDAS)
+	unsigned int umcon = 0;
+	umcon = rd_regl(port, S3C2410_UMCON);
+
+	if (port->line == CONFIG_BT_S3C_UART) {
+		if (mctrl & TIOCM_RTS) {
+			umcon |= S3C2410_UMCOM_AFC;
+		} else {
+			umcon &= ~S3C2410_UMCOM_AFC;
+		}
+
+	} else if (port->line == CONFIG_GPS_S3C_UART) {
+		umcon |= S3C2410_UMCOM_AFC;
+	} else {
+		umcon &= ~S3C2410_UMCOM_AFC;
+	}
+
+	wr_regl(port, S3C2410_UMCON, umcon);
+#endif
 }
 
 static void s3c24xx_serial_break_ctl(struct uart_port *port, int break_state)
@@ -375,28 +401,39 @@ static void s3c24xx_serial_break_ctl(struct uart_port *port, int break_state)
 static void s3c24xx_serial_shutdown(struct uart_port *port)
 {
 	struct s3c24xx_uart_port *ourport = to_ourport(port);
+	struct s3c2410_uartcfg *cfg = s3c24xx_port_to_cfg(port);
 
 	if (ourport->tx_claimed) {
+		disable_irq(ourport->tx_irq);
 		free_irq(ourport->tx_irq, ourport);
 		tx_enabled(port) = 0;
 		ourport->tx_claimed = 0;
 	}
 
 	if (ourport->rx_claimed) {
+		disable_irq(ourport->rx_irq);
 		free_irq(ourport->rx_irq, ourport);
 		ourport->rx_claimed = 0;
 		rx_enabled(port) = 0;
 	}
+
+	if (cfg->set_runstate)
+		cfg->set_runstate(0);
 }
 
 
 static int s3c24xx_serial_startup(struct uart_port *port)
 {
 	struct s3c24xx_uart_port *ourport = to_ourport(port);
+	struct s3c2410_uartcfg *cfg = s3c24xx_port_to_cfg(port);
 	int ret;
 
 	dbg("s3c24xx_serial_startup: port=%p (%08lx,%p)\n",
 	    port->mapbase, port->membase);
+
+	/* runstate should be 1 before request_irq is called */
+	if (cfg->set_runstate)
+		cfg->set_runstate(1);
 
 	rx_enabled(port) = 1;
 
@@ -405,7 +442,7 @@ static int s3c24xx_serial_startup(struct uart_port *port)
 
 	if (ret != 0) {
 		printk(KERN_ERR "cannot get irq %d\n", ourport->rx_irq);
-		return ret;
+		goto err;
 	}
 
 	ourport->rx_claimed = 1;
@@ -596,6 +633,7 @@ static unsigned int s3c24xx_serial_getclk(struct uart_port *port,
 	} else {
 		resptr = res;
 
+		best = res;
 		for (i = 0; i < cfg->clocks_size; i++, clkp++) {
 			if (s3c24xx_serial_calcbaud(resptr, port, clkp, baud))
 				resptr++;
@@ -608,6 +646,7 @@ static unsigned int s3c24xx_serial_getclk(struct uart_port *port,
 		unsigned int deviation = (1<<30)|((1<<30)-1);
 		int calc_deviation;
 
+		best = res;
 		for (sptr = res; sptr < resptr; sptr++) {
 			calc_deviation = baud - sptr->calc;
 			if (calc_deviation < 0)
@@ -675,9 +714,11 @@ static void s3c24xx_serial_set_termios(struct uart_port *port,
 	/*
 	 * Ask the core to calculate the divisor for us.
 	 */
-
-	baud = uart_get_baud_rate(port, termios, old, 0, 115200*8);
-
+#if defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_MIDAS)
+	baud = uart_get_baud_rate(port, termios, old, 0, 4000000); // 4Mbps
+#else
+	baud = uart_get_baud_rate(port, termios, old, 0, 3000000);
+#endif
 	if (baud == 38400 && (port->flags & UPF_SPD_MASK) == UPF_SPD_CUST)
 		quot = port->custom_divisor;
 	else
@@ -849,6 +890,14 @@ s3c24xx_serial_verify_port(struct uart_port *port, struct serial_struct *ser)
 	return 0;
 }
 
+static void
+s3c24xx_serial_wake_peer(struct uart_port *port)
+{
+	struct s3c2410_uartcfg *cfg = s3c24xx_port_to_cfg(port);
+
+	if(cfg->wake_peer)
+		cfg->wake_peer(port);
+}
 
 #ifdef CONFIG_SERIAL_SAMSUNG_CONSOLE
 
@@ -877,6 +926,7 @@ static struct uart_ops s3c24xx_serial_ops = {
 	.request_port	= s3c24xx_serial_request_port,
 	.config_port	= s3c24xx_serial_config_port,
 	.verify_port	= s3c24xx_serial_verify_port,
+	.wake_peer	= s3c24xx_serial_wake_peer,
 };
 
 
@@ -1109,7 +1159,7 @@ static int s3c24xx_serial_init_port(struct s3c24xx_uart_port *ourport,
 		ourport->rx_irq = ret;
 		ourport->tx_irq = ret + 1;
 	}
-	
+
 	ret = platform_get_irq(platdev, 1);
 	if (ret > 0)
 		ourport->tx_irq = ret;
@@ -1132,7 +1182,8 @@ static ssize_t s3c24xx_serial_show_clksrc(struct device *dev,
 	struct uart_port *port = s3c24xx_dev_to_port(dev);
 	struct s3c24xx_uart_port *ourport = to_ourport(port);
 
-	return snprintf(buf, PAGE_SIZE, "* %s\n", ourport->clksrc->name);
+	return snprintf(buf, PAGE_SIZE, "* %s\n",
+			ourport->clksrc ? ourport->clksrc->name : "(null)");
 }
 
 static DEVICE_ATTR(clock_source, S_IRUGO, s3c24xx_serial_show_clksrc, NULL);
@@ -1416,10 +1467,8 @@ s3c24xx_serial_console_setup(struct console *co, char *options)
 
 	/* is the port configured? */
 
-	if (port->mapbase == 0x0) {
-		co->index = 0;
-		port = &s3c24xx_serial_ports[co->index].port;
-	}
+	if (port->mapbase == 0x0)
+		return -ENODEV;
 
 	cons_uart = port;
 
@@ -1451,7 +1500,8 @@ static struct console s3c24xx_serial_console = {
 	.flags		= CON_PRINTBUFFER,
 	.index		= -1,
 	.write		= s3c24xx_serial_console_write,
-	.setup		= s3c24xx_serial_console_setup
+	.setup		= s3c24xx_serial_console_setup,
+	.data		= &s3c24xx_uart_drv,
 };
 
 int s3c24xx_serial_initconsole(struct platform_driver *drv,

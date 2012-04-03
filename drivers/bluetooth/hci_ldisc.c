@@ -136,6 +136,11 @@ restart:
 
 	while ((skb = hci_uart_dequeue(hu))) {
 		int len;
+/* Samsung Bluetooth Feature.2012.01.19
+ * Add wake_peer uart operation which is called before starting UART TX
+ */
+		if (hdev->wake_peer)
+			hdev->wake_peer(hdev);
 
 		set_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 		len = tty->ops->write(tty, skb->data, skb->len);
