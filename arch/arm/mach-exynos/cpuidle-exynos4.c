@@ -678,6 +678,7 @@ static int exynos4_enter_idle(struct cpuidle_device *dev,
 	local_irq_disable();
 	do_gettimeofday(&before);
 
+#if 0
 	if (use_clock_down == SW_CLK_DWN) {
 		/* USE SW Clock Down */
 		cpu = get_cpu();
@@ -717,6 +718,7 @@ static int exynos4_enter_idle(struct cpuidle_device *dev,
 
 		put_cpu();
 	} else
+#endif
 		cpu_do_idle();
 
 	do_gettimeofday(&after);
