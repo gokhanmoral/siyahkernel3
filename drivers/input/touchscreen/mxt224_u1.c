@@ -2072,7 +2072,7 @@ static ssize_t mov_hysti_store(struct device *dev,
 	int i;
 	
 	//struct i2c_client *client = to_i2c_client(dev);
-	struct mxt224_data *data = dev_get_drvdata(dev);
+//	struct mxt224_data *data = dev_get_drvdata(dev);
 	//struct mxt224_platform_data *pdata = data->client->dev.platform_data;
 	
 	sscanf(buf, "%u", &register_value);
@@ -2091,8 +2091,13 @@ static ssize_t mov_hysti_store(struct device *dev,
 	}
 	*/
 	
-	i = sprintf(buff, "%u %u %u", TOUCH_MULTITOUCHSCREEN_T9, 11, register_value);
-	qt602240_object_setting(dev, attr, buff, i);
+	//do not apply if the screen is not active,
+	//it will be applied after turning on the screen anyway -gm
+	if( copy_data->mxt224_enabled == 1)
+	{
+		i = sprintf(buff, "%u %u %u", TOUCH_MULTITOUCHSCREEN_T9, 11, register_value);
+		qt602240_object_setting(dev, attr, buff, i);
+	}
 	return count;
 }
 
