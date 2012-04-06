@@ -25,8 +25,6 @@
 
 #define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
 
-static struct mmc_driver *assd_drv;
-
 static ssize_t mmc_type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -109,13 +107,6 @@ static int mmc_bus_probe(struct device *dev)
 	struct mmc_driver *drv = to_mmc_driver(dev->driver);
 	struct mmc_card *card = mmc_dev_to_card(dev);
 
-	/*
-	 * inform the assd module about the insertion of a new card.
-	 * but only if the assd module is loaded.
-	 */
-	if (assd_drv != NULL)
-		assd_drv->probe(card);
-
 	return drv->probe(card);
 }
 
@@ -123,13 +114,6 @@ static int mmc_bus_remove(struct device *dev)
 {
 	struct mmc_driver *drv = to_mmc_driver(dev->driver);
 	struct mmc_card *card = mmc_dev_to_card(dev);
-
-	/*
-	 * inform the assd module about the removal of a card.
-	 * but only if the assd module is loaded.
-	 */
-	if (assd_drv != NULL)
-		assd_drv->remove(card);
 
 	drv->remove(card);
 
@@ -211,15 +195,6 @@ void mmc_unregister_bus(void)
  */
 int mmc_register_driver(struct mmc_driver *drv)
 {
-	/*
-	 * keep track whether or not the assd module is loaded.
-	 */
-	if (!strcmp(drv->drv.name, "sd_assd")) {
-
-		assd_drv = drv;
-		return 0;
-	}
-
 	drv->drv.bus = &mmc_bus_type;
 	return driver_register(&drv->drv);
 }
@@ -232,15 +207,6 @@ EXPORT_SYMBOL(mmc_register_driver);
  */
 void mmc_unregister_driver(struct mmc_driver *drv)
 {
-	/*
-	 * keep track whether or not the assd module is loaded.
-	 */
-	if (!strcmp(drv->drv.name, "sd_assd")) {
-
-		assd_drv = NULL;
-		return;
-	}
-
 	drv->drv.bus = &mmc_bus_type;
 	driver_unregister(&drv->drv);
 }
