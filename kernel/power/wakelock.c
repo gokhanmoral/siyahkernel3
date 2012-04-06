@@ -50,8 +50,8 @@ suspend_state_t requested_suspend_state = PM_SUSPEND_MEM;
 static struct wake_lock unknown_wakeup;
 static struct wake_lock suspend_backoff_lock;
 
-#define SUSPEND_BACKOFF_THRESHOLD	100
-#define SUSPEND_BACKOFF_INTERVAL	5000
+#define SUSPEND_BACKOFF_THRESHOLD	10
+#define SUSPEND_BACKOFF_INTERVAL	10000
 
 static unsigned suspend_short_count;
 
