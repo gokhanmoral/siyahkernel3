@@ -1642,8 +1642,8 @@ int cpufreq_register_governor(struct cpufreq_governor *governor)
 			governor->disableScalingDuringSuspend = 1;
 		if (!strnicmp(governor->name, "powersave", CPUFREQ_NAME_LEN)
 		|| !strnicmp(governor->name, "performance", CPUFREQ_NAME_LEN)
-		//|| !strnicmp(governor->name, "lulzactive", CPUFREQ_NAME_LEN)
-		//|| !strnicmp(governor->name, "interactive", 11)
+		|| !strnicmp(governor->name, "lulzactive", CPUFREQ_NAME_LEN)
+		|| !strnicmp(governor->name, "interactive", 11)
 		)
 			governor->enableSmoothScaling = 0;
 		else
