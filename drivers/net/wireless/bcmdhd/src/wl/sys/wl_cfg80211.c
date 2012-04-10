@@ -5170,12 +5170,11 @@ static s32 wl_inform_single_bss(struct wl_priv *wl, struct wl_bss_info *bi)
 		band = wiphy->bands[IEEE80211_BAND_2GHZ];
 	else
 		band = wiphy->bands[IEEE80211_BAND_5GHZ];
-
-	if(band==NULL) {
+	if (!band) {
+		WL_ERR(("No valid band"));
 		kfree(notif_bss_info);
-		return err;
+		return -EINVAL;
 	}
-
 	notif_bss_info->rssi = dtoh16(bi->RSSI);
 	memcpy(mgmt->bssid, &bi->BSSID, ETHER_ADDR_LEN);
 	mgmt_type = wl->active_scan ?
@@ -5382,7 +5381,10 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 			band = wiphy->bands[IEEE80211_BAND_2GHZ];
 		else
 			band = wiphy->bands[IEEE80211_BAND_5GHZ];
-
+		if (!band) {
+			WL_ERR(("No valid band"));
+			return -EINVAL;
+		}
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 38) && !defined(WL_COMPAT_WIRELESS)
 		freq = ieee80211_channel_to_frequency(channel);
 		(void)band->band;
@@ -6019,7 +6021,10 @@ wl_notify_rx_mgmt_frame(struct wl_priv *wl, struct net_device *ndev,
 		band = wiphy->bands[IEEE80211_BAND_2GHZ];
 	else
 		band = wiphy->bands[IEEE80211_BAND_5GHZ];
-
+	if (!band) {
+		WL_ERR(("No valid band"));
+		return -EINVAL;
+	}
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 38) && !defined(WL_COMPAT_WIRELESS)
 	freq = ieee80211_channel_to_frequency(channel);
 	(void)band->band;
