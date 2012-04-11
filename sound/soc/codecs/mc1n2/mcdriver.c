@@ -37,7 +37,7 @@ static SINT32	update_clock			(const MCDRV_CLOCK_INFO* psClockInfo);
 static SINT32	switch_clock			(const MCDRV_CLKSW_INFO* psClockInfo);
 
 static SINT32	get_path				(MCDRV_PATH_INFO* psPathInfo);
-static SINT32	set_path				(const MCDRV_PATH_INFO* psPathInfo);
+static SINT32	set_path				(MCDRV_PATH_INFO* psPathInfo);
 
 static SINT32	get_volume				(MCDRV_VOL_INFO* psVolInfo);
 static SINT32	set_volume				(const MCDRV_VOL_INFO *psVolInfo);
@@ -762,6 +762,21 @@ static	SINT32	switch_clock
 	return McDevIf_ExecutePacket();
 }
 
+#if defined(CONFIG_SND_SOC_MC1N2_MIC_SWAP)
+void  swap_mic_paths
+(
+  MCDRV_PATH_INFO*  psPathInfo
+)
+{
+  UINT8 temp_state;
+
+  temp_state = psPathInfo->asAdc0[0].abSrcOnOff[0];
+  psPathInfo->asAdc0[0].abSrcOnOff[0] = psPathInfo->asAdc0[1].abSrcOnOff[0];
+  psPathInfo->asAdc0[1].abSrcOnOff[0] = temp_state;
+}
+
+#endif
+
 /****************************************************************************
  *	get_path
  *
@@ -791,6 +806,10 @@ static	SINT32	get_path
 
 	McResCtrl_GetPathInfoVirtual(psPathInfo);
 
+#if defined(CONFIG_SND_SOC_MC1N2_MIC_SWAP)
+  swap_mic_paths(psPathInfo);
+#endif
+
 	return MCDRV_SUCCESS;
 }
 
@@ -809,7 +828,7 @@ static	SINT32	get_path
  ****************************************************************************/
 static	SINT32	set_path
 (
-	const MCDRV_PATH_INFO*	psPathInfo
+	MCDRV_PATH_INFO*  psPathInfo
 )
 {
 	SINT32			sdRet	= MCDRV_SUCCESS;
@@ -835,6 +854,10 @@ static	SINT32	set_path
 	{
 		return sdRet;
 	}
+
+#if defined(CONFIG_SND_SOC_MC1N2_MIC_SWAP)
+  swap_mic_paths(psPathInfo);
+#endif
 
 	McResCtrl_SetPathInfo(psPathInfo);
 
