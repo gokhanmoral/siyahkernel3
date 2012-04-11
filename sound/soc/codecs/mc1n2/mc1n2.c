@@ -4440,6 +4440,80 @@ static int mc1n2_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
+//#ifdef CONFIG_TARGET_LOCALE_KOR
+/*
+ * Function to prevent tick-noise when reboot menu selected.
+ * if you have Power-Off sound and same problem, use this function
+ */
+static void mc1n2_i2c_shutdown(struct i2c_client *client)
+{
+#ifndef ALSA_VER_ANDROID_3_0
+	struct snd_soc_codec *codec = i2c_get_clientdata(client);
+#endif
+	struct mc1n2_data *mc1n2;
+	int err, i;
+
+	pr_info("%s\n", __func__);
+
+	TRACE_FUNC();
+
+#ifdef ALSA_VER_ANDROID_3_0
+	mc1n2 = (struct mc1n2_data *)(i2c_get_clientdata(client));
+#else
+#ifdef ALSA_VER_ANDROID_2_6_35
+	mc1n2 = snd_soc_codec_get_drvdata(codec);
+#else
+	mc1n2 = codec->private_data;
+#endif
+#endif
+
+	mutex_lock(&mc1n2->mutex);
+
+	/* store parameters */
+	for (i = 0; i < MC1N2_N_INFO_STORE; i++) {
+		struct mc1n2_info_store *store = &mc1n2_info_store_tbl[i];
+		if (store->get) {
+			err = _McDrv_Ctrl(store->get,
+				(void *)mc1n2 + store->offset, 0);
+			if (err != MCDRV_SUCCESS) {
+				pr_err("%d: Error in mc1n2_suspend\n", err);
+				err = -EIO;
+				goto error;
+			} else {
+				err = 0;
+			}
+		}
+	}
+
+	/* Do not enter suspend mode for voice call */
+	if (mc1n2_current_mode != MC1N2_MODE_IDLE) {
+		err = 0;
+		goto error;
+	}
+
+	err = _McDrv_Ctrl(MCDRV_TERM, NULL, 0);
+	if (err != MCDRV_SUCCESS) {
+		pr_err("%d: Error in MCDRV_TERM\n", err);
+		err = -EIO;
+	} else {
+		err = 0;
+	}
+
+	/* Suepend MCLK */
+	mc1n2_set_mclk_source(0);
+
+	pr_info("%s done\n", __func__);
+
+error:
+	mutex_unlock(&mc1n2->mutex);
+
+	if (err != 0)
+		pr_err("%s: err = %d\n", __func__, err);
+
+	return;
+}
+//#endif
+
 static const struct i2c_device_id mc1n2_i2c_id[] = {
 	{MC1N2_NAME, 0},
 	{},
@@ -4453,6 +4527,9 @@ static struct i2c_driver mc1n2_i2c_driver = {
 	},
 	.probe = mc1n2_i2c_probe,
 	.remove = mc1n2_i2c_remove,
+//#ifdef CONFIG_TARGET_LOCALE_KOR
+	.shutdown = mc1n2_i2c_shutdown,
+//#endif
 	.id_table = mc1n2_i2c_id,
 };
 
