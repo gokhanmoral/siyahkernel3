@@ -462,6 +462,9 @@ static int __devinit gpio_keys_setup_key(struct platform_device *pdev,
 		goto fail3;
 	}
 
+	if( button->debounce_interval < KEY_NOISE_DEBOUNCE )  button->debounce_interval = KEY_NOISE_DEBOUNCE;
+
+
 	if (button->debounce_interval) {
 		error = gpio_set_debounce(button->gpio,
 					  button->debounce_interval * 1000);

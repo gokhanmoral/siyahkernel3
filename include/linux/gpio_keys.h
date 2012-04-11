@@ -26,4 +26,7 @@ struct gpio_keys_platform_data {
 	const char *name;		/* input device name */
 };
 
+#define KEY_NOISE_DEBOUNCE  5
+
+
 #endif
