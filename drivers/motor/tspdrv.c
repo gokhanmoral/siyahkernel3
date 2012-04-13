@@ -153,6 +153,7 @@ static ssize_t store_vibrator_level(struct device *dev,
 		else if (data < 0)
 			data = 0;
 		vibrator_level = data;
+		vibrator_duty = vibrator_duty_levels[vibrator_level];
 	} else {
 		printk(KERN_ERR "tspdrv: invalid vibrator level\n");
 	}
