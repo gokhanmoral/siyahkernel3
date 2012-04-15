@@ -750,6 +750,13 @@ ssize_t store_UV_mV_table(struct cpufreq_policy *policy,
 	int i = 0;
 	int j = 0;
 	int u[6];
+
+	//the following 8 step parsing is only for backward compatibility with old scripts
+	int tmp1, tmp2;
+	ret = sscanf(buf, "%d %d %d %d %d %d %d %d", &tmp1, &u[0], &u[1], &u[2], &u[3], &u[4], &u[5], &tmp2);
+	if( ret == 8 ) ret = 6;
+	else
+	//end backward compatibility change
 	ret = sscanf(buf, "%d %d %d %d %d %d", &u[0], &u[1], &u[2], &u[3], &u[4], &u[5]);
 	if(ret != 6) {
 		ret = sscanf(buf, "%d %d %d %d %d", &u[0], &u[1], &u[2], &u[3], &u[4]);
