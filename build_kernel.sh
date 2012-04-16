@@ -18,10 +18,9 @@ fi
 . $KERNELDIR/.config
 
 export ARCH=arm
-export CROSS_COMPILE=$PARENT_DIR/toolchain/bin/arm-eabi-
 
 cd $KERNELDIR/
-nice -n 10 make -j4 || exit 1
+nice -n 10 make -j4 modules || exit 1
 
 #remove previous initramfs files
 rm -rf $INITRAMFS_TMP

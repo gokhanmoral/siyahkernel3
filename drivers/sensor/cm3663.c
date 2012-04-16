@@ -859,7 +859,8 @@ static int cm3663_i2c_probe(struct i2c_client *client,
 	}
 	dev_set_drvdata(cm3663->switch_cmd_dev, cm3663);
 #endif
-    /* 07-28-2011 codeworkx: set initial proximity value as 1 */
+
+    /* set initial proximity value (far) */
     input_report_abs(cm3663->proximity_input_dev, ABS_DISTANCE, 1);
     input_sync(cm3663->proximity_input_dev);
 

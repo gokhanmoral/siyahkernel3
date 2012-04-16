@@ -762,6 +762,17 @@ static	SINT32	switch_clock
 	return McDevIf_ExecutePacket();
 }
 
+#ifdef CONFIG_SND_SOC_MC1N2_MIC_ADC_SWAP
+void swap_mic_adc_paths(MCDRV_PATH_INFO* psPathInfo)
+{
+    UINT8 temp_state;
+
+    temp_state = psPathInfo->asAdc0[0].abSrcOnOff[0];
+    psPathInfo->asAdc0[0].abSrcOnOff[0] = psPathInfo->asAdc0[1].abSrcOnOff[0];
+    psPathInfo->asAdc0[1].abSrcOnOff[0] = temp_state;
+}
+#endif
+
 /****************************************************************************
  *	get_path
  *
@@ -790,6 +801,10 @@ static	SINT32	get_path
 	}
 
 	McResCtrl_GetPathInfoVirtual(psPathInfo);
+
+#ifdef CONFIG_SND_SOC_MC1N2_MIC_ADC_SWAP
+    swap_mic_adc_paths(psPathInfo);
+#endif
 
 	return MCDRV_SUCCESS;
 }
@@ -835,6 +850,10 @@ static	SINT32	set_path
 	{
 		return sdRet;
 	}
+
+#ifdef CONFIG_SND_SOC_MC1N2_MIC_ADC_SWAP
+    swap_mic_adc_paths(psPathInfo);
+#endif
 
 	McResCtrl_SetPathInfo(psPathInfo);
 
