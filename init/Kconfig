@@ -565,32 +565,6 @@ config LOG_BUF_SHIFT
 		     13 =>  8 KB
 		     12 =>  4 KB
 
-config CPU_UNDERVOLTING
-	bool "cpu undervolting"
-	default n
-	help
-	  enable undervolting. if unsure, say n.
-
-config GPU_UNDERVOLTING
-	bool "gpu undervolting"
-	default n
-	help
-	  enable undervolting. if unsure, say n.
-
-config DEFAULT_CLOCK_LOW
-	int "default low clock"
-	range 100 1200
-	default 200
-	help
-	  default low frequency
-
-config DEFAULT_CLOCK_HIGH
-	int "default high clock"
-	range 500 1600
-	default 1200
-	help
-	  default high frequency
-
 #
 # Architectures with an unreliable sched_clock() should select this:
 #

@@ -68,6 +68,8 @@ struct exynos_dvfs_info {
 	unsigned int	pm_lock_idx;
 	unsigned int	max_support_idx;
 	unsigned int	min_support_idx;
+	unsigned int	max_current_idx;
+	unsigned int	min_current_idx;
 	struct clk	*cpu_clk;
 	unsigned int	*volt_table;
 	struct cpufreq_frequency_table	*freq_table;
