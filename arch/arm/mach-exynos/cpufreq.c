@@ -250,7 +250,7 @@ int exynos_cpufreq_lock(unsigned int nId,
 	freq_table = exynos_info->freq_table;
 
 	//prevent locking to a freq higher than stock freq unless overclocked -gm
-	cpufreq_level = max( min(exynos_info->max_current_idx, L1) ,
+	cpufreq_level = max( min(exynos_info->max_current_idx, L3) ,
 							(int)cpufreq_level);
 
 	mutex_lock(&set_cpu_freq_lock);
@@ -494,16 +494,16 @@ static int exynos_cpufreq_notifier_event(struct notifier_block *this,
 			mutex_lock(&set_freq_lock);
 
 			/* get the voltage value */
-			safe_arm_volt = exynos_get_safe_armvolt(exynos_info->pm_lock_idx, min(exynos_info->max_current_idx,L1));
+			safe_arm_volt = exynos_get_safe_armvolt(exynos_info->pm_lock_idx, exynos_info->max_current_idx);
 			if (safe_arm_volt)
 				regulator_set_voltage(arm_regulator, safe_arm_volt,
 					safe_arm_volt + 25000);
 
-			arm_volt = volt_table[min(exynos_info->max_current_idx,L1)];
+			arm_volt = volt_table[exynos_info->max_current_idx];
 			regulator_set_voltage(arm_regulator, arm_volt,
 				arm_volt + 25000);
 
-			exynos_info->set_freq(exynos_info->pm_lock_idx, min(exynos_info->max_current_idx,L1));
+			exynos_info->set_freq(exynos_info->pm_lock_idx, exynos_info->max_current_idx);
 
 			mutex_unlock(&set_freq_lock);
 		}
