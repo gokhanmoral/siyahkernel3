@@ -1194,10 +1194,10 @@ static ssize_t blnww_status_write( struct device *dev, struct device_attribute *
 
 
         if(sscanf(buf,"%u\n", &data ) == 1 ){
-			if( data == 1 ) blnww = 1;
+//			if( data == 1 ) blnww = 1;
 			if( data == 0 ) blnww = 0;
         }else{
-			if( !strncmp(buf, "on", 2) ) blnww = 1;
+//			if( !strncmp(buf, "on", 2) ) blnww = 1;
 			if( !strncmp(buf, "off", 3) ) blnww = 0;
         }
 
