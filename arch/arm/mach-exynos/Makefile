@@ -47,6 +47,7 @@ obj-$(CONFIG_STAND_ALONE_POLICY)	+= stand-hotplug.o
 obj-$(CONFIG_WITH_DVFS_POLICY)		+= dvfs-hotplug.o
 obj-$(CONFIG_DVFS_NR_RUNNING_POLICY)	+= dynamic-dvfs-nr_running-hotplug.o
 obj-$(CONFIG_NR_RUNNING_POLICY)		+= dynamic-nr_running-hotplug.o
+obj-$(CONFIG_LEGACY_HP_POLICY)		+= legacy-hotplug.o
 
 # machine support
 
