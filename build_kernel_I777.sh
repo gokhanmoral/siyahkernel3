@@ -12,7 +12,7 @@ INITRAMFS_TMP="/tmp/initramfs-source"
 
 if [ ! -f $KERNELDIR/.config ];
 then
-  make siyah_defconfig
+  make siyah_i777_defconfig
 fi
 
 . $KERNELDIR/.config
@@ -21,7 +21,7 @@ export ARCH=arm
 export CROSS_COMPILE=$PARENT_DIR/arm-2011.03/bin/arm-none-eabi-
 
 cd $KERNELDIR/
-nice -n 10 make -j4 modules || exit 1
+nice -n 10 make -j10 modules || exit 1
 
 #remove previous initramfs files
 rm -rf $INITRAMFS_TMP
