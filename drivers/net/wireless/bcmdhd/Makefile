@@ -60,6 +60,10 @@ endif
 ifeq ($(CONFIG_SLP),y)
 DHDCFLAGS += -DSLP_PATH
 endif
+# GGSM_WIFI_5GHz_CHANNELS feature is define for only GGSM model
+ifeq ($(GGSM_WIFI_5GHz_CHANNELS),true)
+DHDCFLAGS += -DCUSTOMER_SET_COUNTRY
+endif
 
 # For Debug
 EXTRA_CFLAGS += $(DHDCFLAGS) -DWL_CFG80211
