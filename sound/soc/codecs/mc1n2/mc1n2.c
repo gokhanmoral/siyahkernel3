@@ -46,7 +46,7 @@
 /* CONFIG_TARGET_LOCALE_NAATT_TEMP is intentionally introduced temporarily*/
 
 #include "mc1n2_cfg_gsm.h"
-#elif defined(CONFIG_MACH_Q1_REV00) || defined(CONFIG_MACH_Q1_REV02)
+#elif defined(CONFIG_MACH_Q1_BD)
 #include "mc1n2_cfg_q1.h"
 #elif defined(CONFIG_MACH_U1_KOR_LGT)
 #include "mc1n2_cfg_lgt.h"
