@@ -620,16 +620,6 @@ return count;
 extern ssize_t show_UV_mV_table(struct cpufreq_policy *policy, char *buf);
 extern ssize_t store_UV_mV_table(struct cpufreq_policy *policy,
                                       const char *buf, size_t count);
-/* sysfs interface for cpu smooth scaling parameters */
-extern ssize_t show_smooth_offset(struct cpufreq_policy *policy, char *buf);
-extern ssize_t store_smooth_offset(struct cpufreq_policy *policy,
-                                      const char *buf, size_t count);
-extern ssize_t show_smooth_target(struct cpufreq_policy *policy, char *buf);
-extern ssize_t store_smooth_target(struct cpufreq_policy *policy,
-                                      const char *buf, size_t count);
-extern ssize_t show_smooth_step(struct cpufreq_policy *policy, char *buf);
-extern ssize_t store_smooth_step(struct cpufreq_policy *policy,
-                                      const char *buf, size_t count);
 
 /**
  * show_scaling_driver - show the current cpufreq HW/BIOS limitation
@@ -663,10 +653,6 @@ cpufreq_freq_attr_rw(scaling_setspeed);
 cpufreq_freq_attr_rw(vdd_levels);
 /* UV table */
 cpufreq_freq_attr_rw(UV_mV_table);
-/* smooth scaling params */
-cpufreq_freq_attr_rw(smooth_offset);
-cpufreq_freq_attr_rw(smooth_target);
-cpufreq_freq_attr_rw(smooth_step);
 
 static struct attribute *default_attrs[] = {
 	&cpuinfo_min_freq.attr,
@@ -682,9 +668,6 @@ static struct attribute *default_attrs[] = {
 	&scaling_setspeed.attr,
 	&vdd_levels.attr,
 	&UV_mV_table.attr,
-	&smooth_offset.attr,
-	&smooth_target.attr,
-	&smooth_step.attr,
 	NULL
 };
 
