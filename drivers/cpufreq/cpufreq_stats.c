@@ -22,9 +22,6 @@
 #include <linux/notifier.h>
 #include <asm/cputime.h>
 
-//not as dirty as before...
-#define GM_CPUSTAT_HACK
-
 static spinlock_t cpufreq_stats_lock;
 
 #define CPUFREQ_STATDEVICE_ATTR(_name, _mode, _show) \
@@ -88,7 +85,6 @@ static ssize_t show_time_in_state(struct cpufreq_policy *policy, char *buf)
 	if (!stat)
 		return 0;
 	cpufreq_stats_update(stat->cpu);
-
 	for (i = 0; i < stat->state_num; i++) {
 		len += sprintf(buf + len, "%u %llu\n", stat->freq_table[i],
 			(unsigned long long)
@@ -227,9 +223,7 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 			continue;
 		count++;
 	}
-#ifdef GM_CPUSTAT_HACK
-	count = 18;
-#endif
+
 	alloc_size = count * sizeof(int) + count * sizeof(cputime64_t);
 
 #ifdef CONFIG_CPU_FREQ_STAT_DETAILS
@@ -287,6 +281,8 @@ static int cpufreq_stat_notifier_policy(struct notifier_block *nb,
 	return 0;
 }
 
+static int cpufreq_stats_create_table_cpu(unsigned int cpu);
+
 static int cpufreq_stat_notifier_trans(struct notifier_block *nb,
 		unsigned long val, void *data)
 {
@@ -305,9 +301,13 @@ static int cpufreq_stat_notifier_trans(struct notifier_block *nb,
 
 	if(new_index == -1) {
 		//quick and dirty fix. 
-		stat->freq_table[stat->state_num] = freq->new;
-		new_index = stat->state_num;
-		stat->state_num += 1;
+		cpufreq_stats_free_sysfs(freq->cpu);
+		cpufreq_stats_free_table(freq->cpu);
+		cpufreq_stats_create_table_cpu(freq->cpu);
+		stat = per_cpu(cpufreq_stats_table, freq->cpu);
+		if (!stat)
+			return 0;
+		new_index = freq_table_get_index(stat, freq->new);
 	}
 
 	old_index = stat->last_index;
