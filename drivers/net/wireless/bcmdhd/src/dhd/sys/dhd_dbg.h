@@ -29,8 +29,7 @@
 
 #if defined(DHD_DEBUG)
 
-#define DHD_ERROR(args)    do {if ((dhd_msg_level & DHD_ERROR_VAL) && (net_ratelimit())) \
-									printf args;} while (0)
+#define DHD_ERROR(args)		do {if (dhd_msg_level & DHD_ERROR_VAL) printf args;} while (0)
 #define DHD_TRACE(args)		do {if (dhd_msg_level & DHD_TRACE_VAL) printf args;} while (0)
 #define DHD_INFO(args)		do {if (dhd_msg_level & DHD_INFO_VAL) printf args;} while (0)
 #define DHD_DATA(args)		do {if (dhd_msg_level & DHD_DATA_VAL) printf args;} while (0)
@@ -64,7 +63,7 @@
 
 #else /* defined(BCMDBG) || defined(DHD_DEBUG) */
 
-#define DHD_ERROR(args)		do {if (net_ratelimit()) printf args;} while (0)
+#define DHD_ERROR(args)		do { printf args;} while (0)
 #define DHD_TRACE(args)
 #define DHD_INFO(args)
 #define DHD_DATA(args)
@@ -99,12 +98,7 @@
 
 #define DHD_LOG(args)
 
-#if defined(DHD_DEBUG)
-extern void dhd_blog(char *cp, int size);
-#define DHD_BLOG(cp, size)		do { dhd_blog(cp, size);} while (0)
-#else
 #define DHD_BLOG(cp, size)
-#endif
 
 #define DHD_NONE(args)
 extern int dhd_msg_level;

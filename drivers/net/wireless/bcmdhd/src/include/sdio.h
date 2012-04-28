@@ -84,6 +84,11 @@ typedef volatile struct {
 #define SDIOD_CCCR_INTR_EXTN		0x16
 
 /* Broadcom extensions (corerev >= 1) */
+#define SDIOD_CCCR_BRCM_CARDCAP			0xf0
+#define SDIOD_CCCR_BRCM_CARDCAP_CMD14_SUPPORT	0x02
+#define SDIOD_CCCR_BRCM_CARDCAP_CMD14_EXT	0x04
+#define SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC	0x08
+#define SDIOD_CCCR_BRCM_CARDCTL			0xf1
 #define SDIOD_CCCR_BRCM_SEPINT		0xf2
 
 /* cccr_sdio_rev */

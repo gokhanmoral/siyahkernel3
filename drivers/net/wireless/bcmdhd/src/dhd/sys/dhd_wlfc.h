@@ -62,6 +62,7 @@ typedef enum ewlfc_packet_state {
 typedef enum ewlfc_mac_entry_action {
 	eWLFC_MAC_ENTRY_ACTION_ADD,
 	eWLFC_MAC_ENTRY_ACTION_DEL,
+	eWLFC_MAC_ENTRY_ACTION_UPDATE,
 	eWLFC_MAC_ENTRY_ACTION_MAX
 } ewlfc_mac_entry_action_t;
 

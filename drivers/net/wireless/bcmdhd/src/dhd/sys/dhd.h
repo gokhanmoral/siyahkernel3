@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2011, Broadcom Corporation
+ * Copyright (C) 1999-2012, Broadcom Corporation
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd.h 304622 2011-12-22 19:51:18Z $
+ * $Id: dhd.h 309548 2012-01-20 01:13:08Z $
  */
 
 /****************
@@ -58,12 +58,13 @@ int setScheduler(struct task_struct *p, int policy, struct sched_param *param);
 #include <wlioctl.h>
 #include <wlfc_proto.h>
 
+// For dual support of WCN3660 and BCM4334
+#undef CONFIG_WIRELESS_EXT
 
 /* Forward decls */
 struct dhd_bus;
 struct dhd_prot;
 struct dhd_info;
-struct dhd_cmn;
 
 /* The level of bus communication with the dongle */
 enum dhd_bus_state {
@@ -84,6 +85,13 @@ enum dhd_bus_state {
 
 #define DHD_SCAN_ACTIVE_TIME	 40 /* ms : Embedded default Active setting from DHD Driver */
 #define DHD_SCAN_PASSIVE_TIME	130 /* ms: Embedded default Passive setting from DHD Driver */
+
+#ifndef POWERUP_MAX_RETRY
+#define POWERUP_MAX_RETRY	(10) /* how many times we retry to power up the chip */
+#endif
+#ifndef POWERUP_WAIT_MS
+#define POWERUP_WAIT_MS		(2000) /* ms: time out in waiting wifi to come up */
+#endif
 
 enum dhd_bus_wake_state {
 	WAKE_LOCK_OFF,
@@ -106,7 +114,13 @@ enum dhd_prealloc_index {
 	DHD_PREALLOC_PROT = 0,
 	DHD_PREALLOC_RXBUF,
 	DHD_PREALLOC_DATABUF,
+#if defined (CUSTOMER_HW_SAMSUNG) && defined (CONFIG_DHD_USE_STATIC_BUF)
+	DHD_PREALLOC_OSL_BUF,
+	DHD_PREALLOC_WIPHY_ESCAN0 = 5,
+	DHD_PREALLOC_WIPHY_ESCAN1
+#else
 	DHD_PREALLOC_OSL_BUF
+#endif
 };
 
 typedef enum  {
@@ -155,7 +169,6 @@ typedef struct dhd_pub {
 	struct dhd_bus *bus;	/* Bus module handle */
 	struct dhd_prot *prot;	/* Protocol module handle */
 	struct dhd_info  *info; /* Info module handle */
-	struct dhd_cmn	*cmn;	/* dhd_common module handle */
 
 	/* Internal dhd items */
 	bool up;		/* Driver up/down (to OS) */
@@ -206,6 +219,7 @@ typedef struct dhd_pub {
 	int in_suspend;			/* flag set to 1 when early suspend called */
 #ifdef PNO_SUPPORT
 	int pno_enable;                 /* pno status : "1" is pno enable */
+	int pno_suspend;		/* pno suspend status : "1" is pno suspended */
 #endif /* PNO_SUPPORT */
 	int dtim_skip;         /* dtim skip , default 0 means wake each dtim */
 
@@ -222,6 +236,9 @@ typedef struct dhd_pub {
 	char eventmask[WL_EVENTING_MASK_LEN];
 	int	op_mode;				/* STA, HostAPD, WFD, SoftAP */
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined(CONFIG_HAS_WAKELOCK)
+	struct wake_lock wakelock[WAKE_LOCK_MAX];
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined (CONFIG_HAS_WAKELOCK) */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)) && 1
 	struct mutex	wl_start_stop_lock; /* lock/unlock for Android start/stop */
 	struct mutex	wl_softap_lock;		 /* lock/unlock for any SoftAP/STA settings */
@@ -244,20 +261,15 @@ typedef struct dhd_pub {
 	struct reorder_info *reorder_bufs[WLHOST_REORDERDATA_MAXFLOWS];
 } dhd_pub_t;
 
-typedef struct dhd_cmn {
-	osl_t *osh;		/* OSL handle */
-	dhd_pub_t *dhd;
-} dhd_cmn_t;
-
-
 	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined(CONFIG_PM_SLEEP)
 
 	#define DHD_PM_RESUME_WAIT_INIT(a) DECLARE_WAIT_QUEUE_HEAD(a);
 	#define _DHD_PM_RESUME_WAIT(a, b) do {\
 			int retry = 0; \
-			smp_mb(); \
+			SMP_RD_BARRIER_DEPENDS(); \
 			while (dhd_mmc_suspend && retry++ != b) { \
-				wait_event_interruptible_timeout(a, FALSE, HZ/100); \
+				SMP_RD_BARRIER_DEPENDS(); \
+				wait_event_interruptible_timeout(a, !dhd_mmc_suspend, HZ/100); \
 			} \
 		}	while (0)
 	#define DHD_PM_RESUME_WAIT(a)		_DHD_PM_RESUME_WAIT(a, 200)
@@ -305,8 +317,7 @@ void dhd_os_spin_unlock(dhd_pub_t *pub, unsigned long flags);
 extern int dhd_os_wake_lock(dhd_pub_t *pub);
 extern int dhd_os_wake_unlock(dhd_pub_t *pub);
 extern int dhd_os_wake_lock_timeout(dhd_pub_t *pub);
-extern int dhd_os_wake_lock_rx_timeout_enable(dhd_pub_t *pub, int val);
-extern int dhd_os_wake_lock_ctrl_timeout_enable(dhd_pub_t *pub, int val);
+extern int dhd_os_wake_lock_timeout_enable(dhd_pub_t *pub, int val);
 
 inline static void MUTEX_LOCK_SOFTAP_SET_INIT(dhd_pub_t * dhdp)
 {
@@ -329,11 +340,37 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) */
 }
 
+#ifdef DHD_DEBUG_WAKE_LOCK
+#define DHD_OS_WAKE_LOCK(pub) \
+	do { \
+		printf("call wake_lock: %s %d\n", \
+			__FUNCTION__, __LINE__); \
+		dhd_os_wake_lock(pub); \
+	} while(0)
+#define DHD_OS_WAKE_UNLOCK(pub) \
+	do { \
+		printf("call wake_unlock: %s %d\n", \
+			__FUNCTION__, __LINE__); \
+		dhd_os_wake_unlock(pub); \
+	} while(0)
+#define DHD_OS_WAKE_LOCK_TIMEOUT(pub) \
+	do { \
+		printf("call wake_lock_timeout: %s %d\n", \
+			__FUNCTION__, __LINE__); \
+		dhd_os_wake_lock_timeout(pub); \
+	} while(0)
+#define DHD_OS_WAKE_LOCK_TIMEOUT_ENABLE(pub, val) \
+	do { \
+		printf("call wake_lock_timeout_enable[%d]: %s %d\n", \
+			val, __FUNCTION__, __LINE__); \
+		dhd_os_wake_lock_timeout_enable(pub, val); \
+	} while(0)
+#else
 #define DHD_OS_WAKE_LOCK(pub)			dhd_os_wake_lock(pub)
 #define DHD_OS_WAKE_UNLOCK(pub)			dhd_os_wake_unlock(pub)
 #define DHD_OS_WAKE_LOCK_TIMEOUT(pub)		dhd_os_wake_lock_timeout(pub)
-#define DHD_OS_WAKE_LOCK_RX_TIMEOUT_ENABLE(pub, val)	dhd_os_wake_lock_rx_timeout_enable(pub, val)
-#define DHD_OS_WAKE_LOCK_CTRL_TIMEOUT_ENABLE(pub, val)	dhd_os_wake_lock_ctrl_timeout_enable(pub, val)
+#define DHD_OS_WAKE_LOCK_TIMEOUT_ENABLE(pub, val)	dhd_os_wake_lock_timeout_enable(pub, val)
+#endif /* DHD_DEBUG_WAKE_LOCK */
 #define DHD_PACKET_TIMEOUT_MS	1000
 #define DHD_EVENT_TIMEOUT_MS	1500
 
@@ -436,6 +473,7 @@ extern int dhd_custom_get_mac_address(unsigned char *buf);
 extern void dhd_os_sdunlock_sndup_rxq(dhd_pub_t * pub);
 extern void dhd_os_sdlock_eventq(dhd_pub_t * pub);
 extern void dhd_os_sdunlock_eventq(dhd_pub_t * pub);
+extern bool dhd_os_check_hang(dhd_pub_t *dhdp, int ifidx, int ret);
 
 #ifdef PNO_SUPPORT
 extern int dhd_pno_enable(dhd_pub_t *dhd, int pfn_enabled);
@@ -459,7 +497,6 @@ extern int net_os_rxfilter_add_remove(struct net_device *dev, int val, int num);
 
 extern int dhd_get_dtim_skip(dhd_pub_t *dhd);
 extern bool dhd_check_ap_wfd_mode_set(dhd_pub_t *dhd);
-extern bool dhd_os_check_hang(dhd_pub_t *dhdp, int ifidx, int ret);
 
 #ifdef DHD_DEBUG
 extern int write_to_file(dhd_pub_t *dhd, uint8 *buf, int size);
@@ -469,7 +506,6 @@ extern int dhd_customer_oob_irq_map(unsigned long *irq_flags_ptr);
 #endif /* defined(OOB_INTR_ONLY) */
 extern void dhd_os_sdtxlock(dhd_pub_t * pub);
 extern void dhd_os_sdtxunlock(dhd_pub_t * pub);
-
 
 typedef struct {
 	uint32 limit;		/* Expiration time (usec) */
@@ -492,9 +528,9 @@ extern int dhd_wl_ioctl(dhd_pub_t *dhd_pub, int ifindex, wl_ioctl_t *ioc, void *
 extern int dhd_wl_ioctl_cmd(dhd_pub_t *dhd_pub, int cmd, void *arg, int len, uint8 set,
                             int ifindex);
 
-extern struct dhd_cmn *dhd_common_init(osl_t *osh);
-extern void dhd_common_deinit(dhd_pub_t *dhd_pub, dhd_cmn_t *sa_cmn);
+extern void dhd_common_init(osl_t *osh);
 
+extern int dhd_do_driver_init(struct net_device *net);
 extern int dhd_add_if(struct dhd_info *dhd, int ifidx, void *handle,
 	char *name, uint8 *mac_addr, uint32 flags, uint8 bssidx);
 extern void dhd_del_if(struct dhd_info *dhd, int ifidx);
@@ -518,7 +554,7 @@ extern uint dhd_bus_status(dhd_pub_t *dhdp);
 extern int  dhd_bus_start(dhd_pub_t *dhdp);
 extern int dhd_bus_membytes(dhd_pub_t *dhdp, bool set, uint32 address, uint8 *data, uint size);
 extern void dhd_print_buf(void *pbuf, int len, int bytes_per_line);
-extern bool dhd_is_associated(dhd_pub_t *dhd, void *bss_buf, int *retval);
+extern bool dhd_is_associated(dhd_pub_t *dhd, void *bss_buf);
 
 #if defined(KEEP_ALIVE)
 extern int dhd_keep_alive_onoff(dhd_pub_t *dhd);
@@ -551,6 +587,8 @@ extern uint dhd_watchdog_ms;
 extern uint dhd_console_ms;
 extern uint wl_msg_level;
 #endif /* defined(DHD_DEBUG) */
+
+extern uint dhd_slpauto;
 
 /* Use interrupts */
 extern uint dhd_intr;
@@ -617,6 +655,9 @@ extern char fw_path2[MOD_PARAM_PATHLEN];
 
 /* Flag to indicate if we should download firmware on driver load */
 extern uint dhd_download_fw_on_driverload;
+
+/* Flags to indicate if we distingish power off scheme during suspend */
+extern bool suspend_power_off;
 
 #ifdef BCM4334_CHECK_CHIP_REV
 /* Check chip revision */
@@ -756,6 +797,24 @@ typedef int (*f_commitpkt_t)(void* ctx, void* p);
 extern void dhd_wait_for_event(dhd_pub_t *dhd, bool *lockvar);
 extern void dhd_wait_event_wakeup(dhd_pub_t*dhd);
 
+#define IFLOCK_INIT(lock)       *lock = 0
+#define IFLOCK(lock)    while (InterlockedCompareExchange((lock), 1, 0))	\
+	NdisStallExecution(1);
+#define IFUNLOCK(lock)  InterlockedExchange((lock), 0)
+#define IFLOCK_FREE(lock)
+
+#ifdef PNO_SUPPORT
+extern int dhd_pno_enable(dhd_pub_t *dhd, int pfn_enabled);
+extern int dhd_pnoenable(dhd_pub_t *dhd, int pfn_enabled);
+extern int dhd_pno_clean(dhd_pub_t *dhd);
+extern int dhd_pno_set(dhd_pub_t *dhd, wlc_ssid_t* ssids_local, int nssid,
+                       ushort  scan_fr, int pno_repeat, int pno_freq_expo_max);
+extern int dhd_pno_get_status(dhd_pub_t *dhd);
+extern int dhd_pno_set_add(dhd_pub_t *dhd, wl_pfn_t *netinfo, int nssid, ushort scan_fr,
+	ushort slowscan_fr, uint8 pno_repeat, uint8 pno_freq_expo_max, int16 flags);
+extern int dhd_pno_cfg(dhd_pub_t *dhd, wl_pfn_cfg_t *pcfg);
+extern int dhd_pno_suspend(dhd_pub_t *dhd, int pfn_suspend);
+#endif /* PNO_SUPPORT */
 #ifdef ARP_OFFLOAD_SUPPORT
 #define MAX_IPV4_ENTRIES	8
 /* dhd_commn arp offload wrapers */
@@ -764,5 +823,10 @@ void dhd_aoe_arp_clr(dhd_pub_t *dhd);
 int dhd_arp_get_arp_hostip_table(dhd_pub_t *dhd, void *buf, int buflen);
 void dhd_arp_offload_add_ip(dhd_pub_t *dhd, uint32 ipaddr);
 #endif /* ARP_OFFLOAD_SUPPORT */
+
+#ifdef RDWR_KORICS_MACADDR
+extern int
+dhd_write_rdwr_korics_macaddr(struct dhd_info *dhd, struct ether_addr *mac);
+#endif
 
 #endif /* _dhd_h_ */

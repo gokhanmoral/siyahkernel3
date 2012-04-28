@@ -1,7 +1,7 @@
 /*
  * Linux OS Independent Layer
  *
- * Copyright (C) 1999-2011, Broadcom Corporation
+ * Copyright (C) 1999-2012, Broadcom Corporation
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: linux_osl.h 301833 2011-12-08 22:34:00Z $
+ * $Id: linux_osl.h 309193 2012-01-19 00:03:57Z $
  */
 
 #ifndef _linux_osl_h_
@@ -57,12 +57,10 @@ extern void osl_assert(const char *exp, const char *file, int line);
 		#if GCC_VERSION > 30100
 			#define ASSERT(exp)	do {} while (0)
 		#else
-
 			#define ASSERT(exp)
 		#endif
-	#endif
-#endif
-
+	#endif /* __GNUC__ */
+#endif /* BCMASSERT_LOG */
 
 #define	OSL_DELAY(usec)		osl_delay(usec)
 extern void osl_delay(uint usec);
@@ -87,6 +85,7 @@ extern void osl_pci_write_config(osl_t *osh, uint offset, uint size, uint val);
 #define OSL_PCI_SLOT(osh)	osl_pci_slot(osh)
 extern uint osl_pci_bus(osl_t *osh);
 extern uint osl_pci_slot(osl_t *osh);
+extern struct pci_dev *osl_pci_device(osl_t *osh);
 
 
 typedef struct {
@@ -103,8 +102,6 @@ typedef struct {
 	   ((osl_pubinfo_t*)osh)->tx_fn = _tx_fn;	\
 	   ((osl_pubinfo_t*)osh)->tx_ctx = _tx_ctx;	\
 	} while (0)
-
-
 
 #define BUS_SWAP32(v)		(v)
 
@@ -130,7 +127,6 @@ extern uint osl_malloc_failed(osl_t *osh);
 extern uint osl_dma_consistent_align(void);
 extern void *osl_dma_alloc_consistent(osl_t *osh, uint size, uint16 align, uint *tot, ulong *pap);
 extern void osl_dma_free_consistent(osl_t *osh, void *va, uint size, ulong pa);
-
 
 #define	DMA_TX	1
 #define	DMA_RX	2
@@ -160,7 +156,6 @@ extern int osl_error(int bcmerror);
 
 #define	PKTBUFSZ	2048
 
-
 #include <linuxver.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
@@ -173,8 +168,6 @@ extern int osl_error(int bcmerror);
 #define	bcopy(src, dst, len)	memcpy((dst), (src), (len))
 #define	bcmp(b1, b2, len)	memcmp((b1), (b2), (len))
 #define	bzero(b, len)		memset((b), '\0', (len))
-
-
 
 #define R_REG(osh, r) (\
 	SELECT_BUS_READ(osh, \
@@ -304,7 +297,7 @@ typedef struct ctfpool {
 #define	PKTISFAST(osh, skb)	((((struct sk_buff*)(skb))->__unused) & FASTBUF)
 #define	PKTISCTF(osh, skb)	((((struct sk_buff*)(skb))->__unused) & CTFBUF)
 #define	PKTFAST(osh, skb)	(((struct sk_buff*)(skb))->__unused)
-#endif
+#endif  /* LINUX_VERSION_CODE */
 
 #define	CTFPOOLPTR(osh, skb)	(((struct sk_buff*)(skb))->sk)
 #define	CTFPOOLHEAD(osh, skb)	(((ctfpool_t *)((struct sk_buff*)(skb))->sk)->head)
@@ -314,7 +307,7 @@ extern void osl_ctfpool_replenish(osl_t *osh, uint thresh);
 extern int32 osl_ctfpool_init(osl_t *osh, uint numobj, uint size);
 extern void osl_ctfpool_cleanup(osl_t *osh);
 extern void osl_ctfpool_stats(osl_t *osh, void *b);
-#endif
+#endif  /* CTFPOOL */
 
 
 #ifdef HNDCTF
@@ -333,7 +326,7 @@ extern void osl_ctfpool_stats(osl_t *osh, void *b);
 #define	PKTSETSKIPCT(osh, skb)
 #define	PKTCLRSKIPCT(osh, skb)
 #define	PKTSKIPCT(osh, skb)
-#endif
+#endif /* HNDCTF */
 
 extern void osl_pktfree(osl_t *osh, void *skb, bool send);
 extern void *osl_pktget_static(osl_t *osh, uint len);
@@ -361,10 +354,7 @@ extern struct sk_buff *osl_pkt_tonative(osl_t *osh, void *pkt);
 
 #else
 
-
-
 	#define ASSERT(exp)	do {} while (0)
-
 
 #define MALLOC(o, l) malloc(l)
 #define MFREE(o, p, l) free(p)
@@ -380,6 +370,6 @@ extern struct sk_buff *osl_pkt_tonative(osl_t *osh, void *pkt);
 extern void bcopy(const void *src, void *dst, size_t len);
 extern int bcmp(const void *b1, const void *b2, size_t len);
 extern void bzero(void *b, size_t len);
-#endif
+#endif /* BCMDRIVER */
 
-#endif
+#endif /* _linux_osl_h_ */

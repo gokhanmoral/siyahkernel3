@@ -11,8 +11,14 @@ config BCM4330
 	---help---
 		Select this option to build Broadcom wlan driver
 
+config BCM43241
+	tristate "---Broadcom WiFi Driver for 43241"
+	depends on WLAN
+	---help---
+		Select this option to build Broadcom wlan driver
+
 config BROADCOM_WIFI_RESERVED_MEM
 	bool "BROADCOM Reserved memory for wifi device"
-	depends on (BCM4330 || BCM4334)
+    depends on (BCM4330 || BCM4334 || BCM43241)
 	---help---
 		This is a configuration for broadcom WLAN driver.

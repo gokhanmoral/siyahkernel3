@@ -27,15 +27,12 @@
  *
  */
 
-
-
 #ifndef _BCMEVENT_H_
 #define _BCMEVENT_H_
 
 #ifndef _TYPEDEFS_H_
 #include <typedefs.h>
 #endif
-
 
 #include <packed_section_start.h>
 
@@ -48,9 +45,6 @@
 #define WLC_EVENT_MSG_GROUP		0x04
 #define WLC_EVENT_MSG_UNKBSS		0x08
 #define WLC_EVENT_MSG_UNKIF		0x10
-
-
-
 
 typedef BWL_PRE_PACKED_STRUCT struct
 {
@@ -86,7 +80,6 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_event {
 	struct ether_header eth;
 	bcmeth_hdr_t		bcm_hdr;
 	wl_event_msg_t		event;
-
 } BWL_POST_PACKED_STRUCT bcm_event_t;
 
 #define BCM_MSG_LEN	(sizeof(bcm_event_t) - sizeof(bcmeth_hdr_t) - sizeof(struct ether_header))
@@ -183,8 +176,10 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_event {
 #define WLC_E_REASSOC_IND_NDIS		86
 #define WLC_E_ASSOC_REQ_IE		87
 #define WLC_E_ASSOC_RESP_IE		88
-
-#define WLC_E_LAST			89
+#define WLC_E_ASSOC_RECREATED		89
+#define WLC_E_ACTION_FRAME_RX_NDIS	90
+#define WLC_E_AUTH_REQ			91
+#define WLC_E_LAST			92
 
 
 typedef struct {
@@ -265,8 +260,6 @@ extern const int		bcmevent_names_size;
 #define WLC_E_SUP_DEAUTH		14
 #define WLC_E_SUP_WPA_PSK_TMO		15
 
-
-
 typedef BWL_PRE_PACKED_STRUCT struct wl_event_rx_frame_data {
 	uint16	version;
 	uint16	channel;
@@ -315,4 +308,4 @@ typedef struct wl_event_data_if {
 
 #include <packed_section_end.h>
 
-#endif
+#endif /* _BCMEVENT_H_ */

@@ -54,10 +54,8 @@
 #include <proto/802.11.h>
 void *_bcmutils_dummy_fn = NULL;
 
+
 #ifdef BCMDRIVER
-
-
-
 /* copy a pkt buffer chain into a buffer */
 uint
 pktcopy(osl_t *osh, void *p, uint offset, int len, uchar *buf)
@@ -119,8 +117,6 @@ pktfrombuf(osl_t *osh, void *p, uint offset, int len, uchar *buf)
 	return ret;
 }
 
-
-
 /* return total length of buffer chain */
 uint BCMFASTPATH
 pkttotlen(osl_t *osh, void *p)
@@ -173,6 +169,10 @@ pktsegcnt_war(osl_t *osh, void *p)
 		len = PKTLEN(osh, p);
 		if (len > 128) {
 			pktdata = (uint8 *)PKTDATA(osh, p);	/* starting address of data */
+			/* Check for page boundary straddle (2048B) */
+			if (((uintptr)pktdata & ~0x7ff) != ((uintptr)(pktdata+len) & ~0x7ff))
+				cnt++;
+
 			align64 = (uint)((uintptr)pktdata & 0x3f);	/* aligned to 64B */
 			align64 = (64 - align64) & 0x3f;
 			len -= align64;		/* bytes from aligned 64B to end */
@@ -186,6 +186,25 @@ pktsegcnt_war(osl_t *osh, void *p)
 	return cnt;
 }
 
+uint8 * BCMFASTPATH
+pktoffset(osl_t *osh, void *p,  uint offset)
+{
+	uint total = pkttotlen(osh, p);
+	uint pkt_off = 0, len = 0;
+	uint8 *pdata = (uint8 *) PKTDATA(osh, p);
+
+	if (offset > total)
+		return NULL;
+
+	for (; p; p = PKTNEXT(osh, p)) {
+		pdata = (uint8 *) PKTDATA(osh, p);
+		pkt_off = offset - len;
+		len += PKTLEN(osh, p);
+		if (len > offset)
+			break;
+	}
+	return (uint8*) (pdata+pkt_off);
+}
 
 /*
  * osl multiple-precedence packet queue
@@ -604,7 +623,7 @@ pktq_mdeq(struct pktq *pq, uint prec_bmp, int *prec_out)
 	while ((prec = pq->hi_prec) > 0 && pq->q[prec].head == NULL)
 		pq->hi_prec--;
 
-	while ((prec_bmp & (1 << prec)) == 0 || pq->q[prec].head == NULL)
+	while ((pq->q[prec].head == NULL) || ((prec_bmp & (1 << prec)) == 0))
 		if (prec-- == 0)
 			return NULL;
 
@@ -1017,10 +1036,6 @@ bcm_mdelay(uint ms)
 	}
 }
 
-
-
-
-
 #if defined(DHD_DEBUG)
 /* pretty hex print a pkt buffer chain */
 void
@@ -1122,8 +1137,6 @@ bcmerrorstr(int bcmerror)
 
 	return bcmerrorstrtable[-bcmerror];
 }
-
-
 
 /* iovar table lookup */
 const bcm_iovar_t*
@@ -1598,7 +1611,6 @@ bcm_format_flags(const bcm_bit_desc_t *bd, uint32 flags, char* buf, int len)
 		/* copy btwn flag space and NULL char */
 		if (flags != 0)
 			p += snprintf(p, 2, " ");
-		len -= slen;
 	}
 
 	/* indicate the str was too short */
@@ -1625,7 +1637,7 @@ bcm_format_hex(char *str, const void *bytes, int len)
 	}
 	return (int)(p - str);
 }
-#endif
+#endif /* defined(WLMSG_PRHDRS) || defined(WLMSG_PRPKT) || ... */
 
 /* pretty hex print a contiguous buffer */
 void
@@ -2010,7 +2022,7 @@ bcm_format_ssid(char* buf, const uchar ssid[], uint ssid_len)
 
 	return (int)(p - buf);
 }
-#endif
+#endif /* defined(WLTINYDUMP) || defined(WLMSG_INFORM) || ... */
 
 #endif /* BCMDRIVER */
 

@@ -68,11 +68,10 @@
 #define	ETHER_TYPE_BRCM		0x886c
 #define	ETHER_TYPE_802_1X	0x888e
 #define	ETHER_TYPE_802_1X_PREAUTH 0x88c7
-#ifdef BCMWAPI_WPI
 #define ETHER_TYPE_WAI		0x88b4
-#endif
 #define ETHER_TYPE_89_0D	0x890d
 
+#define ETHER_TYPE_IPV6		0x86dd
 
 
 #define	ETHER_BRCM_SUBTYPE_LEN	4

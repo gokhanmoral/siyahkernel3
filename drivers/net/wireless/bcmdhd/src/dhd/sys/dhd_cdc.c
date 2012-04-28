@@ -1,7 +1,7 @@
 /*
  * DHD Protocol Module for CDC and BDC.
  *
- * Copyright (C) 1999-2011, Broadcom Corporation
+ * Copyright (C) 1999-2012, Broadcom Corporation
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -236,10 +236,10 @@ dhdcdc_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len, uint8
 			__FUNCTION__));
 		return -EIO;
 	}
-
 #ifdef CONFIG_CONTROL_PM
-	if ((g_pm_control == TRUE) && (cmd == WLC_SET_PM)) {
-		DHD_TRACE(("%s: SET PM ignored!\n", __func__));
+	if((g_pm_control== TRUE) && (cmd== WLC_SET_PM))
+	{
+		DHD_ERROR(("SET PM ignored!!!!!!!!!!!!!!!!!!!!!!\n"));
 		goto done;
 	}
 #endif
@@ -295,11 +295,26 @@ dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int len)
 	dhd_prot_t *prot = dhd->prot;
 	int ret = -1;
 	uint8 action;
+#if defined(NDIS630)
+	bool acquired = FALSE;
+#endif
 
 	if ((dhd->busstate == DHD_BUS_DOWN) || dhd->hang_was_sent) {
 		DHD_ERROR(("%s : bus is down. we have nothing to do\n", __FUNCTION__));
 		goto done;
 	}
+#if defined(NDIS630)
+	if (dhd_os_proto_block(dhd))
+	{
+		acquired = TRUE;
+	}
+	else
+	{
+		/* attempt to acquire protocol mutex timed out. */
+		ret = -1;
+		return ret;
+	}
+#endif /* NDIS630 */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -350,6 +365,10 @@ dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int len)
 	prot->pending = FALSE;
 
 done:
+#if defined(NDIS630)
+	if (acquired)
+	   dhd_os_proto_unblock(dhd);
+#endif
 	return ret;
 }
 
@@ -1311,6 +1330,18 @@ _dhd_wlfc_mac_entry_update(athost_wl_status_info_t* ctx, wlfc_mac_descriptor_t* 
 			memcpy(&entry->ea[0], ea, ETHER_ADDR_LEN);
 		pktq_init(&entry->psq, WLFC_PSQ_PREC_COUNT, WLFC_PSQ_LEN);
 	}
+	else if (action == eWLFC_MAC_ENTRY_ACTION_UPDATE) {
+		entry->occupied = 1;
+		entry->state = WLFC_STATE_OPEN;
+		entry->requested_credit = 0;
+		entry->interface_id = ifid;
+		entry->iftype = iftype;
+		entry->ac_bitmap = 0xff; /* update this when handling APSD */
+		/* for an interface entry we may not care about the MAC address */
+		if (ea != NULL)
+			memcpy(&entry->ea[0], ea, ETHER_ADDR_LEN);
+	}
+
 	else if (action == eWLFC_MAC_ENTRY_ACTION_DEL) {
 		entry->occupied = 0;
 		entry->state = WLFC_STATE_CLOSE;
@@ -2277,6 +2308,9 @@ dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_in
 		return BCME_ERROR;
 	}
 
+#if defined(NDIS630)
+	h->dataOffset = 0;
+#endif
 	if (((h->flags & BDC_FLAG_VER_MASK) >> BDC_FLAG_VER_SHIFT) != BDC_PROTO_VER) {
 		DHD_ERROR(("%s: non-BDC packet received, flags = 0x%x\n",
 		           dhd_ifname(dhd, *ifidx), h->flags));
@@ -2296,12 +2330,13 @@ dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_in
 	PKTPULL(dhd->osh, pktbuf, BDC_HEADER_LEN);
 #endif /* BDC */
 
+#if !defined(NDIS630)
 	if (PKTLEN(dhd->osh, pktbuf) < (uint32) (h->dataOffset << 2)) {
 		DHD_ERROR(("%s: rx data too short (%d < %d)\n", __FUNCTION__,
 		           PKTLEN(dhd->osh, pktbuf), (h->dataOffset * 4)));
 		return BCME_ERROR;
 	}
-
+#endif
 #ifdef PROP_TXSTATUS
 	if (dhd->wlfc_state &&
 		((athost_wl_status_info_t*)dhd->wlfc_state)->proptxstatus_mode
@@ -2319,7 +2354,9 @@ dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_in
 		dhd_os_wlfc_unblock(dhd);
 	}
 #endif /* PROP_TXSTATUS */
+#if !defined(NDIS630)
 	    PKTPULL(dhd->osh, pktbuf, (h->dataOffset << 2));
+#endif
 	return 0;
 }
 

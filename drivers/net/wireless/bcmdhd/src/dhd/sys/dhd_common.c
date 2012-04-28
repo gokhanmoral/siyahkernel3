@@ -1,7 +1,7 @@
 /*
  * Broadcom Dongle Host Driver (DHD), common DHD core.
  *
- * Copyright (C) 1999-2011, Broadcom Corporation
+ * Copyright (C) 1999-2012, Broadcom Corporation
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -53,6 +53,13 @@
 #include <linux/jiffies.h>
 #endif
 
+#define htod32(i) i
+#define htod16(i) i
+#define dtoh32(i) i
+#define dtoh16(i) i
+#define htodchanspec(i) i
+#define dtohchanspec(i) i
+
 #ifdef PROP_TXSTATUS
 #include <wlfc_proto.h>
 #include <dhd_wlfc.h>
@@ -80,10 +87,6 @@ uint32 dhd_conn_event;
 uint32 dhd_conn_status;
 uint32 dhd_conn_reason;
 
-#define htod32(i) i
-#define htod16(i) i
-#define dtoh32(i) i
-#define dtoh16(i) i
 extern int dhd_iscan_request(void * dhdp, uint16 action);
 extern void dhd_ind_scan_confirm(void *h, bool status);
 extern int dhd_iscan_in_progress(void *h);
@@ -178,10 +181,9 @@ const bcm_iovar_t dhd_iovars[] = {
 	{NULL, 0, 0, 0, 0 }
 };
 
-struct dhd_cmn *
+void
 dhd_common_init(osl_t *osh)
 {
-	dhd_cmn_t *cmn;
 
 	/* Init global variables at run-time, not as part of the declaration.
 	 * This is required to support init/de-init of the driver. Initialization
@@ -190,12 +192,6 @@ dhd_common_init(osl_t *osh)
 	 * first time that the driver is initialized vs subsequent initializations.
 	 */
 	/* Allocate private bus interface state */
-	if (!(cmn = MALLOC(osh, sizeof(dhd_cmn_t)))) {
-		DHD_ERROR(("%s: MALLOC failed\n", __FUNCTION__));
-		return NULL;
-	}
-	memset(cmn, 0, sizeof(dhd_cmn_t));
-	cmn->osh = osh;
 
 #ifdef CONFIG_BCMDHD_FW_PATH
 	bcm_strncpy_s(fw_path, sizeof(fw_path), CONFIG_BCMDHD_FW_PATH, MOD_PARAM_PATHLEN-1);
@@ -210,28 +206,7 @@ dhd_common_init(osl_t *osh)
 #ifdef SOFTAP
 	fw_path2[0] = '\0';
 #endif
-	return cmn;
-}
 
-void
-dhd_common_deinit(dhd_pub_t *dhd_pub, dhd_cmn_t *sa_cmn)
-{
-	osl_t *osh;
-	dhd_cmn_t *cmn;
-
-	if (dhd_pub != NULL)
-		cmn = dhd_pub->cmn;
-	else
-		cmn = sa_cmn;
-
-	if (!cmn)
-		return;
-
-	osh = cmn->osh;
-
-	if (dhd_pub != NULL)
-	dhd_pub->cmn = NULL;
-	MFREE(osh, cmn, sizeof(dhd_cmn_t));
 }
 
 static int
@@ -309,7 +284,7 @@ dhd_wl_ioctl(dhd_pub_t *dhd_pub, int ifindex, wl_ioctl_t *ioc, void *buf, int le
 	dhd_os_proto_block(dhd_pub);
 
 	ret = dhd_prot_ioctl(dhd_pub, ifindex, ioc, buf, len);
-	if (ret)
+	if (!ret)
 		dhd_os_check_hang(dhd_pub, ifindex, ret);
 
 	dhd_os_proto_unblock(dhd_pub);
@@ -1050,10 +1025,16 @@ wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata,
 		              ea[0], ea[1], ea[2], ea[3], ea[4], ea[5]));
 		(void)ea;
 
+		if (ifevent->action == WLC_E_IF_CHANGE)
+			dhd_wlfc_interface_event(dhd_pub->info,
+				eWLFC_MAC_ENTRY_ACTION_UPDATE,
+				ifevent->ifidx, ifevent->is_AP, ea);
+		else
 		dhd_wlfc_interface_event(dhd_pub->info,
 			((ifevent->action == WLC_E_IF_ADD) ?
 			eWLFC_MAC_ENTRY_ACTION_ADD : eWLFC_MAC_ENTRY_ACTION_DEL),
 			ifevent->ifidx, ifevent->is_AP, ea);
+
 
 		/* dhd already has created an interface by default, for 0 */
 		if (ifevent->ifidx == 0)
@@ -1085,7 +1066,7 @@ wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata,
 							return (BCME_ERROR);
 						}
 					}
-			else
+					else if (ifevent->action == WLC_E_IF_DEL)
 				dhd_del_if(dhd_pub->info, ifevent->ifidx);
 		} else {
 #ifndef PROP_TXSTATUS
@@ -1106,12 +1087,17 @@ wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata,
 		htsf_update(dhd_pub->info, event_data);
 		break;
 #endif /* WLMEDIA_HTSF */
+#if defined(NDIS630)
+	case WLC_E_NDIS_LINK:
+		break;
+#else /* defined(NDIS630) && defined(BCMDONGLEHOST) */
 	case WLC_E_NDIS_LINK: {
 		uint32 temp = hton32(WLC_E_LINK);
 
 		memcpy((void *)(&pvt_data->event.event_type), &temp,
 		       sizeof(pvt_data->event.event_type));
 	}
+#endif
 		/* These are what external supplicant/authenticator wants */
 		/* fall through */
 	case WLC_E_LINK:
@@ -1754,19 +1740,16 @@ fail:
 /*
  * returns = TRUE if associated, FALSE if not associated
  */
-bool dhd_is_associated(dhd_pub_t *dhd, void *bss_buf, int *retval)
+bool dhd_is_associated(dhd_pub_t *dhd, void *bss_buf)
 {
 	char bssid[6], zbuf[6];
-	int ret;
+	int ret = -1;
 
 	bzero(bssid, 6);
 	bzero(zbuf, 6);
 
 	ret  = dhd_wl_ioctl_cmd(dhd, WLC_GET_BSSID, (char *)&bssid, ETHER_ADDR_LEN, FALSE, 0);
 	DHD_TRACE((" %s WLC_GET_BSSID ioctl res = %d\n", __FUNCTION__, ret));
-
-	if (retval)
-		*retval = ret;
 
 	if (ret == BCME_NOTASSOCIATED) {
 		DHD_TRACE(("%s: not associated! res:%d\n", __FUNCTION__, ret));
@@ -1804,7 +1787,7 @@ dhd_get_dtim_skip(dhd_pub_t *dhd)
 		bcn_li_dtim = dhd->dtim_skip;
 
 	/* Check if associated */
-	if (dhd_is_associated(dhd, NULL, NULL) == FALSE) {
+	if (dhd_is_associated(dhd, NULL) == FALSE) {
 		DHD_TRACE(("%s NOT assoc ret %d\n", __FUNCTION__, ret));
 		goto exit;
 	}
@@ -1855,7 +1838,7 @@ bool dhd_check_ap_wfd_mode_set(dhd_pub_t *dhd)
 		return FALSE;
 }
 
-#ifdef PNO_SUPPORT
+#if defined(PNO_SUPPORT)
 int
 dhd_pno_clean(dhd_pub_t *dhd)
 {
@@ -1902,7 +1885,7 @@ dhd_pno_enable(dhd_pub_t *dhd, int pfn_enabled)
 
 	memset(iovbuf, 0, sizeof(iovbuf));
 
-	if ((pfn_enabled) && (dhd_is_associated(dhd, NULL, NULL) == TRUE)) {
+	if ((pfn_enabled) && (dhd_is_associated(dhd, NULL) == TRUE)) {
 		DHD_ERROR(("%s pno is NOT enable : called in assoc mode , ignore\n", __FUNCTION__));
 		return ret;
 	}

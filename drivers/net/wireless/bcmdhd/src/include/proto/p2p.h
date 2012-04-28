@@ -59,6 +59,8 @@ typedef struct wifi_p2p_ie wifi_p2p_ie_t;
 #define P2P_ATTR_LEN_OFF        1
 #define P2P_ATTR_DATA_OFF       3
 
+#define P2P_ATTR_ID_LEN		1
+#define P2P_ATTR_LEN_LEN	2
 #define P2P_ATTR_HDR_LEN        3 /* ID + 2-byte length field spec 1.02 */
 
 /* P2P IE Subelement IDs from WiFi P2P Technical Spec 1.00 */
@@ -79,6 +81,8 @@ typedef struct wifi_p2p_ie wifi_p2p_ie_t;
 #define P2P_SEID_GROUP_INFO     14  /* Group Info */
 #define P2P_SEID_GROUP_ID       15  /* Group ID */
 #define P2P_SEID_P2P_IF         16  /* P2P Interface */
+#define P2P_SEID_OP_CHANNEL		17
+#define P2P_SEID_INVITE_FLAGS		18
 #define P2P_SEID_VNDR           221 /* Vendor-specific subelement */
 
 #define P2P_SE_VS_ID_SERVICES   0x1b /* BRCM subel: L2 Services */
@@ -129,7 +133,35 @@ BWL_PRE_PACKED_STRUCT struct wifi_p2p_cfg_tmo_se_s {
 typedef struct wifi_p2p_cfg_tmo_se_s wifi_p2p_cfg_tmo_se_t;
 
 
-/* WiFi P2P IE subelement: Status */
+BWL_PRE_PACKED_STRUCT struct wifi_p2p_listen_channel_se_s {
+	uint8	eltId;
+	uint8	len[2];
+	uint8	country[3];
+	uint8	op_class;
+	uint8	channel;
+} BWL_POST_PACKED_STRUCT;
+typedef struct wifi_p2p_listen_channel_se_s wifi_p2p_listen_channel_se_t;
+BWL_PRE_PACKED_STRUCT struct wifi_p2p_grp_bssid_se_s {
+	uint8	eltId;
+	uint8	len[2];
+	uint8	mac[6];
+} BWL_POST_PACKED_STRUCT;
+typedef struct wifi_p2p_grp_bssid_se_s wifi_p2p_grp_bssid_se_t;
+BWL_PRE_PACKED_STRUCT struct wifi_p2p_grp_id_se_s {
+	uint8	eltId;
+	uint8	len[2];
+	uint8	mac[6];
+	uint8	ssid[1];
+} BWL_POST_PACKED_STRUCT;
+typedef struct wifi_p2p_grp_id_se_s wifi_p2p_grp_id_se_t;
+BWL_PRE_PACKED_STRUCT struct wifi_p2p_intf_se_s {
+	uint8	eltId;
+	uint8	len[2];
+	uint8	mac[6];
+	uint8	ifaddrs;
+	uint8	ifaddr[1][6];
+} BWL_POST_PACKED_STRUCT;
+typedef struct wifi_p2p_intf_se_s wifi_p2p_intf_se_t;
 BWL_PRE_PACKED_STRUCT struct wifi_p2p_status_se_s {
 	uint8   eltId;      /* SE ID: P2P_SEID_STATUS */
 	uint8   len[2];     /* SE length not including eltId, len fields */
@@ -215,6 +247,13 @@ BWL_PRE_PACKED_STRUCT struct wifi_p2p_chanlist_se_s {
 typedef struct wifi_p2p_chanlist_se_s wifi_p2p_chanlist_se_t;
 
 /* WiFi P2P IE's Device Info subelement */
+BWL_PRE_PACKED_STRUCT struct wifi_p2p_pri_devtype_s {
+	uint16	cat_id;
+	uint8	OUI[3];
+	uint8	oui_type;
+	uint16	sub_cat_id;
+} BWL_POST_PACKED_STRUCT;
+typedef struct wifi_p2p_pri_devtype_s wifi_p2p_pri_devtype_t;
 BWL_PRE_PACKED_STRUCT struct wifi_p2p_devinfo_se_s {
 	uint8   eltId;          /* SE ID: P2P_SEID_DEVINFO */
 	uint8   len[2];         /* SE length not including eltId, len fields */
@@ -264,7 +303,20 @@ BWL_PRE_PACKED_STRUCT struct wifi_p2p_grpinfo_se_s {
 typedef struct wifi_p2p_grpinfo_se_s wifi_p2p_grpinfo_se_t;
 
 
-/* WiFi P2P Action Frame */
+BWL_PRE_PACKED_STRUCT struct wifi_p2p_op_channel_se_s {
+	uint8	eltId;
+	uint8	len[2];
+	uint8	country[3];
+	uint8	op_class;
+	uint8	channel;
+} BWL_POST_PACKED_STRUCT;
+typedef struct wifi_p2p_op_channel_se_s wifi_p2p_op_channel_se_t;
+BWL_PRE_PACKED_STRUCT struct wifi_p2p_invite_flags_se_s {
+	uint8	eltId;
+	uint8	len[2];
+	uint8	flags;
+} BWL_POST_PACKED_STRUCT;
+typedef struct wifi_p2p_invite_flags_se_s wifi_p2p_invite_flags_se_t;
 BWL_PRE_PACKED_STRUCT struct wifi_p2p_action_frame {
 	uint8   category;   /* P2P_AF_CATEGORY */
 	uint8   OUI[3];     /* OUI - P2P_OUI */

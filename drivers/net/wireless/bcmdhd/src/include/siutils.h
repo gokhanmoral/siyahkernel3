@@ -181,6 +181,7 @@ extern void si_btcgpiowar(si_t *sih);
 extern bool si_deviceremoved(si_t *sih);
 extern uint32 si_socram_size(si_t *sih);
 extern uint32 si_socdevram_size(si_t *sih);
+extern uint32 si_socram_srmem_size(si_t *sih);
 extern void si_socdevram(si_t *sih, bool set, uint8 *ennable, uint8 *protect, uint8 *remap);
 extern bool si_socdevram_pkg(si_t *sih);
 extern bool si_socdevram_remap_isenb(si_t *sih);
@@ -276,10 +277,11 @@ extern int si_pci_fixcfg(si_t *sih);
 extern void si_chippkg_set(si_t *sih, uint);
 
 extern void si_chipcontrl_btshd0_4331(si_t *sih, bool on);
-extern void si_chipcontrl_epa4331_restore(si_t *sih, uint32 val);
-extern uint32 si_chipcontrl_epa4331_read(si_t *sih);
+extern void si_chipcontrl_restore(si_t *sih, uint32 val);
+extern uint32 si_chipcontrl_read(si_t *sih);
 extern void si_chipcontrl_epa4331(si_t *sih, bool on);
 extern void si_chipcontrl_epa4331_wowl(si_t *sih, bool enter_wowl);
+extern void si_chipcontrl_srom4360(si_t *sih, bool on);
 
 extern void si_epa_4313war(si_t *sih);
 extern void si_btc_enable_chipcontrol(si_t *sih);

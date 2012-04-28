@@ -71,11 +71,22 @@ typedef volatile struct {
 #define	XC_SE		((uint32)1 << 1)
 #define	XC_LE		((uint32)1 << 2)
 #define	XC_FL		((uint32)1 << 4)
+#define XC_MR_MASK	0x000000C0
+#define XC_MR_SHIFT	6
 #define	XC_PD		((uint32)1 << 11)
 #define	XC_AE		((uint32)3 << 16)
 #define	XC_AE_SHIFT	16
 #define XC_BL_MASK	0x001C0000
 #define XC_BL_SHIFT	18
+#define XC_PC_MASK	0x00E00000
+#define XC_PC_SHIFT	21
+#define XC_PT_MASK	0x03000000
+#define XC_PT_SHIFT	24
+
+
+#define DMA_MR_1	0
+#define DMA_MR_2	1
+
 
 
 #define DMA_BL_16	0
@@ -83,6 +94,21 @@ typedef volatile struct {
 #define DMA_BL_64	2
 #define DMA_BL_128	3
 #define DMA_BL_256	4
+#define DMA_BL_512	5
+#define DMA_BL_1024	6
+
+
+#define DMA_PC_0	0
+#define DMA_PC_4	1
+#define DMA_PC_8	2
+#define DMA_PC_16	3
+
+
+
+#define DMA_PT_1	0
+#define DMA_PT_2	1
+#define DMA_PT_4	2
+#define DMA_PT_8	3
 
 
 #define	XP_LD_MASK	0xfff
@@ -118,6 +144,10 @@ typedef volatile struct {
 #define	RC_AE_SHIFT	16
 #define RC_BL_MASK	0x001C0000
 #define RC_BL_SHIFT	18
+#define RC_PC_MASK	0x00E00000
+#define RC_PC_SHIFT	21
+#define RC_PT_MASK	0x03000000
+#define RC_PT_SHIFT	24
 
 
 #define	RP_LD_MASK	0xfff
@@ -212,11 +242,17 @@ typedef volatile struct {
 #define	D64_XC_SE		0x00000002
 #define	D64_XC_LE		0x00000004
 #define	D64_XC_FL		0x00000010
+#define D64_XC_MR_MASK		0x000000C0
+#define D64_XC_MR_SHIFT		6
 #define	D64_XC_PD		0x00000800
 #define	D64_XC_AE		0x00030000
 #define	D64_XC_AE_SHIFT		16
 #define D64_XC_BL_MASK	0x001C0000
 #define D64_XC_BL_SHIFT		18
+#define D64_XC_PC_MASK		0x00E00000
+#define D64_XC_PC_SHIFT		21
+#define D64_XC_PT_MASK		0x03000000
+#define D64_XC_PT_SHIFT		24
 
 
 #define	D64_XP_LD_MASK		0x00001fff
@@ -253,6 +289,10 @@ typedef volatile struct {
 #define	D64_RC_AE_SHIFT		16
 #define D64_RC_BL_MASK	0x001C0000
 #define D64_RC_BL_SHIFT		18
+#define D64_RC_PC_MASK		0x00E00000
+#define D64_RC_PC_SHIFT		21
+#define D64_RC_PT_MASK		0x03000000
+#define D64_RC_PT_SHIFT		24
 
 
 #define DMA_CTRL_PEN		(1 << 0)

@@ -227,6 +227,7 @@ static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *n
 		pdata = (unsigned char*)skb->data;
 		memcpy(pdata, dst_mac_addr, sizeof(dst_mac_addr));
 		memcpy(pdata + sizeof(dst_mac_addr), src_mac_addr, sizeof(src_mac_addr));
+		PKTSETPRIO(skb, 0);
 
 		MON_PRINT("if name: %s, matched if name %s\n", ndev->name, mon_if->real_ndev->name);
 
