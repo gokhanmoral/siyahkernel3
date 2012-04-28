@@ -22,9 +22,8 @@
 #include <linux/notifier.h>
 #include <asm/cputime.h>
 
-//I will change this if I can find a better way...
-//but for now, I have to make this because recreating sysfs causes FC on ActivityManager
-#define GM_DIRTY_CPUSTAT_HACKS
+//not as dirty as before...
+#define GM_CPUSTAT_HACK
 
 static spinlock_t cpufreq_stats_lock;
 
@@ -86,17 +85,11 @@ static ssize_t show_time_in_state(struct cpufreq_policy *policy, char *buf)
 	ssize_t len = 0;
 	int i;
 	struct cpufreq_stats *stat = per_cpu(cpufreq_stats_table, policy->cpu);
-#ifdef GM_DIRTY_CPUSTAT_HACKS
-	struct cpufreq_frequency_table *table = cpufreq_frequency_get_table(policy->cpu);
-#endif
 	if (!stat)
 		return 0;
 	cpufreq_stats_update(stat->cpu);
 
 	for (i = 0; i < stat->state_num; i++) {
-#ifdef GM_DIRTY_CPUSTAT_HACKS
-		if(table[i].frequency == CPUFREQ_ENTRY_INVALID) continue;
-#endif
 		len += sprintf(buf + len, "%u %llu\n", stat->freq_table[i],
 			(unsigned long long)
 			cputime64_to_clock_t(stat->time_in_state[i]));
@@ -234,8 +227,7 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 			continue;
 		count++;
 	}
-
-#ifdef GM_DIRTY_CPUSTAT_HACKS
+#ifdef GM_CPUSTAT_HACK
 	count = 18;
 #endif
 	alloc_size = count * sizeof(int) + count * sizeof(cputime64_t);
@@ -255,28 +247,6 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 	stat->trans_table = stat->freq_table + count;
 #endif
 	j = 0;
-//another temporary hack
-#ifdef GM_DIRTY_CPUSTAT_HACKS
-stat->freq_table[0] = 1600000;
-stat->freq_table[1] = 1500000;
-stat->freq_table[2] = 1400000;
-stat->freq_table[3] = 1300000;
-stat->freq_table[4] = 1200000;
-stat->freq_table[5] = 1100000;
-stat->freq_table[6] = 1000000;
-stat->freq_table[7] = 900000;
-stat->freq_table[8] = 800000;
-stat->freq_table[9] = 700000;
-stat->freq_table[10] = 600000;
-stat->freq_table[11] = 500000;
-stat->freq_table[12] = 400000;
-stat->freq_table[13] = 300000;
-stat->freq_table[14] = 200000;
-stat->freq_table[15] = 100000;
-stat->freq_table[16] = 50000;
-stat->freq_table[17] = 25000;
-j = 18;
-#else
 	for (i = 0; table[i].frequency != CPUFREQ_TABLE_END; i++) {
 		unsigned int freq = table[i].frequency;
 		if (freq == CPUFREQ_ENTRY_INVALID)
@@ -284,7 +254,6 @@ j = 18;
 		if (freq_table_get_index(stat, freq) == -1)
 			stat->freq_table[j++] = freq;
 	}
-#endif
 	stat->state_num = j;
 	spin_lock(&cpufreq_stats_lock);
 	stat->last_time = get_jiffies_64();
@@ -332,9 +301,17 @@ static int cpufreq_stat_notifier_trans(struct notifier_block *nb,
 	if (!stat)
 		return 0;
 
-	old_index = stat->last_index;
 	new_index = freq_table_get_index(stat, freq->new);
 
+	if(new_index == -1) {
+		//quick and dirty fix. 
+		stat->freq_table[stat->state_num] = freq->new;
+		new_index = stat->state_num;
+		stat->state_num += 1;
+	}
+
+	old_index = stat->last_index;
+	
 	/* We can't do stat->time_in_state[-1]= .. */
 	if (old_index == -1 || new_index == -1)
 		return 0;
