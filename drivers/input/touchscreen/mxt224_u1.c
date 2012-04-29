@@ -1220,6 +1220,8 @@ static int __devinit mxt224_init_touch_driver(struct mxt224_data *data)
 	return ret;
 }
 
+void (*mxt224_touch_cb)(void) = NULL;
+
 static void report_input_data(struct mxt224_data *data)
 {
 	int i;
@@ -1345,6 +1347,7 @@ static void report_input_data(struct mxt224_data *data)
 				level);
 			copy_data->lock_status = 1;
 		}
+		if(mxt224_touch_cb!=NULL) (*mxt224_touch_cb)();
 	}
 }
 
