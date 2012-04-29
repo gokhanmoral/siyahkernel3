@@ -35,6 +35,9 @@
 #include <linux/earlysuspend.h>
 #endif
 
+#define BOOT_GAMMA_LEVEL	10
+#define GAMMA_MAX	25
+
 #define SLEEPMSEC		0x1000
 #define ENDDEF			0x2000
 #define	DEFMASK		0xFF00
@@ -104,35 +107,11 @@ struct lcd_info  {
 #endif
 };
 
-enum {
-	GAMMA_30CD,
-	GAMMA_40CD,
-	GAMMA_70CD,
-	GAMMA_90CD,
-	GAMMA_100CD,
-	GAMMA_110CD,
-	GAMMA_120CD,
-	GAMMA_130CD,
-	GAMMA_140CD,
-	GAMMA_150CD,
-	GAMMA_160CD,
-	GAMMA_170CD,
-	GAMMA_180CD,
-	GAMMA_190CD,
-	GAMMA_200CD,
-	GAMMA_210CD,
-	GAMMA_220CD,
-	GAMMA_230CD,
-	GAMMA_240CD,
-	GAMMA_250CD,
-	GAMMA_300CD,
-	GAMMA_MAX
-};
 
 static const unsigned int candela_table[GAMMA_MAX] = {
 	 30,  40,  70,  90, 100, 110, 120, 130, 140, 150,
 	160, 170, 180, 190, 200, 210, 220, 230, 240, 250,
-	300
+	260, 270, 280, 290, 300
 };
 
 static signed short gamma_adjust_map[] = { 3, 3, 3, 3, 0, 1, 0, 1, 5, 2, 4, 0, 1, 0, 3, 3, 3, 2, 0, 1 };
@@ -324,9 +303,9 @@ static int ld9040_panel_send_sequence(struct lcd_info *lcd,
 }
 
 #define MAX_BL 255
-#define MAX_GAMMA 20
+#define MAX_GAMMA 24
 
-int min_gamma = 0, max_gamma = 20, min_bl = 40;
+int min_gamma = 0, max_gamma = MAX_GAMMA, min_bl = 40;
 static int get_backlight_level_from_brightness(unsigned int bl)
 {
 	int gamma_value =0;
@@ -377,7 +356,7 @@ declare_store(min_gamma) {
 declare_store(max_gamma) {	
 	int val;
 	if(sscanf(buf,"%d",&val)==1) {
-		if(val>24) val=24;
+		if(val>MAX_GAMMA) val=MAX_GAMMA;
 		else if(val<0) val=0;
 		max_gamma = val;
 	}
@@ -467,10 +446,10 @@ static int ld9040_set_elvss(struct lcd_info *lcd)
 
 	if (lcd->acl_enable) {
 		switch (lcd->bl) {
-		case GAMMA_30CD ... GAMMA_200CD: /* 30cd ~ 200cd */
+		case 0 ... 14: /* 30cd ~ 200cd */
 			ret = ld9040_panel_send_sequence(lcd, pdata->elvss_table[0]);
 			break;
-		case GAMMA_210CD ... GAMMA_300CD: /* 210cd ~ 300cd */
+		case 15 ... 24: /* 210cd ~ 300cd */
 			ret = ld9040_panel_send_sequence(lcd, pdata->elvss_table[1]);
 			break;
 		default:
@@ -478,16 +457,16 @@ static int ld9040_set_elvss(struct lcd_info *lcd)
 		}
 	} else {
 		switch (lcd->bl) {
-		case GAMMA_30CD ... GAMMA_100CD: /* 30cd ~ 100cd */
+		case 0 ... 4: /* 30cd ~ 100cd */
 			ret = ld9040_panel_send_sequence(lcd, pdata->elvss_table[0]);
 			break;
-		case GAMMA_110CD ... GAMMA_160CD: /* 110cd ~ 160cd */
+		case 5 ... 10: /* 110cd ~ 160cd */
 			ret = ld9040_panel_send_sequence(lcd, pdata->elvss_table[1]);
 			break;
-		case GAMMA_170CD ... GAMMA_200CD: /* 170cd ~ 200cd */
+		case 11 ... 14: /* 170cd ~ 200cd */
 			ret = ld9040_panel_send_sequence(lcd, pdata->elvss_table[2]);
 			break;
-		case GAMMA_210CD ... GAMMA_300CD: /* 210cd ~ 300cd */
+		case 15 ... 24: /* 210cd ~ 300cd */
 			ret = ld9040_panel_send_sequence(lcd, pdata->elvss_table[3]);
 			break;
 		default:
@@ -522,14 +501,14 @@ static int ld9040_set_acl(struct lcd_info *lcd)
 			}
 		}
 		switch (lcd->bl) {
-		case GAMMA_30CD ... GAMMA_40CD: /* 30cd ~ 40cd */
+		case 0 ... 1: /* 30cd ~ 40cd */
 			if (lcd->cur_acl != 0) {
 				ret = ld9040_panel_send_sequence(lcd, pdata->acl_table[0]);
 				lcd->cur_acl = 0;
 				dev_dbg(&lcd->ld->dev, "%s : cur_acl=%d\n", __func__, lcd->cur_acl);
 			}
 			break;
-		case GAMMA_70CD ... GAMMA_250CD: /* 70cd ~ 250cd */
+		case 2 ... 19: /* 70cd ~ 250cd */
 			if (lcd->cur_acl != 40) {
 				ret = ld9040_panel_send_sequence(lcd, pdata->acl_table[1]);
 				lcd->cur_acl = 40;
@@ -1289,8 +1268,8 @@ static int ld9040_probe(struct spi_device *spi)
 	}
 
 	lcd->bd->props.max_brightness = MAX_BRIGHTNESS;
-	lcd->bd->props.brightness = candela_table[GAMMA_160CD];
-	lcd->bl = GAMMA_160CD;
+	lcd->bd->props.brightness = candela_table[BOOT_GAMMA_LEVEL];
+	lcd->bl = BOOT_GAMMA_LEVEL;
 	lcd->current_bl = lcd->bl;
 	lcd->gamma_mode = 0;
 	lcd->current_gamma_mode = 0;
