@@ -36,6 +36,9 @@
 #include <linux/gpio.h>
 #include <linux/cpufreq.h>
 
+#include <linux/device.h> 		//for second_core by tegrak
+#include <linux/miscdevice.h> 	//for second_core by tegrak
+
 #define CPUMON 0
 
 #define CHECK_DELAY	HZ >> 1
@@ -45,6 +48,8 @@
 #define TRANS_LOAD_H_SCREEN_OFF 1000 //just to make sure that cpu1 is off to help didle
 
 #define CPU1_ON_FREQ    800000
+
+#define printk(arg...)
 
 #define HOTPLUG_UNLOCKED 0
 #define HOTPLUG_LOCKED 1
@@ -87,12 +92,25 @@ static bool screen_off;
    timer(softirq) context but in process context */
 static DEFINE_MUTEX(hotplug_lock);
 
+/* Second core values by tegrak */
+#define SECOND_CORE_VERSION (1)
+int second_core_on = 1;
+int hotplug_on = 1;
+
 static void hotplug_timer(struct work_struct *work)
 {
 	unsigned int i, avg_load = 0, load = 0;
 	unsigned int cur_freq;
 
 	mutex_lock(&hotplug_lock);
+
+	// exit if we turned off dynamic hotplug by tegrak
+	// cancel the timer
+	if (!hotplug_on) {
+		if (!second_core_on && cpu_online(1) == 1)
+			cpu_down(1);
+		goto off_hotplug;
+	}
 
 	if (user_lock == 1)
 		goto no_hotplug;
@@ -156,6 +174,7 @@ static void hotplug_timer(struct work_struct *work)
 
 	queue_delayed_work_on(0, hotplug_wq, &hotplug_work, hotpluging_rate);
 
+off_hotplug:
 	mutex_unlock(&hotplug_lock);
 }
 
@@ -230,8 +249,125 @@ static struct notifier_block hotplug_reboot_notifier = {
 	.notifier_call = hotplug_reboot_notifier_call,
 };
 
+/****************************************
+ * DEVICE ATTRIBUTES FUNCTION by tegrak
+****************************************/
+#define declare_show(filename) \
+	static ssize_t show_##filename(struct device *dev, struct device_attribute *attr, char *buf)
+
+#define declare_store(filename) \
+	static ssize_t store_##filename(\
+		struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+
+/****************************************
+ * second_core attributes function by tegrak
+ ****************************************/
+declare_show(version) {
+	return sprintf(buf, "%u\n", SECOND_CORE_VERSION);
+}
+
+declare_show(author) {
+	return sprintf(buf, "Tegrak\n");
+}
+
+declare_show(hotplug_on) {
+	return sprintf(buf, "%s\n", (hotplug_on) ? ("on") : ("off"));
+}
+
+declare_store(hotplug_on) {	
+	mutex_lock(&hotplug_lock);
+	
+	if (user_lock) {
+		goto finish;
+	}
+	
+	if (!hotplug_on && strcmp(buf, "on\n") == 0) {
+		hotplug_on = 1;
+		// restart worker thread.
+		hotpluging_rate = check_rate;
+		queue_delayed_work_on(0, hotplug_wq, &hotplug_work, hotpluging_rate);
+		printk("second_core: hotplug is on!\n");
+	}
+	else if (hotplug_on && strcmp(buf, "off\n") == 0) {
+		hotplug_on = 0;
+		second_core_on = 1;
+		if (cpu_online(1) == 0) {
+			cpu_up(1);
+		}
+		printk("second_core: hotplug is off!\n");
+	}
+	
+finish:
+	mutex_unlock(&hotplug_lock);
+	return size;
+}
+
+declare_show(second_core_on) {
+	return sprintf(buf, "%s\n", (second_core_on) ? ("on") : ("off"));
+}
+
+declare_store(second_core_on) {
+	mutex_lock(&hotplug_lock);
+	
+	if (hotplug_on || user_lock) {
+		goto finish;
+	}
+	
+	if (!second_core_on && strcmp(buf, "on\n") == 0) {
+		second_core_on = 1;
+		if (cpu_online(1) == 0) {
+			cpu_up(1);
+		}
+		printk("second_core: 2nd core is always on!\n");
+	}
+	else if (second_core_on && strcmp(buf, "off\n") == 0) {
+		second_core_on = 0;
+		if (cpu_online(1) == 1) {
+			cpu_down(1);
+		}
+		printk("second_core: 2nd core is always off!\n");
+	}
+	
+finish:
+	mutex_unlock(&hotplug_lock);
+	return size;
+}
+
+/****************************************
+ * DEVICE ATTRIBUTE by tegrak
+ ****************************************/
+#define declare_attr_rw(filename, perm) \
+	static DEVICE_ATTR(filename, perm, show_##filename, store_##filename)
+#define declare_attr_ro(filename, perm) \
+	static DEVICE_ATTR(filename, perm, show_##filename, NULL)
+#define declare_attr_wo(filename, perm) \
+	static DEVICE_ATTR(filename, perm, NULL, store_##filename)
+
+declare_attr_ro(version, 0444);
+declare_attr_ro(author, 0444);
+declare_attr_rw(hotplug_on, 0666);
+declare_attr_rw(second_core_on, 0666);
+
+static struct attribute *second_core_attributes[] = {
+	&dev_attr_hotplug_on.attr, 
+	&dev_attr_second_core_on.attr,
+	&dev_attr_version.attr,
+	&dev_attr_author.attr,
+	NULL
+};
+
+static struct attribute_group second_core_group = {
+		.attrs  = second_core_attributes,
+};
+
+static struct miscdevice second_core_device = {
+		.minor = MISC_DYNAMIC_MINOR,
+		.name = "second_core",
+};
+
 static int __init s5pv310_pm_hotplug_init(void)
 {
+	int ret;
 	printk(KERN_INFO "SMDKV310 PM-hotplug init function\n");
 	hotplug_wq = create_singlethread_workqueue("dynamic hotplug");
 	if (!hotplug_wq) {
@@ -246,6 +382,20 @@ static int __init s5pv310_pm_hotplug_init(void)
 	register_pm_notifier(&s5pv310_pm_hotplug_notifier);
 	register_reboot_notifier(&hotplug_reboot_notifier);
 	register_early_suspend(&hotplug_early_suspend_notifier);
+
+	// register second_core device by tegrak
+	ret = misc_register(&second_core_device);
+	if (ret) {
+	   printk(KERN_ERR "failed at(%d)\n", __LINE__);
+		return ret;
+	}
+
+	ret = sysfs_create_group(&second_core_device.this_device->kobj, &second_core_group);
+	if (ret)
+	{
+		printk(KERN_ERR "failed at(%d)\n", __LINE__);
+		return ret;
+	}
 
 	return 0;
 }
