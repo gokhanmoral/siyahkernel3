@@ -42,6 +42,7 @@
 #include <plat/map-s5p.h>
 #include <plat/gpio-cfg.h>
 #include <plat/cpu.h>
+#include <linux/miscdevice.h>
 
 #define MAX_LOAD		100
 #define DIVIDING_FACTOR		10000
@@ -608,6 +609,111 @@ static ssize_t show_busfreq_level(struct kobject *kobj,
 
 static struct global_attr busfreq_level_attr = __ATTR(busfreq_current_level,
 		S_IRUGO, show_busfreq_level, NULL);
+long unsigned int max_arm_volt = 1450000;
+long unsigned int max_int_volt = 1300000;
+#define CUSTOMVOLTAGE_VERSION 1
+
+extern ssize_t show_UV_mV_table(struct cpufreq_policy *policy, char *buf);
+extern ssize_t store_UV_mV_table(struct cpufreq_policy *policy,
+                                      const char *buf, size_t count);
+
+ssize_t customvoltage_armvolt_read(struct device * dev, struct device_attribute * attr, char * buf)
+{
+	return show_UV_mV_table(NULL, buf);
+}
+
+ssize_t customvoltage_armvolt_write(struct device * dev, struct device_attribute * attr, const char * buf, size_t size)
+{
+	return store_UV_mV_table(NULL, buf, size);
+}
+
+static ssize_t customvoltage_intvolt_read(struct device * dev, struct device_attribute * attr, char * buf)
+{
+    int i, j = 0;
+
+    for (i = 0; i < 3; i++)
+	{
+	    j += sprintf(&buf[j], "%umhz: %u mV\n", 
+			exynos4_busfreq_table[i].mem_clk / 1000, 
+			exynos4_busfreq_table[i].volt / 1000);
+	}
+
+    return j;
+}
+
+static ssize_t customvoltage_intvolt_write(struct device * dev, struct device_attribute * attr, const char * buf, size_t size)
+{
+    int i, ret, u[3];
+
+	ret = sscanf(buf, "%d %d %d", &u[0], &u[1], &u[2]);
+	if( ret != 3 ) return -EINVAL;
+	for ( i = 0; i < 3; i++ )
+	{
+		if ( u[i] > max_int_volt / 1000 ) u[i] = max_int_volt / 1000;
+		exynos4_busfreq_table[i].volt = u[i]*1000;
+	}
+    return size;
+}
+
+static ssize_t customvoltage_maxarmvolt_read(struct device * dev, struct device_attribute * attr, char * buf)
+{
+    return sprintf(buf, "%lu mV\n", max_arm_volt / 1000);
+}
+
+static ssize_t customvoltage_maxarmvolt_write(struct device * dev, struct device_attribute * attr, const char * buf, size_t size)
+{
+    unsigned long max_volt;
+    if (sscanf(buf, "%lu", &max_volt) == 1)
+	{
+	    if(max_volt > CPU_UV_MV_MAX) max_volt = CPU_UV_MV_MAX;
+		max_arm_volt = max_volt * 1000;
+	}
+    return size;
+}
+
+static ssize_t customvoltage_maxintvolt_read(struct device * dev, struct device_attribute * attr, char * buf)
+{
+    return sprintf(buf, "%lu mV\n", max_int_volt / 1000);
+}
+static ssize_t customvoltage_maxintvolt_write(struct device * dev, struct device_attribute * attr, const char * buf, size_t size)
+{
+    unsigned long max_volt;
+    if (sscanf(buf, "%lu", &max_volt) == 1)
+	{
+	    if(max_volt > CPU_UV_MV_MAX) max_volt = CPU_UV_MV_MAX;
+		max_int_volt = max_volt * 1000;
+	}
+    return size;
+}
+
+static ssize_t customvoltage_version(struct device * dev, struct device_attribute * attr, char * buf)
+{
+    return sprintf(buf, "%u\n", CUSTOMVOLTAGE_VERSION);
+}
+
+static DEVICE_ATTR(max_arm_volt, S_IRUGO | S_IWUGO, customvoltage_maxarmvolt_read, customvoltage_maxarmvolt_write);
+static DEVICE_ATTR(max_int_volt, S_IRUGO | S_IWUGO, customvoltage_maxintvolt_read, customvoltage_maxintvolt_write);
+static DEVICE_ATTR(arm_volt, S_IRUGO | S_IWUGO, customvoltage_armvolt_read, customvoltage_armvolt_write);
+static DEVICE_ATTR(int_volt, S_IRUGO | S_IWUGO, customvoltage_intvolt_read, customvoltage_intvolt_write);
+static DEVICE_ATTR(version, S_IRUGO , customvoltage_version, NULL);
+
+static struct attribute *customvoltage_attributes[] = {
+	&dev_attr_max_arm_volt.attr,
+	&dev_attr_max_int_volt.attr,
+	&dev_attr_arm_volt.attr,
+	&dev_attr_int_volt.attr,
+	&dev_attr_version.attr,
+    NULL
+};
+
+static struct attribute_group customvoltage_group = {
+        .attrs = customvoltage_attributes,
+};
+
+static struct miscdevice customvoltage_device = {
+        .minor = MISC_DYNAMIC_MINOR,
+        .name  = "customvoltage",
+};
 
 static int __init busfreq_mon_init(void)
 {
@@ -744,6 +850,13 @@ static int __init busfreq_mon_init(void)
 
 	if (sysfs_create_file(cpufreq_global_kobject, &busfreq_level_attr.attr))
 		pr_err("Failed to create sysfs file(level)\n");
+    if( misc_register( &customvoltage_device ) ){
+        printk(KERN_ERR "[customvoltage] sysfs misc_register failed.\n");
+    }else{
+        if( sysfs_create_group( &customvoltage_device.this_device->kobj, &customvoltage_group) < 0){
+            printk(KERN_ERR "[customvoltage] sysfs create group failed.\n");
+        } 
+    }
 	return 0;
 err_pm:
 	cpufreq_unregister_notifier(&exynos4_busfreq_notifier,
