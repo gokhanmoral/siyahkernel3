@@ -131,16 +131,16 @@ static unsigned int clkdiv_cpu0[CPUFREQ_LEVEL_END][7] = {
 	{ 0, 3, 7, 3, 3, 1, 7 },
 
 	/* ARM L14: 200MHz */
-	{ 0, 1, 3, 1, 3, 1, 0 },
+	{ 0, 1, 3, 1, 3, 1, 7 },
 
 	/* ARM L15: 100MHz */
-	{ 0, 1, 3, 1, 3, 1, 0 },
+	{ 0, 1, 3, 1, 3, 1, 7 },
 
 	/* ARM L16: 50MHz */
-	{ 0, 1, 3, 1, 3, 1, 0 },
+	{ 0, 1, 3, 1, 3, 1, 7 },
 
 	/* ARM L17: 25MHz */
-	{ 0, 1, 3, 1, 3, 1, 0 },
+	{ 0, 1, 3, 1, 3, 1, 7 },
 };
 
 static unsigned int clkdiv_cpu1[CPUFREQ_LEVEL_END][2] = {
@@ -249,13 +249,13 @@ static unsigned int exynos4_apll_pms_table[CPUFREQ_LEVEL_END] = {
 	((200<<16)|(6<<8)|(0x3)),
 
 	/* APLL FOUT L15: 100MHz */
-	((100<<16)|(6<<8)|(0x3)),
+	((200<<16)|(6<<8)|(0x4)),
 
 	/* APLL FOUT L16: 50MHz */
-	((50<<16)|(6<<8)|(0x3)),
+	((100<<16)|(6<<8)|(0x4)),
 
 	/* APLL FOUT L17: 25MHz */
-	((25<<16)|(6<<8)|(0x3)),
+	((50<<16)|(6<<8)|(0x4)),
 };
 
 /*
