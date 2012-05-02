@@ -53,12 +53,6 @@ static void process_port_intr(struct usb_hcd *hcd)
 	if (hprt.b.prtenchng) {
 		otg_dbg(true, "port enable/disable changed\n");
 		otghost->port_flag.b.port_enable_change = 1;
-
-		// kevinh - it seems the hw implicitly disables the interface on unplug, so mark that we are unplugged
-		if(!hprt.b.prtconnsts) {
-		  otghost->port_flag.b.port_connect_status_change = 1;
-		  otghost->port_flag.b.port_connect_status = 0;
-		}
 	}
 
 	if (hprt.b.prtovrcurrchng) {
@@ -443,6 +437,12 @@ static int s5pc110_otghcd_urb_enqueue(struct usb_hcd *hcd,
 	spin_lock_irqsave(&otghost->lock, spin_lock_flag);
 
 	otg_dbg(OTG_DBG_OTGHCDI_HCD, "enqueue\n");
+	if (compare_ed(otghost, urb->ep->hcpriv, urb)) {
+		otg_err(OTG_DBG_OTGHCDI_HCD, "compare ed error\n");
+		pr_info("otg compare ed error\n");
+		spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
+		return USB_ERR_FAIL;
+	}
 
 	/* check ep has ed_t or not */
 	if (!(urb->ep->hcpriv)) {
@@ -656,9 +656,6 @@ static int s5pc110_otghcd_urb_dequeue(
 		return USB_ERR_SUCCESS;
 	}
 
-	// kevinh - important to read this from inside of the spinlock (so ISR can't change hcpriv first)
-	cancel_td = _urb->hcpriv;
-
 	if (cancel_td == NULL) {
 		otg_err(OTG_DBG_OTGHCDI_HCD, "cancel_td is NULL\n");
 		spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
@@ -685,13 +682,12 @@ static int s5pc110_otghcd_urb_dequeue(
 	ret_val = cancel_transfer(otghost, cancel_td->parent_ed_p, cancel_td);
 	if (ret_val != USB_ERR_DEQUEUED && ret_val != USB_ERR_NOELEMENT) {
 		otg_err(OTG_DBG_OTGHCDI_HCD, "fail to cancel_transfer()\n");
-		otg_usbcore_giveback(cancel_td);
+/*		otg_usbcore_giveback(cancel_td); */
 		spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
 		return USB_ERR_FAIL;
 	}
 
-	otg_usbcore_giveback(cancel_td);
-	delete_td(otghost, cancel_td);
+/*	otg_usbcore_giveback(cancel_td); */
 	spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
 	return USB_ERR_SUCCESS;
 }
