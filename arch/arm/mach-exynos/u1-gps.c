@@ -92,4 +92,26 @@ static int __init u1_gps_init(void)
 	return 0;
 }
 
+int u1_gps_ntt_init(void)
+{
+       //int isntt = 1;
+       //if(isntt!=1) return 0;
+       s3c_gpio_cfgpin(GPIO_GPS_PWR_EN, S3C_GPIO_SLP_INPUT);
+       s3c_gpio_setpull(GPIO_GPS_PWR_EN, S3C_GPIO_PULL_DOWN);
+       gpio_unexport(GPIO_GPS_PWR_EN);
+       gpio_free(GPIO_GPS_PWR_EN);
+       
+       if (gpio_request(GPIO_GPS_PWR_EN_NTT, "GPS_PWR_EN"))
+               WARN(1, "fail to request gpio (GPS_PWR_EN)\n");
+       s3c_gpio_setpull(GPIO_GPS_PWR_EN_NTT, S3C_GPIO_PULL_NONE);
+       s3c_gpio_cfgpin(GPIO_GPS_PWR_EN_NTT, S3C_GPIO_OUTPUT);
+       gpio_direction_output(GPIO_GPS_PWR_EN_NTT, 0);
+       gpio_export(GPIO_GPS_PWR_EN_NTT, 1);
+       sysfs_remove_link(&gps_dev->kobj,"GPS_PWR_EN");
+       gpio_export_link(gps_dev, "GPS_PWR_EN", GPIO_GPS_PWR_EN_NTT);
+       return 0;
+
+}
+
+
 device_initcall(u1_gps_init);
