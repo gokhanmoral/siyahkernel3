@@ -616,6 +616,10 @@ return -EINVAL;
 
 return count;
 }
+extern ssize_t show_smooth_level(struct cpufreq_policy *policy, char *buf);
+extern ssize_t store_smooth_level(struct cpufreq_policy *policy,
+									const char *buf, size_t count);
+
 /* sysfs interface for UV control */
 extern ssize_t show_UV_mV_table(struct cpufreq_policy *policy, char *buf);
 extern ssize_t store_UV_mV_table(struct cpufreq_policy *policy,
@@ -653,6 +657,7 @@ cpufreq_freq_attr_rw(scaling_setspeed);
 cpufreq_freq_attr_rw(vdd_levels);
 /* UV table */
 cpufreq_freq_attr_rw(UV_mV_table);
+cpufreq_freq_attr_rw(smooth_level);
 
 static struct attribute *default_attrs[] = {
 	&cpuinfo_min_freq.attr,
@@ -668,6 +673,7 @@ static struct attribute *default_attrs[] = {
 	&scaling_setspeed.attr,
 	&vdd_levels.attr,
 	&UV_mV_table.attr,
+	&smooth_level.attr,
 	NULL
 };
 
@@ -1613,14 +1619,11 @@ int cpufreq_register_governor(struct cpufreq_governor *governor)
 			governor->disableScalingDuringSuspend = 0;
 		else
 			governor->disableScalingDuringSuspend = 1;
-		if (!strnicmp(governor->name, "powersave", CPUFREQ_NAME_LEN)
-		|| !strnicmp(governor->name, "performance", CPUFREQ_NAME_LEN)
-		|| !strnicmp(governor->name, "lulzactive", CPUFREQ_NAME_LEN)
-		|| !strnicmp(governor->name, "interactive", 11)
+		if (!strnicmp(governor->name, "ondemand", CPUFREQ_NAME_LEN)
 		)
-			governor->enableSmoothScaling = 0;
-		else
 			governor->enableSmoothScaling = 1;
+		else
+			governor->enableSmoothScaling = 0;
 		list_add(&governor->governor_list, &cpufreq_governor_list);
 	}
 

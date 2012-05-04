@@ -85,6 +85,8 @@ static unsigned int exynos_get_safe_armvolt(unsigned int old_index, unsigned int
 	return safe_arm_volt;
 }
 
+unsigned int smooth_level = L8;
+
 static int exynos_target(struct cpufreq_policy *policy,
 			  unsigned int target_freq,
 			  unsigned int relation)
@@ -139,8 +141,9 @@ static int exynos_target(struct cpufreq_policy *policy,
 
 #if defined(CONFIG_CPU_EXYNOS4210)
 	/* Do NOT step up max arm clock directly to reduce power consumption */
-	if (index <= L4 && old_index > L8)
-		index = L8;
+	if (policy->governor->enableSmoothScaling &&
+		index == exynos_info->max_current_idx && old_index > smooth_level)
+		index = smooth_level;
 #endif
 
 	freqs.new = freq_table[index].frequency;
@@ -884,3 +887,15 @@ ssize_t store_available_freqs_exynos4210(struct cpufreq_policy *policy,
 	return count;
 }
 
+ssize_t show_smooth_level(struct cpufreq_policy *policy, char *buf) {
+      return sprintf(buf, "%d\n", smooth_level);
+}
+ssize_t store_smooth_level(struct cpufreq_policy *policy,
+                                      const char *buf, size_t count) {
+	unsigned int ret = -EINVAL, level;
+	ret = sscanf(buf, "%d", &level);
+	if(ret!=1) return -EINVAL;
+	if(level<0 || level>17) return -EINVAL;
+	smooth_level = level;
+	return count;
+}
