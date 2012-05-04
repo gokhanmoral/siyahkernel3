@@ -125,7 +125,6 @@ struct device *sec_touchkey;
 #include <linux/wakelock.h>
 #define BLN_VERSION 9
 
-bool blnww = false;
 bool bln_enabled = false;
 bool BLN_ongoing = false;
 bool bln_blink_enabled = false;
@@ -1034,7 +1033,7 @@ static int sec_touchkey_late_resume(struct early_suspend *h)
 
 static void touchkey_activate(void){
 
-        if( !blnww && !wake_lock_active(&bln_wake_lock) ){ 
+        if( !wake_lock_active(&bln_wake_lock) ){ 
             printk(KERN_DEBUG "[TouchKey] touchkey get wake_lock\n");
             wake_lock(&bln_wake_lock);
         }
@@ -1053,7 +1052,7 @@ static void touchkey_deactivate(void){
         touchkey_led_ldo_on(0);
         touchkey_ldo_on(0);
 
-        if( !blnww && wake_lock_active(&bln_wake_lock) ){
+        if( wake_lock_active(&bln_wake_lock) ){
             printk(KERN_DEBUG "[TouchKey] touchkey clear wake_lock\n");
             wake_unlock(&bln_wake_lock);
         }
@@ -1073,7 +1072,7 @@ static void bln_late_resume(struct early_suspend *h){
         printk(KERN_DEBUG "[TouchKey] BLN resume\n");
 
         bln_suspended = false;
-        if( !blnww && wake_lock_active(&bln_wake_lock) ){
+        if( wake_lock_active(&bln_wake_lock) ){
             printk(KERN_DEBUG "[TouchKey] clear wake lock \n");
             wake_unlock(&bln_wake_lock);
         }
@@ -1185,25 +1184,6 @@ static ssize_t notification_led_status_write( struct device *dev, struct device_
         return size;
 }
 
-static ssize_t blnww_status_read( struct device *dev, struct device_attribute *attr, char *buf ){
-        return sprintf(buf,"%u\n", (blnww ? 1 : 0 ));
-}
-
-static ssize_t blnww_status_write( struct device *dev, struct device_attribute *attr, const char *buf, size_t size ){
-        unsigned int data;
-
-
-        if(sscanf(buf,"%u\n", &data ) == 1 ){
-			if( data == 1 ) blnww = 1;
-			if( data == 0 ) blnww = 0;
-        }else{
-			if( !strncmp(buf, "on", 2) ) blnww = 1;
-			if( !strncmp(buf, "off", 3) ) blnww = 0;
-        }
-
-        return size;
-}
-
 static ssize_t blink_control_read( struct device *dev, struct device_attribute *attr, char *buf ){
         return sprintf( buf, "%u\n", (bln_blink_enabled ? 1 : 0 ) );
 }
@@ -1235,14 +1215,12 @@ static ssize_t bln_version( struct device *dev, struct device_attribute *attr, c
 static DEVICE_ATTR(blink_control, S_IRUGO | S_IWUGO, blink_control_read, blink_control_write );
 static DEVICE_ATTR(enabled, S_IRUGO | S_IWUGO, bln_status_read, bln_status_write );
 static DEVICE_ATTR(notification_led, S_IRUGO | S_IWUGO, notification_led_status_read,  notification_led_status_write );
-static DEVICE_ATTR(blnww, S_IRUGO | S_IWUGO, blnww_status_read,  blnww_status_write );
 static DEVICE_ATTR(version, S_IRUGO, bln_version, NULL );
 
 static struct attribute *bln_notification_attributes[] = {
         &dev_attr_blink_control.attr,
         &dev_attr_enabled.attr,
         &dev_attr_notification_led.attr,
-        &dev_attr_blnww.attr,
         &dev_attr_version.attr,
         NULL
 };
