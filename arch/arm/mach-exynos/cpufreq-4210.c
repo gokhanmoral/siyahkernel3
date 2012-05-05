@@ -461,19 +461,6 @@ static void __init set_volt_table(void)
 		max_support_idx = L6;
 		break;
 	}
-	//disable "artificial" frequencies -gm
-	exynos4210_freq_table[L0].frequency = CPUFREQ_ENTRY_INVALID; //1600MHz
-	exynos4210_freq_table[L1].frequency = CPUFREQ_ENTRY_INVALID; //1500MHz
-	exynos4210_freq_table[L3].frequency = CPUFREQ_ENTRY_INVALID; //1300MHz
-	exynos4210_freq_table[L5].frequency = CPUFREQ_ENTRY_INVALID; //1100MHz
-	exynos4210_freq_table[L7].frequency = CPUFREQ_ENTRY_INVALID; //900MHz
-	exynos4210_freq_table[L9].frequency = CPUFREQ_ENTRY_INVALID; //700MHz
-	exynos4210_freq_table[L10].frequency = CPUFREQ_ENTRY_INVALID; //600MHz
-	exynos4210_freq_table[L12].frequency = CPUFREQ_ENTRY_INVALID; //400MHz
-	exynos4210_freq_table[L13].frequency = CPUFREQ_ENTRY_INVALID; //300MHz
-	exynos4210_freq_table[L15].frequency = CPUFREQ_ENTRY_INVALID; //100MHz
-	exynos4210_freq_table[L16].frequency = CPUFREQ_ENTRY_INVALID; //50MHz
-	exynos4210_freq_table[L17].frequency = CPUFREQ_ENTRY_INVALID; //25MHz
 
 	/*
 	 * If ASV group is S, can not support 1.4GHz
