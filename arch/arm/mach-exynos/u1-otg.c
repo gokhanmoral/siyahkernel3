@@ -181,6 +181,8 @@ static int c210_otghost_stop(struct s3c_udc *dev)
 					IRQ_USB_HSOTG, ret);
 			return -1;
 		}
+
+		disable_irq(dev->irq);
 	}
 
 	return ret;
