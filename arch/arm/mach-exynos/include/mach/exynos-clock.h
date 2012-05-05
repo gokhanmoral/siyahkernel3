@@ -63,6 +63,7 @@ struct vpll_div_data {
 };
 
 extern struct clk_ops exynos4_vpll_ops;
+extern struct clk_ops exynos4_epll_ops;
 
 extern int exynos4_clksrc_mask_fsys_ctrl(struct clk *clk, int enable);
 extern int exynos4_clk_ip_fsys_ctrl(struct clk *clk, int enable);

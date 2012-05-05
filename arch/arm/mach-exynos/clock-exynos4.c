@@ -88,18 +88,6 @@ static struct sleep_save exynos4_clock_save[] = {
 	SAVE_ITEM(EXYNOS4_CLKSRC_DMC),
 	SAVE_ITEM(EXYNOS4_CLKSRC_CPU),
 };
-
-static struct sleep_save exynos4_epll_save[] = {
-	SAVE_ITEM(EXYNOS4_EPLL_LOCK),
-	SAVE_ITEM(EXYNOS4_EPLL_CON0),
-	SAVE_ITEM(EXYNOS4_EPLL_CON1),
-};
-
-static struct sleep_save exynos4_vpll_save[] = {
-	SAVE_ITEM(EXYNOS4_VPLL_LOCK),
-	SAVE_ITEM(EXYNOS4_VPLL_CON0),
-	SAVE_ITEM(EXYNOS4_VPLL_CON1),
-};
 #endif
 
 struct clk exynos4_clk_sclk_hdmi27m = {
@@ -1237,6 +1225,7 @@ static struct clksrc_sources exynos4_clkset_sclk_audss = {
 static struct clksrc_clk exynos4_clk_sclk_audss_i2s = {
 	.clk		= {
 		.name		= "i2sclk",
+		.parent		= &exynos4_clk_mout_audss.clk,
 		.enable		= exynos4_clk_audss_ctrl,
 		.ctrlbit	= S5P_AUDSS_CLKGATE_I2SSPECIAL,
 	},
@@ -1266,6 +1255,7 @@ static struct clksrc_clk exynos4_clk_sclk_audss_bus = {
 static struct clk exynos4_init_audss_clocks[] = {
 	{
 		.name		= "srpclk",
+		.enable		= exynos4_clk_audss_ctrl,
 		.parent		= &exynos4_clk_dout_audss_srp.clk,
 		.ctrlbit	= S5P_AUDSS_CLKGATE_RP | S5P_AUDSS_CLKGATE_UART
 				| S5P_AUDSS_CLKGATE_TIMER,
@@ -2298,93 +2288,7 @@ static struct clksrc_clk *exynos4_sysclks[] = {
 	&exynos4_clk_sclk_fimg2d,
 };
 
-static unsigned long exynos4_epll_get_rate(struct clk *clk)
-{
-	return clk->rate;
-}
-
-static u32 epll_div[][6] = {
-	{ 192000000, 0, 48, 3, 1, 0 },
-	{ 180000000, 0, 45, 3, 1, 0 },
-	{  73728000, 1, 73, 3, 3, 47710 },
-	{  67737600, 1, 90, 4, 3, 20762 },
-	{  49152000, 0, 49, 3, 3, 9961 },
-	{  45158400, 0, 45, 3, 3, 10381 },
-	{ 180633600, 0, 45, 3, 1, 10381 },
-};
-
-static int exynos4_epll_set_rate(struct clk *clk, unsigned long rate)
-{
-	unsigned int epll_con, epll_con_k;
-	unsigned int i;
-	unsigned int tmp;
-	unsigned int epll_rate;
-	unsigned int locktime;
-	unsigned int lockcnt;
-
-	/* Return if nothing changed */
-	if (clk->rate == rate)
-		return 0;
-
-	if (clk->parent)
-		epll_rate = clk_get_rate(clk->parent);
-	else
-		epll_rate = clk_ext_xtal_mux.rate;
-
-	if (epll_rate != 24000000) {
-		pr_err("Invalid Clock : recommended clock is 24MHz.\n");
-		return -EINVAL;
-	}
-
-
-	epll_con = __raw_readl(EXYNOS4_EPLL_CON0);
-	epll_con &= ~(0x1 << 27 | \
-			PLL46XX_MDIV_MASK << PLL46XX_MDIV_SHIFT |   \
-			PLL46XX_PDIV_MASK << PLL46XX_PDIV_SHIFT | \
-			PLL46XX_SDIV_MASK << PLL46XX_SDIV_SHIFT);
-
-	for (i = 0; i < ARRAY_SIZE(epll_div); i++) {
-		if (epll_div[i][0] == rate) {
-			epll_con_k = epll_div[i][5] << 0;
-			epll_con |= epll_div[i][1] << 27;
-			epll_con |= epll_div[i][2] << PLL46XX_MDIV_SHIFT;
-			epll_con |= epll_div[i][3] << PLL46XX_PDIV_SHIFT;
-			epll_con |= epll_div[i][4] << PLL46XX_SDIV_SHIFT;
-			break;
-		}
-	}
-
-	if (i == ARRAY_SIZE(epll_div)) {
-		printk(KERN_ERR "%s: Invalid Clock EPLL Frequency\n",
-				__func__);
-		return -EINVAL;
-	}
-
-	epll_rate /= 1000000;
-
-	/* 3000 max_cycls : specification data */
-	locktime = 3000 / epll_rate * epll_div[i][3];
-	lockcnt = locktime * 10000 / (10000 / epll_rate);
-
-	__raw_writel(lockcnt, EXYNOS4_EPLL_LOCK);
-
-	__raw_writel(epll_con, EXYNOS4_EPLL_CON0);
-	__raw_writel(epll_con_k, EXYNOS4_EPLL_CON1);
-
-	do {
-		tmp = __raw_readl(EXYNOS4_EPLL_CON0);
-	} while (!(tmp & 0x1 << EXYNOS4_EPLLCON0_LOCKED_SHIFT));
-
-	clk->rate = rate;
-
-	return 0;
-}
-
-static struct clk_ops exynos4_epll_ops = {
-	.get_rate = exynos4_epll_get_rate,
-	.set_rate = exynos4_epll_set_rate,
-};
-
+struct clk_ops exynos4_epll_ops;
 struct clk_ops exynos4_vpll_ops;
 
 static int xtal_rate;
@@ -2538,28 +2442,12 @@ static struct clk *exynos4_clks[] __initdata = {
 static int exynos4_clock_suspend(void)
 {
 	s3c_pm_do_save(exynos4_clock_save, ARRAY_SIZE(exynos4_clock_save));
-	s3c_pm_do_save(exynos4_epll_save, ARRAY_SIZE(exynos4_epll_save));
-	s3c_pm_do_save(exynos4_vpll_save, ARRAY_SIZE(exynos4_vpll_save));
 
 	return 0;
 }
 
 static void exynos4_clock_resume(void)
 {
-	unsigned int tmp;
-
-	s3c_pm_do_restore_core(exynos4_epll_save, ARRAY_SIZE(exynos4_epll_save));
-	s3c_pm_do_restore_core(exynos4_vpll_save, ARRAY_SIZE(exynos4_vpll_save));
-
-	/* waiting epll & vpll locking time */
-	do {
-		tmp = __raw_readl(EXYNOS4_EPLL_CON0);
-	} while (!(tmp & 0x1 << EXYNOS4_EPLLCON0_LOCKED_SHIFT));
-
-	do {
-		tmp = __raw_readl(EXYNOS4_VPLL_CON0);
-	} while (!(tmp & 0x1 << EXYNOS4_VPLLCON0_LOCKED_SHIFT));
-
 	s3c_pm_do_restore_core(exynos4_clock_save, ARRAY_SIZE(exynos4_clock_save));
 }
 #else
