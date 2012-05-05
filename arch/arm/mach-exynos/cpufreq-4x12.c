@@ -31,8 +31,6 @@
 
 #define ENABLE_CLKOUT
 
-#define CPUFREQ_VOL_COMP 50000
-
 static int max_support_idx;
 static int min_support_idx = (CPUFREQ_LEVEL_END - 1);
 static struct clk *cpu_clk;
@@ -492,15 +490,6 @@ static void exynos4x12_set_frequency(unsigned int old_index,
 			set_clkdiv(new_index);
 		}
 	}
-#if 0
-/* don't use at 20110105 RBB version */
-	if ((exynos_result_of_asv > 3) && (exynos_result_of_asv < 11)) {
-		if (new_index >= NO_ABB_LIMIT)
-			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_100V);
-		else
-			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_130V);
-	}
-#endif
 }
 
 static void __init set_volt_table(void)
@@ -558,16 +547,16 @@ static void __init set_volt_table(void)
 	} else if (soc_is_exynos4412()) {
 		if (exynos_result_of_asv == 0xff) {
 			for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
-			exynos4x12_volt_table[i] = asv_voltage_s[i] + CPUFREQ_VOL_COMP;
+			exynos4x12_volt_table[i] = asv_voltage_s[i];
 		} else {
 			for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
 				exynos4x12_volt_table[i] =
-					asv_voltage_step_12_5[i][exynos_result_of_asv] + CPUFREQ_VOL_COMP;
+					asv_voltage_step_12_5[i][exynos_result_of_asv];
 		}
 	} else {
 		for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++) {
 			exynos4x12_volt_table[i] =
-				asv_voltage_step_12_5[i][exynos_result_of_asv] + CPUFREQ_VOL_COMP;
+				asv_voltage_step_12_5[i][exynos_result_of_asv];
 
 			printk("L%d = %d\n", i, exynos4x12_volt_table[i]);
 		}
