@@ -809,7 +809,7 @@ ssize_t store_available_freqs_exynos4210(struct cpufreq_policy *policy,
 	if(count < 1) return -EINVAL;
 
 	//parse input
-	for(j = 0; i < count; i++)
+	for(j = 0, i = 0; i < count; i++)
 	{
 		char c = buf[i];
 		if(c >= '0' && c <= '9')
