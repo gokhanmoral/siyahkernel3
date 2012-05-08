@@ -112,7 +112,7 @@ static int bus_resume(struct sec_otghost *otghost)
 	mdelay(50);
 
 	if (oci_init(otghost) == USB_ERR_SUCCESS) {
-		if (oci_start() == USB_ERR_SUCCESS) {
+		if (oci_start(otghost) == USB_ERR_SUCCESS) {
 			otg_dbg(OTG_DBG_ROOTHUB, "OTG Init Success\n");
 			return USB_ERR_SUCCESS;
 		}

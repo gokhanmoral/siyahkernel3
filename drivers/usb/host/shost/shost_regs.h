@@ -690,6 +690,24 @@ typedef union _hcchar_t {
 	} b;
 } hcchar_t;
 
+// sztupy: adding struct to handle HCSPLT register
+typedef union _hcsplt_t {
+ 	// raw register data
+	u32 d32;
+
+	// register bits
+	struct
+	{
+		unsigned prtaddr	: 7;
+		unsigned hubaddr	: 7;
+		unsigned xactpos	: 2;
+		unsigned compsplt	: 1;
+		unsigned reserved	: 14;
+		unsigned spltena	: 1;
+	} b;
+ 
+} hcsplt_t;
+
 /* Host Channel-n Transfer Size Register
  * d257
  */

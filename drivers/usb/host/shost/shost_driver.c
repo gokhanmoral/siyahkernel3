@@ -44,6 +44,7 @@
 
 
 #include "shost.h"
+#include "../../gadget/s3c_udc.h"
 
 
 static inline struct sec_otghost *hcd_to_sec_otghost(struct usb_hcd *hcd)
@@ -128,6 +129,7 @@ static int s5pc110_start_otg(u32 regs)
 
 	pr_info("otg probe start : 0x%x\n", regs);
 
+	reset_scheduler_numbers();
 	g_pUsbHcd = usb_create_hcd(&s5pc110_otg_hc_driver, &pdev->dev,
 					"s3cotg");/*pdev->dev.bus_id*/
 	if (g_pUsbHcd == NULL) {
@@ -154,6 +156,12 @@ static int s5pc110_start_otg(u32 regs)
 		goto err_out_create_hcd;
 	}
 	otghost->otg_data = otg_data;
+
+        if ((s3c_get_drivermode()) & USB_OTG_DRIVER_S3CFSLS) {
+                otghost->is_hs = 0; // force USB 1.x mode
+        } else {
+                otghost->is_hs = 1;
+        }
 
 	INIT_WORK(&otghost->work, otg_power_work);
 	otghost->wq = create_singlethread_workqueue("sec_otghostd");

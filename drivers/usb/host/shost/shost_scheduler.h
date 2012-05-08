@@ -52,5 +52,6 @@ extern int get_td_info(u8 chnum, unsigned int *td_addr);
 /* transfer-common.c */
 int insert_ed_to_scheduler(struct sec_otghost *otghost, struct ed *insert_ed);
 
+void reset_scheduler_numbers(void);
 #endif
 

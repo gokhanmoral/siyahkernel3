@@ -2918,7 +2918,7 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 			dev_err(&udev->dev, "parent hub has no TT\n");
 			retval = -EINVAL;
 			goto fail;
-		} */
+		}*/
 		udev->tt = &hub->tt;
 		udev->ttport = port1;
 	}
