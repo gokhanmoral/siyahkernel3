@@ -701,13 +701,6 @@ ssize_t show_UV_mV_table(struct cpufreq_policy *policy, char *buf)
 	return len;
 }
 
-#define VREF_SEL     1	/* 0: 0.625V (50mV step), 1: 0.3125V (25mV step). */
-#define V_STEP       (25 * (2 - VREF_SEL)) /* Minimum voltage step size. */
-#define VREG_DATA    (VREG_CONFIG | (VREF_SEL << 5))
-#define VREG_CONFIG  (BIT(7) | BIT(6)) /* Enable VREG, pull-down if disabled. */
-/* Cause a compile error if the voltage is not a multiple of the step size. */
-#define MV(mv)      ((mv) / (!((mv) % V_STEP)))
-
 ssize_t acpuclk_get_vdd_levels_str(char *buf)
 {
 int i, len = 0;
@@ -716,7 +709,7 @@ if (buf)
 for (i = exynos_info->max_support_idx; i<=exynos_info->min_support_idx; i++)
 {
 if(exynos_info->freq_table[i].frequency==CPUFREQ_ENTRY_INVALID) continue;
-len += sprintf(buf + len, "%8u: %4d\n", exynos_info->freq_table[i].frequency, exynos_info->volt_table[i]);
+len += sprintf(buf + len, "%8u: %4d\n", exynos_info->freq_table[i].frequency, exynos_info->volt_table[i] / 1000);
 }
 }
 return len;
@@ -726,14 +719,13 @@ void acpuclk_set_vdd(unsigned int khz, unsigned int vdd)
 {
 int i;
 unsigned int new_vdd;
-vdd = vdd / V_STEP * V_STEP;
 for (i = exynos_info->max_support_idx; i<=exynos_info->min_support_idx; i++)
 {
 if(exynos_info->freq_table[i].frequency==CPUFREQ_ENTRY_INVALID) continue;
 if (khz == 0)
-new_vdd = min(max((unsigned int)(exynos_info->volt_table[i] + vdd), (unsigned int)CPU_UV_MV_MIN), (unsigned int)CPU_UV_MV_MAX);
+new_vdd = min(max((unsigned int)(exynos_info->volt_table[i] + vdd * 1000), (unsigned int)CPU_UV_MV_MIN), (unsigned int)CPU_UV_MV_MAX);
 else if (exynos_info->freq_table[i].frequency == khz)
-new_vdd = min(max((unsigned int)vdd, (unsigned int)CPU_UV_MV_MIN), (unsigned int)CPU_UV_MV_MAX);
+new_vdd = min(max((unsigned int)vdd * 1000, (unsigned int)CPU_UV_MV_MIN), (unsigned int)CPU_UV_MV_MAX);
 else continue;
 
 exynos_info->volt_table[i] = new_vdd;
