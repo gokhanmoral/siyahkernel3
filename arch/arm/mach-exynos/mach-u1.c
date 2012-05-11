@@ -3117,6 +3117,7 @@ static int max8997_muic_charger_cb(int cable_type)
 		is_cable_attached = true;
 		break;
 	case CABLE_TYPE_MHL_VB:
+	case CABLE_TYPE_OTG_VB:
 		value.intval = POWER_SUPPLY_TYPE_MISC;
 		is_cable_attached = true;
 		break;
@@ -3184,7 +3185,7 @@ struct platform_device host_notifier_device = {
 };
 
 #include "u1-otg.c"
-static void max8997_muic_usb_cb(u8 usb_mode)
+static void max8997_muic_usb_cb(u8 usb_mode, bool bus_powered)
 {
 	struct s3c_udc *udc = platform_get_drvdata(&s3c_device_usbgadget);
 	int ret = 0;
@@ -3223,16 +3224,19 @@ static void max8997_muic_usb_cb(u8 usb_mode)
 #endif
 
 	if (udc) {
-		if (usb_mode == USB_OTGHOST_ATTACHED) {
+		if (usb_mode == USB_OTGHOST_ATTACHED && !bus_powered) {
 			usb_otg_accessory_power(1);
 			max8997_muic_charger_cb(CABLE_TYPE_OTG);
+		} else if (usb_mode == USB_OTGHOST_ATTACHED) {
+			pr_info("%s: usb vbus powered host\n", __func__);
+			usb_otg_accessory_power(0);
 		}
 
 		ret = c210_change_usb_mode(udc, usb_mode);
 		if (ret < 0)
 			pr_err("%s: fail to change mode!!!\n", __func__);
 
-		if (usb_mode == USB_OTGHOST_DETACHED)
+		if (usb_mode == USB_OTGHOST_DETACHED && !bus_powered)
 			usb_otg_accessory_power(0);
 	} else
 		pr_info("otg error s3c_udc is null.\n");
