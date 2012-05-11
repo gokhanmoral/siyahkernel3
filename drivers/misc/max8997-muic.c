@@ -115,6 +115,7 @@ enum {
 	ADC_DOCK_VOL_DN		= 0x0a, /* 0x01010 14.46K ohm */
 	ADC_DOCK_VOL_UP		= 0x0b, /* 0x01011 17.26K ohm */
 	ADC_DOCK_PLAY_PAUSE_KEY = 0x0d,
+	ADC_ACA_OTG         = 0x0f, /* 36K ohm */
 	ADC_CEA936ATYPE1_CHG	= 0x17,	/* 0x10111 200K ohm */
 	ADC_JIG_USB_OFF		= 0x18, /* 0x11000 255K ohm */
 	ADC_JIG_USB_ON		= 0x19, /* 0x11001 301K ohm */
@@ -219,6 +220,8 @@ static ssize_t max8997_muic_show_device(struct device *dev,
 		return sprintf(buf, "USB\n");
 	case CABLE_TYPE_OTG:
 		return sprintf(buf, "OTG\n");
+	case CABLE_TYPE_OTG_VB:
+		return sprintf(buf, "OTG/VB\n");
 	case CABLE_TYPE_TA:
 		return sprintf(buf, "TA\n");
 	case CABLE_TYPE_DESKDOCK:
@@ -575,7 +578,8 @@ static int max8997_muic_set_usb_path(struct max8997_muic_info *info, int path)
 		gpio_val = 0;
 		accdet = 1;
 
-		if (info->cable_type == CABLE_TYPE_OTG) {
+		if (info->cable_type == CABLE_TYPE_OTG ||
+				info->cable_type == CABLE_TYPE_OTG_VB) {
 			accdet = 0;
 			/* DN1, DP2 */
 			cntl1_val = (1 << COMN1SW_SHIFT) | (1 << COMP2SW_SHIFT);
@@ -839,7 +843,7 @@ static int max8997_muic_attach_usb_type(struct max8997_muic_info *info, int adc)
 
 	if ((path == AP_USB_MODE) && (adc == ADC_OPEN)) {
 		if (mdata->usb_cb && info->is_usb_ready)
-			mdata->usb_cb(USB_CABLE_ATTACHED);
+			mdata->usb_cb(USB_CABLE_ATTACHED, 0);
 	}
 
 	return 0;
@@ -899,7 +903,7 @@ static void max8997_muic_attach_mhl(struct max8997_muic_info *info, u8 chgtyp)
 
 	if (info->cable_type == CABLE_TYPE_USB) {
 		if (mdata->usb_cb && info->is_usb_ready)
-			mdata->usb_cb(USB_CABLE_DETACHED);
+			mdata->usb_cb(USB_CABLE_DETACHED, 0);
 
 		max8997_muic_set_charging_type(info, true);
 	}
@@ -1050,7 +1054,7 @@ static int max8997_muic_handle_attach(struct max8997_muic_info *info,
 			info->cable_type = CABLE_TYPE_OTG;
 			max8997_muic_set_usb_path(info, AP_USB_MODE);
 			if (mdata->usb_cb && info->is_usb_ready)
-				mdata->usb_cb(USB_OTGHOST_ATTACHED);
+				mdata->usb_cb(USB_OTGHOST_ATTACHED, 0);
 		} else if (chgtyp == CHGTYP_USB ||
 				chgtyp == CHGTYP_DOWNSTREAM_PORT ||
 				chgtyp == CHGTYP_DEDICATED_CHGR ||
@@ -1058,6 +1062,41 @@ static int max8997_muic_handle_attach(struct max8997_muic_info *info,
 				chgtyp == CHGTYP_1A) {
 			dev_info(info->dev, "%s: OTG charging pump\n",
 					__func__);
+			ret = max8997_muic_set_charging_type(info, false);
+		}
+		break;
+	case ADC_ACA_OTG:
+		if (vbvolt & STATUS2_VBVOLT_MASK) {
+			if (info->cable_type == CABLE_TYPE_OTG_VB) {
+				dev_info(info->dev,
+						"%s: duplicated(OTG/VB)\n",
+						__func__);
+				break;
+			}
+
+			dev_info(info->dev, "%s: OTG ACA detected\n",
+					__func__);
+
+			info->cable_type = CABLE_TYPE_OTG_VB;
+
+			max8997_muic_set_usb_path(info, AP_USB_MODE);
+			if (mdata->usb_cb && info->is_usb_ready)
+				mdata->usb_cb(USB_OTGHOST_ATTACHED, 1);
+
+			ret = max8997_muic_set_charging_type(info, false);
+		} else {
+			dev_info(info->dev, "%s: unpowered OTG ACA detected\n",
+					__func__);
+
+			if (info->cable_type == CABLE_TYPE_OTG_VB) {
+				dev_info(info->dev, "%s: OTG ACA power loss\n",
+						__func__);
+
+				if (mdata->usb_cb && info->is_usb_ready)
+					mdata->usb_cb(USB_OTGHOST_DETACHED, 1);
+			}
+
+			info->cable_type = CABLE_TYPE_NONE;
 			ret = max8997_muic_set_charging_type(info, false);
 		}
 		break;
@@ -1184,7 +1223,16 @@ static int max8997_muic_handle_detach(struct max8997_muic_info *info)
 		info->cable_type = CABLE_TYPE_NONE;
 
 		if (mdata->usb_cb && info->is_usb_ready)
-			mdata->usb_cb(USB_OTGHOST_DETACHED);
+			mdata->usb_cb(USB_OTGHOST_DETACHED, 0);
+		break;
+	case CABLE_TYPE_OTG_VB:
+		dev_info(info->dev, "%s: OTG/VB\n", __func__);
+		info->cable_type = CABLE_TYPE_NONE;
+
+		if (mdata->usb_cb && info->is_usb_ready)
+			mdata->usb_cb(USB_OTGHOST_DETACHED, 1);
+
+		max8997_muic_set_charging_type(info, false);
 		break;
 	case CABLE_TYPE_USB:
 	case CABLE_TYPE_JIG_USB_OFF:
@@ -1204,7 +1252,7 @@ static int max8997_muic_handle_detach(struct max8997_muic_info *info)
 			return 0;
 
 		if (mdata->usb_cb && info->is_usb_ready)
-			mdata->usb_cb(USB_CABLE_DETACHED);
+			mdata->usb_cb(USB_CABLE_DETACHED, 0);
 		break;
 	case CABLE_TYPE_DESKDOCK:
 		dev_info(info->dev, "%s: DESKDOCK\n", __func__);
@@ -1457,10 +1505,13 @@ static void max8997_muic_usb_detect(struct work_struct *work)
 			case CABLE_TYPE_USB:
 			case CABLE_TYPE_JIG_USB_OFF:
 			case CABLE_TYPE_JIG_USB_ON:
-				mdata->usb_cb(USB_CABLE_ATTACHED);
+				mdata->usb_cb(USB_CABLE_ATTACHED, 0);
 				break;
 			case CABLE_TYPE_OTG:
-				mdata->usb_cb(USB_OTGHOST_ATTACHED);
+				mdata->usb_cb(USB_OTGHOST_ATTACHED, 0);
+				break;
+			case CABLE_TYPE_OTG_VB:
+				mdata->usb_cb(USB_OTGHOST_ATTACHED, 1);
 				break;
 			default:
 				break;

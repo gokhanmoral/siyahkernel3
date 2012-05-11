@@ -129,6 +129,7 @@ enum cable_type {
 	CABLE_TYPE_NONE = 0,
 	CABLE_TYPE_USB,
 	CABLE_TYPE_OTG,
+	CABLE_TYPE_OTG_VB, /* VBUS (sink) enabled */
 	CABLE_TYPE_TA,
 	CABLE_TYPE_DESKDOCK,
 	CABLE_TYPE_CARDOCK,
@@ -144,7 +145,7 @@ enum cable_type {
 };
 
 struct max8997_muic_data {
-	void		(*usb_cb) (u8 attached);
+	void		(*usb_cb) (u8 usb_mode, bool bus_powered);
 	void		(*uart_cb) (u8 attached);
 	int		(*charger_cb) (int cable_type);
 	void		(*deskdock_cb) (bool attached);
