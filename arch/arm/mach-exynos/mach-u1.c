@@ -3005,6 +3005,9 @@ static void set_shared_mic_bias(void)
 void sec_set_sub_mic_bias(bool on)
 {
 #ifdef CONFIG_SND_SOC_USE_EXTERNAL_MIC_BIAS
+#if defined(CONFIG_MACH_Q1_BD)
+	gpio_set_value(GPIO_SUB_MIC_BIAS_EN, on);
+#else
 	if (system_rev < SYSTEM_REV_SND) {
 		unsigned long flags;
 		spin_lock_irqsave(&mic_bias_lock, flags);
@@ -3013,13 +3016,16 @@ void sec_set_sub_mic_bias(bool on)
 		spin_unlock_irqrestore(&mic_bias_lock, flags);
 	} else
 		gpio_set_value(GPIO_SUB_MIC_BIAS_EN, on);
-
+#endif
 #endif
 }
 
 void sec_set_main_mic_bias(bool on)
 {
 #ifdef CONFIG_SND_SOC_USE_EXTERNAL_MIC_BIAS
+#if defined(CONFIG_MACH_Q1_BD)
+	gpio_set_value(GPIO_MIC_BIAS_EN, on);
+#else
 	if (system_rev < SYSTEM_REV_SND) {
 		unsigned long flags;
 		spin_lock_irqsave(&mic_bias_lock, flags);
@@ -3028,6 +3034,7 @@ void sec_set_main_mic_bias(bool on)
 		spin_unlock_irqrestore(&mic_bias_lock, flags);
 	} else
 		gpio_set_value(GPIO_MIC_BIAS_EN, on);
+#endif
 #endif
 }
 
@@ -3839,10 +3846,14 @@ struct platform_device u1_keypad = {
 #ifdef CONFIG_SEC_DEV_JACK
 static void sec_set_jack_micbias(bool on)
 {
+#if defined(CONFIG_MACH_Q1_BD)
+	gpio_set_value(GPIO_EAR_MIC_BIAS_EN, on);
+#else
 	if (system_rev >= 3)
 		gpio_set_value(GPIO_EAR_MIC_BIAS_EN, on);
 	else
 		gpio_set_value(GPIO_MIC_BIAS_EN, on);
+#endif
 }
 
 static struct sec_jack_zone sec_jack_zones[] = {
@@ -3878,8 +3889,13 @@ static struct sec_jack_zone sec_jack_zones[] = {
 		 * stays in this range for 100ms (10ms delays, 10 samples)
 		 */
 		.adc_high = 3800,
+#if defined (CONFIG_MACH_Q1_BD)
+		.delay_ms = 15,
+		.check_count = 20,
+#else
 		.delay_ms = 10,
 		.check_count = 5,
+#endif
 		.jack_type = SEC_HEADSET_4POLE,
 	},
 	{
@@ -6234,9 +6250,15 @@ static void __init smdkc210_machine_init(void)
 				ARRAY_SIZE(i2c_devs10_emul));
 #endif
 #ifdef CONFIG_S3C_DEV_I2C11_EMUL
+#if defined (CONFIG_OPTICAL_CM3663)
 	s3c_gpio_setpull(GPIO_PS_ALS_INT, S3C_GPIO_PULL_NONE);
 	i2c_register_board_info(11, i2c_devs11_emul,
 				ARRAY_SIZE(i2c_devs11_emul));
+#endif
+#if defined (CONFIG_MACH_Q1_BD)
+	i2c_register_board_info(11, i2c_devs11_emul,
+				ARRAY_SIZE(i2c_devs11_emul));
+#endif
 #endif
 #ifdef CONFIG_S3C_DEV_I2C14_EMUL
 	nfc_setup_gpio();
