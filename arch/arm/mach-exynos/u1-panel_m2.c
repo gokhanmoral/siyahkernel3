@@ -1593,7 +1593,10 @@ static const unsigned short ld9040_19_30_dimming[] = {
 static const unsigned short *p22Gamma_set[] = {
 	ld9040_22_30_dimming,
 	ld9040_22_40,
+	ld9040_22_50,
+	ld9040_22_60,
 	ld9040_22_70,
+	ld9040_22_80,
 	ld9040_22_90,
 	ld9040_22_100,
 	ld9040_22_110,
@@ -1611,17 +1614,17 @@ static const unsigned short *p22Gamma_set[] = {
 	ld9040_22_230,
 	ld9040_22_240,
 	ld9040_22_250,
-	ld9040_22_260,
-	ld9040_22_270,
 	ld9040_22_280,
-	ld9040_22_290,
 	ld9040_22_300,
 };
 
 static const unsigned short *p19Gamma_set[] = {
 	ld9040_19_30_dimming,
 	ld9040_19_40,
+	ld9040_19_50,
+	ld9040_19_60,
 	ld9040_19_70,
+	ld9040_19_80,
 	ld9040_19_90,
 	ld9040_19_100,
 	ld9040_19_110,
@@ -1639,10 +1642,7 @@ static const unsigned short *p19Gamma_set[] = {
 	ld9040_19_230,
 	ld9040_19_240,
 	ld9040_19_250,
-	ld9040_19_260,
-	ld9040_19_270,
 	ld9040_19_280,
-	ld9040_19_290,
 	ld9040_19_300,
 };
 
