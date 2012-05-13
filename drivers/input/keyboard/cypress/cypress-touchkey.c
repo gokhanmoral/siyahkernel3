@@ -108,6 +108,8 @@ static int breathing_step_idx = 0;
 
 static unsigned int touchkey_voltage = 3000;
 
+static int led_fadein = 0, led_fadeout = 0;
+
 #if defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 /* Temp Fix NAGSM_SEL_ANDROID_MOHAMMAD_ANSARI_20111224*/
 #define CONFIG_TARGET_LOCALE_NAATT
@@ -129,6 +131,11 @@ static DECLARE_WORK(bl_off_work, bl_off);
 static struct timer_list notification_timer;
 static void notification_off(struct work_struct *notification_off_work);
 static DECLARE_WORK(notification_off_work, notification_off);
+static void led_fadeout_process(struct work_struct *led_fadeout_work);
+static DECLARE_WORK(led_fadeout_work, led_fadeout_process);
+static void led_fadein_process(struct work_struct *led_fadein_work);
+static DECLARE_WORK(led_fadein_work, led_fadein_process);
+
 static const int touchkey_count = sizeof(touchkey_keycode) / sizeof(int);
 
 #if defined(CONFIG_TARGET_LOCALE_NAATT)\
@@ -397,6 +404,41 @@ static int i2c_touchkey_write(u8 *val, unsigned int len)
 		mdelay(10);
 	}
 	return err;
+}
+//to prevent two consecutive touches restarting fadein effect -gm
+static DEFINE_MUTEX(led_fadein_mutex);
+
+static void led_fadeout_process(struct work_struct *work)
+{
+	int i, status = 2;
+	cancel_work_sync(&led_fadein_work);
+	for (i = touchkey_voltage; i >= 2500; i -= 50) {
+		change_touch_key_led_voltage(i);
+		msleep(50);
+	}
+	i2c_touchkey_write((u8 *)&status, 1);
+}
+
+static void led_fadein_process(struct work_struct *work)
+{
+	int i, status = 1;
+	cancel_work_sync(&led_fadeout_work);
+	if(led_fadein)
+	{
+		if(!mutex_trylock(&led_fadein_mutex)) return;
+		change_touch_key_led_voltage(2500);
+		i2c_touchkey_write((u8 *)&status, 1);
+		for (i = 2500; i <= touchkey_voltage; i += 50) {
+			change_touch_key_led_voltage(i);
+			msleep(50);
+		}
+		mutex_unlock(&led_fadein_mutex);
+	}
+	else
+	{
+		change_touch_key_led_voltage(touchkey_voltage);
+		i2c_touchkey_write((u8 *)&status, 1);
+	}
 }
 
 #if defined(CONFIG_TARGET_LOCALE_NAATT) \
@@ -831,12 +873,8 @@ void touchkey_work_func(struct work_struct *p)
 
 	/* we have timed out or the lights should be on */
 	if (led_timeout > 0) {
-		status = 1;
-		i2c_touchkey_write((u8 *)&status, 1); /* turn on */
-	}
-
-	/* restart the timer */
-	if (led_timeout > 0) {
+		schedule_work(&led_fadein_work);
+		/* restart the timer */
 		mod_timer(&led_timer, jiffies + msecs_to_jiffies(led_timeout));
 	}
 
@@ -1028,7 +1066,6 @@ static int sec_touchkey_late_resume(struct early_suspend *h)
 #ifdef TEST_JIG_MODE
 	unsigned char get_touch = 0x40;
 #endif
-	int status;
 
 	set_touchkey_debug('R');
 	printk(KERN_DEBUG "[TouchKey] sec_touchkey_late_resume\n");
@@ -1336,8 +1373,7 @@ static void bl_off(struct work_struct *bl_off_work)
 		return;
 
 	/* we have timed out, turn the lights off */
-	status = 2;
-	i2c_touchkey_write((u8 *)&status, 1);
+	schedule_work(&led_fadeout_work);
 
 	return;
 }
@@ -1486,6 +1522,30 @@ static ssize_t breathing_steps_write( struct device *dev, struct device_attribut
 	return size;
 }
 
+static ssize_t led_fadein_read( struct device *dev, struct device_attribute *attr, char *buf )
+{
+	return sprintf(buf,"%d\n", led_fadein);
+}
+static ssize_t led_fadein_write( struct device *dev, struct device_attribute *attr, const char *buf, size_t size )
+{
+	if( !strncmp(buf, "on", 2) ) led_fadein = 1;
+	else if( !strncmp(buf, "off", 3) ) led_fadein = 0;
+	else sscanf(buf,"%d\n", &led_fadein);
+	return size;
+}
+
+static ssize_t led_fadeout_read( struct device *dev, struct device_attribute *attr, char *buf )
+{
+	return sprintf(buf,"%d\n", led_fadeout);
+}
+static ssize_t led_fadeout_write( struct device *dev, struct device_attribute *attr, const char *buf, size_t size )
+{
+	if( !strncmp(buf, "on", 2) ) led_fadeout = 1;
+	else if( !strncmp(buf, "off", 3) ) led_fadeout = 0;
+	else sscanf(buf,"%d\n", &led_fadeout);
+	return size;
+}
+
 static struct miscdevice led_device = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name  = "notification",
@@ -1498,6 +1558,8 @@ static DEVICE_ATTR(bl_timeout, S_IRUGO | S_IWUGO, led_timeout_read, led_timeout_
 static DEVICE_ATTR(notification_enabled, S_IRUGO | S_IWUGO, bln_status_read, bln_status_write );
 static DEVICE_ATTR(breathing, S_IRUGO | S_IWUGO, breathing_read, breathing_write );
 static DEVICE_ATTR(breathing_steps, S_IRUGO | S_IWUGO, breathing_steps_read, breathing_steps_write );
+static DEVICE_ATTR(led_fadein, S_IRUGO | S_IWUGO, led_fadein_read, led_fadein_write );
+static DEVICE_ATTR(led_fadeout, S_IRUGO | S_IWUGO, led_fadeout_read, led_fadeout_write );
 
 static struct attribute *led_notification_attributes[] = {
 	&dev_attr_led.attr,
@@ -1507,6 +1569,8 @@ static struct attribute *led_notification_attributes[] = {
 	&dev_attr_notification_enabled.attr,
 	&dev_attr_breathing.attr,
 	&dev_attr_breathing_steps.attr,
+	&dev_attr_led_fadein.attr,
+	&dev_attr_led_fadeout.attr,
     NULL
 };
 
@@ -1529,10 +1593,7 @@ void cypress_notify_touch(void)
 {
 	unsigned int status;
 	if (led_timeout > 0) {
-		status = 1;
-		i2c_touchkey_write((u8 *)&status, 1); /* turn on */
-	}
-	if (led_timeout > 0) {
+		schedule_work(&led_fadein_work);
 		mod_timer(&led_timer, jiffies + msecs_to_jiffies(led_timeout));
 	}
 }
