@@ -721,6 +721,60 @@ static unsigned short ld9042_a2_22_30[] = {
 	ENDDEF, 0x00
 };
 
+static unsigned short ld9042_a2_22_20[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0x91 - 3,
+	DATA_ONLY, 0xB4 - 3,
+	DATA_ONLY, 0xB8 - 3,
+	DATA_ONLY, 0xD1 - 3,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x7A - 9,
+	DATA_ONLY, 0xAD - 1,
+	DATA_ONLY, 0xBD - 4,
+	DATA_ONLY, 0xD4 - 2,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x57 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBB - 3,
+	DATA_ONLY, 0xAE - 3,
+	DATA_ONLY, 0xC3 - 3,
+	DATA_ONLY, 0xD5 - 4,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x56 - 9,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
+static unsigned short ld9042_a2_22_10[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0x91 - 5,
+	DATA_ONLY, 0xB4 - 5,
+	DATA_ONLY, 0xB8 - 5,
+	DATA_ONLY, 0xD1 - 5,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x7A - 15,
+	DATA_ONLY, 0xAD - 3,
+	DATA_ONLY, 0xBD - 3,
+	DATA_ONLY, 0xD4 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x57 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBB - 5,
+	DATA_ONLY, 0xAE - 5,
+	DATA_ONLY, 0xC3 - 5,
+	DATA_ONLY, 0xD5 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x56 - 15,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
 static unsigned short ld9042_a2_19_300[] = {
 	0xF9, 0x0C,
 	DATA_ONLY, 0xB2,
@@ -1396,8 +1450,63 @@ static unsigned short ld9042_a2_19_30[] = {
 	ENDDEF, 0x00
 };
 
+static unsigned short ld9042_a2_19_20[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0xB0 - 3,
+	DATA_ONLY, 0xB9 - 3,
+	DATA_ONLY, 0xB1 - 3,
+	DATA_ONLY, 0xD1 - 3,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x38 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x97 - 9,
+	DATA_ONLY, 0xBE - 1,
+	DATA_ONLY, 0xB2 - 4,
+	DATA_ONLY, 0xD3 - 2,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x49 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBC - 3,
+	DATA_ONLY, 0xC2 - 3,
+	DATA_ONLY, 0xB7 - 3,
+	DATA_ONLY, 0xD2 - 4,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 9,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
+static unsigned short ld9042_a2_19_10[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0xB0 - 5,
+	DATA_ONLY, 0xB9 - 5,
+	DATA_ONLY, 0xB1 - 5,
+	DATA_ONLY, 0xD1 - 5,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x38 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x97 - 15,
+	DATA_ONLY, 0xBE - 3,
+	DATA_ONLY, 0xB2 - 3,
+	DATA_ONLY, 0xD3 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x49 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBC - 5,
+	DATA_ONLY, 0xC2 - 5,
+	DATA_ONLY, 0xB7 - 5,
+	DATA_ONLY, 0xD2 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 15,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
 /* LD9042, 4.27", SM2 A2 Panel Gamma Table */
 static unsigned short *ld9042_22gamma_table[] = {
+	ld9042_a2_22_10,
 	ld9042_a2_22_30,
 	ld9042_a2_22_40,
 	ld9042_a2_22_50,
@@ -1421,11 +1530,11 @@ static unsigned short *ld9042_22gamma_table[] = {
 	ld9042_a2_22_230,
 	ld9042_a2_22_240,
 	ld9042_a2_22_250,
-	ld9042_a2_22_280,
 	ld9042_a2_22_300,
 };
 
 static unsigned short *ld9042_19gamma_table[] = {
+	ld9042_a2_19_10,
 	ld9042_a2_19_30,
 	ld9042_a2_19_40,
 	ld9042_a2_19_50,
@@ -1449,7 +1558,6 @@ static unsigned short *ld9042_19gamma_table[] = {
 	ld9042_a2_19_230,
 	ld9042_a2_19_240,
 	ld9042_a2_19_250,
-	ld9042_a2_19_280,
 	ld9042_a2_19_300,
 };
 

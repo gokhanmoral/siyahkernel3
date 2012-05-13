@@ -832,6 +832,60 @@ static const unsigned short ld9040_sm2_a2_22_30_dimming[] = {
 	ENDDEF, 0x00
 };
 
+static const unsigned short ld9040_sm2_a2_22_20_dimming[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0x81 - 3,
+	DATA_ONLY, 0xB4 - 3,
+	DATA_ONLY, 0xB8 - 3,
+	DATA_ONLY, 0xD1 - 3,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x7A - 9,
+	DATA_ONLY, 0xAD - 1,
+	DATA_ONLY, 0xBD - 4,
+	DATA_ONLY, 0xD4 - 2,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x57 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBB - 3,
+	DATA_ONLY, 0xAE - 3,
+	DATA_ONLY, 0xC3 - 3,
+	DATA_ONLY, 0xD5 - 4,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x56 - 9,
+	0xFB, 0x02,
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
+static const unsigned short ld9040_sm2_a2_22_10_dimming[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0x91 - 5,
+	DATA_ONLY, 0xB4 - 5,
+	DATA_ONLY, 0xB8 - 5,
+	DATA_ONLY, 0xD1 - 5,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x7A - 15,
+	DATA_ONLY, 0xAD - 3,
+	DATA_ONLY, 0xBD - 3,
+	DATA_ONLY, 0xD4 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x57 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBB - 5,
+	DATA_ONLY, 0xAE - 5,
+	DATA_ONLY, 0xC3 - 5,
+	DATA_ONLY, 0xD5 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x56 - 15,
+	0xFB, 0x02,
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
 static const unsigned short ld9040_sm2_a2_19_300[] = {
 	0xF9, 0x0C,
 	DATA_ONLY, 0xB2,
@@ -1588,8 +1642,63 @@ static const unsigned short ld9040_sm2_a2_19_30_dimming[] = {
 	ENDDEF, 0x00
 };
 
+static const unsigned short ld9040_sm2_a2_19_20_dimming[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0xB0 - 3,
+	DATA_ONLY, 0xB9 - 3,
+	DATA_ONLY, 0xB1 - 3,
+	DATA_ONLY, 0xD1 - 3,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x38 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x97 - 9,
+	DATA_ONLY, 0xBE - 1,
+	DATA_ONLY, 0xB2 - 4,
+	DATA_ONLY, 0xD3 - 2,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x49 - 9,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBC - 3,
+	DATA_ONLY, 0xC2 - 3,
+	DATA_ONLY, 0xB7 - 3,
+	DATA_ONLY, 0xD2 - 4,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 9,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
+static const unsigned short ld9040_sm2_a2_19_10_dimming[] = {
+	0xF9, 0x0C,
+	DATA_ONLY, 0xB0 - 5,
+	DATA_ONLY, 0xB9 - 5,
+	DATA_ONLY, 0xB1 - 5,
+	DATA_ONLY, 0xD1 - 5,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x38 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0x97 - 15,
+	DATA_ONLY, 0xBE - 3,
+	DATA_ONLY, 0xB2 - 3,
+	DATA_ONLY, 0xD3 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x49 - 15,
+	DATA_ONLY, 0x0C - 0,
+	DATA_ONLY, 0xBC - 5,
+	DATA_ONLY, 0xC2 - 5,
+	DATA_ONLY, 0xB7 - 5,
+	DATA_ONLY, 0xD2 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x48 - 15,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
 /* LD9040, 4.27", SM2 A2 Panel Gamma Table */
 static const unsigned short *psm2_a2_22Gamma_set[] = {
+	ld9040_sm2_a2_22_10_dimming,
 	ld9040_sm2_a2_22_30_dimming,
 	ld9040_sm2_a2_22_40,
 	ld9040_sm2_a2_22_50,
@@ -1613,19 +1722,17 @@ static const unsigned short *psm2_a2_22Gamma_set[] = {
 	ld9040_sm2_a2_22_230,
 	ld9040_sm2_a2_22_240,
 	ld9040_sm2_a2_22_250,
-	ld9040_sm2_a2_22_280,
 	ld9040_sm2_a2_22_300,
 };
 
 static const unsigned short *psm2_a2_19Gamma_set[] = {
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
-	ld9040_sm2_a2_19_50,
-	ld9040_sm2_a2_19_60,
-#else
+	ld9040_sm2_a2_19_10_dimming,
 	ld9040_sm2_a2_19_30_dimming,
 	ld9040_sm2_a2_19_40,
-#endif
+	ld9040_sm2_a2_19_50,
+	ld9040_sm2_a2_19_60,
 	ld9040_sm2_a2_19_70,
+	ld9040_sm2_a2_19_80,
 	ld9040_sm2_a2_19_90,
 	ld9040_sm2_a2_19_100,
 	ld9040_sm2_a2_19_110,
@@ -1643,10 +1750,6 @@ static const unsigned short *psm2_a2_19Gamma_set[] = {
 	ld9040_sm2_a2_19_230,
 	ld9040_sm2_a2_19_240,
 	ld9040_sm2_a2_19_250,
-	ld9040_sm2_a2_19_260,
-	ld9040_sm2_a2_19_270,
-	ld9040_sm2_a2_19_280,
-	ld9040_sm2_a2_19_290,
 	ld9040_sm2_a2_19_300,
 };
 

@@ -832,6 +832,60 @@ static const unsigned short ld9040_22_30_dimming[] = {
 	ENDDEF, 0x00
 };
 
+static const unsigned short ld9040_22_20_dimming[] = {
+	0xF9, 0x00,
+	DATA_ONLY, 0xD9 - 3,
+	DATA_ONLY, 0xD3 - 3,
+	DATA_ONLY, 0xCC - 3,
+	DATA_ONLY, 0xDA - 3,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x46 - 9,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xB1 - 9,
+	DATA_ONLY, 0xC9 - 1,
+	DATA_ONLY, 0xC9 - 4,
+	DATA_ONLY, 0xD9 - 2,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x58 - 9,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xD2 - 3,
+	DATA_ONLY, 0xD0 - 3,
+	DATA_ONLY, 0xC9 - 3,
+	DATA_ONLY, 0xD8 - 4,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x5E - 9,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
+static const unsigned short ld9040_22_10_dimming[] = {
+	0xF9, 0x00,
+	DATA_ONLY, 0xD9 - 5,
+	DATA_ONLY, 0xD3 - 5,
+	DATA_ONLY, 0xCC - 5,
+	DATA_ONLY, 0xDA - 5,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x46 - 15,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xB1 - 15,
+	DATA_ONLY, 0xC9 - 3,
+	DATA_ONLY, 0xC9 - 3,
+	DATA_ONLY, 0xD9 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x58 - 15,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xD2 - 5,
+	DATA_ONLY, 0xD0 - 5,
+	DATA_ONLY, 0xC9 - 5,
+	DATA_ONLY, 0xD8 - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x5E - 15,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
 static const unsigned short ld9040_19_300[] = {
 	0xF9, 0x00,
 	DATA_ONLY, 0xCD,
@@ -1588,9 +1642,63 @@ static const unsigned short ld9040_19_30_dimming[] = {
 	ENDDEF, 0x00
 };
 
+static const unsigned short ld9040_19_20_dimming[] = {
+	0xF9, 0x00,
+	DATA_ONLY, 0xDC - 3,
+	DATA_ONLY, 0xD5 - 3,
+	DATA_ONLY, 0xD2 - 3,
+	DATA_ONLY, 0xDE - 3,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x46 - 9,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xC3 - 9,
+	DATA_ONLY, 0xD2 - 1,
+	DATA_ONLY, 0xCF - 4,
+	DATA_ONLY, 0xDE - 2,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x58 - 9,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xD3 - 3,
+	DATA_ONLY, 0xD4 - 3,
+	DATA_ONLY, 0xCF - 3,
+	DATA_ONLY, 0xDD - 4,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x5E - 9,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
+
+static const unsigned short ld9040_19_10_dimming[] = {
+	0xF9, 0x00,
+	DATA_ONLY, 0xDC - 5,
+	DATA_ONLY, 0xD5 - 5,
+	DATA_ONLY, 0xD2 - 5,
+	DATA_ONLY, 0xDE - 5,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x46 - 15,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xC3 - 15,
+	DATA_ONLY, 0xD2 - 3,
+	DATA_ONLY, 0xCF - 3,
+	DATA_ONLY, 0xDE - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x58 - 15,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0xD3 - 5,
+	DATA_ONLY, 0xD4 - 5,
+	DATA_ONLY, 0xCF - 5,
+	DATA_ONLY, 0xDD - 7,
+	DATA_ONLY, 0x00 - 0,
+	DATA_ONLY, 0x5E - 15,
+	0xFB, 0x02,    
+	DATA_ONLY, 0x5A,
+	ENDDEF, 0x00
+};
 
 /* LD9040, 4.27", SM2 M2 Panel Gamma Table : Useless - too old */
 static const unsigned short *p22Gamma_set[] = {
+	ld9040_22_10_dimming,
 	ld9040_22_30_dimming,
 	ld9040_22_40,
 	ld9040_22_50,
@@ -1614,11 +1722,11 @@ static const unsigned short *p22Gamma_set[] = {
 	ld9040_22_230,
 	ld9040_22_240,
 	ld9040_22_250,
-	ld9040_22_280,
 	ld9040_22_300,
 };
 
 static const unsigned short *p19Gamma_set[] = {
+	ld9040_19_10_dimming,
 	ld9040_19_30_dimming,
 	ld9040_19_40,
 	ld9040_19_50,
@@ -1642,7 +1750,6 @@ static const unsigned short *p19Gamma_set[] = {
 	ld9040_19_230,
 	ld9040_19_240,
 	ld9040_19_250,
-	ld9040_19_280,
 	ld9040_19_300,
 };
 
