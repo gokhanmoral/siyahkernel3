@@ -115,14 +115,14 @@ static unsigned long dec_cpu_load;
  * Increasing frequency table index
  * zero disables and causes to always jump straight to max frequency.
  */
-#define DEFAULT_PUMP_UP_STEP 1
+#define DEFAULT_PUMP_UP_STEP 0
 static unsigned long pump_up_step;
 
 /*
  * Decreasing frequency table index
  * zero disables and will calculate frequency according to load heuristic.
  */
-#define DEFAULT_PUMP_DOWN_STEP 1
+#define DEFAULT_PUMP_DOWN_STEP 0
 static unsigned long pump_down_step;
 
 /*
@@ -1060,9 +1060,30 @@ static struct early_suspend lulzactive_power_suspend = {
 void start_lulzactive(void)
 {
 	//it is more appropriate to start the up_task thread after starting the governor -gm
-	unsigned int i;
+	unsigned int i, index500, index800;
 	struct cpufreq_lulzactive_cpuinfo *pcpu;
 	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
+	if( pump_up_step == 0 )
+	{
+		pcpu = &per_cpu(cpuinfo, 0);
+		cpufreq_frequency_table_target(
+				pcpu->policy, pcpu->lulzfreq_table,
+				500000, CPUFREQ_RELATION_H,
+				&index200);
+		cpufreq_frequency_table_target(
+				pcpu->policy, pcpu->lulzfreq_table,
+				800000, CPUFREQ_RELATION_H,
+				&index800);
+		for(i=index800;i<index500;i++)
+		{
+		  if(pcpu->lulzfreq_table[i].frequency==CPUFREQ_ENTRY_INVALID) continue;
+		  pump_up_step++;
+		}
+	}
+	if( pump_down_step == 0 )
+	{
+		pump_down_step = pump_up_step;
+	}	
 
 	/* Initalize per-cpu timers */
 	for_each_possible_cpu(i) {
@@ -1099,6 +1120,8 @@ void stop_lulzactive(void)
 
 	idle_notifier_unregister(&cpufreq_lulzactive_idle_nb);
 	unregister_early_suspend(&lulzactive_power_suspend);
+	pump_up_step = DEFAULT_PUMP_UP_STEP;
+	pump_down_step = DEFAULT_PUMP_DOWN_STEP;
 }
 
 static int __init cpufreq_lulzactive_init(void)
