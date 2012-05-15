@@ -109,6 +109,7 @@ static int breathing_step_idx = 0;
 static unsigned int touchkey_voltage = 3000;
 
 static int led_fadein = 0, led_fadeout = 0;
+static int led_on_touch = 1;
 
 #if defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 /* Temp Fix NAGSM_SEL_ANDROID_MOHAMMAD_ANSARI_20111224*/
@@ -1546,6 +1547,18 @@ static ssize_t led_fadeout_write( struct device *dev, struct device_attribute *a
 	return size;
 }
 
+static ssize_t led_on_touch_read( struct device *dev, struct device_attribute *attr, char *buf )
+{
+	return sprintf(buf,"%d\n", breathing);
+}
+static ssize_t led_on_touch_write( struct device *dev, struct device_attribute *attr, const char *buf, size_t size )
+{
+	if( !strncmp(buf, "on", 2) ) led_on_touch = 1;
+	else if( !strncmp(buf, "off", 3) ) led_on_touch = 0;
+	else sscanf(buf,"%d\n", &led_on_touch);
+	return size;
+}
+
 static struct miscdevice led_device = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name  = "notification",
@@ -1560,6 +1573,7 @@ static DEVICE_ATTR(breathing, S_IRUGO | S_IWUGO, breathing_read, breathing_write
 static DEVICE_ATTR(breathing_steps, S_IRUGO | S_IWUGO, breathing_steps_read, breathing_steps_write );
 static DEVICE_ATTR(led_fadein, S_IRUGO | S_IWUGO, led_fadein_read, led_fadein_write );
 static DEVICE_ATTR(led_fadeout, S_IRUGO | S_IWUGO, led_fadeout_read, led_fadeout_write );
+static DEVICE_ATTR(led_on_touch, S_IRUGO | S_IWUGO, led_on_touch_read, led_on_touch_write );
 
 static struct attribute *led_notification_attributes[] = {
 	&dev_attr_led.attr,
@@ -1571,6 +1585,7 @@ static struct attribute *led_notification_attributes[] = {
 	&dev_attr_breathing_steps.attr,
 	&dev_attr_led_fadein.attr,
 	&dev_attr_led_fadeout.attr,
+	&dev_attr_led_on_touch.attr,
     NULL
 };
 
@@ -1592,7 +1607,7 @@ extern void (*mxt224_touch_cb)(void);
 void cypress_notify_touch(void)
 {
 	unsigned int status;
-	if (led_timeout > 0) {
+	if (led_timeout > 0 && led_on_touch) {
 		schedule_work(&led_fadein_work);
 		mod_timer(&led_timer, jiffies + msecs_to_jiffies(led_timeout));
 	}
