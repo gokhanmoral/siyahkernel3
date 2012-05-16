@@ -418,6 +418,9 @@ static void led_fadeout_process(struct work_struct *work)
 		msleep(50);
 	}
 	i2c_touchkey_write((u8 *)&status, 1);
+	//restore the voltage after turning the led off
+	msleep(50);
+	change_touch_key_led_voltage(touchkey_voltage);
 }
 
 static void led_fadein_process(struct work_struct *work)
