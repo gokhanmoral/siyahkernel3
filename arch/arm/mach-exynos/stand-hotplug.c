@@ -136,6 +136,7 @@ struct cpu_hotplug_info {
 static DEFINE_PER_CPU(struct cpu_time_info, hotplug_cpu_time);
 
 static bool screen_off;
+static bool standhotplug_enabled = true;
 
 /* mutex can be used since hotplug_timer does not run in
    timer(softirq) context but in process context */
@@ -204,8 +205,12 @@ static void hotplug_timer(struct work_struct *work)
 
 	mutex_lock(&hotplug_lock);
 
-	if (screen_off && !cpu_online(1)) {
+	if(!standhotplug_enabled) {
 		printk(KERN_INFO "pm-hotplug: disable cpu auto-hotplug\n");
+		goto off_hotplug;
+	}
+	if (screen_off && !cpu_online(1)) {
+		printk(KERN_INFO "pm-hotplug: disable cpu auto-hotplug with screen-off\n");
 		goto off_hotplug;
 	}
 
@@ -347,7 +352,7 @@ static void hotplug_late_resume(struct early_suspend *handler)
 
 	mutex_lock(&hotplug_lock);
 	screen_off = false;
-	queue_delayed_work_on(0, hotplug_wq, &hotplug_work, hotpluging_rate);
+	if(standhotplug_enabled) queue_delayed_work_on(0, hotplug_wq, &hotplug_work, hotpluging_rate);
 	mutex_unlock(&hotplug_lock);
 }
 
@@ -537,6 +542,55 @@ static struct platform_device exynos4_pm_hotplug_device = {
 	.id = -1,
 };
 
+static int standhotplug_cpufreq_policy_notifier_call(struct notifier_block *this,
+				unsigned long code, void *data)
+{
+	struct cpufreq_policy *policy = data;
+
+	switch (code) {
+	case CPUFREQ_ADJUST:
+		if (
+			(!strnicmp(policy->governor->name, "pegasusq", CPUFREQ_NAME_LEN)) ||
+			(!strnicmp(policy->governor->name, "hotplug", CPUFREQ_NAME_LEN)) ||
+			(!strnicmp(policy->governor->name, "assplug", CPUFREQ_NAME_LEN))
+			) 
+		{
+			if(standhotplug_enabled)
+			{
+				DBG_PRINT("Stand-hotplug is disabled: governor=%s\n",
+								policy->governor->name);
+				mutex_lock(&hotplug_lock);
+				standhotplug_enabled = false;
+				mutex_unlock(&hotplug_lock);
+			}
+		} 
+		else
+		{
+			if(!standhotplug_enabled)
+			{
+				DBG_PRINT("Stand-hotplug is enabled: governor=%s\n",
+								policy->governor->name);
+				mutex_lock(&hotplug_lock);
+				standhotplug_enabled = true;
+				queue_delayed_work_on(0, hotplug_wq, &hotplug_work, hotpluging_rate);
+				mutex_unlock(&hotplug_lock);
+			}
+		}
+		break;
+	case CPUFREQ_INCOMPATIBLE:
+	case CPUFREQ_NOTIFY:
+	default:
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+static struct notifier_block standhotplug_cpufreq_policy_notifier = {
+	.notifier_call = standhotplug_cpufreq_policy_notifier_call,
+};
+
+
+
 static int __init exynos4_pm_hotplug_device_init(void)
 {
 	int ret;
@@ -550,6 +604,8 @@ static int __init exynos4_pm_hotplug_device_init(void)
 
 	printk(KERN_INFO "exynos4_pm_hotplug_device_init: %d\n", ret);
 
+	cpufreq_register_notifier(&standhotplug_cpufreq_policy_notifier,
+						CPUFREQ_POLICY_NOTIFIER);
 	return ret;
 }
 
