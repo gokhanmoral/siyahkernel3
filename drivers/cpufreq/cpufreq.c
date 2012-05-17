@@ -1619,7 +1619,9 @@ int cpufreq_register_governor(struct cpufreq_governor *governor)
 			governor->disableScalingDuringSuspend = 0;
 		else
 			governor->disableScalingDuringSuspend = 1;
-		if (!strnicmp(governor->name, "ondemand", CPUFREQ_NAME_LEN)
+		if (
+			!strnicmp(governor->name, "ondemand", CPUFREQ_NAME_LEN) ||
+			!strnicmp(governor->name, "pegasusq", CPUFREQ_NAME_LEN)
 		)
 			governor->enableSmoothScaling = 1;
 		else
