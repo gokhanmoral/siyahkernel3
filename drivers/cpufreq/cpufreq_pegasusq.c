@@ -154,8 +154,6 @@ static unsigned int get_nr_run_avg(void)
 #define MAX_HOTPLUG_RATE			(40u)
 
 #define DEF_MAX_CPU_LOCK			(0)
-#define DEF_CPU_UP_FREQ				(500000)
-#define DEF_CPU_DOWN_FREQ			(200000)
 #define DEF_UP_NR_CPUS				(1)
 #define DEF_CPU_UP_RATE				(10)
 #define DEF_CPU_DOWN_RATE			(20)
@@ -251,8 +249,6 @@ static struct dbs_tuners {
 	unsigned int freq_step;
 	unsigned int cpu_up_rate;
 	unsigned int cpu_down_rate;
-	unsigned int cpu_up_freq;
-	unsigned int cpu_down_freq;
 	unsigned int up_nr_cpus;
 	unsigned int max_cpu_lock;
 	atomic_t hotplug_lock;
@@ -270,8 +266,6 @@ static struct dbs_tuners {
 	.freq_step = DEF_FREQ_STEP,
 	.cpu_up_rate = DEF_CPU_UP_RATE,
 	.cpu_down_rate = DEF_CPU_DOWN_RATE,
-	.cpu_up_freq = DEF_CPU_UP_FREQ,
-	.cpu_down_freq = DEF_CPU_DOWN_FREQ,
 	.up_nr_cpus = DEF_UP_NR_CPUS,
 	.max_cpu_lock = DEF_MAX_CPU_LOCK,
 	.hotplug_lock = ATOMIC_INIT(0),
@@ -436,8 +430,6 @@ show_one(down_differential, down_differential);
 show_one(freq_step, freq_step);
 show_one(cpu_up_rate, cpu_up_rate);
 show_one(cpu_down_rate, cpu_down_rate);
-show_one(cpu_up_freq, cpu_up_freq);
-show_one(cpu_down_freq, cpu_down_freq);
 show_one(up_nr_cpus, up_nr_cpus);
 show_one(max_cpu_lock, max_cpu_lock);
 show_one(dvfs_debug, dvfs_debug);
@@ -664,30 +656,6 @@ static ssize_t store_cpu_down_rate(struct kobject *a, struct attribute *b,
 	return count;
 }
 
-static ssize_t store_cpu_up_freq(struct kobject *a, struct attribute *b,
-				 const char *buf, size_t count)
-{
-	unsigned int input;
-	int ret;
-	ret = sscanf(buf, "%u", &input);
-	if (ret != 1)
-		return -EINVAL;
-	dbs_tuners_ins.cpu_up_freq = min(input, dbs_tuners_ins.max_freq);
-	return count;
-}
-
-static ssize_t store_cpu_down_freq(struct kobject *a, struct attribute *b,
-				   const char *buf, size_t count)
-{
-	unsigned int input;
-	int ret;
-	ret = sscanf(buf, "%u", &input);
-	if (ret != 1)
-		return -EINVAL;
-	dbs_tuners_ins.cpu_down_freq = max(input, dbs_tuners_ins.min_freq);
-	return count;
-}
-
 static ssize_t store_up_nr_cpus(struct kobject *a, struct attribute *b,
 				const char *buf, size_t count)
 {
@@ -766,8 +734,6 @@ define_one_global_rw(down_differential);
 define_one_global_rw(freq_step);
 define_one_global_rw(cpu_up_rate);
 define_one_global_rw(cpu_down_rate);
-define_one_global_rw(cpu_up_freq);
-define_one_global_rw(cpu_down_freq);
 define_one_global_rw(up_nr_cpus);
 define_one_global_rw(max_cpu_lock);
 define_one_global_rw(hotplug_lock);
@@ -784,8 +750,6 @@ static struct attribute *dbs_attributes[] = {
 	&freq_step.attr,
 	&cpu_up_rate.attr,
 	&cpu_down_rate.attr,
-	&cpu_up_freq.attr,
-	&cpu_down_freq.attr,
 	&up_nr_cpus.attr,
 	/* priority: hotplug_lock > max_cpu_lock */
 	&max_cpu_lock.attr,
