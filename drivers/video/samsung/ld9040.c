@@ -35,7 +35,7 @@
 #include <linux/earlysuspend.h>
 #endif
 
-#define BOOT_GAMMA_LEVEL	10
+#define BOOT_GAMMA_LEVEL	14
 #define GAMMA_MAX	25
 
 #define SLEEPMSEC		0x1000
