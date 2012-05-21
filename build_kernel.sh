@@ -31,6 +31,7 @@ cp -ax $INITRAMFS_SOURCE $INITRAMFS_TMP
 find $INITRAMFS_TMP -name .git -exec rm -rf {} \;
 #remove empty directory placeholders
 find $INITRAMFS_TMP -name EMPTY_DIRECTORY -exec rm -rf {} \;
+rm -rf $INITRAMFS_TMP/tmp/*
 #remove mercurial repository
 rm -rf $INITRAMFS_TMP/.hg
 #copy modules into initramfs
