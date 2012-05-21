@@ -34,7 +34,7 @@
 
 #include <packed_section_start.h>
 
-
+#include <dhd_sec_feature.h>
 
 
 #define DOT11_RC_INVALID_WPA_IE		13

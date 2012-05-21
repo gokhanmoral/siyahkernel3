@@ -1067,7 +1067,7 @@ typedef struct ti_ie ti_ie_t;
 #define DOT11_MNG_EXT_CSA_ID			60
 #define	DOT11_MNG_HT_ADD			61
 #define	DOT11_MNG_EXT_CHANNEL_OFFSET		62
-#define DOT11_MNG_WAPI_ID			68	
+#define DOT11_MNG_WAPI_ID			68
 #define DOT11_MNG_TIME_ADVERTISE_ID	69
 #define DOT11_MNG_RRM_CAP_ID		70
 #define	DOT11_MNG_HT_BSS_COEXINFO_ID		72

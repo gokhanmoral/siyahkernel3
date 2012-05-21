@@ -803,41 +803,49 @@ sdioh_request_byte(sdioh_info_t *sd, uint rw, uint func, uint regaddr, uint8 *by
 #if defined(MMC_SDIO_ABORT)
 			/* to allow abort command through F1 */
 			else if (regaddr == SDIOD_CCCR_IOABORT) {
-				sdio_claim_host(gInstance->func[func]);
-				/*
-				* this sdio_f0_writeb() can be replaced with another api
-				* depending upon MMC driver change.
-				* As of this time, this is temporaray one
-				*/
-				sdio_writeb(gInstance->func[func], *byte, regaddr, &err_ret);
-				sdio_release_host(gInstance->func[func]);
+				if (gInstance->func[func]){
+					sdio_claim_host(gInstance->func[func]);
+					/*
+					* this sdio_f0_writeb() can be replaced with another api
+					* depending upon MMC driver change.
+					* As of this time, this is temporaray one
+					*/
+					sdio_writeb(gInstance->func[func], *byte, regaddr, &err_ret);
+					sdio_release_host(gInstance->func[func]);
+				}
 			}
 #endif /* MMC_SDIO_ABORT */
 			else if (regaddr < 0xF0) {
 				sd_err(("bcmsdh_sdmmc: F0 Wr:0x%02x: write disallowed\n", regaddr));
 			} else {
 				/* Claim host controller, perform F0 write, and release */
-				sdio_claim_host(gInstance->func[func]);
-				sdio_f0_writeb(gInstance->func[func], *byte, regaddr, &err_ret);
-				sdio_release_host(gInstance->func[func]);
+				if (gInstance->func[func]){
+					sdio_claim_host(gInstance->func[func]);
+					sdio_f0_writeb(gInstance->func[func], *byte, regaddr, &err_ret);
+					sdio_release_host(gInstance->func[func]);
+				}
 			}
 		} else {
 			/* Claim host controller, perform Fn write, and release */
-			sdio_claim_host(gInstance->func[func]);
-			sdio_writeb(gInstance->func[func], *byte, regaddr, &err_ret);
-			sdio_release_host(gInstance->func[func]);
+			if (gInstance->func[func]){
+				sdio_claim_host(gInstance->func[func]);
+				sdio_writeb(gInstance->func[func], *byte, regaddr, &err_ret);
+				sdio_release_host(gInstance->func[func]);
+			}
 		}
 	} else { /* CMD52 Read */
 		/* Claim host controller, perform Fn read, and release */
-		sdio_claim_host(gInstance->func[func]);
+		if (gInstance->func[func]){
+			sdio_claim_host(gInstance->func[func]);
 
-		if (func == 0) {
-			*byte = sdio_f0_readb(gInstance->func[func], regaddr, &err_ret);
-		} else {
-			*byte = sdio_readb(gInstance->func[func], regaddr, &err_ret);
+			if (func == 0) {
+				*byte = sdio_f0_readb(gInstance->func[func], regaddr, &err_ret);
+			} else {
+				*byte = sdio_readb(gInstance->func[func], regaddr, &err_ret);
+			}
+
+			sdio_release_host(gInstance->func[func]);
 		}
-
-		sdio_release_host(gInstance->func[func]);
 	}
 
 	if (err_ret) {
@@ -1006,9 +1014,9 @@ sdioh_request_packet(sdioh_info_t *sd, uint fix_inc, uint write, uint func,
 
 	/* PIO mode */
 	if (0 != lft_len) {
-	/* Claim host controller */
-	sdio_claim_host(gInstance->func[func]);
-	for (pnext = pkt; pnext; pnext = PKTNEXT(sd->osh, pnext)) {
+		/* Claim host controller */
+		sdio_claim_host(gInstance->func[func]);
+		for (pnext = pkt; pnext; pnext = PKTNEXT(sd->osh, pnext)) {
 			uint8 *buf = (uint8*)PKTDATA(sd->osh, pnext) +
 				xfred_len;
 			pkt_len = PKTLEN(sd->osh, pnext);
@@ -1016,12 +1024,18 @@ sdioh_request_packet(sdioh_info_t *sd, uint fix_inc, uint write, uint func,
 				pkt_len -= xfred_len;
 				xfred_len = 0;
 			}
-			pkt_len = (pkt_len + 3) & 0xFFFFFFFC;
+
+			/* Align Patch */
+			if (!write) // read
+				pkt_len = (pkt_len + 3) & 0xFFFFFFFC;
+			else if(pkt_len % DHD_SDALIGN) // write
+				pkt_len += DHD_SDALIGN - (pkt_len % DHD_SDALIGN);
+
 #ifdef CONFIG_MMC_MSM7X00A
-		if ((pkt_len % 64) == 32) {
-			sd_trace(("%s: Rounding up TX packet +=32\n", __FUNCTION__));
-			pkt_len += 32;
-		}
+			if ((pkt_len % 64) == 32) {
+				sd_trace(("%s: Rounding up TX packet +=32\n", __FUNCTION__));
+				pkt_len += 32;
+			}
 #endif /* CONFIG_MMC_MSM7X00A */
 
 			if ((write) && (!fifo))
@@ -1043,20 +1057,20 @@ sdioh_request_packet(sdioh_info_t *sd, uint fix_inc, uint write, uint func,
 
 			if (err_ret)
 				sd_err(("%s: %s FAILED %p[%d], addr=0x%05x, pkt_len=%d, ERR=%d\n",
-				__FUNCTION__,
-				(write) ? "TX" : "RX",
-				pnext, SGCount, addr, pkt_len, err_ret));
+				       __FUNCTION__,
+				       (write) ? "TX" : "RX",
+				       pnext, SGCount, addr, pkt_len, err_ret));
 			else
-			sd_trace(("%s: %s xfr'd %p[%d], addr=0x%05x, len=%d\n",
-				__FUNCTION__,
-				(write) ? "TX" : "RX",
-				pnext, SGCount, addr, pkt_len));
+				sd_trace(("%s: %s xfr'd %p[%d], addr=0x%05x, len=%d\n",
+					__FUNCTION__,
+					(write) ? "TX" : "RX",
+					pnext, SGCount, addr, pkt_len));
 
 			if (!fifo)
-			addr += pkt_len;
-		SGCount ++;
-	}
-	sdio_release_host(gInstance->func[func]);
+				addr += pkt_len;
+			SGCount ++;
+		}
+		sdio_release_host(gInstance->func[func]);
 	}
 
 	sd_trace(("%s: Exit\n", __FUNCTION__));

@@ -1934,6 +1934,11 @@ si_socram_srmem_size(si_t *sih)
 	uint32 coreinfo;
 	uint memsize = 0;
 
+	if ((CHIPID(sih->chip) == BCM4334_CHIP_ID) && (CHIPREV(sih->chiprev) < 2)) {
+		return (32 * 1024);
+	}
+
+
 	sii = SI_INFO(sih);
 
 	/* Block ints and save current core */
