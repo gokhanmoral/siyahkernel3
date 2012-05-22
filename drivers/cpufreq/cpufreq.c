@@ -1612,20 +1612,6 @@ int cpufreq_register_governor(struct cpufreq_governor *governor)
 	err = -EBUSY;
 	if (__find_governor(governor->name) == NULL) {
 		err = 0;
-		if (!strnicmp(governor->name, "powersave", CPUFREQ_NAME_LEN)
-		|| !strnicmp(governor->name, "performance", CPUFREQ_NAME_LEN)
-		|| !strnicmp(governor->name, "userspace", CPUFREQ_NAME_LEN)
-		)
-			governor->disableScalingDuringSuspend = 0;
-		else
-			governor->disableScalingDuringSuspend = 1;
-		if (
-			!strnicmp(governor->name, "ondemand", CPUFREQ_NAME_LEN) ||
-			!strnicmp(governor->name, "pegasusq", CPUFREQ_NAME_LEN)
-		)
-			governor->enableSmoothScaling = 1;
-		else
-			governor->enableSmoothScaling = 0;
 		list_add(&governor->governor_list, &cpufreq_governor_list);
 	}
 

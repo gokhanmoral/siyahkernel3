@@ -85,7 +85,7 @@ static unsigned int exynos_get_safe_armvolt(unsigned int old_index, unsigned int
 	return safe_arm_volt;
 }
 
-unsigned int smooth_level = L8;
+unsigned int smooth_level = L4;
 
 static int exynos_target(struct cpufreq_policy *policy,
 			  unsigned int target_freq,
@@ -141,8 +141,7 @@ static int exynos_target(struct cpufreq_policy *policy,
 
 #if defined(CONFIG_CPU_EXYNOS4210)
 	/* Do NOT step up max arm clock directly to reduce power consumption */
-	if (policy->governor->enableSmoothScaling &&
-		index == exynos_info->max_current_idx && old_index > smooth_level)
+	if (index == exynos_info->max_current_idx && old_index > smooth_level)
 		index = smooth_level;
 #endif
 
