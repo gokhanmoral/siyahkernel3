@@ -383,7 +383,6 @@ static void link_pm_hub_work(struct work_struct *work)
 	int err;
 	struct link_pm_data *pm_data =
 		container_of(work, struct link_pm_data, link_pm_hub.work);
-	struct device *rhub = pm_data->root_hub;/* fix runtime pm get/put pair*/
 
 	if (pm_data->hub_status == HUB_STATE_ACTIVE)
 		return;
@@ -408,7 +407,7 @@ static void link_pm_hub_work(struct work_struct *work)
 		mif_trace("hub off->on\n");
 
 		/* skip 1st time before first probe */
-		if (rhub && pm_data->root_hub)
+		if (pm_data->root_hub)
 			pm_runtime_get_sync(pm_data->root_hub);
 		err = pm_data->port_enable(2, 1);
 		if (err < 0) {
@@ -419,7 +418,7 @@ static void link_pm_hub_work(struct work_struct *work)
 				lnk_err(pm_data->usb_ld,
 					"hub off fail err=%d\n", err);
 			pm_data->hub_status = HUB_STATE_OFF;
-			if (rhub && pm_data->root_hub)
+			if (pm_data->root_hub)
 				pm_runtime_put_sync(pm_data->root_hub);
 			goto exit;
 		}
@@ -431,7 +430,7 @@ static void link_pm_hub_work(struct work_struct *work)
 		if (pm_data->hub_on_retry_cnt++ > 50) {
 			pm_data->hub_on_retry_cnt = 0;
 			pm_data->hub_status = HUB_STATE_OFF;
-			if (rhub && pm_data->root_hub)
+			if (pm_data->root_hub)
 				pm_runtime_put_sync(pm_data->root_hub);
 		}
 		mif_trace("hub resumming\n");
@@ -444,7 +443,7 @@ static void link_pm_hub_work(struct work_struct *work)
 		wake_unlock(&pm_data->hub_lock);
 		pm_data->hub_status = HUB_STATE_ACTIVE;
 		complete(&pm_data->hub_active);
-		if (rhub && pm_data->root_hub)
+		if (pm_data->root_hub)
 			pm_runtime_put_sync(pm_data->root_hub);
 		break;
 	}
@@ -569,6 +568,8 @@ static long link_pm_ioctl(struct file *file, unsigned int cmd,
 		/* ignore cp host wakeup irq, set the hub_init_lock when AP try
 		 CP off and release hub_init_lock when CP boot done */
 		pm_data->hub_init_lock = 0;
+		if (pm_data->root_hub)
+			pm_runtime_resume(pm_data->root_hub);
 		if (pm_data->port_enable) {
 			err = pm_data->port_enable(2, 1);
 			if (err < 0) {
@@ -646,6 +647,9 @@ static int if_usb_suspend(struct usb_interface *intf, pm_message_t message)
 		for (i = 0; i < IF_USB_DEVNUM_MAX; i++)
 			usb_kill_anchored_urbs(&usb_ld->devdata[i].reading);
 
+		if (usb_ld->link_pm_data->cpufreq_unlock)
+			usb_ld->link_pm_data->cpufreq_unlock();
+
 		wake_unlock(&usb_ld->susplock);
 	}
 
@@ -663,6 +667,16 @@ static void runtime_pm_work(struct work_struct *work)
 	if (ret == -EAGAIN || ret == 1)
 		queue_delayed_work(system_nrt_wq, &usb_ld->runtime_pm_work,
 							msecs_to_jiffies(50));
+}
+
+static void post_resume_work(struct work_struct *work)
+{
+	struct usb_link_device *usb_ld = container_of(work,
+			struct usb_link_device, post_resume_work.work);
+
+	/* lock cpu frequency when L2->L0 */
+	if (usb_ld->link_pm_data->cpufreq_lock)
+		usb_ld->link_pm_data->cpufreq_lock();
 }
 
 static void wait_enumeration_work(struct work_struct *work)
@@ -728,6 +742,12 @@ static int if_usb_resume(struct usb_interface *intf)
 		SET_SLAVE_WAKEUP(usb_ld->pdata, 1);
 		udelay(100);
 		SET_SLAVE_WAKEUP(usb_ld->pdata, 0);
+
+		/* if_usb_resume() is atomic. post_resume_work is
+		 * a kind of bottom halves
+		 */
+		queue_delayed_work(system_nrt_wq, &usb_ld->post_resume_work, 0);
+
 		return 0;
 	}
 
@@ -779,6 +799,7 @@ static void if_usb_disconnect(struct usb_interface *intf)
 
 	if (usb_ld->dev_count == 0) {
 		cancel_delayed_work_sync(&usb_ld->runtime_pm_work);
+		cancel_delayed_work_sync(&usb_ld->post_resume_work);
 		cancel_delayed_work_sync(&usb_ld->ld.tx_delayed_work);
 		usb_put_dev(usbdev);
 		usb_ld->usbdev = NULL;
@@ -1068,6 +1089,8 @@ static int usb_link_pm_init(struct usb_link_device *usb_ld, void *data)
 	pm_data->gpio_link_slavewake = pm_pdata->gpio_link_slavewake;
 	pm_data->link_reconnect = pm_pdata->link_reconnect;
 	pm_data->port_enable = pm_pdata->port_enable;
+	pm_data->cpufreq_lock = pm_pdata->cpufreq_lock;
+	pm_data->cpufreq_unlock = pm_pdata->cpufreq_unlock;
 
 	pm_data->usb_ld = usb_ld;
 	pm_data->link_pm_active = false;
@@ -1159,6 +1182,7 @@ struct link_device *usb_create_link_device(void *data)
 
 	INIT_DELAYED_WORK(&ld->tx_delayed_work, usb_tx_work);
 	INIT_DELAYED_WORK(&usb_ld->runtime_pm_work, runtime_pm_work);
+	INIT_DELAYED_WORK(&usb_ld->post_resume_work, post_resume_work);
 	INIT_DELAYED_WORK(&usb_ld->wait_enumeration, wait_enumeration_work);
 	INIT_WORK(&usb_ld->disconnect_work, if_usb_force_disconnect);
 

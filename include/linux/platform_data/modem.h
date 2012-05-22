@@ -79,8 +79,9 @@ enum sipc_dev_type {
 /**
  * struct modem_io_t - declaration for io_device
  * @name:	device name
- * @id:		id. contain channel information if this is IPC_RAW
- *		when IPC_RAW: .id = 0x30 | channel
+ * @id:		contain format & channel information
+ *		(id & 11100000b)>>5 = format  (eg, 0=FMT, 1=RAW, 2=RFS)
+ *		(id & 00011111b)    = channel (valid only if format is RAW)
  * @format:	device format
  * @io_type:	type of this io_device
  * @links:	list of link_devices to use this io_device
@@ -113,6 +114,10 @@ struct modemlink_pm_data {
 	int (*link_reconnect)(void);
 	int (*port_enable)(int, int);
 	int *p_hub_status;
+
+	atomic_t freqlock;
+	int (*cpufreq_lock)(void);
+	int (*cpufreq_unlock)(void);
 };
 
 struct modemlink_pm_link_activectl {
@@ -212,6 +217,7 @@ struct modem_data {
 	unsigned gpio_cp_dump_int;
 	unsigned gpio_flm_uart_sel;
 	unsigned gpio_cp_warm_reset;
+	unsigned gpio_sim_detect;
 
 #ifdef CONFIG_LTE_MODEM_CMC221
 	unsigned gpio_dpram_status;

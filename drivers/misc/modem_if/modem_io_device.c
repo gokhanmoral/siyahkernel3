@@ -277,87 +277,86 @@ static int rx_hdlc_data_check(struct io_device *iod, struct link_device *ld,
 	struct sk_buff *skb = fragdata(iod, ld)->skb_recv;
 	int head_size = get_header_size(iod);
 	int data_size = get_hdlc_size(iod, hdr->hdr) - head_size;
-	int alloc_size = min(data_size, MAX_RXDATA_SIZE);
+	int alloc_size;
 	int len = 0;
 	int done_len = 0;
 	int rest_len = data_size - hdr->frag_len;
-	struct sk_buff *skb_new = NULL;
 
 	pr_debug("[IOD] head_size : %d, data_size : %d (%d)\n", head_size,
 				data_size, __LINE__);
 
 	/* first payload data - alloc skb */
 	if (!skb) {
-		switch (iod->format) {
-		case IPC_RFS:
-			alloc_size = min_t(int, data_size, rest) + head_size;
-			alloc_size = min(alloc_size, MAX_RXDATA_SIZE);
-			skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		/* make skb data size under MAX_RXDATA_SIZE */
+		alloc_size = min(data_size, MAX_RXDATA_SIZE);
+		alloc_size = min(alloc_size, rest_len);
+
+		/* exceptional case for RFS channel
+		 * make skb for header info first
+		 */
+		if (iod->format == IPC_RFS) {
+			skb = rx_alloc_skb(head_size, GFP_ATOMIC, iod, ld);
 			if (unlikely(!skb))
 				return -ENOMEM;
-
-			/* copy the RFS haeder to skb->data */
 			memcpy(skb_put(skb, head_size), hdr->hdr, head_size);
-			break;
-
-		case IPC_MULTI_RAW:
-			if (iod->use_handover)
-				skb = rx_alloc_skb(alloc_size +
-					sizeof(struct ethhdr), GFP_ATOMIC,
-					iod, ld);
-			else
-				skb = rx_alloc_skb(alloc_size, GFP_ATOMIC,
-					iod, ld);
-
-			if (unlikely(!skb))
-				return -ENOMEM;
-
-			if (iod->use_handover)
-				skb_reserve(skb, sizeof(struct ethhdr));
-			break;
-
-		default:
-			skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
-			if (unlikely(!skb))
-				return -ENOMEM;
-			break;
+			rx_iodev_skb(skb);
 		}
+
+		/* allocate first packet for data, when its size exceed
+		 * MAX_RXDATA_SIZE, this packet will split to
+		 * multiple packets
+		 */
+		if (iod->use_handover)
+			alloc_size += sizeof(struct ethhdr);
+
+		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		if (unlikely(!skb))
+			return -ENOMEM;
+
+		if (iod->use_handover)
+			skb_reserve(skb, sizeof(struct ethhdr));
 		fragdata(iod, ld)->skb_recv = skb;
 	}
 
-	/* if recv packet size is larger than user space */
-	while ((rest_len > MAX_RXDATA_SIZE) && (rest > 0)) {
-		len = MAX_RXDATA_SIZE - skb->len;
-		len = min_t(int, len, rest);
-		len = min(len, rest_len);
-		memcpy(skb_put(skb, len), buf, len);
-		buf += len;
-		done_len += len;
-		rest -= len;
-		rest_len -= len;
+	while (rest) {
+		/* copy length cannot exceed rest_len */
+		len = min_t(int, rest_len, rest);
+		/* copy length should be under skb tailroom size */
+		len = min(len, skb_tailroom(skb));
+		/* when skb tailroom is bigger than MAX_RXDATA_SIZE
+		 * restrict its size to MAX_RXDATA_SIZE just for convinience */
+		len = min(len, MAX_RXDATA_SIZE);
 
+		/* copy bytes to skb */
+		memcpy(skb_put(skb, len), buf, len);
+
+		/* adjusting variables */
+		buf += len;
+		rest -= len;
+		done_len += len;
+		rest_len -= len;
+		hdr->frag_len += len;
+
+		/* check if it is final for this packet sequence */
 		if (!rest_len)
 			break;
 
-		rx_iodev_skb(fragdata(iod, ld)->skb_recv);
+		/* more bytes are remain for this packet sequence
+		 * pass fully loaded skb to rx queue
+		 * and allocate another skb for continues data recv chain
+		 */
+		rx_iodev_skb(skb);
 		fragdata(iod, ld)->skb_recv =  NULL;
 
 		alloc_size = min(rest_len, MAX_RXDATA_SIZE);
-		skb_new = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
-		if (unlikely(!skb_new))
+		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		if (unlikely(!skb))
 			return -ENOMEM;
-		skb = fragdata(iod, ld)->skb_recv = skb_new;
+		fragdata(iod, ld)->skb_recv = skb;
 	}
 
-	/* copy data to skb */
-	len = min(rest, alloc_size - skb->len);
-	len = min(len, rest_len);
 	pr_debug("[IOD] rest : %d, alloc_size : %d , len : %d (%d)\n",
 				rest, alloc_size, skb->len, __LINE__);
-
-	memcpy(skb_put(skb, len), buf, len);
-	done_len += len;
-	hdr->frag_len += done_len;
 
 	return done_len;
 }
@@ -442,6 +441,14 @@ static int rx_iodev_skb_raw(struct sk_buff *skb)
 	struct iphdr *ip_header;
 	struct ethhdr *ehdr;
 	const char source[ETH_ALEN] = SOURCE_MAC_ADDR;
+
+	/* check the real_iod is open? */
+	if (atomic_read(&iod->opened) == 0) {
+		pr_err("[IOD/E] <%s:%d:%s> is not opened.\n",
+			__func__, __LINE__, iod->name);
+		pr_skb("drop packet", skb);
+		return -ENOENT;
+	}
 
 	switch (iod->io_typ) {
 	case IODEV_MISC:
@@ -739,6 +746,17 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 	struct sk_buff *skb;
 	int err;
 
+	/* check the iod(except IODEV_DUMMY) is open?
+	 * if the iod is MULTIPDP, check this data on rx_iodev_skb_raw()
+	 * because, we cannot know the channel no in here.
+	 */
+	if (iod->io_typ != IODEV_DUMMY && atomic_read(&iod->opened) == 0) {
+		pr_err("[IOD/E] <%s:%d:%s> is not opened.\n",
+			__func__, __LINE__, iod->name);
+		pr_buffer("drop packet", data, len, 16u);
+		return -ENOENT;
+	}
+
 	switch (iod->format) {
 	case IPC_RFS:
 #ifdef CONFIG_IPC_CMC22x_OLD_RFS
@@ -790,7 +808,7 @@ static void io_dev_modem_state_changed(struct io_device *iod,
 			enum modem_state state)
 {
 	iod->mc->phone_state = state;
-	pr_err("[IOD] <%s> modem state changed. (iod: %s, state: %d)\n",
+	pr_notice("[IOD] <%s> modem state changed. (iod: %s, state: %d)\n",
 		__func__, iod->name, state);
 
 	if ((state == STATE_CRASH_RESET) || (state == STATE_CRASH_EXIT)
@@ -798,12 +816,37 @@ static void io_dev_modem_state_changed(struct io_device *iod,
 		wake_up(&iod->wq);
 }
 
+/**
+ * io_dev_sim_state_changed
+ * @iod:	IPC's io_device
+ * @sim_online: SIM is online?
+ */
+static void io_dev_sim_state_changed(struct io_device *iod, bool sim_online)
+{
+	if (atomic_read(&iod->opened) == 0) {
+		pr_err("[IOD] <%s> iod is not opened: %s\n", __func__,
+				iod->name);
+	} else if (iod->mc->sim_state.online == sim_online) {
+		pr_err("[IOD] <%s> sim state not changed.\n", __func__);
+	} else {
+		iod->mc->sim_state.online = sim_online;
+		iod->mc->sim_state.changed = true;
+
+		pr_err("[IOD] <%s> sim state changed. (iod: %s, state: "
+				"[online=%d, changed=%d])\n", __func__,
+				iod->name, iod->mc->sim_state.online,
+				iod->mc->sim_state.changed);
+		wake_up(&iod->wq);
+	}
+}
+
 static int misc_open(struct inode *inode, struct file *filp)
 {
 	struct io_device *iod = to_io_device(filp->private_data);
 	filp->private_data = (void *)iod;
 
-	pr_err("[IOD] <%s> iod = %s\n", __func__, iod->name);
+	pr_info("[IOD] <%s> iod = %s\n", __func__, iod->name);
+	atomic_inc(&iod->opened);
 	if (iod->link->init_comm)
 		return iod->link->init_comm(iod->link, iod);
 
@@ -814,7 +857,10 @@ static int misc_release(struct inode *inode, struct file *filp)
 {
 	struct io_device *iod = (struct io_device *)filp->private_data;
 
-	pr_err("[IOD] <%s> iod = %s\n", __func__, iod->name);
+	pr_info("[IOD] <%s> iod = %s\n", __func__, iod->name);
+	atomic_dec(&iod->opened);
+
+	skb_queue_purge(&iod->sk_rx_q);
 
 	if (iod->link->terminate_comm)
 		iod->link->terminate_comm(iod->link, iod);
@@ -833,9 +879,14 @@ static unsigned int misc_poll(struct file *filp, struct poll_table_struct *wait)
 		return POLLIN | POLLRDNORM;
 	else if ((iod->mc->phone_state == STATE_CRASH_RESET) ||
 			(iod->mc->phone_state == STATE_CRASH_EXIT) ||
-			(iod->mc->phone_state == STATE_NV_REBUILDING))
+			(iod->mc->phone_state == STATE_NV_REBUILDING) ||
+			(iod->mc->sim_state.changed)) {
+		if (iod->format == IPC_RAW) {
+			msleep(20);
+			return 0;
+		}
 		return POLLHUP;
-	else
+	} else
 		return 0;
 }
 
@@ -882,6 +933,11 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			(p_state == STATE_CRASH_EXIT)) {
 			pr_err("[IOD] send err state : %d\n", p_state);
 		/*	iod->mc->phone_state = STATE_OFFLINE; */
+		} else if (iod->mc->sim_state.changed) {
+			int s_state = iod->mc->sim_state.online ?
+					STATE_SIM_ATTACH : STATE_SIM_DETACH;
+			iod->mc->sim_state.changed = false;
+			return s_state;
 		} else if (p_state == STATE_NV_REBUILDING) {
 			pr_info("[IOD] send nv rebuild state : %d\n",
 				p_state);
@@ -890,7 +946,7 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return p_state;
 
 	case IOCTL_MODEM_PROTOCOL_SUSPEND:
-		pr_info("[IOD] misc_ioctl : IOCTL_MODEM_PROTOCOL_SUSPEND\n");
+		pr_notice("[IOD] misc_ioctl : IOCTL_MODEM_PROTOCOL_SUSPEND\n");
 
 		if (iod->format != IPC_MULTI_RAW)
 			return -EINVAL;
@@ -901,14 +957,14 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			(io_raw_devs->raw_devices[i]->io_typ == IODEV_NET)) {
 				netif_stop_queue(
 					io_raw_devs->raw_devices[i]->ndev);
-				pr_info("[IOD] netif stopped : %s\n",
+				pr_notice("[IOD] netif stopped : %s\n",
 					io_raw_devs->raw_devices[i]->name);
 			}
 		}
 		return 0;
 
 	case IOCTL_MODEM_PROTOCOL_RESUME:
-		pr_info("[IOD] misc_ioctl : IOCTL_MODEM_PROTOCOL_RESUME\n");
+		pr_notice("[IOD] misc_ioctl : IOCTL_MODEM_PROTOCOL_RESUME\n");
 
 		if (iod->format != IPC_MULTI_RAW)
 			return -EINVAL;
@@ -919,7 +975,7 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			(io_raw_devs->raw_devices[i]->io_typ == IODEV_NET)) {
 				netif_wake_queue(
 					io_raw_devs->raw_devices[i]->ndev);
-				pr_info("[IOD] netif woke : %s\n",
+				pr_notice("[IOD] netif woke : %s\n",
 					io_raw_devs->raw_devices[i]->name);
 			}
 		}
@@ -947,7 +1003,6 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IOCTL_MODEM_DUMP_RESET:
 		pr_err("[IOD] misc_ioctl : IOCTL_MODEM_DUMP_RESET\n");
 		return iod->mc->ops.modem_dump_reset(iod->mc);
-
 	default:
 		 /* If you need to handle the ioctl for specific link device,
 		  * then assign the link ioctl handler to iod->link->ioctl
@@ -1126,7 +1181,7 @@ static int misc_mmap(struct file *filp, struct vm_area_struct *vma)
 		return -EAGAIN;
 	}
 
-	pr_err("[IOD] <%s> VA = 0x%08lx, offset = 0x%lx, size = %lu\n",
+	pr_info("[IOD] <%s> VA = 0x%08lx, offset = 0x%lx, size = %lu\n",
 		__func__, vma->vm_start, offset, size);
 
 	return 0;
@@ -1148,12 +1203,16 @@ static const struct file_operations misc_io_fops = {
 
 static int vnet_open(struct net_device *ndev)
 {
+	struct vnet *vnet = netdev_priv(ndev);
 	netif_start_queue(ndev);
+	atomic_inc(&vnet->iod->opened);
 	return 0;
 }
 
 static int vnet_stop(struct net_device *ndev)
 {
+	struct vnet *vnet = netdev_priv(ndev);
+	atomic_dec(&vnet->iod->opened);
 	netif_stop_queue(ndev);
 	return 0;
 }
@@ -1252,6 +1311,8 @@ int init_io_device(struct io_device *iod)
 
 	/* Get modem state from modem control device */
 	iod->modem_state_changed = io_dev_modem_state_changed;
+
+	iod->sim_state_changed = io_dev_sim_state_changed;
 
 	/* Get data from link device */
 	iod->recv = io_dev_recv_data_from_link_dev;

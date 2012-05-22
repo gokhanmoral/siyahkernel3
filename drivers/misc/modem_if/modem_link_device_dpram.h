@@ -215,6 +215,9 @@ struct dpram_link_device {
 	/* Wakelock for DPRAM device */
 	struct wake_lock dpram_wake_lock;
 
+	/* Wakelock for DPRAM device */
+	atomic_t dpram_write_lock;
+
 	/* For booting */
 	struct completion dpram_init_cmd;
 	struct completion modem_pif_init_done;
