@@ -6250,7 +6250,7 @@ static void __init smdkc210_machine_init(void)
 				ARRAY_SIZE(i2c_devs10_emul));
 #endif
 #ifdef CONFIG_S3C_DEV_I2C11_EMUL
-#if defined (CONFIG_OPTICAL_CM3663)
+#if defined (CONFIG_SENSORS_CM3663)
 	s3c_gpio_setpull(GPIO_PS_ALS_INT, S3C_GPIO_PULL_NONE);
 	i2c_register_board_info(11, i2c_devs11_emul,
 				ARRAY_SIZE(i2c_devs11_emul));
