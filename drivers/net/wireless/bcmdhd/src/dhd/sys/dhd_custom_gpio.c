@@ -296,6 +296,9 @@ void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 			return;
 		}
 	}
+	//if not found, use Turkey
+	strlcpy(cspec->ccode, "TR", WLC_CNTRY_BUF_SZ);
+	cspec->rev = 7;
 #ifdef EXAMPLE_TABLE
 	/* if no country code matched return first universal code from translate_custom_table */
 	memcpy(cspec->ccode, translate_custom_table[0].custom_locale, WLC_CNTRY_BUF_SZ);
