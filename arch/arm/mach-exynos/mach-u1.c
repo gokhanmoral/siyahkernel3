@@ -3076,6 +3076,16 @@ static void u1_sound_init(void)
 	gpio_set_value(GPIO_EAR_MIC_BIAS_EN, 0);
 	gpio_free(GPIO_EAR_MIC_BIAS_EN);
 
+#if defined(CONFIG_MACH_Q1_BD)
+	err = gpio_request(GPIO_SUB_MIC_BIAS_EN, "submic_bias");
+	if (err) {
+		pr_err(KERN_ERR "SUB_MIC_BIAS_EN GPIO set error!\n");
+		return;
+	}
+	gpio_direction_output(GPIO_SUB_MIC_BIAS_EN, 1);
+	gpio_set_value(GPIO_SUB_MIC_BIAS_EN, 0);
+	gpio_free(GPIO_SUB_MIC_BIAS_EN);
+#else
 	if (system_rev >= SYSTEM_REV_SND) {
 		err = gpio_request(GPIO_SUB_MIC_BIAS_EN, "submic_bias");
 		if (err) {
@@ -3085,6 +3095,7 @@ static void u1_sound_init(void)
 		gpio_direction_output(GPIO_SUB_MIC_BIAS_EN, 0);
 		gpio_free(GPIO_SUB_MIC_BIAS_EN);
 	}
+#endif /* defined(CONFIG_MACH_Q1_BD) */
 #endif
 }
 #endif
