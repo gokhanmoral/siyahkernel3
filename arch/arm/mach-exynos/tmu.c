@@ -37,6 +37,9 @@
 
 #define CONFIG_TMU_DEBUG
 
+/* for factory mode */
+#define CONFIG_TMU_SYSFS
+
 /* flags that throttling or trippint is treated */
 #define THROTTLE_FLAG (0x1 << 0)
 #define WARNING_FLAG (0x1 << 1)
@@ -131,6 +134,8 @@ static int freq_limit_1st_throttle;
 static int freq_limit_2nd_throttle;
 static int set_sampling_rate;
 
+static int tmu_print_temp_on_off;
+
 static int __init get_temperature_params(char *str)
 {
 	unsigned int tmu_temp[8] = { (int)NULL, (int)NULL, (int)NULL,
@@ -217,14 +222,50 @@ static void exynos4_poll_cur_temp(struct work_struct *work)
 	mutex_lock(&tmu_lock);
 
 	cur_temp = get_curr_temp(info);
-	pr_debug("curr temp in polling_interval = %d\n", cur_temp);
+
+	if (tmu_print_temp_on_off)
+		pr_info("curr temp in polling_interval = %d state = %d\n"
+				, cur_temp, info->tmu_state);
+	else
+		pr_debug("curr temp in polling_interval = %d\n", cur_temp);
 
 	queue_delayed_work_on(0, tmu_monitor_wq, &info->monitor,
 			info->monitor_period);
 
 	mutex_unlock(&tmu_lock);
 }
+
+static ssize_t tmu_show_print_state(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int ret;
+
+	ret = sprintf(buf, "[TMU] tmu_print_temp_on_off=%d\n"
+					, tmu_print_temp_on_off);
+
+	return ret;
+}
+
+static ssize_t tmu_store_print_state(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	int ret;
+
+	if (!strncmp(buf, "0", 1)) {
+		tmu_print_temp_on_off = 0;
+	} else if (!strncmp(buf, "1", 1)) {
+		tmu_print_temp_on_off = 1;
+	} else {
+		dev_err(dev, "Invalid cmd !!\n");
+		return -EINVAL;
+	}
+
+	return ret;
+}
+static DEVICE_ATTR(print_state, S_IRUGO | S_IWUSR,\
+	tmu_show_print_state, tmu_store_print_state);
 #endif
+
 
 void set_refresh_rate(unsigned int auto_refresh)
 {
@@ -705,6 +746,22 @@ static irqreturn_t exynos4210_tmu_irq_handler(int irq, void *id)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_TMU_SYSFS
+static ssize_t s5p_tmu_show_curr_temp(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct s5p_tmu_info *info = dev_get_drvdata(dev);
+	unsigned int curr_temp;
+
+	curr_temp = get_curr_temp(info);
+	curr_temp *= 10;
+	pr_info("curr temp = %d\n", curr_temp);
+
+	return sprintf(buf, "%d\n", curr_temp);
+}
+static DEVICE_ATTR(curr_temp, S_IRUGO, s5p_tmu_show_curr_temp, NULL);
+#endif
+
 static int __devinit s5p_tmu_probe(struct platform_device *pdev)
 {
 	struct s5p_tmu_info *info;
@@ -809,6 +866,23 @@ static int __devinit s5p_tmu_probe(struct platform_device *pdev)
 	ret = tmu_initialize(pdev);
 	if (ret)
 		goto err_init;
+
+#ifdef CONFIG_TMU_SYSFS
+	ret = device_create_file(&pdev->dev, &dev_attr_curr_temp);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Failed to create sysfs group\n");
+		goto err_init;
+	}
+#endif
+
+#ifdef CONFIG_TMU_DEBUG
+	ret = device_create_file(&pdev->dev, &dev_attr_print_state);
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to create tmu sysfs group\n\n");
+		return ret;
+	}
+#endif
+
 
 	return ret;
 
