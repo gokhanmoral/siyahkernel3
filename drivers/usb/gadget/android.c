@@ -198,10 +198,11 @@ static void android_work(struct work_struct *data)
 
 	if (uevent_envp) {
 		kobject_uevent_env(&dev->dev->kobj, KOBJ_CHANGE, uevent_envp);
-		pr_info("%s: sent uevent %s\n", __func__, uevent_envp[0]);
+		printk(KERN_DEBUG "usb: %s sent uevent %s\n",
+			 __func__, uevent_envp[0]);
 	} else {
-		pr_info("%s: did not send uevent (%d %d %p)\n", __func__,
-			 dev->connected, dev->sw_connected, cdev->config);
+		printk(KERN_DEBUG "usb: %s did not send uevent (%d %d %p)\n",
+		 __func__, dev->connected, dev->sw_connected, cdev->config);
 	}
 }
 
@@ -454,19 +455,7 @@ static int rndis_function_bind_config(struct android_usb_function *f,
 		return -1;
 	}
 
-/* log delete
-	printk(KERN_DEBUG "usb: %s before MAC:%02X:%02X:%02X:%02X:%02X:%02X\n",
-			__func__, rndis->ethaddr[0], rndis->ethaddr[1],
-			rndis->ethaddr[2], rndis->ethaddr[3], rndis->ethaddr[4],
-			rndis->ethaddr[5]);
-*/			
 	ret = gether_setup_name(c->cdev->gadget, rndis->ethaddr, "rndis");
-/* log delete
-	printk(KERN_DEBUG "usb: %s after MAC:%02X:%02X:%02X:%02X:%02X:%02X\n",
-			__func__, rndis->ethaddr[0], rndis->ethaddr[1],
-			rndis->ethaddr[2], rndis->ethaddr[3], rndis->ethaddr[4],
-			rndis->ethaddr[5]);
-*/			
 	if (ret) {
 		pr_err("%s: gether_setup failed\n", __func__);
 		return ret;
@@ -548,12 +537,6 @@ static ssize_t rndis_ethaddr_show(struct device *dev,
 {
 	struct android_usb_function *f = dev_get_drvdata(dev);
 	struct rndis_function_config *rndis = f->config;
-/* log delete	
-	printk(KERN_DEBUG "usb: %s MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-			__func__,
-		rndis->ethaddr[0], rndis->ethaddr[1], rndis->ethaddr[2],
-		rndis->ethaddr[3], rndis->ethaddr[4], rndis->ethaddr[5]);
-*/
 	return sprintf(buf, "%02x:%02x:%02x:%02x:%02x:%02x\n",
 		rndis->ethaddr[0], rndis->ethaddr[1], rndis->ethaddr[2],
 		rndis->ethaddr[3], rndis->ethaddr[4], rndis->ethaddr[5]);
@@ -579,34 +562,14 @@ static ssize_t rndis_ethaddr_store(struct device *dev,
 		/* XOR the USB serial across the remaining bytes */
 		rndis->ethaddr[i % (ETH_ALEN - 1) + 1] ^= *src++;
 	}
-/* log delete		
-	printk(KERN_DEBUG "usb: %s MAC:%02X:%02X:%02X:%02X:%02X:%02X\n",
-			__func__, rndis->ethaddr[0], rndis->ethaddr[1],
-			rndis->ethaddr[2], rndis->ethaddr[3], rndis->ethaddr[4],
-			rndis->ethaddr[5]);
-*/			
 	return size;
 #else
 	if (sscanf(buf, "%02x:%02x:%02x:%02x:%02x:%02x\n",
 		    (int *)&rndis->ethaddr[0], (int *)&rndis->ethaddr[1],
 		    (int *)&rndis->ethaddr[2], (int *)&rndis->ethaddr[3],
 		    (int *)&rndis->ethaddr[4],
-		    (int *)&rndis->ethaddr[5]) == 6) {
-/* log delete			    
-		printk(KERN_DEBUG "usb: %s MAC:%02X:%02X:%02X:%02X:%02X:%02X\n",
-			__func__, rndis->ethaddr[0], rndis->ethaddr[1],
-			rndis->ethaddr[2], rndis->ethaddr[3], rndis->ethaddr[4],
-			rndis->ethaddr[5]);
-*/			
+		    (int *)&rndis->ethaddr[5]) == 6)
 		return size;
-
-	}
-/* log delete		
-	printk(KERN_DEBUG "usb: %s MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-			__func__,
-		rndis->ethaddr[0], rndis->ethaddr[1], rndis->ethaddr[2],
-		rndis->ethaddr[3], rndis->ethaddr[4], rndis->ethaddr[5]);
-*/		
 	return -EINVAL;
 #endif
 }
@@ -704,6 +667,7 @@ static int mass_storage_function_init(struct android_usb_function *f,
 			if (err == 0) {
 				printk(KERN_ERR "usb: %s snprintf error\n",
 						__func__);
+				kfree(config);
 				return err;
 			}
 			err = sysfs_create_link(&f->dev->kobj,
@@ -1473,14 +1437,25 @@ static void android_disconnect(struct usb_gadget *gadget)
 	spin_lock_irqsave(&cdev->lock, flags);
 	dev->connected = 0;
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	printk(KERN_DEBUG "usb: %s con(%d), sw(%d)\n",
+		 __func__, dev->connected, dev->sw_connected);
 	/* avoid sending a disconnect switch event
 	 * until after we disconnect.
 	 */
 	if (cdev->mute_switch) {
-		printk(KERN_DEBUG "usb: %s mute_switch\n", __func__);
+		dev->sw_connected = dev->connected;
+		printk(KERN_DEBUG "usb: %s mute_switch con(%d) sw(%d)\n",
+			 __func__, dev->connected, dev->sw_connected);
 	} else {
 		set_ncm_ready(false);
-		printk(KERN_DEBUG "usb: %s schedule_work\n", __func__);
+		if (cdev->force_disconnect) {
+			dev->sw_connected = 1;
+			printk(KERN_DEBUG "usb: %s force_disconnect\n",
+				 __func__);
+			cdev->force_disconnect = 0;
+		}
+		printk(KERN_DEBUG "usb: %s schedule_work con(%d) sw(%d)\n",
+			 __func__, dev->connected, dev->sw_connected);
 		schedule_work(&dev->work);
 	}
 #else

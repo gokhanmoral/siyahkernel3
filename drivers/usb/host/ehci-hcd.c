@@ -909,7 +909,13 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 			 * stop that signaling.  Use 5 ms extra for safety,
 			 * like usb_port_resume() does.
 			 */
+#ifdef CONFIG_LINK_DEVICE_HSIC
+			/* ensure suspend bit clear by adding 5 msec delay. */
+			ehci->reset_done[i] = jiffies + msecs_to_jiffies(30);
+#else
 			ehci->reset_done[i] = jiffies + msecs_to_jiffies(25);
+#endif
+
 			ehci_dbg (ehci, "port %d remote wakeup\n", i + 1);
 			mod_timer(&hcd->rh_timer, ehci->reset_done[i]);
 		}

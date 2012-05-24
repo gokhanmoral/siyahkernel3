@@ -712,8 +712,10 @@ static ssize_t interrupt_write(struct file *fd,
 	DEBUG_MTPB("[%s] \tline = [%d]\n", __func__, __LINE__);
 	req = dev->notify_req;
 
-	if (!req)
+	if (!req) {
 		printk(KERN_ERR "[%s]Alloc has failed\n", __func__);
+		return -ENOMEM;
+	}
 
 	if (_lock(&dev->wintfd_excl)) {
 		printk(KERN_ERR "write failed on interrupt endpoint\n");
@@ -850,6 +852,11 @@ static long  mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 	case SET_ZLP_DATA:
 		/*req->zero = 1;*/
 		req = mtpg_req_get(dev, &dev->tx_idle);
+		if (!req) {
+			printk(KERN_DEBUG "[%s] Failed to get ZLP_DATA\n",
+						 __func__);
+			return -EAGAIN;
+		}
 		req->length = 0;
 		printk(KERN_DEBUG "[%s]ZLP_DATA data=%d\tline=[%d]\n",
 						 __func__, size, __LINE__);

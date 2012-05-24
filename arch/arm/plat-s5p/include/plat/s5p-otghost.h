@@ -13,6 +13,7 @@
 #define _PLAT_S5P_OTGHOST_H __FILE__
 
 #include <linux/wakelock.h>
+#include <linux/clk.h>
 #include <linux/platform_device.h>
 
 /*#define CONFIG_USB_S3C_OTG_HOST_HANDLING_CLOCK*/
@@ -45,6 +46,7 @@ struct sec_otghost_data {
 	int (*phy_exit)(int mode);
 
 	struct platform_device *pdev;
+	struct clk *clk;
 
 	int sec_whlist_table_num;
 	void __iomem *regs;

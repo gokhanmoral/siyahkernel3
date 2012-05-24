@@ -126,6 +126,7 @@ struct s3c_udc {
 	struct usb_gadget gadget;
 	struct usb_gadget_driver *driver;
 	struct platform_device *dev;
+	struct clk *clk;
 	spinlock_t lock;
 
 	int ep0state;
@@ -140,6 +141,7 @@ struct s3c_udc {
 	unsigned int irq;
 	unsigned req_pending:1, req_std:1, req_config:1;
 	struct wake_lock	usbd_wake_lock;
+	struct wake_lock	usb_cb_wake_lock;
 	int udc_enabled;
 };
 
