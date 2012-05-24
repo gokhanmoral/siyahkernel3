@@ -112,9 +112,7 @@ static int cancel_transfer(struct sec_otghost *otghost,
 	if (parent_ed == NULL || cancel_td == NULL) {
 		otg_err(1, "%s is null.\n", parent_ed ?
 				"cancel_td" : "parent_ed");
-		cancel_td->error_code = USB_ERR_NOELEMENT;
-		otg_usbcore_giveback(cancel_td);
-		return cancel_td->error_code;
+		return USB_ERR_NOELEMENT;
 	}
 
 	otg_list_for_each_safe(tmp_list_p, tmp_list2_p,
@@ -148,11 +146,10 @@ static int cancel_transfer(struct sec_otghost *otghost,
 				goto ErrorStatus;
 			}
 
+			otg_list_pop(&cancel_td->td_list_entry);
+			parent_ed->num_td--;
 		}
-		// kevinh - even if the record was in the ready queue it is important to delete it as well.  We can also always remove the ed from the scheduler
-		// once all tds have been removed
-		otg_list_pop(&cancel_td->td_list_entry);
-		parent_ed->num_td--;
+
 	} else {
 
 		otg_list_pop(&cancel_td->td_list_entry);
@@ -163,10 +160,7 @@ static int cancel_transfer(struct sec_otghost *otghost,
 	}
 
 	if (parent_ed->num_td) {
-          // kevinh - we do not want to force insert_scheduler, because if this endpoint _was_ already scheduled
-          // because the deleted td was not the active td then we will now put ed into the scheduler list twice, thus
-          // corrupting it.
-          // parent_ed->is_need_to_insert_scheduler = true;
+		parent_ed->is_need_to_insert_scheduler = true;
 		insert_ed_to_scheduler(otghost, parent_ed);
 
 	} else {
@@ -188,13 +182,10 @@ static int cancel_transfer(struct sec_otghost *otghost,
 	/* the caller of this functions should call
 	   otg_usbcore_giveback(cancel_td); */
 	cancel_td->error_code = USB_ERR_DEQUEUED;
-	// kevinh - fixed bug, the caller should take care of calling delete_td because they might still want to do some
-	// operations on that memory
-	// delete_td(cancel_td);
-	// otg_usbcore_giveback(cancel_td);
+	otg_usbcore_giveback(cancel_td);
 
-	///* TODO: recursive call occured. FIX */
-	//delete_td(otghost, cancel_td);
+	/* TODO: recursive call occured. FIX */
+	delete_td(otghost, cancel_td);
 
 ErrorStatus:
 
@@ -230,9 +221,8 @@ static int cancel_all_td(struct sec_otghost *otghost, struct ed *parent_ed)
 		cancel_td = otg_list_get_node(cancel_td_list_entry,
 				struct td, td_list_entry);
 
-    		if(cancel_transfer(otghost, parent_ed, cancel_td) == USB_ERR_DEQUEUED)
-		      // kevinh FIXME - do we also need to giveback?
-		      delete_td(otghost,cancel_td);
+		cancel_transfer(otghost, parent_ed, cancel_td);
+
 	} while (parent_ed->num_td);
 
 	return USB_ERR_SUCCESS;
@@ -590,11 +580,6 @@ static int init_ed(struct ed *init_ed,
 	init_ed->ed_status.is_in_transferring		= false;
 	init_ed->ed_status.is_ping_enable			= false;
 	init_ed->ed_status.in_transferring_td		= 0;
-
-// sztupy: split transaction support
-	init_ed->ed_status.is_complete_split = false;
-	init_ed->ed_status.split_pos = ED_STATUS_SPLIT_POS_ALL;
-	init_ed->ed_status.split_offset = 0;
 
 	/* push the ed to ED_list. */
 	otg_list_push_prev(&init_ed->ed_list_entry, &ed_list_head);

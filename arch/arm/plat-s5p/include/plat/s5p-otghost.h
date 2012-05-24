@@ -54,7 +54,6 @@ struct sec_otghost {
 	spinlock_t lock;
 
 	bool ch_halt;
-	bool is_hs;
 	union port_flags_t port_flag;
 	struct wake_lock wake_lock;
 

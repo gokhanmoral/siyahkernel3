@@ -119,7 +119,7 @@ static inline void otg_handle_interrupt(struct usb_hcd *hcd)
 	if (gintsts.b.conidstschng) {
 		otg_dbg(OTG_DBG_ISR, "Connect ID Status Change Interrupt\n");
 		clearIntr.b.conidstschng = 1;
-		oci_init_mode(otghost);
+		oci_init_mode();
 	}
 
 	if (gintsts.b.hcintr) {
@@ -167,19 +167,13 @@ static inline void otg_handle_interrupt(struct usb_hcd *hcd)
  */
 static int otg_hcd_init_modules(struct sec_otghost *otghost)
 {
-	unsigned long	spin_lock_flag = 0;
-
 	otg_dbg(OTG_DBG_OTGHCDI_HCD, "otg_hcd_init_modules\n");
 
 	spin_lock_init(&otghost->lock);
 
-	spin_lock_irqsave(&otghost->lock, spin_lock_flag);
-
 	init_transfer();
 	init_scheduler();
 	oci_init(otghost);
-
-	spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
 
 	return USB_ERR_SUCCESS;
 };
@@ -240,7 +234,6 @@ static irqreturn_t	s5pc110_otghcd_irq(struct usb_hcd *hcd)
 static int	s5pc110_otghcd_start(struct usb_hcd *usb_hcd_p)
 {
 	struct	usb_bus *usb_bus_p;
-	struct sec_otghost *otghost = hcd_to_sec_otghost(usb_hcd_p);
 
 	otg_dbg(OTG_DBG_OTGHCDI_HCD, "s5pc110_otghcd_start\n");
 
@@ -269,7 +262,7 @@ static int	s5pc110_otghcd_start(struct usb_hcd *usb_hcd_p)
 	/* init bus state	before enable irq */
 	usb_hcd_p->state = HC_STATE_RUNNING;
 
-	oci_start(otghost); /* enable irq */
+	oci_start(); /* enable irq */
 
 	return USB_ERR_SUCCESS;
 }
@@ -444,12 +437,12 @@ static int s5pc110_otghcd_urb_enqueue(struct usb_hcd *hcd,
 	spin_lock_irqsave(&otghost->lock, spin_lock_flag);
 
 	otg_dbg(OTG_DBG_OTGHCDI_HCD, "enqueue\n");
-/*	if (compare_ed(otghost, urb->ep->hcpriv, urb)) {
+	if (compare_ed(otghost, urb->ep->hcpriv, urb)) {
 		otg_err(OTG_DBG_OTGHCDI_HCD, "compare ed error\n");
 		pr_info("otg compare ed error\n");
 		spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
 		return USB_ERR_FAIL;
-	} */
+	}
 
 	/* check ep has ed_t or not */
 	if (!(urb->ep->hcpriv)) {
@@ -528,7 +521,6 @@ static int s5pc110_otghcd_urb_enqueue(struct usb_hcd *hcd,
 					(dev_speed == LOW_SPEED_OTG)) &&
 					(urb->dev->tt) &&
 					(urb->dev->tt->hub->devnum != 1)) {
-					if (otghost->is_hs) // only allow split transactions in HS mode
 					f_is_do_split = true;
 				}
 				hub_addr = (u8)(urb->dev->tt->hub->devnum);
@@ -664,9 +656,6 @@ static int s5pc110_otghcd_urb_dequeue(
 		return USB_ERR_SUCCESS;
 	}
 
-	//kevinh read this from inside the spinlock
-	cancel_td = (struct td *)_urb->hcpriv;
-
 	if (cancel_td == NULL) {
 		otg_err(OTG_DBG_OTGHCDI_HCD, "cancel_td is NULL\n");
 		spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
@@ -693,13 +682,12 @@ static int s5pc110_otghcd_urb_dequeue(
 	ret_val = cancel_transfer(otghost, cancel_td->parent_ed_p, cancel_td);
 	if (ret_val != USB_ERR_DEQUEUED && ret_val != USB_ERR_NOELEMENT) {
 		otg_err(OTG_DBG_OTGHCDI_HCD, "fail to cancel_transfer()\n");
-		otg_usbcore_giveback(cancel_td);
+/*		otg_usbcore_giveback(cancel_td); */
 		spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
 		return USB_ERR_FAIL;
 	}
 
-	otg_usbcore_giveback(cancel_td);
-	delete_td(otghost, cancel_td);
+/*	otg_usbcore_giveback(cancel_td); */
 	spin_unlock_irqrestore(&otghost->lock, spin_lock_flag);
 	return USB_ERR_SUCCESS;
 }

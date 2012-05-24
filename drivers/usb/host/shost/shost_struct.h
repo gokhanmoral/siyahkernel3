@@ -63,14 +63,6 @@ struct ed_status {
 	bool		is_in_transferring;
 	u32			in_transferring_td;
 	bool		is_alloc_resource_for_ed;
-	bool			is_complete_split;
-// sztupy: split transaction support
-#define ED_STATUS_SPLIT_POS_ALL 3
-#define ED_STATUS_SPLIT_POS_BEGIN 2
-#define ED_STATUS_SPLIT_POS_MID 1
-#define ED_STATUS_SPLIT_POS_END 0
-	u8			split_pos;
-	u32			split_offset;
 };
 
 struct ed_desc {

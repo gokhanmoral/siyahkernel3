@@ -181,7 +181,7 @@ static int oci_core_reset(void)
  * @remark
  *
  */
-int oci_core_init(struct sec_otghost *otghost)
+static int oci_core_init(void)
 {
 	gahbcfg_t ahbcfg	= {.d32 = 0};
 	gusbcfg_t usbcfg	= {.d32 = 0};
@@ -203,11 +203,6 @@ int oci_core_init(struct sec_otghost *otghost)
 	usbcfg.b.toutcal		= 7;
 	usbcfg.b.forcehstmode	= 1;
 	write_reg_32(GUSBCFG, usbcfg.d32);
-	// per
-        // http://forum.xda-developers.com/showthread.php?t=709135&page=21
-       	// we need a 25msec delay after setting this -kevinh
-
-	mdelay(100); 
 
 	otg_dbg(OTG_DBG_OCI,
 		"after - GUSBCFG=0x%x, GOTGCTL=0x%x\n",
@@ -328,7 +323,8 @@ int oci_core_init(struct sec_otghost *otghost)
  * @remark
  *
  */
-int oci_host_init(struct sec_otghost *otghost)
+
+static int oci_host_init(void)
 {
 	gintmsk_t gintmsk = {.d32 = 0};
 	hcfg_t hcfg = {.d32 = 0};
@@ -343,11 +339,6 @@ int oci_host_init(struct sec_otghost *otghost)
 	gintmsk.b.portintr = 1;
 	update_reg_32(GINTMSK, gintmsk.d32);
 
-	if (!otghost->is_hs) {
-		hcfg.b.fslssupp = 1; // force USB 1.x mode
-	} else {
-		hcfg.b.fslssupp = 0;
-	}
 	hcfg.b.fslspclksel = HCFG_30_60_MHZ;
 	update_reg_32(HCFG, hcfg.d32);
 
@@ -385,7 +376,6 @@ static int oci_channel_init(u8 ch_num, struct stransfer *transfer)
 	gintmsk_t	gintmsk = {.d32 = 0};
 	hcchar_t		hcchar = {.d32 = 0};
 	hctsiz_t		hctsiz = {.d32 = 0};
-	hcsplt_t	hcsplt = {.d32 = 0};
 
 	otg_dbg(OTG_DBG_OCI, "oci_channel_init\n");
 
@@ -488,28 +478,17 @@ static int oci_channel_init(u8 ch_num, struct stransfer *transfer)
 	/* Wrote HCCHAR Register */
 	write_reg_32(HCCHAR(ch_num), hcchar.d32);
 
-	/* sztupy: Enable split transaction support if driver is in HS mode */
-	if (transfer->ed_desc_p->is_do_split) {
-		printk("splittrans");
-		hcsplt.b.spltena = 1;
-		hcsplt.b.hubaddr = transfer->ed_desc_p->hub_addr;
-		hcsplt.b.prtaddr = transfer->ed_desc_p->hub_port;
-		hcsplt.b.xactpos = transfer->ed_status_p->split_pos;
-		hcsplt.b.compsplt = transfer->ed_status_p->is_complete_split;
-	}
-	write_reg_32(HCSPLT(ch_num),hcsplt.d32);
-
 	return USB_ERR_SUCCESS;
 }
 
-static int oci_dev_init(struct sec_otghost *otghost)
+static int oci_dev_init(void)
 {
 	otg_dbg(OTG_DBG_OCI, "oci_dev_init - do nothing.\n");
 	/* return USB_ERR_FAIL; */
 	return USB_ERR_SUCCESS;
 }
 
-static int oci_init_mode(struct sec_otghost *otghost)
+static int oci_init_mode(void)
 {
 	gintsts_t	gintsts;
 	gintsts.d32 = read_reg_32(GINTSTS);
@@ -522,7 +501,7 @@ static int oci_init_mode(struct sec_otghost *otghost)
 	if (gintsts.b.curmode == OTG_HOST_MODE) {
 		otg_dbg(OTG_DBG_OCI, "HOST Mode\n");
 
-		if (oci_host_init(otghost) == USB_ERR_SUCCESS) {
+		if (oci_host_init() == USB_ERR_SUCCESS) {
 			return USB_ERR_SUCCESS;
 
 		} else {
@@ -533,7 +512,7 @@ static int oci_init_mode(struct sec_otghost *otghost)
 	} else { /* Device Mode */
 		otg_dbg(OTG_DBG_OCI, "DEVICE Mode\n");
 
-		if (oci_dev_init(otghost) == USB_ERR_SUCCESS) {
+		if (oci_dev_init() == USB_ERR_SUCCESS) {
 			return USB_ERR_SUCCESS;
 
 		} else {
@@ -548,7 +527,7 @@ static int oci_init_mode(struct sec_otghost *otghost)
 
 
 /**
- * int oci_start(struct sec_otghost *otghost)
+ * int oci_start(void)
  *
  * @brief start to operate oci module by calling oci_core_init function
  *
@@ -559,14 +538,14 @@ static int oci_init_mode(struct sec_otghost *otghost)
  * @remark
  *
  */
-static int oci_start(struct sec_otghost *otghost)
+static int oci_start(void)
 {
 	otg_dbg(OTG_DBG_OCI, "oci_start\n");
 
-	if (oci_core_init(otghost) == USB_ERR_SUCCESS) {
+	if (oci_core_init() == USB_ERR_SUCCESS) {
 		mdelay(50);
 
-		if (oci_init_mode(otghost) == USB_ERR_SUCCESS) {
+		if (oci_init_mode() == USB_ERR_SUCCESS) {
 			oci_set_global_interrupt(true);
 			return USB_ERR_SUCCESS;
 
@@ -765,18 +744,6 @@ int oci_stop_transfer(struct sec_otghost *otghost, u8 ch_num)
 
 	} while (hcchar.b.chdis);
 
-	//kevinh: wait for  Channel Disabled Interrupt
-  	count = 0;
-  	do {
-    		hcintmsk.d32 = read_reg_32(HCINT(ch_num));
-	    	if(count > max_error_count) {
-	      		printk("chhltd int never occurred! ch=%d, intreg=0x%x\n",
-	        	ch_num, hcintmsk.d32);  
-	      		break;
-    		}
-   		count++;
-	} while(!hcintmsk.b.chhltd); 
-	
 	oci_channel_dealloc(ch_num);
 
 	clear_reg_32(HAINTMSK, ch_num);

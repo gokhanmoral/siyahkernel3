@@ -40,22 +40,12 @@ static	const	u8	perio_chnum_threshold	= 14;
 /* static	const	u8	total_chnum_threshold	= 16; */
 static	u8		total_chnum_threshold	= 16;
 
- //Define global variables
-// kevinh: add volatile
-static	volatile u32	perio_used_bustime = 0;
-static	volatile u8	perio_used_chnum = 0;
-static	volatile u8	nonperio_used_chnum = 0;
-static	volatile u8	total_used_chnum = 0;
-static	volatile u32	transferring_td_array[16]={0};
+static	u32	perio_used_bustime;
+static	u8	perio_used_chnum;
+static	u8	nonperio_used_chnum;
+static	u8	total_used_chnum;
+static	u32	transferring_td_array[16];
 
-void reset_scheduler_numbers(void) {
-  total_chnum_threshold = 16;
-  perio_used_bustime = 0;
-  perio_used_chnum = 0;
-  nonperio_used_chnum = 0;
-  total_used_chnum = 0;
-  memset(transferring_td_array,0,sizeof(transferring_td_array));
-}
 
 static int inc_perio_bus_time(u32 bus_time, u8 dev_speed)
 {
