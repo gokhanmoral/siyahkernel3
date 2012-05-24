@@ -167,22 +167,22 @@
 #define J4FS_RECLAIM_RESET_UNUSED_SPACE
 #define J4FS_TRANSACTION_LOGGING
 
-#define T(mask, p) do { if ((mask) & (j4fs_traceMask | J4FS_TRACE_ALWAYS)) TOUT(p); } while (0)
-#define POR(mask, p, q) do { if (((mask) & (j4fs_PORMask))&&!(--j4fs_PORCount)) {TOUT(p); while(1); }} while (0)
+#define J4FS_T(mask, p) do { if ((mask) & (j4fs_traceMask | J4FS_TRACE_ALWAYS)) TOUT(p); } while (0)
+#define J4FS_POR(mask, p, q) do { if (((mask) & (j4fs_PORMask))&&!(--j4fs_PORCount)) {TOUT(p); while(1); }} while (0)
 
 #define error(ret)	(ret>=J4FS_FAIL)
 
 #ifdef __KERNEL__
 #define j4fs_panic(str)		\
 do {							\
-	T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
+	J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
 	fsd_panic();		\
 	dump_stack();	\
 } while (0)
 #else
 #define j4fs_panic(str)		\
 do {							\
-	T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
+	J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
 	fsd_panic();	\
 } while (0)
 #endif
@@ -190,13 +190,13 @@ do {							\
 #ifdef __KERNEL__
 #define j4fs_dump(str)		\
 do {							\
-	T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
+	J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
 	dump_stack();	\
 } while (0)
 #else
 #define j4fs_dump(str)		\
 do {							\
-	T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
+	J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: "str"\n",__FUNCTION__,__LINE__));	\
 	while(1);	\
 } while (0)
 #endif
@@ -205,7 +205,7 @@ do {							\
 #define j4fs_check_partition_range(offset)		\
 do {		\
 	if(offset + J4FS_BASIC_UNIT_SIZE > device_info.j4fs_end) {	\
-		T(J4FS_TRACE_ALWAYS,("%s %d: offset overflow(offset=0x%08x, j4fs_end=0x%08x)\n", __FUNCTION__, __LINE__, offset, device_info.j4fs_end));	\
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: offset overflow(offset=0x%08x, j4fs_end=0x%08x)\n", __FUNCTION__, __LINE__, offset, device_info.j4fs_end));	\
 		j4fs_panic("offset overflow!!");	\
 		goto error1;	\
 	}	\

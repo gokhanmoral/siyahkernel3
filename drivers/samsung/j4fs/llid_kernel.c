@@ -60,10 +60,11 @@ extern unsigned int j4fs_traceMask;
   */
 int FlashDevRead(j4fs_device_info *dev_ptr, DWORD offset, DWORD length, BYTE *buffer)
 {
-    	DWORD nVol=0;
 	int ret=-1;
+#if defined(J4FS_USE_XSR) || defined(J4FS_USE_FSR)
+	DWORD nVol=0;
 	int part_id=dev_ptr->device;
-
+#endif
 // J4FS for moviNAND merged from ROSSI
 #ifdef J4FS_USE_MOVI
 	mm_segment_t oldfs;
@@ -85,7 +86,7 @@ int FlashDevRead(j4fs_device_info *dev_ptr, DWORD offset, DWORD length, BYTE *bu
 // J4FS for moviNAND merged from ROSSI
 #elif defined(J4FS_USE_MOVI)
 	if (!j4fs_filp) {
-			printk("J4FS not available\n");
+			printk(KERN_ERR "J4FS not available\n");
 			return J4FS_FAIL;
 		}
 		j4fs_filp->f_flags |= O_NONBLOCK;
@@ -95,7 +96,7 @@ int FlashDevRead(j4fs_device_info *dev_ptr, DWORD offset, DWORD length, BYTE *bu
 		set_fs(oldfs);
 		j4fs_filp->f_flags &= ~O_NONBLOCK;
 		if (ret < 0) {
-			printk(1, "j4fs_filp->read() failed: %d\n", ret);
+			printk(KERN_ERR "j4fs_filp->read() failed: %d\n", ret);
 			return J4FS_FAIL;
 		}
 // J4FS for moviNAND merged from ROSSI
@@ -118,9 +119,11 @@ int FlashDevRead(j4fs_device_info *dev_ptr, DWORD offset, DWORD length, BYTE *bu
   */
 int FlashDevWrite(j4fs_device_info *dev_ptr, DWORD offset, DWORD length, BYTE *buffer)
 {
-    	DWORD nVol=0;
 	int ret=-1;
+#if defined(J4FS_USE_XSR) || defined(J4FS_USE_FSR)
+   	DWORD nVol=0;
 	int part_id=dev_ptr->device;
+#endif
 
 // J4FS for moviNAND merged from ROSSI
 #ifdef J4FS_USE_MOVI
@@ -143,7 +146,7 @@ int FlashDevWrite(j4fs_device_info *dev_ptr, DWORD offset, DWORD length, BYTE *b
 // J4FS for moviNAND merged from ROSSI
 #elif defined(J4FS_USE_MOVI)
 	if (!j4fs_filp) {
-			printk("J4FS not available\n");
+			printk(KERN_ERR "J4FS not available\n");
 			return J4FS_FAIL;
 	}
 	j4fs_filp->f_flags |= O_NONBLOCK;
@@ -153,7 +156,7 @@ int FlashDevWrite(j4fs_device_info *dev_ptr, DWORD offset, DWORD length, BYTE *b
 	set_fs(oldfs);
 	j4fs_filp->f_flags &= ~O_NONBLOCK;
 	if (ret < 0) {
-		printk(1, "j4fs_filp->write() failed: %d\n", ret);
+		printk(KERN_ERR "j4fs_filp->write() failed: %d\n", ret);
 		return J4FS_FAIL;
 	}
 // J4FS for moviNAND merged from ROSSI

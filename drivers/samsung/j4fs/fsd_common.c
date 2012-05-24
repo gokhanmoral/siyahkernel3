@@ -70,7 +70,7 @@ int fsd_read(j4fs_ctrl *ctl)
 	BYTE buf[J4FS_BASIC_UNIT_SIZE];
 #endif
 
-	T(J4FS_TRACE_FSD,("%s %d\n",__FUNCTION__,__LINE__));
+	J4FS_T(J4FS_TRACE_FSD,("%s %d\n",__FUNCTION__,__LINE__));
 
 	for(i=0;i<ro_j4fs_header_count;i++)
 	{
@@ -116,7 +116,7 @@ int fsd_read(j4fs_ctrl *ctl)
 
 	if(is_invalid_j4fs_rw_start())
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error! j4fs_rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x, ro_j4fs_header_count=0x%08x)\n",
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error! j4fs_rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x, ro_j4fs_header_count=0x%08x)\n",
 			__FUNCTION__, __LINE__, j4fs_rw_start, device_info.j4fs_end, ro_j4fs_header_count));
 		j4fs_panic("j4fs_rw_start is invalid");
 		goto error1;
@@ -134,7 +134,7 @@ int fsd_read(j4fs_ctrl *ctl)
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			goto error1;
 		}
 		header=(j4fs_header *)buf;
@@ -190,7 +190,7 @@ got_header:
 	//There is valid objects coressponding to ctl->id
 	if(matching_offset!=0xffffffff)
 	{
-		T(J4FS_TRACE_FSD,("%s %d\n",__FUNCTION__,__LINE__));
+		J4FS_T(J4FS_TRACE_FSD,("%s %d\n",__FUNCTION__,__LINE__));
 
 		// We found the wanted file above. Read the data
 		matching_offset+=J4FS_BASIC_UNIT_SIZE;	// j4fs_header takes J4FS_BASIC_UNIT_SIZE
@@ -203,12 +203,12 @@ got_header:
 		// read data per page size
 		while(len>=device_info.pagesize)
 		{
-			T(J4FS_TRACE_FSD,("%s %d: (offset,count,len)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,matching_offset,count,len));
+			J4FS_T(J4FS_TRACE_FSD,("%s %d: (offset,count,len)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,matching_offset,count,len));
 
 			ret = FlashDevRead(&device_info, matching_offset, device_info.pagesize, ctl->buffer+count);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 			count+=device_info.pagesize;
@@ -219,12 +219,12 @@ got_header:
 		// read data less than one page and larger than sector
 		if(len>=512)
 		{
-			T(J4FS_TRACE_FSD,("%s %d: (offset,count,len)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,matching_offset,count,len));
+			J4FS_T(J4FS_TRACE_FSD,("%s %d: (offset,count,len)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,matching_offset,count,len));
 
 			ret = FlashDevRead(&device_info, matching_offset, len/512*512, ctl->buffer+count);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 			count+=(len/512*512);
@@ -235,12 +235,12 @@ got_header:
 		// read remained data less than sector size(512Bytes)
 		if(len>0)
 		{
-			T(J4FS_TRACE_FSD,("%s %d: (offset,count,len)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,matching_offset,count,len));
+			J4FS_T(J4FS_TRACE_FSD,("%s %d: (offset,count,len)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,matching_offset,count,len));
 
 			ret = FlashDevRead(&device_info, matching_offset, 512, buf);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -290,7 +290,6 @@ int fsd_write(j4fs_ctrl *ctl)
 
 #ifdef __KERNEL__
 	BYTE *buf;
-	buf=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
 #else
 	BYTE buf[J4FS_BASIC_UNIT_SIZE];
 #endif
@@ -305,11 +304,15 @@ int fsd_write(j4fs_ctrl *ctl)
 #endif
 #endif
 
-	T(J4FS_TRACE_FSD,("%s %d: (ino,index)=(%d,0x%08x)\n",__FUNCTION__,__LINE__,ctl->id,ctl->index));
+#ifdef __KERNEL__
+	buf=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
+#endif
+
+	J4FS_T(J4FS_TRACE_FSD,("%s %d: (ino,index)=(%d,0x%08x)\n",__FUNCTION__,__LINE__,ctl->id,ctl->index));
 
 	if(is_invalid_j4fs_rw_start())
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error! j4fs_rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x, ro_j4fs_header_count=0x%08x)\n",
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error! j4fs_rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x, ro_j4fs_header_count=0x%08x)\n",
 			__FUNCTION__, __LINE__, j4fs_rw_start, device_info.j4fs_end, ro_j4fs_header_count));
 		j4fs_panic("j4fs_rw_start is invalid");
 		goto error1;
@@ -318,7 +321,7 @@ int fsd_write(j4fs_ctrl *ctl)
 	// parameter checking
 	if(ctl->index < 0)
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error! ctl->index is invalid(ctl->index=0x%08x)\n",
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error! ctl->index is invalid(ctl->index=0x%08x)\n",
 			__FUNCTION__, __LINE__, ctl->index));
 		j4fs_panic("ctl->index is invalid");
 		goto error1;
@@ -326,7 +329,7 @@ int fsd_write(j4fs_ctrl *ctl)
 
 	if(ctl->count==0)
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: count is zero\n",__FUNCTION__, __LINE__));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: count is zero\n",__FUNCTION__, __LINE__));
 	#ifdef __KERNEL__
 		kfree(buf);
 	#ifdef J4FS_TRANSACTION_LOGGING
@@ -356,7 +359,7 @@ int fsd_write(j4fs_ctrl *ctl)
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			goto error1;
 		}
 		header=(j4fs_header *)buf;
@@ -387,14 +390,14 @@ int fsd_write(j4fs_ctrl *ctl)
 
 	// There is no RW files with 'ctl->id' inode number in this partition. Before we write data of new file, user of j4fs should write j4fs_header of new file.
 	if( (matching_latest_offset<j4fs_rw_start) ||(matching_latest_offset>device_info.j4fs_end) ) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: matching_latest_offset is invalid(matching_latest_offset=0x%08x)\n",__FUNCTION__,__LINE__,matching_latest_offset));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: matching_latest_offset is invalid(matching_latest_offset=0x%08x)\n",__FUNCTION__,__LINE__,matching_latest_offset));
 		j4fs_panic("There are no RW files in this partition. Before we write data of new file, user of j4fs should write j4fs_header of new file.");
 		goto error1;
 	}
 
 	// last_object_offset is invalid. last_object_offset should be between j4fs_rw_start and device_info.j4fs_end
 	if( (last_object_offset<j4fs_rw_start) ||(last_object_offset>device_info.j4fs_end) ) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: last_object_offset is invalid(last_object_offset=0x%08x)\n",__FUNCTION__,__LINE__,last_object_offset));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: last_object_offset is invalid(last_object_offset=0x%08x)\n",__FUNCTION__,__LINE__,last_object_offset));
 		j4fs_panic("last_object_offset is invalid. last_object_offset should be between j4fs_rw_start and device_info.j4fs_end");
 		goto error1;
 	}
@@ -410,7 +413,7 @@ int fsd_write(j4fs_ctrl *ctl)
 
 		if(matching_latest_object_length < ctl->index)		// j4fs don't support file hole
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: j4fs don't support file hole(matching_latest_object_length,ctl->index)=(0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,matching_latest_object_length,ctl->index));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: j4fs don't support file hole(matching_latest_object_length,ctl->index)=(0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,matching_latest_object_length,ctl->index));
 			j4fs_panic("j4fs don't support file hole");
 			goto error1;
 		}
@@ -424,11 +427,11 @@ int fsd_write(j4fs_ctrl *ctl)
 			// check whether we should reclaim
 			if((offset+ctl->count)>device_info.j4fs_end)
 			{
-				T(J4FS_TRACE_ALWAYS,("%s %d: Reclaim is needed(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Reclaim is needed(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
 				ret=fsd_reclaim();
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -448,7 +451,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// read len1'length' data from Stroage
 				ret = FlashDevRead(&device_info, offset-len1, (len1+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				memcpy(buf+len1, ctl->buffer, len2);
@@ -456,7 +459,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// write (len1+len2)'length' data to Stroage
 				ret = FlashDevWrite(&device_info, offset-len1, (len1+len2+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -470,10 +473,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, device_info.pagesize, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=device_info.pagesize;
@@ -486,10 +489,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, ctl->count/512*512, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=(ctl->count/512*512);
@@ -503,10 +506,10 @@ int fsd_write(j4fs_ctrl *ctl)
 				memcpy(buf, ctl->buffer+buffer_index, ctl->count);
 				ret = FlashDevWrite(&device_info, offset, 512, buf);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -519,7 +522,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			// read j4fs_header
 			ret = FlashDevRead(&device_info, matching_latest_offset, J4FS_BASIC_UNIT_SIZE, buf);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 			header=(j4fs_header *)buf;
@@ -538,7 +541,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			ret = FlashDevWrite(&device_info, j4fs_transaction_next_offset, J4FS_TRANSACTION_SIZE, (BYTE *)transaction);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -552,7 +555,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			ret = FlashDevWrite(&device_info, matching_latest_offset, J4FS_BASIC_UNIT_SIZE, buf);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -568,11 +571,11 @@ int fsd_write(j4fs_ctrl *ctl)
 			// check whether we should reclaim
 			if((offset+ctl->count)>device_info.j4fs_end)
 			{
-				T(J4FS_TRACE_ALWAYS,("%s %d: Reclaim is needed(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Reclaim is needed(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
 				ret=fsd_reclaim();
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -595,7 +598,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// read len1'length' data from Stroage
 				ret = FlashDevRead(&device_info, offset-len1, (len1+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				memcpy(buf+len1, ctl->buffer, len2);
@@ -603,7 +606,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// write (len1+len2)'length' data to Stroage
 				ret = FlashDevWrite(&device_info, offset-len1, (len1+len2+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -617,10 +620,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, device_info.pagesize, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=device_info.pagesize;
@@ -633,10 +636,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, ctl->count/512*512, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=(ctl->count/512*512);
@@ -650,17 +653,17 @@ int fsd_write(j4fs_ctrl *ctl)
 				// read 512B'length' data from Stroage
 				ret = FlashDevRead(&device_info, offset, 512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
 				memcpy(buf, ctl->buffer+buffer_index, ctl->count);
 				ret = FlashDevWrite(&device_info, offset, 512, buf);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -675,7 +678,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// read j4fs_header
 				ret = FlashDevRead(&device_info, matching_latest_offset, J4FS_BASIC_UNIT_SIZE, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				header=(j4fs_header *)buf;
@@ -694,7 +697,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				ret = FlashDevWrite(&device_info, j4fs_transaction_next_offset, J4FS_TRANSACTION_SIZE, (BYTE *)transaction);
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -706,7 +709,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				ret = FlashDevWrite(&device_info, matching_latest_offset, J4FS_BASIC_UNIT_SIZE, buf);
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 			}
@@ -714,7 +717,7 @@ int fsd_write(j4fs_ctrl *ctl)
 		}
 		else
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: we should not come here\n",__FUNCTION__,__LINE__));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: we should not come here\n",__FUNCTION__,__LINE__));
 			j4fs_panic("we should not come here");
 			goto error1;
 		}
@@ -727,7 +730,7 @@ int fsd_write(j4fs_ctrl *ctl)
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, matching_latest_offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			goto error1;
 		}
 		header=(j4fs_header *)buf;
@@ -735,7 +738,7 @@ int fsd_write(j4fs_ctrl *ctl)
 
 		if(matching_latest_object_length < ctl->index)		// j4fs don't support file hole
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: j4fs don't support file hole(matching_latest_object_length,ctl->index)=(0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,matching_latest_object_length,ctl->index));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: j4fs don't support file hole(matching_latest_object_length,ctl->index)=(0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,matching_latest_object_length,ctl->index));
 			j4fs_panic("j4fs don't support file hole");
 			goto error1;
 		}
@@ -749,7 +752,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			// check whether we should reclaim
 			if((offset+ctl->count)>device_info.j4fs_end)
 			{
-				T(J4FS_TRACE_ALWAYS,("%s %d: This case should not happen(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: This case should not happen(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
 				j4fs_panic("This case should not happen");
 				goto error1;
 			}
@@ -764,7 +767,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// read len1'length' data from Stroage
 				ret = FlashDevRead(&device_info, offset-len1, (len1+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				memcpy(buf+len1, ctl->buffer, len2);
@@ -772,7 +775,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// write (len1+len2)'length' data to Stroage
 				ret = FlashDevWrite(&device_info, offset-len1, (len1+len2+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -786,10 +789,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, device_info.pagesize, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=device_info.pagesize;
@@ -802,10 +805,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, ctl->count/512*512, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=(ctl->count/512*512);
@@ -816,12 +819,12 @@ int fsd_write(j4fs_ctrl *ctl)
 			// write remained data less than sector size(512Bytes)
 			if(ctl->count>0)
 			{
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				// read 512B'length' data from Stroage
 				ret = FlashDevRead(&device_info, offset, 512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -829,7 +832,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				ret = FlashDevWrite(&device_info, offset, 512, buf);
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -855,20 +858,20 @@ int fsd_write(j4fs_ctrl *ctl)
 			// write data per J4FS_BASIC_UNIT_SIZE size
 			while(len1>=J4FS_BASIC_UNIT_SIZE)
 			{
-				T(J4FS_TRACE_FSD,("%s %d: (matching_latest_offset,new_header_offset,buffer_index)=(0x%08x,0x%08x,0x%08x)\n",
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (matching_latest_offset,new_header_offset,buffer_index)=(0x%08x,0x%08x,0x%08x)\n",
 					__FUNCTION__,__LINE__,matching_latest_offset,new_header_offset,buffer_index));
 
 				ret = FlashDevRead(&device_info, matching_latest_offset+buffer_index, J4FS_BASIC_UNIT_SIZE, buf);
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
 				ret = FlashDevWrite(&device_info, new_header_offset+buffer_index, J4FS_BASIC_UNIT_SIZE, buf);
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -878,16 +881,16 @@ int fsd_write(j4fs_ctrl *ctl)
 
 			if(len1!=0)
 			{
-				T(J4FS_TRACE_ALWAYS,("%s %d: This case should not happen(len1)=(0x%08x)\n",__FUNCTION__,__LINE__,len1));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: This case should not happen(len1)=(0x%08x)\n",__FUNCTION__,__LINE__,len1));
 				j4fs_panic("This case should not happen");
 				goto error1;
 			}
 
 			// copy existing j4fs_header of 'matching_latest_offset' offset to 'new_header_offset' offset
-			T(J4FS_TRACE_FSD,("%s %d: (matching_latest_offset,new_header_offset)=(0x%08x,0x%08x)\n", __FUNCTION__,__LINE__,matching_latest_offset,new_header_offset));
+			J4FS_T(J4FS_TRACE_FSD,("%s %d: (matching_latest_offset,new_header_offset)=(0x%08x,0x%08x)\n", __FUNCTION__,__LINE__,matching_latest_offset,new_header_offset));
 			ret = FlashDevRead(&device_info, matching_latest_offset, J4FS_BASIC_UNIT_SIZE, buf);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 			header=(j4fs_header *)buf;
@@ -906,7 +909,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			ret = FlashDevWrite(&device_info, j4fs_transaction_next_offset, J4FS_TRANSACTION_SIZE, (BYTE *)transaction);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -918,7 +921,7 @@ int fsd_write(j4fs_ctrl *ctl)
 
 			ret = FlashDevWrite(&device_info, new_header_offset, J4FS_BASIC_UNIT_SIZE, buf);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -926,7 +929,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			// read j4fs_header
 			ret = FlashDevRead(&device_info, last_object_offset, J4FS_BASIC_UNIT_SIZE, buf);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 			header=(j4fs_header *)buf;
@@ -945,7 +948,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			ret = FlashDevWrite(&device_info, j4fs_transaction_next_offset, J4FS_TRANSACTION_SIZE, (BYTE *)transaction);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -957,7 +960,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			ret = FlashDevWrite(&device_info, last_object_offset, J4FS_BASIC_UNIT_SIZE, buf);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -970,11 +973,11 @@ int fsd_write(j4fs_ctrl *ctl)
 			// check whether we should reclaim
 			if((offset+ctl->count)>device_info.j4fs_end)
 			{
-				T(J4FS_TRACE_ALWAYS,("%s %d: Reclaim is needed(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Reclaim is needed(offset,ctl->count,j4fs_end)=(0x%08x,0x%08x,0x%08x)\n",__FUNCTION__,__LINE__,offset,ctl->count,device_info.j4fs_end));
 				ret=fsd_reclaim();
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -994,7 +997,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// read len1'length' data from Stroage
 				ret = FlashDevRead(&device_info, offset-len1, (len1+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				memcpy(buf+len1, ctl->buffer, len2);
@@ -1002,7 +1005,7 @@ int fsd_write(j4fs_ctrl *ctl)
 				// write (len1+len2)'length' data to Stroage
 				ret = FlashDevWrite(&device_info, offset-len1, (len1+len2+511)/512*512, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -1016,10 +1019,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, device_info.pagesize, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=device_info.pagesize;
@@ -1032,10 +1035,10 @@ int fsd_write(j4fs_ctrl *ctl)
 			{
 				ret = FlashDevWrite(&device_info, offset, ctl->count/512*512, ctl->buffer+buffer_index);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 				buffer_index+=(ctl->count/512*512);
@@ -1049,10 +1052,10 @@ int fsd_write(j4fs_ctrl *ctl)
 				memcpy(buf, ctl->buffer+buffer_index, ctl->count);
 				ret = FlashDevWrite(&device_info, offset, 512, buf);
 
-				T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
+				J4FS_T(J4FS_TRACE_FSD,("%s %d: (buffer_index,offset,ctl->count)=(0x%08x,%d,%d)\n",__FUNCTION__,__LINE__,buffer_index,offset,ctl->count));
 
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 					goto error1;
 				}
 
@@ -1065,7 +1068,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			// read j4fs_header
 			ret = FlashDevRead(&device_info, new_header_offset, J4FS_BASIC_UNIT_SIZE, buf);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 			header=(j4fs_header *)buf;
@@ -1084,7 +1087,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			ret = FlashDevWrite(&device_info, j4fs_transaction_next_offset, J4FS_TRANSACTION_SIZE, (BYTE *)transaction);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -1096,7 +1099,7 @@ int fsd_write(j4fs_ctrl *ctl)
 			ret = FlashDevWrite(&device_info, new_header_offset, J4FS_BASIC_UNIT_SIZE, buf);
 
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 				goto error1;
 			}
 
@@ -1104,20 +1107,20 @@ int fsd_write(j4fs_ctrl *ctl)
 		}
 		else
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: we should not come here\n",__FUNCTION__,__LINE__));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: we should not come here\n",__FUNCTION__,__LINE__));
 			j4fs_panic("we should not come here");
 			goto error1;
 		}
 	}
 	else
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: we should not come here\n",__FUNCTION__,__LINE__));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: we should not come here\n",__FUNCTION__,__LINE__));
 		j4fs_panic("we should not come here");
 		goto error1;
 	}
 
 done:
-	T(J4FS_TRACE_FSD,("%s %d: write completed(written=%d)\n",__FUNCTION__,__LINE__,buffer_index));
+	J4FS_T(J4FS_TRACE_FSD,("%s %d: write completed(written=%d)\n",__FUNCTION__,__LINE__,buffer_index));
 
 	fsd_print_meta_data();
 
@@ -1161,7 +1164,7 @@ int fsd_unlink(char *filename)
 
 	if(is_invalid_j4fs_rw_start())
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error! j4fs_rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x, ro_j4fs_header_count=0x%08x)\n",
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error! j4fs_rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x, ro_j4fs_header_count=0x%08x)\n",
 			__FUNCTION__, __LINE__, j4fs_rw_start, device_info.j4fs_end, ro_j4fs_header_count));
 		j4fs_panic("j4fs_rw_start is invalid");
 		goto error1;
@@ -1176,7 +1179,7 @@ int fsd_unlink(char *filename)
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			goto error1;
 		}
 		header=(j4fs_header *)buf;
@@ -1216,7 +1219,7 @@ int fsd_unlink(char *filename)
 
 		ret = FlashDevWrite(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 	   		goto error1;
 		}
 
@@ -1226,7 +1229,7 @@ int fsd_unlink(char *filename)
 	ret=fsd_reclaim();
 
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 		goto error1;
 	}
 
@@ -1257,9 +1260,6 @@ int fsd_reclaim()
 
 #ifdef __KERNEL__
 	BYTE *buf_mst, *buf_header, *buf_data;
-	buf_mst=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
-	buf_header=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
-	buf_data=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
 #else
 	BYTE buf_mst[J4FS_BASIC_UNIT_SIZE], buf_header[J4FS_BASIC_UNIT_SIZE], buf_data[J4FS_BASIC_UNIT_SIZE];
 #endif
@@ -1275,35 +1275,41 @@ int fsd_reclaim()
 #endif
 #endif
 
+#ifdef __KERNEL__
+	buf_mst=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
+	buf_header=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
+	buf_data=kmalloc(J4FS_BASIC_UNIT_SIZE,GFP_NOFS);
+#endif
+
 	header=(j4fs_header *)buf_header;
 	mst=(j4fs_mst *)buf_mst;
 
 	// read mst
 	ret = FlashDevRead(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf_mst);
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
    		goto error1;
 	}
 
 	// If MST is not recognized, Initialize MST
 	if(mst->magic!=J4FS_MAGIC)
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: MST is not recognized(mst.magic=0x%08x)\n",__FUNCTION__,__LINE__,mst->magic));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: MST is not recognized(mst.magic=0x%08x)\n",__FUNCTION__,__LINE__,mst->magic));
 		j4fs_panic("MST is not recognized");
 		goto error1;
 	}
 
 	if((mst->status|J4FS_PANIC_MASK)==J4FS_PANIC)
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: j4fs is crashed(mst.status=0x%08x)\n",__FUNCTION__,__LINE__,mst->status));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: j4fs is crashed(mst.status=0x%08x)\n",__FUNCTION__,__LINE__,mst->status));
 		j4fs_panic("j4fs is crashed");
    		goto error1;
 	}
 
-	T(J4FS_TRACE_FSD_RECLAIM,("\n%s %d: Reclaim Starts\n",__FUNCTION__,__LINE__));
+	J4FS_T(J4FS_TRACE_FSD_RECLAIM,("\n%s %d: Reclaim Starts\n",__FUNCTION__,__LINE__));
 	fsd_print_meta_data();
 
-	// If reclaim is in progress(sudden power-off in progress of reclaim), restart reclaim. This is power-off-recovery(POR)!!!
+	// If reclaim is in progress(sudden power-off in progress of reclaim), restart reclaim. This is power-off-recovery(J4FS_POR)!!!
 	if(mst->status&J4FS_RECLAIM_MOVING_DATA_STEP_1) goto moving_data_step_1;
 	if(mst->status&J4FS_RECLAIM_MOVING_DATA_STEP_2) goto moving_data_step_2;
 	if(mst->status&J4FS_RECLAIM_UPDATE_LINK) goto update_link;
@@ -1314,7 +1320,7 @@ int fsd_reclaim()
 
 	if(!mst->rw_start ||(mst->rw_start>= device_info.j4fs_end))
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error! rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x)\n", __FUNCTION__, __LINE__, mst->rw_start, device_info.j4fs_end));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error! rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x)\n", __FUNCTION__, __LINE__, mst->rw_start, device_info.j4fs_end));
 		j4fs_panic("rw_start is invalid");
 		goto error1;
 	}
@@ -1330,7 +1336,7 @@ int fsd_reclaim()
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf_header);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 	   		goto error1;
 		}
 
@@ -1374,41 +1380,41 @@ int fsd_reclaim()
 
 			if(header->link==0xffffffff) mst->status|=J4FS_RECLAIM_LAST_OBJECT;
 
-			POR(0x1,("%s %d: Power-off point-1\n",__FUNCTION__,__LINE__),2000);
+			J4FS_POR(0x1,("%s %d: Power-off point-1\n",__FUNCTION__,__LINE__),2000);
 
 			// write mst reflected new status(from,end)
 			ret = FlashDevWrite(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf_mst);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 		   		goto error1;
 			}
 
 moving_data_step_1:
 
-			POR(0x2,("%s %d: Power-off point-2\n",__FUNCTION__,__LINE__),2000);
+			J4FS_POR(0x2,("%s %d: Power-off point-2\n",__FUNCTION__,__LINE__),2000);
 
 			// copy valid data('from' offset) to invalid area('to' offset)
 			while(mst->from < mst->end)
 			{
-				POR(0x4,("%s %d: Power-off point-4\n",__FUNCTION__,__LINE__),2000);
+				J4FS_POR(0x4,("%s %d: Power-off point-4\n",__FUNCTION__,__LINE__),2000);
 
 				// read valid data
 				ret = FlashDevRead(&device_info, mst->from, J4FS_BASIC_UNIT_SIZE, buf_data);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			   		goto error1;
 				}
 
-				POR(0x8,("%s %d: Power-off point-8\n",__FUNCTION__,__LINE__),2000);
+				J4FS_POR(0x8,("%s %d: Power-off point-8\n",__FUNCTION__,__LINE__),2000);
 
 				// write valid data
 				ret = FlashDevWrite(&device_info, mst->to, J4FS_BASIC_UNIT_SIZE, buf_data);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			   		goto error1;
 				}
 
-				POR(0x10,("%s %d: Power-off point-10\n",__FUNCTION__,__LINE__),2000);
+				J4FS_POR(0x10,("%s %d: Power-off point-10\n",__FUNCTION__,__LINE__),2000);
 
 				// write updated MST status(from,to)
 				mst->from+=J4FS_BASIC_UNIT_SIZE;
@@ -1416,15 +1422,15 @@ moving_data_step_1:
 				mst->copyed+=J4FS_BASIC_UNIT_SIZE;
 				ret = FlashDevWrite(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf_mst);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			   		goto error1;
 				}
 
-				POR(0x20,("%s %d: Power-off point-20\n",__FUNCTION__,__LINE__),2000);
+				J4FS_POR(0x20,("%s %d: Power-off point-20\n",__FUNCTION__,__LINE__),2000);
 
 			}
 
-			POR(0x40,("%s %d: Power-off point-40\n",__FUNCTION__,__LINE__),2000);
+			J4FS_POR(0x40,("%s %d: Power-off point-40\n",__FUNCTION__,__LINE__),2000);
 
 			// write updated MST status(offset,offset_number,from,to)
 			mst->offset[mst->offset_number]=mst->to-mst->copyed;
@@ -1432,7 +1438,7 @@ moving_data_step_1:
 			mst->status= (mst->status&J4FS_RECLAIM_LAST_OBJECT)|J4FS_RECLAIM_MOVING_DATA_STEP_2;
 			ret = FlashDevWrite(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf_mst);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 		   		goto error1;
 			}
 
@@ -1440,7 +1446,7 @@ moving_data_step_2:
 			if(mst->status&J4FS_RECLAIM_LAST_OBJECT) offset=0xffffffff;
 			else offset=mst->end;
 
-			POR(0x80,("%s %d: Power-off point-80\n",__FUNCTION__,__LINE__),2000);
+			J4FS_POR(0x80,("%s %d: Power-off point-80\n",__FUNCTION__,__LINE__),2000);
 
 			/**************************************************************************
 			 * End of copying this valid object to invalid area(to offset)
@@ -1448,7 +1454,7 @@ moving_data_step_2:
 		}
 	}
 
-	POR(0x100,("%s %d: Power-off point-100\n",__FUNCTION__,__LINE__),2000);
+	J4FS_POR(0x100,("%s %d: Power-off point-100\n",__FUNCTION__,__LINE__),2000);
 
 	if(mst->offset_number==0) goto reclaim_done;
 
@@ -1457,77 +1463,77 @@ moving_data_step_2:
 	mst->status=J4FS_RECLAIM_UPDATE_LINK;
 	ret = FlashDevWrite(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf_mst);
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
    		goto error1;
 	}
 
 update_link:
 
-	POR(0x200,("%s %d: Power-off point-200\n",__FUNCTION__,__LINE__),2000);
+	J4FS_POR(0x200,("%s %d: Power-off point-200\n",__FUNCTION__,__LINE__),2000);
 
 	// Adjust j4fs_header.link of valid objects excluding last object
 	if(mst->offset_number>=2)
 	{
 		for(i=0;i<mst->offset_number-1;i++)
 		{
-			POR(0x400,("%s %d: Power-off point-400\n",__FUNCTION__,__LINE__),2000);
+			J4FS_POR(0x400,("%s %d: Power-off point-400\n",__FUNCTION__,__LINE__),2000);
 
 			// read j4fs_header
 			ret = FlashDevRead(&device_info, mst->offset[i], J4FS_BASIC_UNIT_SIZE, buf_header);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 		   		goto error1;
 			}
 
-			POR(0x800,("%s %d: Power-off point-800\n",__FUNCTION__,__LINE__),2000);
+			J4FS_POR(0x800,("%s %d: Power-off point-800\n",__FUNCTION__,__LINE__),2000);
 
 			header->link=mst->offset[i+1];
 
 			// write j4fs_header
 			ret = FlashDevWrite(&device_info, mst->offset[i], J4FS_BASIC_UNIT_SIZE, buf_header);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 		   		goto error1;
 			}
 
-			POR(0x1000,("%s %d: Power-off point-1000\n",__FUNCTION__,__LINE__),2000);
+			J4FS_POR(0x1000,("%s %d: Power-off point-1000\n",__FUNCTION__,__LINE__),2000);
 
 		}
 	}
 
-	POR(0x2000,("%s %d: Power-off point-2000\n",__FUNCTION__,__LINE__),2000);
+	J4FS_POR(0x2000,("%s %d: Power-off point-2000\n",__FUNCTION__,__LINE__),2000);
 
 	// Adjust j4fs_header.link of last valid object
 	if(mst->offset_number>0)
 	{
-		POR(0x4000,("%s %d: Power-off point-4000\n",__FUNCTION__,__LINE__),2000);
+		J4FS_POR(0x4000,("%s %d: Power-off point-4000\n",__FUNCTION__,__LINE__),2000);
 
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, mst->offset[mst->offset_number-1], J4FS_BASIC_UNIT_SIZE, buf_header);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 	   		goto error1;
 		}
 
-		POR(0x8000,("%s %d: Power-off point-8000\n",__FUNCTION__,__LINE__),2000);
+		J4FS_POR(0x8000,("%s %d: Power-off point-8000\n",__FUNCTION__,__LINE__),2000);
 
 		header->link=0xffffffff;
 
 		// write j4fs_header
 		ret = FlashDevWrite(&device_info, mst->offset[mst->offset_number-1], J4FS_BASIC_UNIT_SIZE, buf_header);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 	   		goto error1;
 		}
 
-		POR(0x10000,("%s %d: Power-off point-10000\n",__FUNCTION__,__LINE__),2000);
+		J4FS_POR(0x10000,("%s %d: Power-off point-10000\n",__FUNCTION__,__LINE__),2000);
 
 		first_unused_area_offset = mst->offset[mst->offset_number-1] + J4FS_BASIC_UNIT_SIZE + header->length;
 		first_unused_area_offset = (first_unused_area_offset + J4FS_BASIC_UNIT_SIZE-1)/J4FS_BASIC_UNIT_SIZE*J4FS_BASIC_UNIT_SIZE;
 
 	}
 
-	POR(0x20000,("%s %d: Power-off point-20000\n",__FUNCTION__,__LINE__),2000);
+	J4FS_POR(0x20000,("%s %d: Power-off point-20000\n",__FUNCTION__,__LINE__),2000);
 
 	// write 'Reclaim Done'
 	rw_start=mst->rw_start;
@@ -1546,7 +1552,7 @@ update_link:
 	ret = FlashDevWrite(&device_info, j4fs_transaction_next_offset, J4FS_TRANSACTION_SIZE, (BYTE *)transaction);
 
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 		goto error1;
 	}
 
@@ -1556,7 +1562,7 @@ update_link:
 
 	ret = FlashDevWrite(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf_mst);
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
    		goto error1;
 	}
 
@@ -1567,10 +1573,10 @@ update_link:
 		memset(buf_data,0xff,J4FS_BASIC_UNIT_SIZE);
 		for(i=0; i<10*J4FS_BASIC_UNIT_SIZE; i+=J4FS_BASIC_UNIT_SIZE)
 		{
-			T(J4FS_TRACE_FSD_RECLAIM,("%s %d: (first_unused_area_offset=0x%08x,i=0x%08x,j4fs_end=0x%08x)\n",__FUNCTION__,__LINE__,first_unused_area_offset,i,device_info.j4fs_end));
+			J4FS_T(J4FS_TRACE_FSD_RECLAIM,("%s %d: (first_unused_area_offset=0x%08x,i=0x%08x,j4fs_end=0x%08x)\n",__FUNCTION__,__LINE__,first_unused_area_offset,i,device_info.j4fs_end));
 			ret = FlashDevWrite(&device_info, first_unused_area_offset+i, J4FS_BASIC_UNIT_SIZE, buf_data);
 			if (error(ret)) {
-				T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+				J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 		   		goto error1;
 			}
 		}
@@ -1583,7 +1589,7 @@ reclaim_done:
 	// Handle the exception
 	if(!j4fs_rw_start ||(j4fs_rw_start>= device_info.j4fs_end))
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: j4fs_rw_start is set to default value(128KB)\n",__FUNCTION__,__LINE__));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: j4fs_rw_start is set to default value(128KB)\n",__FUNCTION__,__LINE__));
 		j4fs_rw_start=device_info.j4fs_offset;
 	}
 
@@ -1598,18 +1604,18 @@ reclaim_done:
 #endif
 #endif
 
-	T(J4FS_TRACE_FSD_RECLAIM,("\n%s %d: Reclaim Done\n",__FUNCTION__,__LINE__));
+	J4FS_T(J4FS_TRACE_FSD_RECLAIM,("\n%s %d: Reclaim Done\n",__FUNCTION__,__LINE__));
 	fsd_print_meta_data();
 
 	return J4FS_SUCCESS;
 
 error1:
-	T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+	J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 
 	// Handle the exception
 	if(!j4fs_rw_start ||(j4fs_rw_start>= device_info.j4fs_end))
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: j4fs_rw_start is set to default value(128KB)\n",__FUNCTION__,__LINE__));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: j4fs_rw_start is set to default value(128KB)\n",__FUNCTION__,__LINE__));
 		j4fs_rw_start=device_info.j4fs_offset;
 	}
 
@@ -1627,12 +1633,12 @@ error1:
 	return J4FS_FAIL;
 }
 
+extern DWORD valid_offset[128][2];
 // invalidate old valid files
 int fsd_mark_invalid()
 {
 	DWORD offset;
 	j4fs_header *header;
-	DWORD valid_offset[128][2];
 	int index=0;
 	int i,j;
 	j4fs_mst *mst;
@@ -1650,7 +1656,7 @@ int fsd_mark_invalid()
 	// read mst
 	ret = FlashDevRead(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf);
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
    		goto error1;
 	}
 
@@ -1661,14 +1667,14 @@ int fsd_mark_invalid()
 
 		if(!offset ||(offset>= device_info.j4fs_end))
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error! rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x)\n", __FUNCTION__, __LINE__, mst->rw_start, device_info.j4fs_end));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error! rw_start is invalid(j4fs_rw_start=0x%08x, j4fs_end=0x%08x)\n", __FUNCTION__, __LINE__, mst->rw_start, device_info.j4fs_end));
 			j4fs_panic("rw_start is invalid");
 			goto error1;
 		}
 	}
 	else
 	{
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error! MST is invalid\n", __FUNCTION__, __LINE__));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error! MST is invalid\n", __FUNCTION__, __LINE__));
 		j4fs_panic("MST is invalid");
 		goto error1;
 	}
@@ -1679,7 +1685,7 @@ int fsd_mark_invalid()
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 	   		goto error1;
 		}
 		header=(j4fs_header *)buf;
@@ -1714,7 +1720,7 @@ int fsd_mark_invalid()
 		offset=header->link;
 	}
 
-	T(J4FS_TRACE_FSD_PRINT_META_DATA,("%s %d: index=%d\n",__FUNCTION__,__LINE__,index));
+	J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("%s %d: index=%d\n",__FUNCTION__,__LINE__,index));
 
 	// Invalidate old files. we exclude last object header because last object header can't decide invalidation of old files
 	for(i=0;i<index-2;i++)
@@ -1724,12 +1730,12 @@ int fsd_mark_invalid()
 			// If inode number is same, invalidate old object
 			if(valid_offset[i][0]==valid_offset[j][0])
 			{
-				//T(J4FS_TRACE_FSD_PRINT_META_DATA,("%s %d\n",__FUNCTION__,__LINE__));
+				//J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("%s %d\n",__FUNCTION__,__LINE__));
 
 				// read j4fs_header
 				ret = FlashDevRead(&device_info, valid_offset[i][1], J4FS_BASIC_UNIT_SIZE, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			   		goto error1;
 				}
 				header=(j4fs_header *)buf;
@@ -1755,7 +1761,7 @@ int fsd_mark_invalid()
 
 				ret = FlashDevWrite(&device_info, valid_offset[i][1], J4FS_BASIC_UNIT_SIZE, buf);
 				if (error(ret)) {
-					T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+					J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			   		goto error1;
 				}
 				break;
@@ -1808,7 +1814,7 @@ int fsd_read_ro_header(void)
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 			goto error1;
 		}
 		header=(j4fs_header *)buf;
@@ -1816,7 +1822,7 @@ int fsd_read_ro_header(void)
 		//This j4fs_header cannot be interpreted.
 		if(header->type!=J4FS_FILE_TYPE)
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: ERROR! RO file cannot be interpreted. (offset=%d)\n",__FUNCTION__,__LINE__,offset));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: ERROR! RO file cannot be interpreted. (offset=%d)\n",__FUNCTION__,__LINE__,offset));
 			j4fs_panic("This j4fs_header cannot be interpreted. So this j4fs partition is crashed by some abnormal cause.  This should not happen and should be repaired.");
 			goto error1;
 		}
@@ -1824,14 +1830,14 @@ int fsd_read_ro_header(void)
 		// This file was deleted, so read next j4fs_header.
 		if((header->flags&0x1)!=((header->flags&0x2)>>1))
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: ERROR! RO file was deleted. (offset,ino,filename)=(%d,%d,%s)\n",__FUNCTION__,__LINE__,offset,header->id,header->filename));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: ERROR! RO file was deleted. (offset,ino,filename)=(%d,%d,%s)\n",__FUNCTION__,__LINE__,offset,header->id,header->filename));
 			offset=header->link;
 			continue;
 		}
 
 		if(ro_j4fs_header_count>=J4FS_MAX_RO_FILES_NUMBER)
 		{
-			T(J4FS_TRACE_ALWAYS,("%s %d: ERROR! Too many ro files\n",__FUNCTION__,__LINE__));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: ERROR! Too many ro files\n",__FUNCTION__,__LINE__));
 
 			j4fs_traceMask |= J4FS_TRACE_FSD_PRINT_META_DATA;
 			fsd_print_meta_data();
@@ -1845,14 +1851,14 @@ int fsd_read_ro_header(void)
 		offset=header->link;
 	}
 
-	T(J4FS_TRACE_FSD_PRINT_META_DATA,("\n====================== %s %d ================================\n", __FUNCTION__,__LINE__));
+	J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("\n====================== %s %d ================================\n", __FUNCTION__,__LINE__));
 
 	for(i=0;i<ro_j4fs_header_count;i++)
 	{
-		T(J4FS_TRACE_FSD_PRINT_META_DATA,("%d : (link,type,flags,id,length,filename)=(0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,%s)\n",(i+1),ro_j4fs_header[i].link, ro_j4fs_header[i].type, ro_j4fs_header[i].flags, ro_j4fs_header[i].id, ro_j4fs_header[i].length, ro_j4fs_header[i].filename));
+		J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("%d : (link,type,flags,id,length,filename)=(0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,%s)\n",(i+1),ro_j4fs_header[i].link, ro_j4fs_header[i].type, ro_j4fs_header[i].flags, ro_j4fs_header[i].id, ro_j4fs_header[i].length, ro_j4fs_header[i].filename));
 	}
 
-	T(J4FS_TRACE_FSD_PRINT_META_DATA,("\n====================== %s %d ================================\n", __FUNCTION__,__LINE__));
+	J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("\n====================== %s %d ================================\n", __FUNCTION__,__LINE__));
 #ifdef __KERNEL__
 	kfree(buf);
 #endif
@@ -1886,7 +1892,7 @@ int fsd_initialize_transaction()
 	{
 		ret = FlashDevRead(&device_info, i, J4FS_TRANSACTION_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(ret=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(ret=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 	   		goto error1;
 		}
 
@@ -1942,7 +1948,7 @@ int fsd_panic()
 	// Marking j4fs panic by writing J4FS_PANIC to mst->status
 	ret = FlashDevRead(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf);
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error\n",__FUNCTION__,__LINE__));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error\n",__FUNCTION__,__LINE__));
    		goto error1;
 	}
 
@@ -1951,7 +1957,7 @@ int fsd_panic()
 
 	ret = FlashDevWrite(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf);
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
    		goto error1;
 	}
 
@@ -1987,22 +1993,22 @@ int fsd_print_meta_data()
 	// print MST
 	ret = FlashDevRead(&device_info, 0, J4FS_BASIC_UNIT_SIZE, buf);
 	if (error(ret)) {
-		T(J4FS_TRACE_ALWAYS,("%s %d: Error\n",__FUNCTION__,__LINE__));
+		J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error\n",__FUNCTION__,__LINE__));
    		goto error1;
 	}
 
-	T(J4FS_TRACE_FSD_PRINT_META_DATA,("====================================================================\n"));
+	J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("====================================================================\n"));
 
 	mst=(j4fs_mst *)buf;
-	T(J4FS_TRACE_FSD_PRINT_META_DATA,("(magic,from,to,end,offset_number,status,rw_start)=(0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x)\n",
+	J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("(magic,from,to,end,offset_number,status,rw_start)=(0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x)\n",
 		mst->magic,mst->from,mst->to,mst->end,mst->offset_number,mst->status,mst->rw_start));
 
 	if(mst->magic==J4FS_MAGIC && mst->offset_number)
 	{
-		T(J4FS_TRACE_FSD_PRINT_META_DATA,("offset: "));
+		J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("offset: "));
 		for(i=0;i<mst->offset_number;i++)
-			T(J4FS_TRACE_FSD_PRINT_META_DATA,("0x%x ", mst->offset[i]));
-		T(J4FS_TRACE_FSD_PRINT_META_DATA,("\n"));
+			J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("0x%x ", mst->offset[i]));
+		J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("\n"));
 	}
 
 	// the start address of the device (partition)
@@ -2014,7 +2020,7 @@ int fsd_print_meta_data()
 		// read j4fs_header
 		ret = FlashDevRead(&device_info, offset, J4FS_BASIC_UNIT_SIZE, buf);
 		if (error(ret)) {
-			T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
+			J4FS_T(J4FS_TRACE_ALWAYS,("%s %d: Error(nErr=0x%08x)\n",__FUNCTION__,__LINE__,ret));
 	   		goto error1;
 		}
 		header=(j4fs_header *)buf;
@@ -2022,7 +2028,7 @@ int fsd_print_meta_data()
 		//This j4fs_header cannot be interpreted.
 		if(header->type!=J4FS_FILE_TYPE) break;
 
-		T(J4FS_TRACE_FSD_PRINT_META_DATA,("%d : (link,type,flags,id,length,filename)=(0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,%s)\n",++i,header->link,header->type,header->flags,header->id,header->length,header->filename));
+		J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("%d : (link,type,flags,id,length,filename)=(0x%08x,0x%08x,0x%08x,0x%08x,0x%08x,%s)\n",++i,header->link,header->type,header->flags,header->id,header->length,header->filename));
 
 		// this is last enry in the device
 		if(header->link==0xffffffff)
@@ -2038,7 +2044,7 @@ int fsd_print_meta_data()
 		}
 	}
 
-	T(J4FS_TRACE_FSD_PRINT_META_DATA,("====================================================================\n"));
+	J4FS_T(J4FS_TRACE_FSD_PRINT_META_DATA,("====================================================================\n"));
 
 #ifdef __KERNEL__
 	kfree(buf);
