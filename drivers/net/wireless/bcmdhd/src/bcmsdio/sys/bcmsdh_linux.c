@@ -572,7 +572,7 @@ bcmsdh_unregister(void)
 #endif /* BCMLXSDMMC */
 
 #if !defined(BCMPLATFORM_BUS) && !defined(BCMLXSDMMC)
-		pci_unregister_driver(&bcmsdh_pci_driver);
+	pci_unregister_driver(&bcmsdh_pci_driver);
 #endif /* BCMPLATFORM_BUS */
 }
 

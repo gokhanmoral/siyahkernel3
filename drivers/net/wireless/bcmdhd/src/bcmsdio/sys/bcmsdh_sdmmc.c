@@ -154,16 +154,22 @@ sdioh_attach(osl_t *osh, void *bar0, uint irq)
 	gInstance->sd = sd;
 
 	/* Claim host controller */
-	sdio_claim_host(gInstance->func[1]);
+	if (gInstance->func[1]) {
+		sdio_claim_host(gInstance->func[1]);
 
-	sd->client_block_size[1] = 64;
-	err_ret = sdio_set_block_size(gInstance->func[1], 64);
-	if (err_ret) {
-		sd_err(("bcmsdh_sdmmc: Failed to set F1 blocksize\n"));
+		sd->client_block_size[1] = 64;
+		err_ret = sdio_set_block_size(gInstance->func[1], 64);
+		if (err_ret) {
+			sd_err(("bcmsdh_sdmmc: Failed to set F1 blocksize\n"));
+		}
+
+		/* Release host controller F1 */
+		sdio_release_host(gInstance->func[1]);
+	}else {
+		sd_err(("%s:gInstance->func[1] is null\n", __FUNCTION__));
+		MFREE(sd->osh, sd, sizeof(sdioh_info_t));
+		return NULL;
 	}
-
-	/* Release host controller F1 */
-	sdio_release_host(gInstance->func[1]);
 
 	if (gInstance->func[2]) {
 		/* Claim host controller F2 */
@@ -178,6 +184,10 @@ sdioh_attach(osl_t *osh, void *bar0, uint irq)
 
 		/* Release host controller F2 */
 		sdio_release_host(gInstance->func[2]);
+	}else {
+		sd_err(("%s:gInstance->func[2] is null\n", __FUNCTION__));
+		MFREE(sd->osh, sd, sizeof(sdioh_info_t));
+		return NULL;
 	}
 
 	sdioh_sdmmc_card_enablefuncs(sd);
@@ -1026,7 +1036,7 @@ sdioh_request_packet(sdioh_info_t *sd, uint fix_inc, uint write, uint func,
 			}
 
 			/* Align Patch */
-			if (!write) // read
+			if (write == 0 || pkt_len < 32) // read or small packet(ex-BDC header) skip 32 byte align
 				pkt_len = (pkt_len + 3) & 0xFFFFFFFC;
 			else if(pkt_len % DHD_SDALIGN) // write
 				pkt_len += DHD_SDALIGN - (pkt_len % DHD_SDALIGN);
@@ -1317,12 +1327,14 @@ sdioh_start(sdioh_info_t *si, int stage)
 	int ret;
 	sdioh_info_t *sd = gInstance->sd;
 
+	if (!sd) return (0);
+
 	/* Need to do this stages as we can't enable the interrupt till
 		downloading of the firmware is complete, other wise polling
 		sdio access will come in way
 	*/
 	if (gInstance->func[0]) {
-			if (stage == 0) {
+		if (stage == 0) {
 		/* Since the power to the chip is killed, we will have
 			re enumerate the device again. Set the block size
 			and enable the fucntion 1 for in preparation for
@@ -1342,16 +1354,17 @@ sdioh_start(sdioh_info_t *si, int stage)
 			sd->use_client_ints = TRUE;
 			sd->client_block_size[0] = 64;
 
-			/* Claim host controller */
-			sdio_claim_host(gInstance->func[1]);
+			if(gInstance->func[1]) {
+				/* Claim host controller */
+				sdio_claim_host(gInstance->func[1]);
 
-			sd->client_block_size[1] = 64;
-			if (sdio_set_block_size(gInstance->func[1], 64)) {
-				sd_err(("bcmsdh_sdmmc: Failed to set F1 blocksize\n"));
+				sd->client_block_size[1] = 64;
+				if (sdio_set_block_size(gInstance->func[1], 64)) {
+					sd_err(("bcmsdh_sdmmc: Failed to set F1 blocksize\n"));
+				}
+				/* Release host controller F1 */
+				sdio_release_host(gInstance->func[1]);
 			}
-
-			/* Release host controller F1 */
-			sdio_release_host(gInstance->func[1]);
 
 			if (gInstance->func[2]) {
 				/* Claim host controller F2 */
@@ -1373,8 +1386,10 @@ sdioh_start(sdioh_info_t *si, int stage)
 		} else {
 #if !defined(OOB_INTR_ONLY)
 			sdio_claim_host(gInstance->func[0]);
-			sdio_claim_irq(gInstance->func[2], IRQHandlerF2);
-			sdio_claim_irq(gInstance->func[1], IRQHandler);
+			if (gInstance->func[2])
+				sdio_claim_irq(gInstance->func[2], IRQHandlerF2);
+			if (gInstance->func[1])
+				sdio_claim_irq(gInstance->func[1], IRQHandler);
 			sdio_release_host(gInstance->func[0]);
 #else /* defined(OOB_INTR_ONLY) */
 #if defined(HW_OOB)
@@ -1402,8 +1417,10 @@ sdioh_stop(sdioh_info_t *si)
 	if (gInstance->func[0]) {
 #if !defined(OOB_INTR_ONLY)
 		sdio_claim_host(gInstance->func[0]);
-		sdio_release_irq(gInstance->func[1]);
-		sdio_release_irq(gInstance->func[2]);
+		if (gInstance->func[1])
+			sdio_release_irq(gInstance->func[1]);
+		if (gInstance->func[2])
+			sdio_release_irq(gInstance->func[2]);
 		sdio_release_host(gInstance->func[0]);
 #else /* defined(OOB_INTR_ONLY) */
 #if defined(HW_OOB)

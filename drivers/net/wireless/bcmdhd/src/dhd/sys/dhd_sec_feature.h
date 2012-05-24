@@ -40,11 +40,11 @@
 #define HW_OOB
 #endif
 
-#ifdef CONFIG_MACH_U1
-#ifndef USE_CID_CHECK
-  #define USE_CID_CHECK
+#ifdef CONFIG_MACH_U1 /* Q1 also uses this feature */
+#ifdef CONFIG_MACH_Q1_BD
+#define HW_OOB
 #endif
-#define U1_MACADDR
+#define USE_CID_CHECK
 #define WRITE_MACADDR
 #endif
 
@@ -58,7 +58,7 @@
 #endif
 
 #if (WLAN_REGION_CODE >= 200) && (WLAN_REGION_CODE < 300) /* KOR */
-#undef USE_INITIAL_2G_SCAN
+#undef USE_INITIAL_2G_SCAN_ORG
 #ifndef ROAM_ENABLE
 #define ROAM_ENABLE
 #endif

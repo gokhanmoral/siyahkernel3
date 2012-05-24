@@ -38,6 +38,7 @@
 #include <hndsoc.h>
 #include <siutils.h>
 #include <osl.h>
+#include <dhd_sec_feature.h>
 
 #include <bcmsdh.h>	/* BRCM API for SDIO clients (such as wl, dhd) */
 #include <bcmsdbus.h>	/* common SDIO/controller interface */

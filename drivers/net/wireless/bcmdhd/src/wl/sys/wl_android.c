@@ -82,6 +82,7 @@
 #define CMD_SET_HAPD_MAX_NUM_STA	"HAPD_MAX_NUM_STA"
 #define CMD_SET_HAPD_SSID			"HAPD_SSID"
 #define CMD_SET_HAPD_HIDE_SSID		"HAPD_HIDE_SSID"
+#define CMD_HAPD_STA_DISASSOC		"HAPD_STA_DISASSOC"
 
 #ifdef PNO_SUPPORT
 #define CMD_PNOSSIDCLR_SET	"PNOSSIDCLR"
@@ -727,6 +728,31 @@ wl_android_set_hide_ssid(struct net_device *dev, const char* string_num)
 	return 1;
 }
 
+static int
+wl_android_sta_diassoc(struct net_device *dev, const char* straddr)
+{
+	scb_val_t scbval;
+	char addr[ETHER_ADDR_LEN];
+	s32 ret;
+
+	DHD_INFO(("%s: deauth STA %s\n", __FUNCTION__, straddr));
+
+	/* Unspecified reason */
+	scbval.val = htod32(1);
+	bcm_ether_atoe(straddr, &scbval.ea);
+
+	DHD_INFO(("%s: deauth STA: %02X:%02X:%02X:%02X:%02X:%02X\n", __FUNCTION__,
+		scbval.ea.octet[0], scbval.ea.octet[1], scbval.ea.octet[2],
+		scbval.ea.octet[3], scbval.ea.octet[4], scbval.ea.octet[5]));
+
+	if ((ret = wldev_ioctl(dev, WLC_SCB_DEAUTHENTICATE_FOR_REASON, &scbval,
+		sizeof(scb_val_t), true)) < 0) {
+		DHD_ERROR(("%s : WLC_SCB_DEAUTHENTICATE_FOR_REASON error:%d\n", __FUNCTION__ , ret));
+	}
+
+	return 1;
+}
+
 #ifdef OKC_SUPPORT
 
 static int
@@ -890,6 +916,7 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 	else if (strnicmp(command, CMD_COUNTRY, strlen(CMD_COUNTRY)) == 0) {
 		char *country_code = command + strlen(CMD_COUNTRY) + 1;
 		bytes_written = wldev_set_country(net, country_code);
+		wl_update_wiphybands(NULL);
 	}
 #endif
 #ifdef ROAM_API
@@ -921,6 +948,7 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 				strlen(CMD_COUNTRYREV_SET)) == 0) {
 		bytes_written = wl_android_set_country_rev(net, command,
 				priv_cmd.total_len);
+		wl_update_wiphybands(NULL);
 	} else if (strnicmp(command, CMD_COUNTRYREV_GET,
 				strlen(CMD_COUNTRYREV_GET)) == 0) {
 		bytes_written = wl_android_get_country_rev(net, command,
@@ -983,6 +1011,11 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 				strlen(CMD_SET_HAPD_HIDE_SSID)) == 0) {
 		int skip = strlen(CMD_SET_HAPD_HIDE_SSID) + 3;
 		wl_android_set_hide_ssid(net, (const char*)command+skip);
+	}
+	else if (strnicmp(command, CMD_HAPD_STA_DISASSOC,
+				strlen(CMD_HAPD_STA_DISASSOC)) == 0) {
+		int skip = strlen(CMD_HAPD_STA_DISASSOC) + 1;
+		wl_android_sta_diassoc(net, (const char*)command+skip);
 	}
 #ifdef OKC_SUPPORT
 	else if (strnicmp(command, CMD_OKC_SET_PMK, strlen(CMD_OKC_SET_PMK)) == 0)
@@ -1215,37 +1248,20 @@ int dhd_os_check_wakelock(void *dhdp);
 
 static int wifi_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	DHD_ERROR(("##> %s\n", __FUNCTION__));
+	DHD_TRACE(("##> %s\n", __FUNCTION__));
 #if (LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 39)) && defined(OOB_INTR_ONLY) && 1
-	if (dhd_os_check_if_up(bcmsdh_get_drvdata()))
-		bcmsdh_oob_intr_set(0);
+	bcmsdh_oob_intr_set(0);
 #endif /* (OOB_INTR_ONLY) */
-	if (dhd_os_check_if_up(bcmsdh_get_drvdata()) &&
-		dhd_os_check_wakelock(bcmsdh_get_drvdata())) {
-		DHD_ERROR(("%s no driver data\n", __FUNCTION__));
-		return -EBUSY;
-	}
-#if defined(OOB_INTR_ONLY)
-	if (dhd_os_check_if_up(bcmsdh_get_drvdata()))
-		bcmsdh_oob_intr_set(0);
-#endif	/* defined(OOB_INTR_ONLY) */
-	smp_mb();
 	return 0;
 }
 
 static int wifi_resume(struct platform_device *pdev)
 {
-	DHD_ERROR(("##> %s\n", __FUNCTION__));
-
+	DHD_TRACE(("##> %s\n", __FUNCTION__));
 #if (LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 39)) && defined(OOB_INTR_ONLY) && 1
 	if (dhd_os_check_if_up(bcmsdh_get_drvdata()))
 		bcmsdh_oob_intr_set(1);
 #endif /* (OOB_INTR_ONLY) */
-#if defined(OOB_INTR_ONLY)
-	if (dhd_os_check_if_up(bcmsdh_get_drvdata()))
-		bcmsdh_oob_intr_set(1);
-#endif /* (OOB_INTR_ONLY) */
-	smp_mb();
 	return 0;
 }
 

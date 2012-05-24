@@ -30,19 +30,19 @@
 
 #define	EPI_MINOR_VERSION	15
 
-#define	EPI_RC_NUMBER		4
+#define	EPI_RC_NUMBER		8
 
 #define	EPI_INCREMENTAL_NUMBER	0
 
 #define	EPI_BUILD_NUMBER	0
 
-#define	EPI_VERSION		1, 15, 4, 1
+#define	EPI_VERSION		1, 15, 8, 0
 
-#define	EPI_VERSION_NUM		0x010f0401
+#define	EPI_VERSION_NUM		0x010f0800
 
-#define EPI_VERSION_DEV		1.15.4.1
+#define EPI_VERSION_DEV		1.15.8
 
 
-#define	EPI_VERSION_STR		"1.15.4.camp.3 (r315426)"
+#define	EPI_VERSION_STR		"1.15.8 (sdio_patch)" 
 
 #endif /* _epivers_h_ */
