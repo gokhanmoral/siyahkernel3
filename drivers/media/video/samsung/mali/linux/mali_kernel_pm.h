@@ -15,5 +15,6 @@
 int _mali_dev_platform_register(void);
 void _mali_dev_platform_unregister(void);
 #endif /* USING_MALI_PMM */
+int mali_pd_enable(void);
 
 #endif /* __MALI_KERNEL_PM_H__ */

@@ -20,6 +20,7 @@ typedef enum
 	_MALI_DEVICE_SUSPEND,                         /* Suspend */
 	_MALI_DEVICE_RESUME,                          /* Resume */
 	_MALI_DEVICE_MAX_POWER_STATES,                /* Maximum power states */
+	_MALI_DEVICE_SHUTDOWN,			      /* Power off states*/
 } _mali_device_power_states;
 
 /* Number of DVFS events */

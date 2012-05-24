@@ -351,6 +351,7 @@ static unsigned int decideNextStatus(unsigned int utilization)
 	if (mali_runtime_resumed >= 0) {
 		level = mali_runtime_resumed;
 		mali_runtime_resumed = -1;
+		return level;
 	}
 
 	if (mali_dvfs_threshold[maliDvfsStatus.currentStep].upthreshold

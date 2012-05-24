@@ -272,7 +272,6 @@ MALI_STATIC_INLINE u32 mali_job_queue_size(mali_core_session *session)
 	return (u32)(session->queue_size);
 }
 
-
 MALI_STATIC_INLINE struct mali_core_job *mali_job_queue_abort_job(mali_core_session *session, u32 abort_id)
 {
 	int i;
@@ -309,6 +308,7 @@ MALI_STATIC_INLINE struct mali_core_job *mali_job_queue_abort_job(mali_core_sess
 
 	return job;
 }
+
 
 /*
  * The rendercode subsystem is included in the subsystems[] array.

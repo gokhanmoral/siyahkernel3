@@ -1211,6 +1211,7 @@ static _mali_osk_errcode_t mali_kernel_memory_mmu_interrupt_handler_upper_half(v
 		MALI_SUCCESS;
 	}
 
+
 	/* check if it was our device which caused the interrupt (we could be sharing the IRQ line) */
 	int_stat = mali_mmu_register_read(mmu, MALI_MMU_REGISTER_INT_STATUS);
 	if (0 == int_stat)

@@ -38,6 +38,7 @@
 
 #include <asm/io.h>
 #include <mach/regs-pmu.h>
+#include <mach/asv.h>
 
 #define EXTXTALCLK_NAME 	"ext_xtal"
 #define VPLLSRCCLK_NAME 	"vpll_src"
@@ -174,6 +175,10 @@ void mali_regulator_set_voltage(int min_uV, int max_uV)
                                min_uV, max_uV, 1, 0, 0);
 #endif
 
+#if defined(CONFIG_CPU_EXYNOS4212) || defined(CONFIG_CPU_EXYNOS4412)
+	exynos4x12_compensate_temp(&min_uV);
+	max_uV = min_uV;
+#endif
     regulator_set_voltage(g3d_regulator,min_uV,max_uV);
 	voltage = regulator_get_voltage(g3d_regulator);
 
@@ -497,8 +502,9 @@ static _mali_osk_errcode_t enable_mali_clocks(void)
 	else {
 		mali_regulator_set_voltage(mali_runtime_resume.vol, mali_runtime_resume.vol);
 		mali_clk_set_rate(mali_runtime_resume.clk, GPU_MHZ);
-		set_mali_dvfs_current_step(5);
 	}
+	if (mali_gpu_clk <= mali_runtime_resume.clk)
+		set_mali_dvfs_current_step(5);
 	/* lock/unlock CPU freq by Mali */
 	if (mali_gpu_clk == 440)
 		err = cpufreq_lock_by_mali(1200);
