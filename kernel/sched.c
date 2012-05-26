@@ -3192,7 +3192,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 
 unsigned long get_cpu_nr_running(unsigned int cpu)
 {
-    if(cpu <=NR_CPUS)
+    if(cpu < NR_CPUS)
         return cpu_rq(cpu)->nr_running;
     else
         return 0;
