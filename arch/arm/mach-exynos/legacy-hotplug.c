@@ -87,6 +87,7 @@ struct cpu_time_info {
 static DEFINE_PER_CPU(struct cpu_time_info, hotplug_cpu_time);
 
 static bool screen_off;
+static bool legacyhotplug_enabled = true;
 
 /* mutex can be used since hotplug_timer does not run in
    timer(softirq) context but in process context */
@@ -103,6 +104,11 @@ static void hotplug_timer(struct work_struct *work)
 	unsigned int cur_freq;
 
 	mutex_lock(&hotplug_lock);
+
+	if(!legacyhotplug_enabled) {
+		printk(KERN_INFO "pm-hotplug: disable cpu auto-hotplug\n");
+		goto off_hotplug;
+	}
 
 	// exit if we turned off dynamic hotplug by tegrak
 	// cancel the timer
@@ -407,6 +413,52 @@ static struct platform_device s5pv310_pm_hotplug_device = {
 	.id = -1,
 };
 
+static int legacyhotplug_cpufreq_policy_notifier_call(struct notifier_block *this,
+				unsigned long code, void *data)
+{
+	struct cpufreq_policy *policy = data;
+
+	switch (code) {
+	case CPUFREQ_ADJUST:
+		if (
+			(!strnicmp(policy->governor->name, "pegasusq", CPUFREQ_NAME_LEN)) ||
+			(!strnicmp(policy->governor->name, "hotplug", CPUFREQ_NAME_LEN))
+			) 
+		{
+			if(legacyhotplug_enabled)
+			{
+				printk("Legacy-hotplug is disabled: governor=%s\n",
+								policy->governor->name);
+				mutex_lock(&hotplug_lock);
+				legacyhotplug_enabled = false;
+				mutex_unlock(&hotplug_lock);
+			}
+		} 
+		else
+		{
+			if(!legacyhotplug_enabled)
+			{
+				printk("Legacy-hotplug is enabled: governor=%s\n",
+								policy->governor->name);
+				mutex_lock(&hotplug_lock);
+				legacyhotplug_enabled = true;
+				queue_delayed_work_on(0, hotplug_wq, &hotplug_work, hotpluging_rate);
+				mutex_unlock(&hotplug_lock);
+			}
+		}
+		break;
+	case CPUFREQ_INCOMPATIBLE:
+	case CPUFREQ_NOTIFY:
+	default:
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+static struct notifier_block legacyhotplug_cpufreq_policy_notifier = {
+	.notifier_call = legacyhotplug_cpufreq_policy_notifier_call,
+};
+
 static int __init s5pv310_pm_hotplug_device_init(void)
 {
 	int ret;
@@ -420,6 +472,8 @@ static int __init s5pv310_pm_hotplug_device_init(void)
 
 	printk(KERN_INFO "s5pv310_pm_hotplug_device_init: %d\n", ret);
 
+	cpufreq_register_notifier(&legacyhotplug_cpufreq_policy_notifier,
+						CPUFREQ_POLICY_NOTIFIER);
 	return ret;
 }
 
