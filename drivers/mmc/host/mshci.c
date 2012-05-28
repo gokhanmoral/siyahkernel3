@@ -964,6 +964,151 @@ static void mshci_set_power(struct mshci_host *host, unsigned short power)
 		mshci_writel(host, 0x1, MSHCI_PWREN);
 }
 
+#ifdef CONFIG_MMC_POLLING_WAIT_CMD23
+static void mshci_check_sbc_status(struct mshci_host *host, int intmask)
+{
+	int timeout, int_status;;
+
+	/* wait for command done or error by polling */
+	timeout = 0x100000; /* it is bigger than 1ms */
+	do {
+		int_status = mshci_readl(host, MSHCI_RINTSTS);
+		if (int_status & CMD_STATUS)
+			break;
+		timeout--;
+	} while (timeout);
+
+	/* clear pending interupt bit */
+	mshci_writel(host, int_status, MSHCI_RINTSTS);
+
+	/* check whether command error has been occured or not. */
+	if (int_status & INTMSK_HTO) {
+		printk(KERN_ERR "%s: %s Host timeout error\n",
+					mmc_hostname(host->mmc),
+					__func__);
+		host->mrq->sbc->error = -ETIMEDOUT;
+	} else if (int_status & INTMSK_DRTO) {
+		printk(KERN_ERR "%s: %s Data read timeout error\n",
+					mmc_hostname(host->mmc),
+					__func__);
+		host->mrq->sbc->error = -ETIMEDOUT;
+	} else if (int_status & INTMSK_SBE) {
+		printk(KERN_ERR "%s: %s FIFO Start bit error\n",
+					mmc_hostname(host->mmc),
+					__func__);
+		host->mrq->sbc->error = -EIO;
+	} else if (int_status & INTMSK_EBE) {
+		printk(KERN_ERR "%s: %s FIFO Endbit/Write no CRC error\n",
+					mmc_hostname(host->mmc),
+					__func__);
+		host->mrq->sbc->error = -EIO;
+	} else if (int_status & INTMSK_DCRC) {
+		printk(KERN_ERR "%s: %s Data CRC error\n",
+					mmc_hostname(host->mmc),
+					__func__);
+		host->mrq->sbc->error = -EIO;
+	} else if (int_status & INTMSK_FRUN) {
+		printk(KERN_ERR "%s: %s FIFO underrun/overrun error\n",
+					mmc_hostname(host->mmc),
+					__func__);
+		host->mrq->sbc->error = -EIO;
+	} else if (int_status & CMD_ERROR) {
+		printk(KERN_ERR "%s: %s cmd %s error\n",
+					mmc_hostname(host->mmc),
+					__func__, (intmask & INTMSK_RCRC) ?
+					"response crc" :
+					(intmask & INTMSK_RE) ? "response" :
+					"response timeout");
+		host->mrq->sbc->error = -ETIMEDOUT;
+	}
+
+	if (host->mrq->sbc->error) {
+		/* restore interrupt mask bit */
+		mshci_writel(host, intmask, MSHCI_INTMSK);
+		return;
+	}
+
+	if (!timeout) {
+		printk(KERN_ERR "%s: %s no interrupt occured\n",
+			mmc_hostname(host->mmc), __func__);
+		host->mrq->sbc->error = -ETIMEDOUT;
+		/* restore interrupt mask bit */
+		mshci_writel(host, intmask, MSHCI_INTMSK);
+		return;
+	}
+
+	/* command done interrupt has been occured with no errors.
+	   nothing to do. just return to the previous function */
+	if ((int_status & INTMSK_CDONE) && !(int_status & CMD_ERROR)) {
+		/* restore interrupt mask bit */
+		mshci_writel(host, intmask, MSHCI_INTMSK);
+		return;
+	}
+
+	/* should not be here */
+	printk(KERN_ERR "%s: an error that has not to be occured was"
+			" occured 0x%x\n",mmc_hostname(host->mmc),int_status);
+}
+
+static void mshci_send_sbc(struct mshci_host *host, struct mmc_command *cmd)
+{
+	int flags = 0, ret, intmask;
+
+	WARN_ON(host->cmd);
+
+	/* disable interrupt before issuing cmd to the card. */
+	mshci_writel(host, (mshci_readl(host, MSHCI_CTRL) & ~INT_ENABLE),
+					MSHCI_CTRL);
+
+	host->cmd = cmd;
+
+	mod_timer(&host->timer, jiffies + 10 * HZ);
+
+	mshci_writel(host, cmd->arg, MSHCI_CMDARG);
+
+	if ((cmd->flags & MMC_RSP_136) && (cmd->flags & MMC_RSP_BUSY)) {
+		printk(KERN_ERR "%s: Unsupported response type!\n",
+			mmc_hostname(host->mmc));
+		cmd->error = -EINVAL;
+		tasklet_schedule(&host->finish_tasklet);
+		return;
+	}
+
+	if (cmd->flags & MMC_RSP_PRESENT) {
+		flags |= CMD_RESP_EXP_BIT;
+		if (cmd->flags & MMC_RSP_136)
+			flags |= CMD_RESP_LENGTH_BIT;
+	}
+	if (cmd->flags & MMC_RSP_CRC)
+		flags |= CMD_CHECK_CRC_BIT;
+
+	flags |= (cmd->opcode | CMD_STRT_BIT | host->hold_bit |
+				CMD_WAIT_PRV_DAT_BIT);
+
+	ret = mshci_readl(host, MSHCI_CMD);
+	if (ret & CMD_STRT_BIT)
+		printk(KERN_ERR "CMD busy. current cmd %d. last cmd reg 0x%x\n",
+			cmd->opcode, ret);
+
+	/* backup interrupt mask bit */
+	intmask = mshci_readl(host, MSHCI_INTMSK);
+
+	/* disable interrupts for sbc command. it will wait for command done
+	   by polling. it expects a faster repsonse */
+	mshci_clear_set_irqs(host, INTMSK_ALL, 0);
+
+	/* send command */
+	mshci_writel(host, flags, MSHCI_CMD);
+
+	/* enable interrupt upon it sends a command to the card. */
+	mshci_writel(host, (mshci_readl(host, MSHCI_CTRL) | INT_ENABLE),
+					MSHCI_CTRL);
+
+	/* check the interrupt by polling */
+	mshci_check_sbc_status(host,intmask);
+}
+#endif
+
 /*****************************************************************************\
  *                                                                           *
  * MMC callbacks                                                             *
@@ -1048,6 +1193,18 @@ static void mshci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		host->mrq->cmd->error = -ENOMEDIUM;
 		tasklet_schedule(&host->finish_tasklet);
 	} else {
+#ifdef CONFIG_MMC_POLLING_WAIT_CMD23
+		if (mrq->sbc) {
+			mshci_send_sbc(host, mrq->sbc);
+			if (mrq->sbc->error) {
+				tasklet_schedule(&host->finish_tasklet);
+			} else {
+				if (host->cmd)
+					host->cmd = NULL;
+				mshci_send_command(host, mrq->cmd);
+			}
+		} else
+#endif
 			mshci_send_command(host, mrq->cmd);
 	}
 
@@ -1378,9 +1535,11 @@ static void mshci_tasklet_finish(unsigned long param)
 	 */
 	if (!(host->flags & MSHCI_DEVICE_DEAD) &&
 		(mrq->cmd->error ||
+#ifdef CONFIG_MMC_POLLING_WAIT_CMD23
+		(mrq->sbc && mrq->sbc->error) ||
+#endif
 		 (mrq->data && (mrq->data->error ||
 		  (mrq->data->stop && mrq->data->stop->error))))) {
-
 		mshci_reset_fifo(host);
 	}
 
@@ -1457,6 +1616,10 @@ static void mshci_cmd_irq(struct mshci_host *host, u32 intmask)
 	if (host->cmd->error) {
 		/* to notify an error happend */
 		host->error_state = 1;
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_P4NOTE) /* dh0421.hwang */
+		if (host->mmc && host->mmc->card)
+			mshci_dumpregs(host);
+#endif
 		tasklet_schedule(&host->finish_tasklet);
 		return;
 	}
@@ -1535,6 +1698,10 @@ static void mshci_data_irq(struct mshci_host *host, u32 intmask, u8 intr_src)
 	if (host->data->error) {
 		/* to notify an error happend */
 		host->error_state = 1;
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_P4NOTE) /* dh0421.hwang */
+		if (host->mmc && host->mmc->card)
+			mshci_dumpregs(host);
+#endif
 		mshci_finish_data(host);
 	} else {
 		if (!(host->flags & MSHCI_REQ_USE_DMA) &&
@@ -1629,7 +1796,7 @@ static irqreturn_t mshci_irq(int irq, void *dev_id)
 				& INTMSK_DTO))
 				; /* Nothing to do */
 			if (!timeout)
-				printk(KERN_ERR"*** %s time out for	CDONE intr\n",
+				printk(KERN_ERR"*** %s time out for	DTO intr\n",
 					mmc_hostname(host->mmc));
 			else
 				mshci_writel(host, INTMSK_DTO,

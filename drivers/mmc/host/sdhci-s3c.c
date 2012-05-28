@@ -329,7 +329,7 @@ static int sdhci_s3c_platform_8bit_width(struct sdhci_host *host, int width)
 	return 0;
 }
 
-#ifdef CONFIG_MACH_MIDAS
+#ifdef CONFIG_MIDAS_COMMON
 /* midas board control the vdd for tflash by gpio,
    not regulator directly.
    so, code related vdd control should be added */
@@ -369,7 +369,7 @@ static struct sdhci_ops sdhci_s3c_ops = {
 	.set_clock		= sdhci_s3c_set_clock,
 	.get_min_clock		= sdhci_s3c_get_min_clock,
 	.platform_8bit_width	= sdhci_s3c_platform_8bit_width,
-#ifdef CONFIG_MACH_MIDAS
+#ifdef CONFIG_MIDAS_COMMON
 	.set_power		= sdhci_s3c_vtf_on_off,
 #endif
 };
@@ -383,12 +383,16 @@ static void sdhci_s3c_notify_change(struct platform_device *dev, int state)
 		spin_lock_irqsave(&host->lock, flags);
 		if (state) {
 			dev_dbg(&dev->dev, "card inserted.\n");
+			pr_info("%s: card inserted.\n",
+					mmc_hostname(host->mmc));
 			host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
 #ifdef CONFIG_MACH_MIDAS_01_BD
 			sdhci_s3c_vtf_on_off(1);
 #endif
 		} else {
 			dev_dbg(&dev->dev, "card removed.\n");
+			pr_info("%s: card removed.\n",
+					mmc_hostname(host->mmc));
 			host->quirks &= ~SDHCI_QUIRK_BROKEN_CARD_DETECTION;
 #ifdef CONFIG_MACH_MIDAS_01_BD
 			sdhci_s3c_vtf_on_off(0);
@@ -611,9 +615,6 @@ static int __devinit sdhci_s3c_probe(struct platform_device *pdev)
 	 * SDHCI block, or a missing configuration that needs to be set. */
 	host->quirks |= SDHCI_QUIRK_NO_BUSY_IRQ;
 
-	/* This host supports the Auto CMD12 */
-	host->quirks |= SDHCI_QUIRK_MULTIBLOCK_READ_ACMD12;
-
 	if (pdata->cd_type == S3C_SDHCI_CD_NONE)
 		host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
 
@@ -656,6 +657,9 @@ static int __devinit sdhci_s3c_probe(struct platform_device *pdev)
 	sdhci_s3c_vtf_on_off(1);
 #endif
 
+	/* To turn on vmmc regulator only if sd card exists,
+	   GPIO pin for card detection should be initialized.
+	   Moved from sdhci_s3c_setup_card_detect_gpio() function */
 	if (pdata->cd_type == S3C_SDHCI_CD_GPIO &&
 	    gpio_is_valid(pdata->ext_cd_gpio)) {
 		if (gpio_request(pdata->ext_cd_gpio, "SDHCI EXT CD") == 0) {
@@ -790,19 +794,21 @@ static int __devexit sdhci_s3c_remove(struct platform_device *pdev)
 static int sdhci_s3c_suspend(struct platform_device *dev, pm_message_t pm)
 {
 	struct sdhci_host *host = platform_get_drvdata(dev);
+	int ret = 0;
 
-	sdhci_suspend_host(host, pm);
+	ret = sdhci_suspend_host(host, pm);
 
 #ifdef CONFIG_MACH_MIDAS_01_BD
 	/* turn vdd_tflash off */
 	sdhci_s3c_vtf_on_off(0);
 #endif
-	return 0;
+	return ret;
 }
 
 static int sdhci_s3c_resume(struct platform_device *dev)
 {
 	struct sdhci_host *host = platform_get_drvdata(dev);
+	int ret = 0;
 
 #ifdef CONFIG_MACH_MIDAS_01_BD
 	/* turn vdd_tflash off if a card exists*/
@@ -812,8 +818,8 @@ static int sdhci_s3c_resume(struct platform_device *dev)
 		sdhci_s3c_vtf_on_off(0);
 
 #endif
-	sdhci_resume_host(host);
-	return 0;
+	ret = sdhci_resume_host(host);
+	return ret;
 }
 
 #else
