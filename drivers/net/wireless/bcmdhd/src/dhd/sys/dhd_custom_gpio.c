@@ -265,7 +265,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 */
 void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 {
-#ifndef CUSTOMER_HW_SAMSUNG
+#ifdef CUSTOMER_HW_SAMSUNG
 	struct cntry_locales_custom *cloc_ptr;
 
 	if (!cspec)
@@ -278,7 +278,7 @@ void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 	}
 	return;
 #else
-/*	int size, i;
+	int size, i;
 
 	size = ARRAYSIZE(translate_custom_table);
 
@@ -295,10 +295,7 @@ void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 			cspec->rev = translate_custom_table[i].custom_locale_rev;
 			return;
 		}
-	}*/
-	//if not found, use Turkey
-	strlcpy(cspec->ccode, "JP", WLC_CNTRY_BUF_SZ);
-	cspec->rev = 5;
+	}
 #ifdef EXAMPLE_TABLE
 	/* if no country code matched return first universal code from translate_custom_table */
 	memcpy(cspec->ccode, translate_custom_table[0].custom_locale, WLC_CNTRY_BUF_SZ);
