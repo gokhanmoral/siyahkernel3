@@ -123,7 +123,7 @@ enum wl_cfgp2p_status {
 #define CFGP2P_ERR(args)									\
 	do {										\
 		if (wl_dbg_level & WL_DBG_ERR) {				\
-			printk(KERN_ERR "CFGP2P-ERROR) %s : ", __func__);	\
+			printk(KERN_ERR "CFGP2P-INFO2) %s : ", __func__);	\
 			printk args;						\
 		}									\
 	} while (0)

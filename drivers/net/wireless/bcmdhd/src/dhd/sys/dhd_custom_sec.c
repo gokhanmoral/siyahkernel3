@@ -403,7 +403,7 @@ int dhd_write_rdwr_korics_macaddr(struct dhd_info *dhd, struct ether_addr *mac)
 	char randommac[3]    = {0};
 	char buf[18]         = {0};
 	char *filepath       = "/efs/wifi/.mac.info";
-
+	int is_zeromac       = 0;
 	int ret = 0;
 	/* MAC address copied from efs/wifi.mac.info */
 	fp = filp_open(filepath, O_RDONLY, 0);
@@ -450,6 +450,17 @@ int dhd_write_rdwr_korics_macaddr(struct dhd_info *dhd, struct ether_addr *mac)
 	 * (the existed file or just created file)
 	 */
 	    ret = kernel_read(fp, 0, buf, 18);
+		/* to prevent abnormal string display when mac address
+		 * is displayed on the screen.
+		 */
+		buf[17] = '\0';
+		/* Remove security log */
+		/*DHD_ERROR(("Read MAC : [%s] [%d] \r\n", buf,
+			strncmp(buf, "00:00:00:00:00:00", 17)));*/
+		if ((buf[0] == '\0') ||
+			(strncmp(buf, "00:00:00:00:00:00", 17) == 0)) {
+			is_zeromac = 1;
+		}
 	}
 
 	if (ret)
@@ -467,11 +478,16 @@ int dhd_write_rdwr_korics_macaddr(struct dhd_info *dhd, struct ether_addr *mac)
 	if (fp)
 		filp_close(fp, NULL);
 
-	/* Writing Newly generated MAC ID to the Dongle */
-	if (0 == _dhd_set_mac_address(dhd, 0, mac))
-		DHD_INFO(("dhd_bus_start: MACID is overwritten\n"));
-	else
-		DHD_ERROR(("dhd_bus_start: _dhd_set_mac_address() failed\n"));
+	if (!is_zeromac) {
+		/* Writing Newly generated MAC ID to the Dongle */
+		if (0 == _dhd_set_mac_address(dhd, 0, mac))
+			DHD_INFO(("dhd_bus_start: MACID is overwritten\n"));
+		else
+			DHD_ERROR(("dhd_bus_start: _dhd_set_mac_address() "
+				"failed\n"));
+	} else {
+		DHD_ERROR(("dhd_bus_start:Is ZeroMAC BypassWrite.mac.info!\n"));
+	}
 
 	return 0;
 }

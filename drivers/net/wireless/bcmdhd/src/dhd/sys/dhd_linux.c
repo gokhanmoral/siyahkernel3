@@ -607,12 +607,15 @@ static void dhd_set_packet_filter(int value, dhd_pub_t *dhd)
 #if defined(CONFIG_HAS_EARLYSUSPEND)
 static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 {
+	char iovbuf[32];
 #ifndef CUSTOMER_HW_SAMSUNG
 	int power_mode = PM_MAX;
 	/* wl_pkt_filter_enable_t	enable_parm; */
-	char iovbuf[32];
 	int bcn_li_dtim = 3;
 	uint roamvar = 1;
+#endif
+#ifdef BCM4334_CHIP
+	int bcn_li_bcn;
 #endif
 
 	DHD_ERROR(("%s: enter, value = %d in_suspend=%d\n",
@@ -651,6 +654,12 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				iovbuf, sizeof(iovbuf));
 			dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
 #endif
+#ifdef BCM4334_CHIP
+			bcn_li_bcn = 0;
+			bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn,
+				4, iovbuf, sizeof(iovbuf));
+			dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+#endif
 		} else {
 
 #ifdef PKT_FILTER_SUPPORT
@@ -681,6 +690,12 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				sizeof(iovbuf));
 			dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
 #endif
+#ifdef BCM4334_CHIP
+			bcn_li_bcn = 1;
+			bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn,
+				4, iovbuf, sizeof(iovbuf));
+			dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+#endif
 		}
 	}
 
@@ -703,7 +718,7 @@ static void dhd_early_suspend(struct early_suspend *h)
 {
 	struct dhd_info *dhd = container_of(h, struct dhd_info, early_suspend);
 
-	DHD_TRACE(("%s: enter\n", __FUNCTION__));
+	DHD_ERROR(("%s: enter\n", __FUNCTION__));
 
 	if (dhd)
 		dhd_suspend_resume_helper(dhd, 1);
@@ -713,7 +728,7 @@ static void dhd_late_resume(struct early_suspend *h)
 {
 	struct dhd_info *dhd = container_of(h, struct dhd_info, early_suspend);
 
-	DHD_TRACE(("%s: enter\n", __FUNCTION__));
+	DHD_ERROR(("%s: enter\n", __FUNCTION__));
 
 	if (dhd)
 		dhd_suspend_resume_helper(dhd, 0);
@@ -2319,6 +2334,16 @@ static bool dhd_check_hang(struct net_device *net, dhd_pub_t *dhdp, int error)
 {
 	if (!dhdp)
 		return FALSE;
+#ifdef BCM4334_CHIP
+	if ((error == -ETIMEDOUT) || (error == -EREMOTEIO) || (dhdp->tx_seq_badcnt >= 2)
+		|| ((dhdp->busstate == DHD_BUS_DOWN)&&(!dhdp->dongle_reset))) {
+		DHD_ERROR(("%s: Event HANG send up due to re=%d te=%d e=%d s=%d tse=%d\n",
+			__FUNCTION__, dhdp->rxcnt_timeout, dhdp->txcnt_timeout, error,
+			dhdp->busstate, dhdp->tx_seq_badcnt));
+		net_os_send_hang_message(net);
+		return TRUE;
+	}
+#else
 	if ((error == -ETIMEDOUT) || (error == -EREMOTEIO)
 		|| ((dhdp->busstate == DHD_BUS_DOWN)&&(!dhdp->dongle_reset))) {
 		DHD_ERROR(("%s: Event HANG send up due to  re=%d te=%d e=%d s=%d\n", __FUNCTION__,
@@ -2326,6 +2351,7 @@ static bool dhd_check_hang(struct net_device *net, dhd_pub_t *dhdp, int error)
 		net_os_send_hang_message(net);
 		return TRUE;
 	}
+#endif
 	return FALSE;
 }
 
@@ -2654,6 +2680,9 @@ dhd_stop(struct net_device *net)
 	dhd->pub.hang_was_sent = 0;
 	dhd->pub.rxcnt_timeout = 0;
 	dhd->pub.txcnt_timeout = 0;
+#ifdef BCM4334_CHIP
+	dhd->pub.tx_seq_badcnt = 0;
+#endif
 	OLD_MOD_DEC_USE_COUNT;
 exit:
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
@@ -2664,9 +2693,6 @@ static int
 dhd_open(struct net_device *net)
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(net);
-#ifdef PROP_TXSTATUS
-	uint up = 0;
-#endif
 #ifdef TOE
 	uint32 toe_ol;
 #endif
@@ -3284,6 +3310,9 @@ dhd_bus_start(dhd_pub_t *dhdp)
 #ifdef RDWR_MACADDR
 	dhd_check_rdwr_macaddr(dhd, &dhd->pub, &dhd->pub.mac);
 #endif
+#ifdef RDWR_KORICS_MACADDR
+	dhd_write_rdwr_korics_macaddr(dhd, &dhd->pub.mac);
+#endif
 #endif /* CUSTOMER_HW_SAMSUNG */
 
 	/* Bus is ready, do any protocol initialization */
@@ -3297,10 +3326,6 @@ dhd_bus_start(dhd_pub_t *dhdp)
 #ifdef WRITE_MACADDR
 	dhd_write_macaddr(&dhd->pub.mac);
 #endif
-#endif /* CUSTOMER_HW_SAMSUNG */
-
-#ifdef RDWR_KORICS_MACADDR
-dhd_write_rdwr_korics_macaddr(dhd, &dhd->pub.mac);
 #endif /* CUSTOMER_HW_SAMSUNG */
 
 #ifdef ARP_OFFLOAD_SUPPORT
@@ -3363,6 +3388,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	uint32 dongle_align = DHD_SDALIGN;
 #if defined(BCM4334_CHIP)
 	uint32 glom = 5; /* 2012.02.21 for perfomance */
+	uint32 bcn_li_bcn = 1;
 #elif defined(BCM43241_CHIP)
 	uint32 glom = 1;
 #else
@@ -3717,6 +3743,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef OKC_DEBUG
 	setbit(eventmask, WLC_E_ROAM_START);
 #endif /* OKC_DEBUG */
+#ifdef CUSTOMER_HW_SAMSUNG
+	clrbit(eventmask, WLC_E_TXFAIL);
+#endif
 
 	/* Write updated Event mask */
 	bcm_mkiovar("event_msgs", eventmask, WL_EVENTING_MASK_LEN, iovbuf, sizeof(iovbuf));
@@ -3794,12 +3823,16 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		DHD_ERROR(("%s: can't set country \n", __FUNCTION__));
 #endif
 
-
 	/* Force STA UP */
 	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_UP, (char *)&up, sizeof(up), TRUE, 0)) < 0) {
 		DHD_ERROR(("%s Setting WL UP failed %d\n", __FUNCTION__, ret));
 		goto done;
 	}
+
+#ifdef BCM4334_CHIP
+	bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn, 4, iovbuf, sizeof(iovbuf));
+	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+#endif
 
 	/* query for 'ver' to get version info from firmware */
 	memset(buf, 0, sizeof(buf));
@@ -4576,12 +4609,13 @@ dhd_os_wd_timer(void *bus, uint wdtick)
 	/* Totally stop the timer */
 	if (!wdtick && dhd->wd_timer_valid == TRUE) {
 		dhd->wd_timer_valid = FALSE;
+		dhd_os_spin_unlock(pub, flags);
+		if (dhd)
 #ifdef DHDTHREAD
 		del_timer_sync(&dhd->timer);
 #else
 		del_timer(&dhd->timer);
 #endif /* DHDTHREAD */
-		dhd_os_spin_unlock(pub, flags);
 		return;
 	}
 

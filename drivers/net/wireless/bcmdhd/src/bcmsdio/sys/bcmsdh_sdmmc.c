@@ -63,8 +63,11 @@ extern int sdio_reset_comm(struct mmc_card *card);
 extern PBCMSDH_SDMMC_INSTANCE gInstance;
 
 uint sd_sdmode = SDIOH_MODE_SD4;	/* Use SD4 mode by default */
+#if defined(SDIO_F2_BLKSIZE)
+uint sd_f2_blocksize = SDIO_F2_BLKSIZE;
+#else
 uint sd_f2_blocksize = 512;		/* Default blocksize */
-
+#endif
 uint sd_divisor = 2;			/* Default 48MHz/2 = 24MHz */
 
 uint sd_power = 1;		/* Default to SD Slot powered ON */
@@ -170,7 +173,7 @@ sdioh_attach(osl_t *osh, void *bar0, uint irq)
 		MFREE(sd->osh, sd, sizeof(sdioh_info_t));
 		return NULL;
 	}
-
+	
 	if (gInstance->func[2]) {
 		/* Claim host controller F2 */
 		sdio_claim_host(gInstance->func[2]);

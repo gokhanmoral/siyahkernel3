@@ -65,7 +65,7 @@ struct wl_ibss;
 #define	WL_ERR(args)									\
 do {										\
 	if (wl_dbg_level & WL_DBG_ERR) {				\
-			printk(KERN_ERR "CFG80211-ERROR) %s : ", __func__);	\
+			printk(KERN_ERR "CFG80211-INFO2) %s : ", __func__);	\
 			printk args;						\
 		}								\
 } while (0)
@@ -487,7 +487,7 @@ struct wl_priv {
 	u64 send_action_id;
 	u64 last_roc_id;
 	wait_queue_head_t netif_change_event;
-	wait_queue_head_t send_af_done_event;
+	struct completion send_af_done;
 	struct afx_hdl *afx_hdl;
 	struct ap_info *ap_info;
 	struct sta_info *sta_info;
@@ -719,7 +719,6 @@ static inline struct net_info *
 wl_get_netinfo_by_netdev(struct wl_priv *wl, struct net_device *ndev)
 {
 	struct net_info *_net_info, *next;
-
 	list_for_each_entry_safe(_net_info, next, &wl->net_list, list) {
 				if (ndev && (_net_info->ndev == ndev))
 					return _net_info;

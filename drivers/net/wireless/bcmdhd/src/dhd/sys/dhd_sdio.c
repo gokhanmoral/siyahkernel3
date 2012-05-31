@@ -341,6 +341,7 @@ typedef struct dhd_bus {
 	bool		_slpauto;
 	bool		_oobwakeup;
 	bool		_srenab;
+	bool		readframes;
 } dhd_bus_t;
 
 /* clkstate */
@@ -1235,7 +1236,7 @@ dhdsdio_bussleep(dhd_bus_t *bus, bool sleep)
 	/* Going to sleep: set the alarm and turn off the lights... */
 	if (sleep) {
 		/* Don't sleep if something is pending */
-		if (bus->dpc_sched || bus->rxskip || pktq_len(&bus->txq))
+		if (bus->dpc_sched || bus->rxskip || pktq_len(&bus->txq) || bus->readframes)
 			return BCME_BUSY;
 
 
@@ -1864,7 +1865,7 @@ dhd_bus_txctl(struct dhd_bus *bus, uchar *msg, uint msglen)
 				DHD_ERROR(("%s: Device asleep already\n", __FUNCTION__));
 			} else if (ret < 0) {
 			/* On failure, abort the command and terminate the frame */
-				DHD_INFO(("%s: sdio error %d, abort command and terminate frame.\n",
+				DHD_ERROR(("%s: sdio error %d, abort command and terminate frame.\n",
 				          __FUNCTION__, ret));
 				bus->tx_sderrs++;
 
@@ -1935,7 +1936,10 @@ dhd_bus_rxctl(struct dhd_bus *bus, uchar *msg, uint msglen)
 		DHD_CTL(("%s: resumed on rxctl frame, got %d expected %d\n",
 		         __FUNCTION__, rxlen, msglen));
 	} else if (timeleft == 0) {
-		DHD_ERROR(("%s: resumed on timeout\n", __FUNCTION__));
+		u32 status;
+		int retry = 0;
+		R_SDREG(status, &bus->regs->intstatus, retry);
+		DHD_ERROR(("%s: resumed on timeout, INT status=0x%08X\n", __FUNCTION__, status));
 #ifdef DHD_DEBUG
 #if !defined(CUSTOMER_HW_SAMSUNG)
 #error need debug message if dongle trap occured
@@ -4391,8 +4395,10 @@ dhdsdio_readframes(dhd_bus_t *bus, uint maxframes, bool *finished)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
+	bus->readframes = TRUE;
 	if (!KSO_ENAB(bus)) {
 		DHD_ERROR(("%s: KSO off\n", __FUNCTION__));
+		bus->readframes = FALSE;
 		return 0;
 	}
 
@@ -4639,11 +4645,22 @@ dhdsdio_readframes(dhd_bus_t *bus, uint maxframes, bool *finished)
 			}
 
 			/* Check window for sanity */
+#ifdef BCM4334_CHIP			
+			if ((uint8)(txmax - bus->tx_seq) > 0x40) {
+					DHD_ERROR(("%s: got unlikely tx max %d with tx_seq %d\n",
+						__FUNCTION__, txmax, bus->tx_seq));
+					txmax = bus->tx_max;
+					bus->dhd->tx_seq_badcnt++;
+			}
+			else
+				bus->dhd->tx_seq_badcnt = 0;
+#else
 			if ((uint8)(txmax - bus->tx_seq) > 0x40) {
 					DHD_ERROR(("%s: got unlikely tx max %d with tx_seq %d\n",
 						__FUNCTION__, txmax, bus->tx_seq));
 					txmax = bus->tx_max;
 			}
+#endif
 			bus->tx_max = txmax;
 
 #ifdef DHD_DEBUG
@@ -4796,11 +4813,22 @@ dhdsdio_readframes(dhd_bus_t *bus, uint maxframes, bool *finished)
 		}
 
 		/* Check window for sanity */
+#ifdef BCM4334_CHIP			
+		if ((uint8)(txmax - bus->tx_seq) > 0x40) {
+			DHD_ERROR(("%s: got unlikely tx max %d with tx_seq %d\n",
+			           __FUNCTION__, txmax, bus->tx_seq));
+			txmax = bus->tx_max;
+			bus->dhd->tx_seq_badcnt++;
+		}
+		else
+			bus->dhd->tx_seq_badcnt = 0;
+#else
 		if ((uint8)(txmax - bus->tx_seq) > 0x40) {
 			DHD_ERROR(("%s: got unlikely tx max %d with tx_seq %d\n",
 			           __FUNCTION__, txmax, bus->tx_seq));
 			txmax = bus->tx_max;
 		}
+#endif
 		bus->tx_max = txmax;
 
 		/* Call a separate function for control frames */
@@ -4960,6 +4988,7 @@ deliver:
 	if (bus->rxskip)
 		rxseq--;
 	bus->rx_seq = rxseq;
+	bus->readframes = FALSE;
 
 	return rxcount;
 }
@@ -5792,7 +5821,8 @@ dhd_bus_watchdog(dhd_pub_t *dhdp)
 					if (SLPAUTO_ENAB(bus)) {
 						if (dhdsdio_bussleep(bus, TRUE) != BCME_BUSY)
 							dhd_os_wd_timer(bus->dhd, 0);
-					} else
+					}
+					else
 						dhdsdio_clkctl(bus, CLK_NONE, FALSE);
 
 					bus->dhd_idlecount = 0;
