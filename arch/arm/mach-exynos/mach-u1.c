@@ -2675,7 +2675,11 @@ static int max8997_muic_charger_cb(int cable_type)
 
 	if (!psy) {
 		pr_err("%s: fail to get battery ps\n", __func__);
+#if defined(CONFIG_MACH_Q1_BD)
+		return 0;
+#else
 		return -ENODEV;
+#endif
 	}
 
 	switch (cable_type) {
@@ -2718,12 +2722,36 @@ static int max8997_muic_charger_cb(int cable_type)
 #ifdef CONFIG_USB_HOST_NOTIFY
 static void usb_otg_accessory_power(int enable)
 {
+#ifdef CONFIG_SMB328_CHARGER	/* Q1_EUR_OPEN */
+	u8 on = (u8)!!enable;
+	struct power_supply *psy_sub =
+		power_supply_get_by_name("smb328-charger");
+	union power_supply_propval value;
+	int ret;
+
+	if (!psy_sub) {
+		pr_info("%s: fail to get charger ps\n", __func__);
+		return;
+	}
+
+	value.intval = on;
+	ret = psy_sub->set_property(psy_sub,
+		POWER_SUPPLY_PROP_CHARGE_TYPE, /* only for OTG */
+		&value);
+	if (ret) {
+		pr_info("%s: fail to set OTG (%d)\n",
+			__func__, ret);
+		return;
+	}
+	pr_info("%s: otg power = %d\n", __func__, on);
+#else
 	u8 on = (u8)!!enable;
 
 	gpio_request(GPIO_USB_OTG_EN, "USB_OTG_EN");
 	gpio_direction_output(GPIO_USB_OTG_EN, on);
 	gpio_free(GPIO_USB_OTG_EN);
 	pr_info("%s: otg accessory power = %d\n", __func__, on);
+#endif
 }
 
 static struct host_notifier_platform_data host_notifier_pdata = {
