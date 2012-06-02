@@ -13,9 +13,6 @@
  * GNU General Public License for more details.
  *
  */
-
-#define DEBUG
-
 #include <linux/init.h>
 
 #include <linux/irq.h>
@@ -27,6 +24,11 @@
 #include <linux/platform_data/modem.h>
 #include "modem_prj.h"
 #include "modem_link_device_usb.h"
+#include "modem_link_device_dpram.h"
+#include "modem_utils.h"
+
+#define PIF_TIMEOUT		(180 * HZ)
+#define DPRAM_INIT_TIMEOUT	(30 * HZ)
 
 
 static void mc_state_fsm(struct modem_ctl *mc)
@@ -36,34 +38,28 @@ static void mc_state_fsm(struct modem_ctl *mc)
 	int old_state = mc->phone_state;
 	int new_state = mc->phone_state;
 
-	pr_err("[CMC] <%s> old_state = %d, cp_reset = %d, cp_active = %d\n",
-		__func__, old_state, cp_reset, cp_active);
+	mif_err("old_state = %d, cp_reset = %d, cp_active = %d\n",
+			old_state, cp_reset, cp_active);
 
 	if (cp_active) {
 		if (old_state == STATE_CRASH_EXIT) {
-			mdm_info(mc, "LTE DUMP END!!!\n");
-			pr_err("[CMC] <%s> LTE DUMP END!!!\n", __func__);
-			pr_err("[CMC] <%s> new_state = OFFLINE\n", __func__);
-		} else if (old_state == STATE_BOOTING) {
-			new_state = STATE_ONLINE;
-			pr_err("[CMC] <%s> new_state = ONLINE\n", __func__);
+			mif_err("<%s> DUMP END!!!\n", mc->name);
 		} else {
-			pr_err("[CMC] <%s> Don't care!!!\n", __func__);
+			mif_err("<%s> Don't care!!!\n", mc->name);
 		}
 	} else {
 		if (old_state == STATE_ONLINE) {
 			new_state = STATE_CRASH_EXIT;
-			mdm_info(mc, "LTE CRASHED!!!\n");
-			pr_err("[CMC] <%s> LTE CRASHED!!!\n", __func__);
-			pr_err("[CMC] <%s> new_state = CRASH_EXIT\n",
-				__func__);
+			mif_err("<%s> new_state = CRASH_EXIT\n", mc->name);
 		} else {
-			pr_err("[CMC] <%s> Don't care!!!\n", __func__);
+			mif_err("<%s> Don't care!!!\n", mc->name);
 		}
 	}
 
-	if (old_state != new_state)
+	if (old_state != new_state) {
+		mc->bootd->modem_state_changed(mc->bootd, new_state);
 		mc->iod->modem_state_changed(mc->iod, new_state);
+	}
 }
 
 static void mc_work(struct work_struct *work_arg)
@@ -86,10 +82,24 @@ static irqreturn_t phone_active_handler(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t dynamic_switching_handler(int irq, void *arg)
+{
+	struct modem_ctl *mc = (struct modem_ctl *)arg;
+	int txpath = gpio_get_value(mc->gpio_dynamic_switching);
+
+	rawdevs_set_tx_link(&mc->commons, txpath ? LINKDEV_USB : LINKDEV_DPRAM);
+
+	return IRQ_HANDLED;
+}
+
 static int cmc221_on(struct modem_ctl *mc)
 {
-	mdm_info(mc, "on\n");
-	pr_err("[CMC] <%s> device = %s\n", __func__, mc->bootd->name);
+	struct link_device *ld = get_current_link(mc->bootd);
+	struct dpram_link_device *dpld = to_dpram_link_device(ld);
+
+	mif_err("<%s>\n", mc->bootd->name);
+
+	disable_irq_nosync(dpld->irq);
 
 	gpio_set_value(mc->gpio_cp_on, 0);
 	if (mc->gpio_cp_off)
@@ -115,15 +125,18 @@ static int cmc221_on(struct modem_ctl *mc)
 
 static int cmc221_off(struct modem_ctl *mc)
 {
-	mdm_info(mc, "off\n");
-	pr_err("[CMC] <%s> device = %s\n", __func__, mc->bootd->name);
+	mif_err("<%s>\n", mc->bootd->name);
 
 	gpio_set_value(mc->gpio_cp_on, 0);
+
+	if (mc->log_fp)
+		mif_close_log_file(mc);
 
 	msleep(100);
 
 	if (mc->gpio_cp_off)
 		gpio_set_value(mc->gpio_cp_off, 1);
+
 	gpio_set_value(mc->gpio_cp_reset, 0);
 
 	mc->phone_state = STATE_OFFLINE;
@@ -133,23 +146,22 @@ static int cmc221_off(struct modem_ctl *mc)
 
 static int cmc221_force_crash_exit(struct modem_ctl *mc)
 {
-	mdm_info(mc, "crash_exit\n");
-	pr_err("[CMC] <%s> device = %s\n", __func__, mc->iod->name);
+	struct link_device *ld = get_current_link(mc->bootd);
+
+	mif_err("<%s>\n", mc->bootd->name);
 
 	/* Make DUMP start */
-	mc->iod->link->force_dump(mc->iod->link, mc->iod);
-
-	msleep_interruptible(1000);
-
-	mc->iod->modem_state_changed(mc->iod, STATE_CRASH_EXIT);
+	ld->force_dump(ld, mc->bootd);
 
 	return 0;
 }
 
 static int cmc221_dump_reset(struct modem_ctl *mc)
 {
-	mdm_info(mc, "dump_reset\n");
-	pr_err("[CMC] <%s> device = %s\n", __func__, mc->iod->name);
+	mif_err("<%s>\n", mc->bootd->name);
+
+	if (mc->log_fp)
+		mif_close_log_file(mc);
 
 	gpio_set_value(mc->gpio_host_active, 0);
 	gpio_set_value(mc->gpio_cp_reset, 0);
@@ -165,7 +177,7 @@ static int cmc221_dump_reset(struct modem_ctl *mc)
 
 static int cmc221_reset(struct modem_ctl *mc)
 {
-	mdm_info(mc, "reset\n");
+	mif_err("<%s>\n", mc->bootd->name);
 
 	if (cmc221_off(mc))
 		return -ENXIO;
@@ -180,19 +192,39 @@ static int cmc221_reset(struct modem_ctl *mc)
 
 static int cmc221_boot_on(struct modem_ctl *mc)
 {
-	mdm_dbg(mc, "\n");
-	pr_err("[CMC] <%s>\n", __func__);
+	mif_err("<%s>\n", mc->bootd->name);
 
-	pr_err("[CMC] <%s> phone_state = STATE_BOOTING\n", __func__);
+	mc->bootd->modem_state_changed(mc->bootd, STATE_BOOTING);
 	mc->iod->modem_state_changed(mc->iod, STATE_BOOTING);
+
+	mif_set_log_level(mc);
 
 	return 0;
 }
 
 static int cmc221_boot_off(struct modem_ctl *mc)
 {
-	mdm_dbg(mc, "\n");
-	pr_err("[CMC] <%s>\n", __func__);
+	int ret;
+	struct link_device *ld = get_current_link(mc->bootd);
+	struct dpram_link_device *dpld = to_dpram_link_device(ld);
+
+	mif_err("<%s>\n", mc->bootd->name);
+
+	ret = wait_for_completion_interruptible_timeout(&dpld->dpram_init_cmd,
+			DPRAM_INIT_TIMEOUT);
+	if (!ret) {
+		/* ret == 0 on timeout, ret < 0 if interrupted */
+		mif_err("Timeout!!! (PHONE_START was not arrived.)\n");
+		return -ENXIO;
+	}
+
+	if (!mc->fs_ready)
+		mc->fs_ready = true;
+
+	if (mc->use_mif_log && mc->log_level && !mc->fs_failed &&
+	    mc->fs_ready && !mc->log_fp)
+		mif_open_log_file(mc);
+
 	return 0;
 }
 
@@ -226,9 +258,10 @@ int cmc221_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	mc->gpio_host_active  = pdata->gpio_host_active;
 	mc->gpio_host_wakeup  = pdata->gpio_host_wakeup;
 #endif
+	mc->gpio_dynamic_switching = pdata->gpio_dynamic_switching;
 
 	if (!mc->gpio_cp_on || !mc->gpio_cp_reset || !mc->gpio_phone_active) {
-		mdm_err(mc, "no GPIO data\n");
+		mif_err("no GPIO data\n");
 		return -ENXIO;
 	}
 
@@ -244,26 +277,39 @@ int cmc221_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	pdev = to_platform_device(mc->dev);
 	mc->irq_phone_active = platform_get_irq_byname(pdev, "cp_active_irq");
 	if (!mc->irq_phone_active) {
-		mdm_err(mc, "get irq fail\n");
+		mif_err("get irq fail\n");
 		return -1;
 	}
 
 	irq = mc->irq_phone_active;
-	pr_err("[CMC] <%s> PHONE_ACTIVE IRQ# = %d\n", __func__, irq);
+	mif_err("PHONE_ACTIVE IRQ# = %d\n", irq);
 
 	flag = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
 	/* flag |= IRQF_NO_SUSPEND; */
 	ret = request_irq(irq, phone_active_handler, flag, "cmc_active", mc);
 	if (ret) {
-		pr_err("[CMC] <%s> request_irq fail (%d)\n", __func__, ret);
+		mif_err("request_irq fail (%d)\n", ret);
 		return ret;
 	}
 
 	ret = enable_irq_wake(irq);
 	if (ret)
-		pr_err("[CMC] <%s> enable_irq_wake fail (%d)\n", __func__, ret);
+		mif_err("enable_irq_wake fail (%d)\n", ret);
 
-	pr_err("[CMC] <%s> IRQ#%d handler is registered.\n", __func__, irq);
+	mif_err("IRQ#%d handler is registered.\n", irq);
+
+	if (mc->gpio_dynamic_switching) {
+		irq = gpio_to_irq(mc->gpio_dynamic_switching);
+		ret = request_irq(irq, dynamic_switching_handler,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+				"dynamic_switching", mc);
+		if (ret) {
+			mif_err("gpio_dynamic_switching: "
+					"request_irq fail (%d)\n", ret);
+			return ret;
+		}
+		mif_err("IRQ#%d handler is registered.\n", irq);
+	}
 
 	return 0;
 }

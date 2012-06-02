@@ -15,38 +15,20 @@
 #ifndef __MODEM_UTILS_H__
 #define __MODEM_UTILS_H__
 
-#define MAX_SKB_LOG_LEN ((size_t)16)
-#define RAW_DEV(rdevs, i) (((struct io_raw_devices *)rdevs)->raw_devices[i])
+#include <linux/rbtree.h>
 
-/**
- * raw_devs_for_each - iterate raw devices of multi raw device
- * @iod:	struct io_device *iod
- * @index:	int index
- * @multiraw:	struct io_device *multiraw
+#define IS_CONNECTED(iod, ld) ((iod)->link_types & LINKTYPE((ld)->link_type))
+
+/** find_linkdev - find a link device
+ * @commons:	struct mif_common
  */
-#define raw_devs_for_each(multiraw, index, iod) \
-	for (index = 0; iod = RAW_DEV(multiraw->private_data, index), \
-		index < MAX_RAW_DEVS; index++) \
-		if (iod)
-
-/**
- * io_devs_for_each - iterate io devices of list_of_io_devices
- * @iod:	struct io_device *iod
- * @ld:		struct link_device *ld
- */
-#define io_devs_for_each(iod, ld) \
-	list_for_each_entry(iod, (ld)->list_of_io_devices, list) \
-		if (iod->link_types & LINKTYPE((ld)->link_type))
-
-
-static inline struct io_device *find_iodev(struct link_device *ld,
-		enum dev_format format)
+static inline struct link_device *find_linkdev(struct mif_common *commons,
+		enum modem_link link_type)
 {
-	struct io_device *iod;
-
-	io_devs_for_each(iod, ld) {
-		if (iod->format == format)
-			return iod;
+	struct link_device *ld;
+	list_for_each_entry(ld, &commons->link_dev_list, list) {
+		if (ld->link_type == link_type)
+			return ld;
 	}
 	return NULL;
 }
@@ -67,16 +49,138 @@ int pr_buffer(const char *tag, const char *data, size_t data_len,
 							size_t max_len);
 
 /* print a sk_buff as hex string */
-static inline int pr_skb(const char *tag, struct sk_buff *skb)
-{
-	return pr_buffer(tag, skb->data, skb->len, MAX_SKB_LOG_LEN);
-}
+#define pr_skb(tag, skb) \
+	pr_buffer(tag, (char *)((skb)->data), (size_t)((skb)->len), (size_t)16)
+
+/* print a urb as hex string */
+#define pr_urb(tag, urb) \
+	pr_buffer(tag, (char *)((urb)->transfer_buffer), \
+			(size_t)((urb)->actual_length), (size_t)16)
 
 /* flow control CMD from CP, it use in serial devices */
 int link_rx_flowctl_cmd(struct link_device *ld, const char *data, size_t len);
 
+
+/* get iod from tree functions */
+
+struct io_device *get_iod_with_format(struct mif_common *commons,
+					enum dev_format format);
+struct io_device *get_iod_with_channel(struct mif_common *commons,
+					unsigned channel);
+
+static inline struct io_device *link_get_iod_with_format(
+			struct link_device *ld, enum dev_format format)
+{
+	struct io_device *iod = get_iod_with_format(&ld->mc->commons, format);
+	return (iod && IS_CONNECTED(iod, ld)) ? iod : NULL;
+}
+
+static inline struct io_device *link_get_iod_with_channel(
+			struct link_device *ld, unsigned channel)
+{
+	struct io_device *iod = get_iod_with_channel(&ld->mc->commons, channel);
+	return (iod && IS_CONNECTED(iod, ld)) ? iod : NULL;
+}
+
+/* insert iod to tree functions */
+struct io_device *insert_iod_with_format(struct mif_common *commons,
+			enum dev_format format, struct io_device *iod);
+struct io_device *insert_iod_with_channel(struct mif_common *commons,
+			unsigned channel, struct io_device *iod);
+
+/* iodev for each */
+typedef void (*action_fn)(struct io_device *iod, void *args);
+void iodevs_for_each(struct mif_common *commons, action_fn action, void *args);
+
+/* netif wake/stop queue of iod */
+void iodev_netif_wake(struct io_device *iod, void *args);
+void iodev_netif_stop(struct io_device *iod, void *args);
+
+/* change tx_link of raw devices */
+void rawdevs_set_tx_link(struct mif_common *commons, enum modem_link link_type);
+
+void mif_add_timer(struct timer_list *timer, unsigned long expire,
+		void (*function)(unsigned long), unsigned long data);
+
+/* debug helper functions for sipc4, sipc5 */
 void mif_print_data(char *buf, int len);
 void print_sipc4_hdlc_fmt_frame(const u8 *psrc);
 void print_sipc4_fmt_frame(const u8 *psrc);
+void print_sipc5_link_fmt_frame(const u8 *psrc);
+
+
+/*---------------------------------------------------------------------------
+
+				IPv4 Header Format
+
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|Version|  IHL  |Type of Service|          Total Length         |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|         Identification        |C|D|M|     Fragment Offset     |
+	|                               |E|F|F|                         |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|  Time to Live |    Protocol   |         Header Checksum       |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                       Source Address                          |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                    Destination Address                        |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                    Options                    |    Padding    |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+	IHL - Header Length
+	Flags - Consist of 3 bits
+		The 1st bit is "Congestion" bit.
+		The 2nd bit is "Dont Fragment" bit.
+		The 3rd bit is "More Fragments" bit.
+
+---------------------------------------------------------------------------*/
+#define IPV4_HDR_SIZE	20
+
+/*-------------------------------------------------------------------------
+
+				TCP Header Format
+
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|          Source Port          |       Destination Port        |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                        Sequence Number                        |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                    Acknowledgment Number                      |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|  Data |       |C|E|U|A|P|R|S|F|                               |
+	| Offset| Rsvd  |W|C|R|C|S|S|Y|I|            Window             |
+	|       |       |R|E|G|K|H|T|N|N|                               |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|           Checksum            |         Urgent Pointer        |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                    Options                    |    Padding    |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                             data                              |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+-------------------------------------------------------------------------*/
+#define TCP_HDR_SIZE	20
+
+/*-------------------------------------------------------------------------
+
+				UDP Header Format
+
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|          Source Port          |       Destination Port        |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|            Length             |           Checksum            |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	|                             data                              |
+	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+-------------------------------------------------------------------------*/
+#define UDP_HDR_SIZE	8
+
+void print_ip4_packet(u8 *ip_pkt);
 
 #endif/*__MODEM_UTILS_H__*/

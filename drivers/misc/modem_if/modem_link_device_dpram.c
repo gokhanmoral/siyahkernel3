@@ -1,5 +1,4 @@
 /*
- * Copyright (C) 2011 Google, Inc.
  * Copyright (C) 2010 Samsung Electronics.
  *
  * This software is licensed under the terms of the GNU General Public
@@ -25,29 +24,43 @@
 #include <linux/vmalloc.h>
 #include <linux/if_arp.h>
 #include <linux/platform_device.h>
-
+#include <linux/kallsyms.h>
 #include <linux/platform_data/modem.h>
+
 #include "modem_prj.h"
 #include "modem_link_device_dpram.h"
 #include "modem_utils.h"
 
+#define DEBUG_CMP_BIN	0
+
+const inline char *get_dev_name(int dev)
+{
+	if (dev == IPC_FMT_DEV)
+		return "FMT";
+	else if (dev == IPC_RAW_DEV)
+		return "RAW";
+	else if (dev == IPC_RFS_DEV)
+		return "RFS";
+	else
+		return "NONE";
+}
+
 static int memcmp16_to_io(const void __iomem *to, void *from, int size)
 {
-	int count = size >> 1;
-	int i = 0;
 	u16 *d = (u16 *)to;
 	u16 *s = (u16 *)from;
-	u16 d1 = 0;
-	u16 s1 = 0;
+	int count = size >> 1;
 	int diff = 0;
+	int i;
+	u16 d1;
+	u16 s1;
 
 	for (i = 0; i < count; i++) {
 		d1 = ioread16(d);
 		s1 = *s;
 		if (d1 != s1) {
 			diff++;
-			pr_err("[LNK/E] <%s> d[%d] 0x%04X != s[%d] 0x%04X\n",
-				__func__, i, d1, i, s1);
+			mif_err("ERR: [%d] d:0x%04X != s:0x%04X\n", i, d1, s1);
 		}
 		d++;
 		s++;
@@ -56,14 +69,13 @@ static int memcmp16_to_io(const void __iomem *to, void *from, int size)
 	return diff;
 }
 
-static int dpram_test_memory(char *dp_name, u8 __iomem *start, u32 size)
+static int test_dpram(char *dp_name, u8 __iomem *start, u32 size)
 {
-	int i = 0;
-	u8 __iomem *dst = NULL;
-	u16 val = 0;
+	u8 __iomem *dst;
+	int i;
+	u16 val;
 
-	pr_err("[LNK] <%s:%s> start = 0x%08X, size = %d\n",
-		__func__, dp_name, (int)start, size);
+	mif_err("<%s> start = 0x%p, size = %d\n", dp_name, start, size);
 
 	dst = start;
 	for (i = 0; i < (size >> 1); i++) {
@@ -75,9 +87,9 @@ static int dpram_test_memory(char *dp_name, u8 __iomem *start, u32 size)
 	for (i = 0; i < (size >> 1); i++) {
 		val = ioread16(dst);
 		if (val != (i & 0xFFFF)) {
-			pr_err("[LNK/E] <%s:%s> dst[%d] 0x%04X != 0x%04X\n",
-				__func__, dp_name, i, val, (i & 0xFFFF));
-			return -1;
+			mif_err("ERR: <%s> dst[%d] 0x%04X != 0x%04X\n",
+				dp_name, i, val, (i & 0xFFFF));
+			return -EINVAL;
 		}
 		dst += 2;
 	}
@@ -92,9 +104,9 @@ static int dpram_test_memory(char *dp_name, u8 __iomem *start, u32 size)
 	for (i = 0; i < (size >> 1); i++) {
 		val = ioread16(dst);
 		if (val != 0x00FF) {
-			pr_err("[LNK/E] <%s:%s> dst[%d] 0x%04X != 0x00FF\n",
-				__func__, dp_name, i, val);
-			return -1;
+			mif_err("ERR: <%s> dst[%d] 0x%04X != 0x00FF\n",
+				dp_name, i, val);
+			return -EINVAL;
 		}
 		dst += 2;
 	}
@@ -109,9 +121,9 @@ static int dpram_test_memory(char *dp_name, u8 __iomem *start, u32 size)
 	for (i = 0; i < (size >> 1); i++) {
 		val = ioread16(dst);
 		if (val != 0x0FF0) {
-			pr_err("[LNK/E] <%s:%s> dst[%d] 0x%04X != 0x0FF0\n",
-				__func__, dp_name, i, val);
-			return -1;
+			mif_err("ERR: <%s> dst[%d] 0x%04X != 0x0FF0\n",
+				dp_name, i, val);
+			return -EINVAL;
 		}
 		dst += 2;
 	}
@@ -126,9 +138,9 @@ static int dpram_test_memory(char *dp_name, u8 __iomem *start, u32 size)
 	for (i = 0; i < (size >> 1); i++) {
 		val = ioread16(dst);
 		if (val != 0xFF00) {
-			pr_err("[LNK/E] <%s:%s> dst[%d] 0x%04X != 0xFF00\n",
-				__func__, dp_name, i, val);
-			return -1;
+			mif_err("ERR: <%s> dst[%d] 0x%04X != 0xFF00\n",
+				dp_name, i, val);
+			return -EINVAL;
 		}
 		dst += 2;
 	}
@@ -143,444 +155,565 @@ static int dpram_test_memory(char *dp_name, u8 __iomem *start, u32 size)
 	for (i = 0; i < (size >> 1); i++) {
 		val = ioread16(dst);
 		if (val != 0) {
-			pr_err("[LNK/E] <%s:%s> dst[%d] 0x%04X != 0\n",
-				__func__, dp_name, i, val);
-			return -1;
+			mif_err("ERR: <%s> dst[%d] 0x%04X != 0\n",
+				dp_name, i, val);
+			return -EINVAL;
 		}
 		dst += 2;
 	}
 
-	pr_err("[LNK] <%s:%s> PASS!!!\n", __func__, dp_name);
+	mif_err("<%s> PASS!!!\n", dp_name);
 	return 0;
 }
 
-static int dpram_register_isr
-(
-	unsigned irq,
-	irqreturn_t (*isr)(int, void*),
-	unsigned long flag,
-	const char *name,
-	struct link_device *ld
-)
+static inline unsigned rxbq_get_page_size(unsigned len)
+{
+	return ((len + PAGE_SIZE - 1) >> PAGE_SHIFT) << PAGE_SHIFT;
+}
+
+static struct dpram_rxb *rxbq_create_pool(unsigned size, int count)
+{
+	struct dpram_rxb *rxb;
+	u8 *buff;
+	int i;
+
+	rxb = kzalloc(sizeof(struct dpram_rxb) * count, GFP_KERNEL);
+	if (!rxb) {
+		mif_err("ERR: kzalloc rxb fail\n");
+		return NULL;
+	}
+
+	buff = kzalloc((size * count), GFP_KERNEL|GFP_DMA);
+	if (!buff) {
+		mif_err("ERR: kzalloc buff fail\n");
+		kfree(rxb);
+		return NULL;
+	}
+
+	for (i = 0; i < count; i++) {
+		rxb[i].buff = buff;
+		rxb[i].size = size;
+		buff += size;
+	}
+
+	return rxb;
+}
+
+static inline bool rxbq_empty(struct dpram_rxb_queue *rxbq)
+{
+	return (rxbq->in == rxbq->out) ? true : false;
+}
+
+static inline int rxbq_free_size(struct dpram_rxb_queue *rxbq)
+{
+	int in = rxbq->in;
+	int out = rxbq->out;
+	int qsize = rxbq->size;
+	return (in < out) ? (out - in - 1) : (qsize + out - in - 1);
+}
+
+static struct dpram_rxb *rxbq_get_free_rxb(struct dpram_rxb_queue *rxbq)
+{
+	struct dpram_rxb *rxb = NULL;
+
+	if (likely(rxbq_free_size(rxbq) > 0)) {
+		rxb = &rxbq->rxb[rxbq->in];
+		rxbq->in++;
+		if (rxbq->in >= rxbq->size)
+			rxbq->in -= rxbq->size;
+		rxb->data = rxb->buff;
+	}
+
+	return rxb;
+}
+
+static inline int rxbq_size(struct dpram_rxb_queue *rxbq)
+{
+	int in = rxbq->in;
+	int out = rxbq->out;
+	int qsize = rxbq->size;
+	return (in >= out) ? (in - out) : (qsize - out + in);
+}
+
+static struct dpram_rxb *rxbq_get_data_rxb(struct dpram_rxb_queue *rxbq)
+{
+	struct dpram_rxb *rxb = NULL;
+
+	if (likely(!rxbq_empty(rxbq))) {
+		rxb = &rxbq->rxb[rxbq->out];
+		rxbq->out++;
+		if (rxbq->out >= rxbq->size)
+			rxbq->out -= rxbq->size;
+	}
+
+	return rxb;
+}
+
+static inline u8 *rxb_put(struct dpram_rxb *rxb, unsigned len)
+{
+	rxb->len = len;
+	return rxb->data;
+}
+
+static inline void rxb_clear(struct dpram_rxb *rxb)
+{
+	rxb->data = NULL;
+	rxb->len = 0;
+}
+
+static int dpram_register_isr(unsigned irq, irqreturn_t (*isr)(int, void*),
+		unsigned long flag, const char *name, struct link_device *ld)
 {
 	int ret = 0;
 
 	ret = request_irq(irq, isr, flag, name, ld);
 	if (ret) {
-		pr_err("[LNK/E] <%s> request_irq fail (%d)\n",
-			__func__, ret);
+		mif_err("ERR: request_irq fail (err %d)\n", ret);
 		return ret;
 	}
 
 	ret = enable_irq_wake(irq);
 	if (ret)
-		pr_err("[LNK/E] <%s> enable_irq_wake fail (%d)\n",
-			__func__, ret);
+		mif_err("ERR: enable_irq_wake fail (err %d)\n", ret);
 
-	pr_err("[LNK] <%s> IRQ#%d handler is registered.\n", __func__, irq);
+	mif_err("IRQ#%d handler is registered.\n", irq);
 
 	return 0;
 }
 
-static void dpram_register_timer
-(
-	struct dpram_link_device *dpld,
-	struct timer_list *timer,
-	unsigned long expire,
-	void (*function)(unsigned long)
-)
+/*
+** CAUTION : dpram_allow_sleep() MUST be invoked after dpram_wake_up() success
+*/
+static inline int dpram_wake_up(struct dpram_link_device *dpld)
 {
-	init_timer(timer);
-	timer->expires = get_jiffies_64() + expire;
-	timer->function = function;
-	timer->data = (unsigned long)dpld;
-	add_timer(timer);
+	struct link_device *ld = &dpld->ld;
+
+	if (!dpld->dpctl->wakeup)
+		return 0;
+
+	if (dpld->dpctl->wakeup() < 0) {
+		mif_err("ERR: <%s:%pF> DPRAM wakeup fail\n",
+			ld->name, __builtin_return_address(0));
+		return -EACCES;
+	}
+	atomic_inc(&dpld->accessing);
+	return 0;
 }
 
-static inline bool dpram_circ_valid(int size, u32 head, u32 tail)
+static inline void dpram_allow_sleep(struct dpram_link_device *dpld)
 {
-	if (head >= size) {
-		pr_err("[LNK/E] head(%d) >= size(%d)\n", head, size);
+	struct link_device *ld = &dpld->ld;
+
+	if (!dpld->dpctl->sleep)
+		return;
+
+	if (atomic_dec_return(&dpld->accessing) == 0) {
+		dpld->dpctl->sleep();
+		mif_debug("<%s> DPRAM sleep possible\n", ld->name);
+	}
+}
+
+static inline int dpram_check_access(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+	u16 magic = dpld->dpctl->get_magic();
+	u16 access = dpld->dpctl->get_access();
+
+	if (unlikely(magic != DPRAM_MAGIC_CODE || access != 1)) {
+		mif_err("ERR: <%s:%pF> !CRISIS! magic:%X access:%X\n",
+			ld->name, __builtin_return_address(0), magic, access);
+		return -EACCES;
+	}
+
+	return 0;
+}
+
+static inline bool dpram_ipc_active(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+
+	/* Check DPRAM mode */
+	if (ld->mode != LINK_MODE_IPC) {
+		mif_err("ERR: <%s:%pF> ld->mode != LINK_MODE_IPC\n",
+			ld->name, __builtin_return_address(0));
 		return false;
 	}
-	if (tail >= size) {
-		pr_err("[LNK/E] tail(%d) >= size(%d)\n", tail, size);
+
+	if (dpram_check_access(dpld) < 0)
 		return false;
-	}
+
 	return true;
 }
 
-static struct sk_buff *dpram_read
-(
-	struct dpram_link_device *dpld,
-	int dev_id,
-	u32 head,
-	u32 tail,
-	u32 buff_size
-)
+static inline bool dpram_circ_valid(u32 size, u32 in, u32 out)
+{
+	if (in >= size)
+		return false;
+
+	if (out >= size)
+		return false;
+
+	return true;
+}
+
+static void dpram_ipc_write(struct dpram_link_device *dpld,
+		enum sipc_dev_type dev, u32 in, u32 out, u32 qsize,
+		struct sk_buff *skb)
 {
 	struct link_device *ld = &dpld->ld;
 	struct modemlink_dpram_control *dpctl = dpld->dpctl;
-	struct sk_buff *skb = NULL;
-	u8 __iomem *src = NULL;
-	u8  *buff = NULL;
-	int  len = 0;
-	int  len1 = 0, len2 = 0;
+	u8 *buff = skb->data;
+	u32 len = skb->len;
+	u32 space = 0;
+	u8 __iomem *dst = dpctl->get_tx_buff(dev);
 
-	/* Get data length in DPRAM*/
-	len = (head > tail) ? (head - tail) : (buff_size - tail + head);
+	mif_ipc_log(MIF_LNK_TX_EVT, ld->mc, NULL, ld, buff, len);
 
-#if 0
-	if (dev_id == IPC_FMT)
-		pr_err("[LNK] <%s:%s> FMT, buff=%d, head=%d, tail=%d, len=%d\n",
-			__func__, ld->name, buff_size, head, tail, len);
-#endif
-#if 0
-	if (dev_id == IPC_RAW)
-		pr_err("[LNK] <%s:%s> RAW, buff=%d, head=%d, tail=%d, len=%d\n",
-			__func__, ld->name, buff_size, head, tail, len);
-#endif
-#if 0
-	if (dev_id == IPC_RFS)
-		pr_err("[LNK] <%s:%s> RFS, buff=%d, head=%d, tail=%d, len=%d\n",
-			__func__, ld->name, buff_size, head, tail, len);
-#endif
-
-	skb = alloc_skb(len, GFP_ATOMIC);
-	if (!skb) {
-		pr_err("[LNK/E] <%s:%s> alloc_skb fail\n", __func__, ld->name);
-		return NULL;
-	}
-
-	if (head > tail) {
-		/* ----- (tail) 7f 00 00 7e (head) ----- */
-		buff = skb_put(skb, len);
-		src  = dpctl->get_rx_buff(dev_id) + tail;
-		memcpy(buff, src, len);
+	if (in < out) {
+		/* +++++++++ in ---------- out ++++++++++ */
+		memcpy((dst + in), buff, len);
 	} else {
-		/* 00 7e (head) ----------- (tail) 7f 00 */
-		/* 1) tail -> buffer end */
-		buff = skb_put(skb, len);
-		src  = dpctl->get_rx_buff(dev_id) + tail;
-		len1 = buff_size - tail;
-		memcpy(buff, src, len1);
+		/* ------ out +++++++++++ in ------------ */
+		/* 1) in -> buffer end */
+		space = qsize - in;
+		memcpy((dst + in), buff, ((len > space) ? space : len));
 
-		/* 2) buffer start -> head */
-		if (len > len1) {
-			buff = buff + len1;
-			src  = dpctl->get_rx_buff(dev_id);
-			len2 = len - len1;
-			memcpy(buff, src, len2);
-		}
+		/* 2) buffer start -> out */
+		if (len > space)
+			memcpy(dst, (buff + space), (len - space));
 	}
 
-	/* new tail */
-	tail = (u32)((tail + len) % buff_size);
-	dpctl->set_rx_tail(dev_id, tail);
+	/* update new in pointer */
+	in += len;
+	if (in >= qsize)
+		in -= qsize;
+	dpctl->set_tx_head(dev, in);
 
-	return skb;
+	/* send interrupt to CP */
+	dpctl->send_intr(INT_NON_CMD(dpctl->get_mask_send(dev)));
+
+	/* check queue status */
+	mif_debug("<%s> {M:%X A:%X} {FMT %u %u %u %u} {RAW %u %u %u %u} ...\n",
+		ld->name, dpctl->get_magic(), dpctl->get_access(),
+		dpctl->get_tx_head(IPC_FMT), dpctl->get_tx_tail(IPC_FMT),
+		dpctl->get_rx_head(IPC_FMT), dpctl->get_rx_tail(IPC_FMT),
+		dpctl->get_tx_head(IPC_RAW), dpctl->get_tx_tail(IPC_RAW),
+		dpctl->get_rx_head(IPC_RAW), dpctl->get_rx_tail(IPC_RAW));
 }
 
-static void dpram_rx_work(struct work_struct *work)
-{
-	struct link_device *ld = NULL;
-	struct dpram_link_device *dpld = NULL;
-	struct sk_buff *skb = NULL;
-	struct io_device *iod = NULL;
-	int  i = 0;
-
-	dpld = container_of(work, struct dpram_link_device, rx_work);
-	if (!dpld)
-		pr_err("[LNK/E] <%s> dpld == NULL\n", __func__);
-	ld = &dpld->ld;
-
-	for (i = 0; i < dpld->max_ipc_dev; i++) {
-		iod = dpld->iod[i];
-		while ((skb = skb_dequeue(&dpld->skb_rxq[i])) != NULL) {
-			if (iod->recv(iod, ld, skb->data, skb->len) < 0)
-				pr_err("[LNK/E] <%s:%s> recv fail\n",
-					__func__, ld->name);
-			dev_kfree_skb_any(skb);
-		}
-	}
-}
-
-static int dpram_write
-(
-	struct dpram_link_device *dpld,
-	int dev_id,
-	const char *buff,
-	unsigned size
-)
+static inline int dpram_get_txq_space(struct dpram_link_device *dpld,
+		enum sipc_dev_type dev, u32 *in, u32 *out, u32 *qsize)
 {
 	struct link_device *ld = &dpld->ld;
-	struct modemlink_dpram_control *dpctl = dpld->dpctl;
-	u8 __iomem *dst = NULL;
-	u8         *src = NULL;
-	unsigned    len = 0;
-	u32  head = 0;
-	u32  tail = 0;
-	u32  qsize = 0;
-	int  space = 0;
-	u16  mask = 0;
 
-	if (unlikely(!size)) {
-		pr_err("[LNK/E] <%s:%s> dev_id = %d, size == 0\n",
-			__func__, ld->name, dev_id);
+	*in = dpld->dpctl->get_tx_head(dev);
+	*out = dpld->dpctl->get_tx_tail(dev);
+	*qsize = dpld->dpctl->get_tx_buff_size(dev);
+
+	if (!dpram_circ_valid(*qsize, *in, *out)) {
+		mif_err("ERR: <%s:%pF> %s_TXQ invalid (size:%d in:%d out:%d)\n",
+			ld->name, __builtin_return_address(0),
+			get_dev_name(dev), *qsize, *in, *out);
+		dpld->dpctl->set_tx_head(dev, 0);
+		dpld->dpctl->set_tx_tail(dev, 0);
+		*in = 0;
+		*out = 0;
 		return -EINVAL;
 	}
 
-	if (dpctl->wakeup) {
-		/* Wakeup DPRAM, then check magic and access */
-		if (dpctl->wakeup())
-			return -EINVAL;
-	} else {
-		/* Check magic and access */
-		head = dpctl->get_magic();
-		tail = dpctl->get_access();
-		if (head != DPRAM_MAGIC_CODE || tail != 1) {
-			pr_err("\n[LNK/E] <%s:%s> magic=0x%X, access=0x%X\n\n",
-				__func__, ld->name, head, tail);
-			return -EINVAL;
-		}
-	}
-
-#if 0
-	if (dev_id == IPC_FMT)
-		pr_err("[LNK] <%s:%s> FMT, size = %d\n",
-			__func__, ld->name, size);
-#endif
-#if 0
-	if (dev_id == IPC_RAW)
-		pr_err("[LNK] <%s:%s> RAW, size = %d\n",
-			__func__, ld->name, size);
-#endif
-#if 0
-	if (dev_id == IPC_RFS)
-		pr_err("[LNK] <%s:%s> RFS, size = %d\n",
-			__func__, ld->name, size);
-#endif
-
-	head = dpctl->get_tx_head(dev_id);
-	tail = dpctl->get_tx_tail(dev_id);
-	qsize = dpctl->get_tx_buff_size(dev_id);
-
-	if (!dpram_circ_valid(qsize, head, tail)) {
-		pr_err("[LNK/E] <%s:%s> invalid circular buffer\n",
-			__func__, ld->name);
-		dpctl->set_tx_head(dev_id, 0);
-		dpctl->set_tx_tail(dev_id, 0);
-		len = -EINVAL;
-		goto exit;
-	}
-
-	space = (head < tail) ? (tail - head - 1) : (qsize + tail - head - 1);
-	if (size > space) {
-		pr_info("[LNK] <%s:%s> NO_SPC in TXQ[%d] "
-			"(qsize[%d] free[%d] head[%d] tail[%d] vs. size[%d])\n",
-			__func__, ld->name,
-			dev_id, qsize, space, head, tail, size);
-		mask = dpctl->get_mask_req_ack(dev_id);
-		dpctl->send_intr(INT_NON_CMD(mask));
-		len = -EAGAIN;
-		goto exit;
-	}
-
-#if 0
-	if (dev_id == IPC_FMT) {
-		pr_err("\n[LNK] <%s:%s> Tx HDLC FMT frame (len %d)\n",
-			__func__, ld->name, size);
-		print_sipc4_hdlc_fmt_frame(buff);
-		pr_err("\n");
-	}
-#endif
-#if 0
-	if (dev_id == IPC_RAW) {
-		pr_err("\n[LNK] <%s:%s> Tx HDLC RAW frame (len %d)\n",
-			__func__, ld->name, size);
-		mif_print_data((char *)buff, (size < 64 ? size : 64));
-		pr_err("\n");
-	}
-#endif
-#if 0
-	if (dev_id == IPC_RFS) {
-		pr_err("\n[LNK] <%s:%s> Tx HDLC RFS frame (len %d)\n",
-			__func__, ld->name, size);
-		mif_print_data((char *)buff, (size < 64 ? size : 64));
-		pr_err("\n");
-	}
-#endif
-
-	if (head < tail) {
-		/* +++++++++ head ---------- tail ++++++++++ */
-		dst = dpctl->get_tx_buff(dev_id) + head;
-		src = (u8 *)buff;
-		len = size;
-		memcpy(dst, src, len);
-	} else {
-		/* ------ tail +++++++++++ head ------------ */
-		space = qsize - head;
-
-		dst = dpctl->get_tx_buff(dev_id) + head;
-		src = (u8 *)buff;
-		len = (size > space) ? space : size;
-
-		/* 1) head -> buffer end */
-		memcpy(dst, src, len);
-
-		/* 2) buffer start -> tail */
-		if (size > space) {
-			dst = dpctl->get_tx_buff(dev_id);
-			src = (u8 *)(buff + space);
-			len = (size - space);
-			memcpy(dst, src, len);
-		}
-	}
-
-	/* Update new head */
-	head = (u32)((head + size) % qsize);
-	dpctl->set_tx_head(dev_id, head);
-
-	/* Send interrupt to CP */
-	mask = dpctl->get_mask_send(dev_id);
-	dpctl->send_intr(INT_NON_CMD(mask));
-
-exit:
-	if (dpctl->sleep)
-		dpctl->sleep();
-	return len;
+	return (*in < *out) ? (*out - *in - 1) : (*qsize + *out - *in - 1);
 }
 
-static void dpram_tx_work(struct work_struct *work)
+static void dpram_trigger_crash(struct dpram_link_device *dpld)
 {
-	struct link_device *ld = NULL;
-	struct dpram_link_device *dpld = NULL;
-	struct sk_buff *skb = NULL;
-	bool reschedule = false;
-	int  ret = 0;
-	int  i = 0;
+	struct link_device *ld = &dpld->ld;
+	struct io_device *iod;
 
-	ld = container_of(work, struct link_device, tx_delayed_work.work);
-	dpld = to_dpram_link_device(ld);
+	ld->mode = LINK_MODE_ULOAD;
+
+	iod = link_get_iod_with_format(ld, IPC_FMT);
+	iod->modem_state_changed(iod, STATE_CRASH_EXIT);
+
+	iod = link_get_iod_with_format(ld, IPC_BOOT);
+	iod->modem_state_changed(iod, STATE_CRASH_EXIT);
+}
+
+static int dpram_trigger_force_cp_crash(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+	int ret;
+	int cnt = 5000;
+
+	mif_err("<%s>\n", ld->name);
+
+	dpld->dpctl->send_intr(INT_CMD(INT_CMD_CRASH_EXIT));
+
+	while (cnt--) {
+		ret = try_wait_for_completion(&dpld->crash_start_complete);
+		if (ret)
+			break;
+		udelay(1000);
+	}
+
+	if (!ret) {
+		mif_err("ERR: <%s> No CRASH_EXIT ACK from CP\n", ld->name);
+		dpram_trigger_crash(dpld);
+	}
+
+	return 0;
+}
+
+static void dpram_ipc_rx_task(unsigned long data)
+{
+	struct link_device *ld;
+	struct dpram_link_device *dpld;
+	struct dpram_rxb *rxb;
+	struct io_device *iod;
+	u32 qlen;
+	int i;
+
+	dpld = (struct dpram_link_device *)data;
+	ld = &dpld->ld;
 
 	for (i = 0; i < dpld->max_ipc_dev; i++) {
-		while ((skb = skb_dequeue(ld->skb_txq[i]))) {
-			if (dpld->mode == DPRAM_LINK_MODE_IPC) {
-				ret = dpram_write(dpld, i, skb->data, skb->len);
-				if (ret < 0) {
-					skb_queue_head(ld->skb_txq[i], skb);
-					reschedule = true;
-					break;
-				}
-			} else {
-				pr_err("[LNK] <%s> dpld->mode != IPC_MODE\n",
-					__func__);
-			}
+		if (i == IPC_RAW_DEV)
+			iod = link_get_iod_with_format(ld, IPC_MULTI_RAW);
+		else
+			iod = link_get_iod_with_format(ld, i);
 
-			dev_kfree_skb_any(skb);
+		qlen = rxbq_size(&dpld->rxbq[i]);
+		while (qlen > 0) {
+			rxb = rxbq_get_data_rxb(&dpld->rxbq[i]);
+			iod->recv(iod, ld, rxb->data, rxb->len);
+			rxb_clear(rxb);
+			qlen--;
 		}
 	}
-
-	if (reschedule)
-		schedule_delayed_work(
-			&ld->tx_delayed_work, msecs_to_jiffies(10));
 }
 
-static void non_command_handler(struct dpram_link_device *dpld, u16 non_cmd)
+static void dpram_ipc_read(struct dpram_link_device *dpld, int dev, u8 *dst,
+	u8 __iomem *src, u32 out, u32 len, u32 qsize)
 {
-	struct sk_buff *skb = NULL;
+	if ((out + len) <= qsize) {
+		/* ----- (out)         (in) ----- */
+		/* -----   7f 00 00 7e      ----- */
+		memcpy(dst, (src + out), len);
+	} else {
+		/*       (in) ----------- (out)   */
+		/* 00 7e      -----------   7f 00 */
+		unsigned len1 = qsize - out;
+
+		/* 1) out -> buffer end */
+		memcpy(dst, (src + out), len1);
+
+		/* 2) buffer start -> in */
+		dst += len1;
+		memcpy(dst, src, (len - len1));
+	}
+}
+
+/*
+  ret < 0  : Error
+  ret == 0 : No error
+*/
+static inline int dpram_ipc_recv_data(struct dpram_link_device *dpld,
+		struct link_device *ld, int dev, u16 non_cmd)
+{
+	struct modemlink_dpram_control *dpctl = dpld->dpctl;
+	struct dpram_rxb *rxb;
+	u8 __iomem *src = dpctl->get_rx_buff(dev);
+	u32 in = dpctl->get_rx_head(dev);
+	u32 out = dpctl->get_rx_tail(dev);
+	u32 qsize = dpctl->get_rx_buff_size(dev);
+	u32 rest;
+
+	if (non_cmd & dpctl->get_mask_req_ack(dev))
+		mif_debug("<%s> REQ_ACK[%s] from CP\n",
+			ld->name, get_dev_name(dev));
+
+	if (in == out)
+		goto exit;
+
+	/* Get data length in DPRAM*/
+	rest = (in > out) ? (in - out) : (qsize - out + in);
+
+	mif_debug("<%s> %s qsize[%u] in[%u] out[%u] rest[%u]\n",
+		ld->name, get_dev_name(dev), qsize, in, out, rest);
+
+	/* Check each queue */
+	if (!dpram_circ_valid(qsize, in, out)) {
+		mif_err("ERR: <%s> %s_RXQ invalid (size:%d in:%d out:%d)\n",
+			ld->name, get_dev_name(dev), qsize, in, out);
+		dpctl->set_rx_head(dev, 0);
+		dpctl->set_rx_tail(dev, 0);
+		return -EINVAL;
+	}
+
+	/* Allocate an rxb */
+	rxb = rxbq_get_free_rxb(&dpld->rxbq[dev]);
+	if (!rxb) {
+		mif_err("ERR: <%s> %s rxbq_get_free_rxb fail\n",
+			ld->name, get_dev_name(dev));
+		return -ENOMEM;
+	}
+
+	/* Read data from each DPRAM buffer */
+	dpram_ipc_read(dpld, dev, rxb_put(rxb, rest), src, out, rest, qsize);
+
+	mif_ipc_log(MIF_LNK_RX_EVT, ld->mc, NULL, ld, rxb->data, rest);
+
+	/* Calculate and set new out */
+	out += rest;
+	if (out >= qsize)
+		out -= qsize;
+	dpctl->set_rx_tail(dev, out);
+
+exit:
+	/* Check and process REQ_ACK (at this time, in == out) */
+	if (non_cmd & dpctl->get_mask_req_ack(dev)) {
+		mif_debug("<%s> Send RES_ACK[%s] to CP\n",
+			ld->name, get_dev_name(dev));
+		dpctl->send_intr(INT_NON_CMD(dpctl->get_mask_res_ack(dev)));
+	}
+
+	return 0;
+}
+
+static void dpram_purge_rx_circ(struct dpram_link_device *dpld,
+		enum sipc_dev_type dev)
+{
+	u32 in = dpld->dpctl->get_rx_head(dev);
+	dpld->dpctl->set_rx_tail(dev, in);
+	mif_err("<%s> purging %s_RXQ\n", dpld->ld.name, get_dev_name(dev));
+}
+
+static int dpram_retry_ipc_tx_jammed(struct dpram_link_device *dpld,
+		enum sipc_dev_type dev)
+{
 	struct link_device *ld = &dpld->ld;
 	struct modemlink_dpram_control *dpctl = dpld->dpctl;
-	int i = 0;
-	u32 head = 0;
-	u32 tail = 0;
-	u32 size = 0;
-	u16 magic = 0;
-	u16 access = 0;
+	struct sk_buff_head *txq = ld->skb_txq[dev];
+	struct sk_buff *skb;
+	u32 in;
+	u32 out;
+	u32 qsize;
+	int space;
 	u16 mask = 0;
 
-	/* Check DPRAM mode */
-	if (dpld->mode != DPRAM_LINK_MODE_IPC) {
-		pr_err("[LNK/E] <%s:%s> dpld->mode != DPRAM_LINK_MODE_IPC",
-			__func__, ld->name);
-		return;
+	space = dpram_get_txq_space(dpld, dev, &in, &out, &qsize);
+	if (space < 0 || in != out)
+		return -EFAULT;
+
+	while (1) {
+		skb = skb_dequeue(txq);
+		if (!skb)
+			break;
+
+		if (space < skb->len) {
+			skb_queue_head(txq, skb);
+			mask = dpctl->get_mask_req_ack(dev);
+			mif_info("<%s> %s "
+				"qsize[%u] in[%u] out[%u] free[%u] < len[%u]\n",
+				ld->name, get_dev_name(dev),
+				qsize, in, out, space, skb->len);
+			break;
+		}
+
+		mif_debug("<%s> %s "
+			"qsize[%u] in[%u] out[%u] free[%u] >= len[%u]\n",
+			ld->name, get_dev_name(dev),
+			qsize, in, out, space, skb->len);
+
+		dpram_ipc_write(dpld, dev, in, out, qsize, skb);
+
+		dev_kfree_skb_any(skb);
 	}
 
-	/* Check magic and access */
-	magic = dpctl->get_magic();
-	access = dpctl->get_access();
-	if (magic != DPRAM_MAGIC_CODE || access != 1) {
-		pr_err("[LNK/E] <%s:%s> magic=0x%X, access=0x%X\n",
-			__func__, ld->name, magic, access);
-		return;
+	if (mask) {
+		dpctl->send_intr(INT_NON_CMD(mask));
+		mif_info("<%s> Send REQ_ACK 0x%04X to CP\n", ld->name, mask);
+		return -ENOMEM;
 	}
+
+	return 0;
+}
+
+static int non_command_handler(struct dpram_link_device *dpld, u16 non_cmd)
+{
+	struct link_device *ld = &dpld->ld;
+	int i;
+	int err = 0;
+	int rx_sched = 0;
+	u32 in;
+	u32 out;
+	u32 qsize;
+	int space;
+
+	if (!dpram_ipc_active(dpld))
+		return -EACCES;
 
 	/* Read data from DPRAM */
 	for (i = 0; i < dpld->max_ipc_dev; i++) {
-		head = dpctl->get_rx_head(i);
-		tail = dpctl->get_rx_tail(i);
-		if (head != tail) {
-			/* Check each queue */
-			size = dpctl->get_rx_buff_size(i);
-			if (!dpram_circ_valid(size, head, tail)) {
-				pr_err("[LNK/E] <%s:%s> RXQ[%d] invalid!!\n",
-					__func__, ld->name, i);
-				dpctl->set_rx_head(i, 0);
-				dpctl->set_rx_tail(i, 0);
-			}
-
-			/* Read data from each queue */
-			skb = dpram_read(dpld, i, head, tail, size);
-			if (skb)
-				skb_queue_tail(&dpld->skb_rxq[i], skb);
-			else
-				pr_err("[LNK/E] <%s:%s> read[%d] fail\n",
-					__func__, ld->name, i);
-		}
-
-		/* Check and process REQ_ACK */
-		if (non_cmd & dpctl->get_mask_req_ack(i)) {
-			mask = dpctl->get_mask_res_ack(i);
-			dpctl->send_intr(INT_NON_CMD(mask));
+		err = dpram_ipc_recv_data(dpld, ld, i, non_cmd);
+		if (err < 0) {
+			if (err == -ENOMEM)
+				dpram_purge_rx_circ(dpld, i);
+			continue;
+		} else {
+			rx_sched++;
 		}
 	}
 
-	schedule_work(&dpld->rx_work);
+	/*
+	** check RES_ACK
+	*/
+	if (non_cmd & INT_MASK_RES_ACK_SET) {
+		if (non_cmd & INT_MASK_RES_ACK_F) {
+			err = dpram_retry_ipc_tx_jammed(dpld, IPC_FMT_DEV);
+			if (!err)
+				atomic_set(&dpld->res_required[IPC_FMT_DEV], 0);
+		}
+		if (non_cmd & INT_MASK_RES_ACK_R) {
+			err = dpram_retry_ipc_tx_jammed(dpld, IPC_RAW_DEV);
+			if (!err)
+				atomic_set(&dpld->res_required[IPC_RAW_DEV], 0);
+		}
+		if (non_cmd & INT_MASK_RES_ACK_RFS) {
+			err = dpram_retry_ipc_tx_jammed(dpld, IPC_RFS_DEV);
+			if (!err)
+				atomic_set(&dpld->res_required[IPC_RFS_DEV], 0);
+		}
+	}
+
+	/*
+	** check missing RES_ACK
+	*/
+	for (i = 0; i < dpld->max_ipc_dev; i++) {
+		if (atomic_read(&dpld->res_required[i]) > 0) {
+			space = dpram_get_txq_space(dpld, i, &in, &out, &qsize);
+			if (space > 0 && in == out) {
+				err = dpram_retry_ipc_tx_jammed(dpld, i);
+				if (!err)
+					atomic_set(&dpld->res_required[i], 0);
+			}
+		}
+	}
+
+	if (rx_sched > 0)
+		tasklet_hi_schedule(&dpld->rx_tsk);
+
+	return err;
 }
 
 static int dpram_init_ipc(struct dpram_link_device *dpld)
 {
 	struct link_device *ld = &dpld->ld;
 	struct modemlink_dpram_control *dpctl = dpld->dpctl;
-	int i = 0;
-	u16 magic = 0;
-	u16 access = 0;
+	int i;
 
-	magic = dpctl->get_magic();
-	access = dpctl->get_access();
-
-	if ((dpld->mode == DPRAM_LINK_MODE_IPC) &&
-	    (magic == DPRAM_MAGIC_CODE && access == 1)) {
-		pr_err("[LNK] <%s:%s> IPC is already initialized!\n",
-			__func__, ld->name);
+	if (dpram_ipc_active(dpld)) {
+		mif_err("<%s> IPC already initialized\n", ld->name);
 		return 0;
-	}
-
-	getnstimeofday(&dpld->ts_base);
-
-	/* Make aliases to each IO device */
-	for (i = 0; i < MAX_DEV_FORMAT; i++)
-		dpld->iod[i] = find_iodev(ld, i);
-	dpld->iod[IPC_RAW] = dpld->iod[IPC_MULTI_RAW];
-
-	/* List up the IO devices connected to each IPC channel */
-	for (i = 0; i < MAX_DEV_FORMAT; i++) {
-		if (dpld->iod[i])
-			pr_err("[LNK] <%s:%s> dpld->iod[%d]->name = %s\n",
-				__func__, ld->name, i, dpld->iod[i]->name);
-		else
-			pr_err("[LNK] <%s:%s> No dpld->iod[%d]\n",
-				__func__, ld->name, i);
 	}
 
 	/* Clear pointers in every circular queue */
@@ -595,21 +728,15 @@ static int dpram_init_ipc(struct dpram_link_device *dpld)
 	dpctl->set_magic(DPRAM_MAGIC_CODE);
 	dpctl->set_access(1);
 
-	magic = dpctl->get_magic();
-	if (magic != DPRAM_MAGIC_CODE) {
-		pr_err("[LNK/E] <%s:%s> magic code (0x%04X) != 0x%04X\n",
-			__func__, ld->name, magic, DPRAM_MAGIC_CODE);
-		return -1;
-	}
+	if (dpram_check_access(dpld) < 0)
+		return -EACCES;
 
-	access = dpctl->get_access();
-	if (access != 1) {
-		pr_err("[LNK/E] <%s:%s> access enable (0x%04X) != 1\n",
-			__func__, ld->name, access);
-		return -1;
-	}
+	ld->mode = LINK_MODE_IPC;
 
-	dpld->mode = DPRAM_LINK_MODE_IPC;
+	for (i = 0; i < dpld->max_ipc_dev; i++)
+		atomic_set(&dpld->res_required[i], 0);
+
+	atomic_set(&dpld->accessing, 0);
 
 	return 0;
 }
@@ -619,21 +746,38 @@ static void cmd_req_active_handler(struct dpram_link_device *dpld)
 	dpld->dpctl->send_intr(INT_CMD(INT_CMD_RES_ACTIVE));
 }
 
-static void cmd_error_display_handler(struct dpram_link_device *dpld)
+static void cmd_crash_reset_handler(struct dpram_link_device *dpld)
 {
 	struct link_device *ld = &dpld->ld;
 	struct io_device *iod = NULL;
 
-	pr_err("[LNK] <%s:%s> Receive 0xC9 (Error Display)\n",
-		__func__, ld->name);
+	mif_err("<%s> Recv 0xC7 (CRASH_RESET)\n", ld->name);
+
+	ld->mode = LINK_MODE_ULOAD;
+
+	iod = link_get_iod_with_format(ld, IPC_FMT);
+	iod->modem_state_changed(iod, STATE_CRASH_RESET);
+
+	iod = link_get_iod_with_format(ld, IPC_BOOT);
+	iod->modem_state_changed(iod, STATE_CRASH_RESET);
+}
+
+static void cmd_crash_exit_handler(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+
+	mif_err("<%s> Recv 0xC9 (CRASH_EXIT)\n", ld->name);
+
+	ld->mode = LINK_MODE_ULOAD;
+
+	complete_all(&dpld->crash_start_complete);
 
 	if (ld->mdm_data->modem_type == QC_MDM6600) {
 		if (dpld->dpctl->log_disp)
 			dpld->dpctl->log_disp(dpld->dpctl);
 	}
 
-	iod = find_iodev(ld, IPC_FMT);
-	iod->modem_state_changed(iod, STATE_CRASH_EXIT);
+	dpram_trigger_crash(dpld);
 }
 
 static void cmd_phone_start_handler(struct dpram_link_device *dpld)
@@ -641,31 +785,29 @@ static void cmd_phone_start_handler(struct dpram_link_device *dpld)
 	struct link_device *ld = &dpld->ld;
 	struct io_device *iod = NULL;
 
-	pr_err("[LNK] <%s:%s> Receive 0xC8\n", __func__, ld->name);
+	mif_err("<%s> Recv 0xC8 (CP_START)\n", ld->name);
 
 	dpram_init_ipc(dpld);
 
-	iod = find_iodev(ld, IPC_FMT);
+	iod = link_get_iod_with_format(ld, IPC_FMT);
 	if (!iod) {
-		pr_err("[LNK/E] <%s:%s> iod == NULL\n", __func__, ld->name);
+		mif_err("ERR: <%s> no iod\n", ld->name);
 		return;
 	}
 
 	if (ld->mdm_data->modem_type == SEC_CMC221) {
-		if (iod->mc->phone_state != STATE_ONLINE) {
-			pr_err("[LNK] <%s:%s> phone_state: %d -> ONLINE\n",
-				__func__, ld->name, iod->mc->phone_state);
+		if (ld->mc->phone_state != STATE_ONLINE) {
+			mif_err("<%s> phone_state: %d -> ONLINE\n",
+				ld->name, ld->mc->phone_state);
 			iod->modem_state_changed(iod, STATE_ONLINE);
 		}
 	} else if (ld->mdm_data->modem_type == QC_MDM6600) {
 		if (dpld->dpctl->phone_boot_start_handler)
 			dpld->dpctl->phone_boot_start_handler(dpld->dpctl);
-	} else {
-		/* Send INIT_END code to CP */
-		pr_err("[LNK] <%s:%s> Send 0xC2 (INIT_END)\n",
-			__func__, ld->name);
-		dpld->dpctl->send_intr(INT_CMD(INT_CMD_INIT_END));
 	}
+
+	mif_err("<%s> Send 0xC2 (INIT_END)\n", ld->name);
+	dpld->dpctl->send_intr(INT_CMD(INT_CMD_INIT_END));
 }
 
 static void command_handler(struct dpram_link_device *dpld, u16 cmd)
@@ -677,9 +819,14 @@ static void command_handler(struct dpram_link_device *dpld, u16 cmd)
 		cmd_req_active_handler(dpld);
 		break;
 
-	case INT_CMD_ERR_DISPLAY:
+	case INT_CMD_CRASH_RESET:
 		dpld->dpram_init_status = DPRAM_INIT_STATE_NONE;
-		cmd_error_display_handler(dpld);
+		cmd_crash_reset_handler(dpld);
+		break;
+
+	case INT_CMD_CRASH_EXIT:
+		dpld->dpram_init_status = DPRAM_INIT_STATE_NONE;
+		cmd_crash_exit_handler(dpld);
 		break;
 
 	case INT_CMD_PHONE_START:
@@ -689,7 +836,7 @@ static void command_handler(struct dpram_link_device *dpld, u16 cmd)
 		break;
 
 	case INT_CMD_NV_REBUILDING:
-		pr_err("[LNK] NV_REBUILDING\n");
+		mif_err("<%s> NV_REBUILDING\n", ld->name);
 		break;
 
 	case INT_CMD_PIF_INIT_DONE:
@@ -697,45 +844,144 @@ static void command_handler(struct dpram_link_device *dpld, u16 cmd)
 		break;
 
 	case INT_CMD_SILENT_NV_REBUILDING:
-		pr_err("[LNK] SILENT_NV_REBUILDING\n");
+		mif_err(" <%s> SILENT_NV_REBUILDING\n", ld->name);
 		break;
 
-	case INT_CMD_NORMAL_POWER_OFF:
+	case INT_CMD_NORMAL_PWR_OFF:
 		/*ToDo:*/
 		/*kernel_sec_set_cp_ack()*/;
 		break;
 
 	case INT_CMD_REQ_TIME_SYNC:
-	case INT_CMD_PHONE_DEEP_SLEEP:
+	case INT_CMD_CP_DEEP_SLEEP:
 	case INT_CMD_EMER_DOWN:
 		break;
 
 	default:
-		pr_err("[LNK/E] <%s:%s> Unknown command.. 0x%04X\n",
-			__func__, ld->name, cmd);
+		mif_err("<%s> unknown command 0x%04X\n", ld->name, cmd);
 	}
+}
+
+static void ext_command_handler(struct dpram_link_device *dpld, u16 cmd)
+{
+	struct link_device *ld = &dpld->ld;
+	u16 resp;
+
+	switch (EXT_CMD_MASK(cmd)) {
+	case EXT_CMD_SET_SPEED_LOW:
+		if (dpld->dpctl->setup_speed) {
+			dpld->dpctl->setup_speed(DPRAM_SPEED_LOW);
+			resp = INT_EXT_CMD(EXT_CMD_SET_SPEED_LOW);
+			dpld->dpctl->send_intr(resp);
+		}
+		break;
+
+	case EXT_CMD_SET_SPEED_MID:
+		if (dpld->dpctl->setup_speed) {
+			dpld->dpctl->setup_speed(DPRAM_SPEED_MID);
+			resp = INT_EXT_CMD(EXT_CMD_SET_SPEED_MID);
+			dpld->dpctl->send_intr(resp);
+		}
+		break;
+
+	case EXT_CMD_SET_SPEED_HIGH:
+		if (dpld->dpctl->setup_speed) {
+			dpld->dpctl->setup_speed(DPRAM_SPEED_HIGH);
+			resp = INT_EXT_CMD(EXT_CMD_SET_SPEED_HIGH);
+			dpld->dpctl->send_intr(resp);
+		}
+		break;
+
+	default:
+		mif_err("<%s> unknown command 0x%04X\n", ld->name, cmd);
+		break;
+	}
+}
+
+
+
+static int dpram_try_ipc_tx(struct link_device *ld, enum sipc_dev_type dev,
+		struct sk_buff *tx_skb)
+{
+	struct dpram_link_device *dpld = to_dpram_link_device(ld);
+	struct sk_buff_head *txq = ld->skb_txq[dev];
+	struct sk_buff *skb;
+	int ret = tx_skb->len;
+	u32 in;
+	u32 out;
+	u32 qsize;
+	int space;
+	u16 mask;
+
+	if (txq->qlen >= 1024) {
+		mif_err("<%s> txq->qlen %d > 1024\n", ld->name, txq->qlen);
+#if 0
+		dpram_trigger_force_cp_crash(dpld);
+#else
+		skb_queue_purge(txq);
+#endif
+	}
+	skb_queue_tail(txq, tx_skb);
+
+	if (dpram_wake_up(dpld) < 0)
+		return -EACCES;
+
+	if (!dpram_ipc_active(dpld))
+		goto exit;
+
+	if (atomic_read(&dpld->res_required[dev]) > 0) {
+		mif_info("WARNING <%s> res_required[%s] > 0\n",
+			ld->name, get_dev_name(dev));
+		goto exit;
+	}
+
+	space = dpram_get_txq_space(dpld, dev, &in, &out, &qsize);
+	if (space < 0) {
+		ret = space;
+		goto exit;
+	}
+
+	/*
+	** Start TX if there is enough room in the queue
+	*/
+	skb = skb_dequeue(txq);
+	if (!skb)
+		goto exit;
+
+	if (space < skb->len) {
+		atomic_set(&dpld->res_required[dev], 1);
+		skb_queue_head(txq, skb);
+		mask = dpld->dpctl->get_mask_req_ack(dev);
+		dpld->dpctl->send_intr(INT_NON_CMD(mask));
+
+		mif_info("<%s> %s "
+			"qsize[%u] in[%u] out[%u] free[%u] < len[%u]\n",
+			ld->name, get_dev_name(dev),
+			qsize, in, out, space, skb->len);
+
+		goto exit;
+	}
+
+	mif_debug("<%s> %s qsize[%u] in[%u] out[%u] free[%u] >= len[%u]\n",
+		ld->name, get_dev_name(dev), qsize, in, out, space, skb->len);
+
+	dpram_ipc_write(dpld, dev, in, out, qsize, skb);
+	dev_kfree_skb_any(skb);
+
+exit:
+	dpram_allow_sleep(dpld);
+	return ret;
 }
 
 static void cmc22x_idpram_enable_ipc(struct dpram_link_device *dpld)
 {
-	dpld->dpctl->set_magic(DPRAM_MAGIC_CODE);
-	dpld->dpctl->set_access(1);
+	dpram_init_ipc(dpld);
 	enable_irq(dpld->irq);
-}
-
-static void cmc22x_idpram_disable_ipc(struct dpram_link_device *dpld)
-{
-	disable_irq_nosync(dpld->irq);
-	dpld->dpctl->set_magic(0);
-	dpld->dpctl->set_access(0);
-
-	if (dpld->dpctl->setup_speed)
-		dpld->dpctl->setup_speed(DPRAM_SPEED_LOW);
 }
 
 static int cmc22x_idpram_wait_response(struct dpram_link_device *dpld, u32 resp)
 {
-	int count = 100;
+	int count = 50000;
 	u32 rcvd = 0;
 
 	if (resp == CMC22x_CP_REQ_NV_DATA) {
@@ -744,11 +990,18 @@ static int cmc22x_idpram_wait_response(struct dpram_link_device *dpld, u32 resp)
 			if (rcvd == resp)
 				break;
 
+			rcvd = dpld->dpctl->recv_msg();
+			if (rcvd == 0x9999) {
+				mif_err("Invalid resp 0x%04X\n", rcvd);
+				panic("CP Crash ... BAD CRC in CP");
+			}
+
 			if (count-- < 0) {
-				pr_err("[LNK/E] <%s> No resp (0x%08X)!!!\n",
-					__func__, resp);
+				mif_err("Invalid resp 0x%08X\n", rcvd);
 				return -EAGAIN;
 			}
+
+			udelay(100);
 		}
 	} else {
 		while (1) {
@@ -759,16 +1012,16 @@ static int cmc22x_idpram_wait_response(struct dpram_link_device *dpld, u32 resp)
 
 			if (resp == CMC22x_CP_RECV_NV_END &&
 			    rcvd == CMC22x_CP_CAL_BAD) {
-				pr_err("[LNK/E] <%s> CMC22x_CP_CAL_BAD!!!\n",
-					__func__);
+				mif_err("CMC22x_CP_CAL_BAD\n");
 				break;
 			}
 
 			if (count-- < 0) {
-				pr_err("[LNK/E] <%s> No resp (0x%04X)!!!\n",
-					__func__, resp);
+				mif_err("Invalid resp 0x%04X\n", rcvd);
 				return -EAGAIN;
 			}
+
+			udelay(100);
 		}
 	}
 
@@ -784,13 +1037,14 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	struct dpram_boot_img cp_img;
 	u8 *img_buff = NULL;
 
-	dpld->mode = DPRAM_LINK_MODE_BOOT;
-	cmc22x_idpram_disable_ipc(dpld);
+	ld->mode = LINK_MODE_BOOT;
+
+	dpld->dpctl->setup_speed(DPRAM_SPEED_LOW);
 
 	/* Test memory... After testing, memory is cleared. */
-	if (dpram_test_memory(ld->name, bt_buff, dpld->bt_map.size) < 0) {
-		pr_err("\n[LNK/E] <%s> dpram_test_memory fail!\n\n", __func__);
-		dpld->mode = DPRAM_LINK_MODE_INVALID;
+	if (test_dpram(ld->name, bt_buff, dpld->bt_map.size) < 0) {
+		mif_err("\ntest_dpram fail!\n\n");
+		ld->mode = LINK_MODE_INVALID;
 		return -EIO;
 	}
 
@@ -798,14 +1052,14 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	err = copy_from_user((struct dpram_boot_img *)&cp_img,
 			     (void *)arg,
 			     sizeof(struct dpram_boot_img));
-	pr_err("[LNK] <%s> CP image addr = 0x%08X, size = 0x%X\n",
-		__func__, (int)cp_img.addr, cp_img.size);
+	mif_err("CP image addr = 0x%08X, size = %d\n",
+		(int)cp_img.addr, cp_img.size);
 
 	/* Alloc a buffer for the boot image */
 	img_buff = kzalloc(dpld->bt_map.size, GFP_KERNEL);
 	if (!img_buff) {
-		pr_err("[LNK/E] <%s> kzalloc fail\n", __func__);
-		dpld->mode = DPRAM_LINK_MODE_INVALID;
+		mif_err("kzalloc fail\n");
+		ld->mode = LINK_MODE_INVALID;
 		return -ENOMEM;
 	}
 
@@ -815,7 +1069,7 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	/* Copy boot image to DPRAM and verify it */
 	memcpy(bt_buff, img_buff, cp_img.size);
 	if (memcmp16_to_io(bt_buff, img_buff, cp_img.size)) {
-		pr_err("\n[LNK/E] <%s> Boot may be broken!!!\n\n", __func__);
+		mif_err("\nBoot may be broken!!!\n\n");
 		goto err;
 	}
 
@@ -823,26 +1077,28 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	udelay(1000);
 
 	if (cp_img.mode == CMC22x_BOOT_MODE_NORMAL) {
-		pr_err("[LNK] <%s> CMC22x_BOOT_MODE_NORMAL\n", __func__);
-		iowrite32(CMC22x_AP_BOOT_DOWN_DONE, dpld->bt_map.req);
+		mif_err("CMC22x_BOOT_MODE_NORMAL\n");
+		mif_err("Send req 0x%08X\n", cp_img.req);
+		iowrite32(cp_img.req, dpld->bt_map.req);
 
-		/* Wait for CMC22x_CP_REQ_MAIN_BIN from CP for 1 second */
-		while (ioread32(dpld->bt_map.resp) != CMC22x_CP_REQ_MAIN_BIN) {
+		/* Wait for cp_img.resp for 1 second */
+		mif_err("Wait resp 0x%08X\n", cp_img.resp);
+		while (ioread32(dpld->bt_map.resp) != cp_img.resp) {
 			cnt++;
 			msleep_interruptible(10);
 			if (cnt > 100) {
-				pr_err("\n[LNK/E] <%s> No CP_REQ_MAIN_BIN!!!\n",
-					__func__);
+				mif_err("\nInvalid resp 0x%08X\n",
+					ioread32(dpld->bt_map.resp));
 				goto err;
 			}
 		}
 	} else {
-		pr_err("[LNK] <%s> CMC22x_BOOT_MODE_DUMP\n", __func__);
+		mif_err("CMC22x_BOOT_MODE_DUMP\n");
 	}
 
 	kfree(img_buff);
 
-	pr_err("[LNK] <%s> Boot send done.\n", __func__);
+	mif_err("Send BOOT done\n");
 
 	if (dpld->dpctl->setup_speed)
 		dpld->dpctl->setup_speed(DPRAM_SPEED_HIGH);
@@ -850,32 +1106,32 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	return 0;
 
 err:
-	dpld->mode = DPRAM_LINK_MODE_INVALID;
+	ld->mode = LINK_MODE_INVALID;
 	kfree(img_buff);
 
-	pr_err("[LNK/E] <%s> Boot send fail!!!\n\n", __func__);
+	mif_err("Boot send fail!!!\n\n");
 	return -EIO;
 }
 
 static int cmc22x_idpram_send_main(struct link_device *ld, struct sk_buff *skb)
 {
 	int err = 0;
+	int ret = 0;
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 	struct dpram_boot_frame *bf = (struct dpram_boot_frame *)skb->data;
 	u8 __iomem *buff = (dpld->bt_map.buff + bf->offset);
 
 	if ((bf->offset + bf->len) > dpld->bt_map.size) {
-		pr_err("[LNK/E] <%s> Out of DPRAM boundary\n", __func__);
+		mif_err("Out of DPRAM boundary\n");
 		err = -EINVAL;
 		goto exit;
 	}
 
 	if (bf->len) {
 		memcpy(buff, bf->data, bf->len);
-#if 0
+#if (DEBUG_CMP_BIN)
 		if (memcmp16_to_io(buff, bf->data, bf->len)) {
-			pr_err("\n[LNK/E] <%s> Binary may be broken!!!\n\n",
-				__func__);
+			mif_err("\nBinary may be broken!!!\n\n");
 			goto exit;
 		}
 #endif
@@ -887,18 +1143,23 @@ static int cmc22x_idpram_send_main(struct link_device *ld, struct sk_buff *skb)
 	if (bf->response) {
 		err = cmc22x_idpram_wait_response(dpld, bf->response);
 		if (err < 0)
-			pr_err("[LNK/E] <%s> wait_response fail (%d)\n",
-				__func__, err);
+			mif_err("wait_response fail (err %d)\n", err);
 	}
 
 	if (bf->request == CMC22x_CAL_NV_DOWN_END) {
-		pr_err("[LNK] <%s> CMC22x_CAL_NV_DOWN_END\n", __func__);
+		mif_err("CMC22x_CAL_NV_DOWN_END\n");
 		cmc22x_idpram_enable_ipc(dpld);
 	}
 
 exit:
+	if (err < 0)
+		ret = err;
+	else
+		ret = skb->len;
+
 	dev_kfree_skb_any(skb);
-	return err;
+
+	return ret;
 }
 
 static void cmc22x_idpram_wait_dump(unsigned long arg)
@@ -907,7 +1168,7 @@ static void cmc22x_idpram_wait_dump(unsigned long arg)
 	u16 msg;
 
 	if (!dpld) {
-		pr_err("[LNK/E] <%s> dpld == NULL\n", __func__);
+		mif_err("dpld == NULL\n");
 		return;
 	}
 
@@ -928,19 +1189,14 @@ static void cmc22x_idpram_wait_dump(unsigned long arg)
 		return;
 	}
 
-	dpram_register_timer(dpld,
-			     &dpld->dump_timer,
-			     CMC22x_DUMP_WAIT_TIMEOVER,
-			     cmc22x_idpram_wait_dump);
+	mif_add_timer(&dpld->dump_timer, CMC22x_DUMP_WAIT_TIMEOVER,
+		cmc22x_idpram_wait_dump, (unsigned long)dpld);
 }
 
-static int cmc22x_idpram_upload
-(
-	struct dpram_link_device *dpld,
-	struct dpram_dump_arg *dumparg
-)
+static int cmc22x_idpram_upload(struct dpram_link_device *dpld,
+		struct dpram_dump_arg *dumparg)
 {
-	int ret = 0;
+	int ret;
 	u8 __iomem *src;
 	int buff_size = CMC22x_DUMP_BUFF_SIZE;
 
@@ -951,20 +1207,18 @@ static int cmc22x_idpram_upload
 
 	init_completion(&dpld->dump_recv_done);
 
-	dpram_register_timer(dpld,
-			     &dpld->dump_timer,
-			     CMC22x_DUMP_WAIT_TIMEOVER,
-			     cmc22x_idpram_wait_dump);
+	mif_add_timer(&dpld->dump_timer, CMC22x_DUMP_WAIT_TIMEOVER,
+		cmc22x_idpram_wait_dump, (unsigned long)dpld);
 
 	ret = wait_for_completion_interruptible_timeout(
 			&dpld->dump_recv_done, DUMP_TIMEOUT);
 	if (!ret) {
-		pr_err("[LNK/E] CP didn't send dump data!!!\n");
+		mif_err("CP didn't send dump data!!!\n");
 		goto err_out;
 	}
 
 	if (dpld->dpctl->recv_msg() == CMC22x_CP_DUMP_END) {
-		pr_err("[LNK] <%s> CMC22x_CP_DUMP_END\n", __func__);
+		mif_err("CMC22x_CP_DUMP_END\n");
 		wake_unlock(&dpld->dpram_wake_lock);
 		return 0;
 	}
@@ -978,7 +1232,7 @@ static int cmc22x_idpram_upload
 
 	ret = copy_to_user(dumparg->buff, dpld->buff, buff_size);
 	if (ret < 0) {
-		pr_err("[LNK/E] <%s> copy_to_user fail\n", __func__);
+		mif_err("copy_to_user fail\n");
 		goto err_out;
 	}
 
@@ -987,289 +1241,179 @@ static int cmc22x_idpram_upload
 	return buff_size;
 
 err_out:
-	pr_err("[LNK/E] <%s> error out!!!\n", __func__);
+	mif_err("error out!!!\n");
 
 	wake_unlock(&dpld->dpram_wake_lock);
 	return -EIO;
 }
 
-static int cmc22x_idpram_force_dump(struct dpram_link_device *dpld)
+static int cbp72_edpram_wait_response(struct dpram_link_device *dpld, u32 resp)
 {
-	pr_err("[LNK] <%s>\n", __func__);
-	dpld->dpctl->send_intr(INT_CMD(INT_CMD_ERR_DISPLAY));
-	return 0;
+	int ret;
+	int int2cp;
+
+	ret = wait_for_completion_interruptible_timeout(
+			&dpld->udl_cmd_complete, UDL_TIMEOUT);
+	if (!ret) {
+		mif_err("[UDL/E] No UDL_CMD_RESP!!!\n");
+		return -ENXIO;
+	}
+
+	int2cp = dpld->dpctl->recv_intr();
+	mif_debug("int2cp = 0x%x\n", int2cp);
+	if (resp == int2cp || int2cp == 0xA700)
+		return int2cp;
+	else
+		return -EINVAL;
 }
 
-static int dpram_upload
-(
-	struct dpram_link_device *dpld,
-	struct dpram_firmware *uploaddata
-)
+static int cbp72_edpram_send_bin(struct link_device *ld, struct sk_buff *skb)
+{
+	struct dpram_link_device *dpld = to_dpram_link_device(ld);
+	struct dpram_boot_frame *bf = (struct dpram_boot_frame *)skb->data;
+	u8 __iomem *buff = dpld->bt_map.buff;
+	int err = 0;
+
+	mif_info("\n");
+	if (bf->len > dpld->bt_map.size) {
+		mif_err("Out of DPRAM boundary\n");
+		err = -EINVAL;
+		goto exit;
+	}
+
+	if (bf->len) {
+		memcpy(buff, bf->data, bf->len);
+#if (DEBUG_CMP_BIN)
+		if (memcmp16_to_io(buff, bf->data, bf->len)) {
+			mif_err("\nBinary may be broken!!!\n\n");
+			err = -EINVAL;
+			goto exit;
+		}
+#endif
+	}
+	init_completion(&dpld->udl_cmd_complete);
+
+	if (bf->request)
+		dpld->dpctl->send_intr((u16)bf->request);
+
+	if (bf->response) {
+		err = cbp72_edpram_wait_response(dpld, bf->response);
+		if (err < 0) {
+			mif_err("wait_response fail (%d)\n", err);
+			goto exit;
+		} else if (err == bf->response) {
+			err = skb->len;
+		}
+	}
+
+exit:
+	dev_kfree_skb_any(skb);
+	return err;
+}
+
+static int dpram_upload(struct dpram_link_device *dpld,
+		struct dpram_dump_arg *dump, unsigned char __user *target)
 {
 	struct ul_header header;
 	u8 *dest;
 	u8 *buff = vmalloc(DP_DEFAULT_DUMP_LEN);
 	u16 plen = 0;
-	u32 tlen = 0;
-	int ret;
-	int region = 0;
+	int err, ret;
+	int buff_size = 0;
 
-	pr_err("[LNK] <%s>\n", __func__);
-
-	ret = wait_for_completion_interruptible_timeout(
-			&dpld->dump_start_complete,
-			DUMP_START_TIMEOUT);
-	if (!ret) {
-		pr_err("[LNK/E] <%s> No UPLOAD_START!!!\n", __func__);
-		goto err_out;
-	}
+	mif_err("\n");
 
 	wake_lock(&dpld->dpram_wake_lock);
+	init_completion(&dpld->udl_cmd_complete);
 
-	memset(buff, 0, DP_DEFAULT_DUMP_LEN);
+	mif_err("req = %x, resp =%x", dump->req, dump->resp);
 
-	dpld->dpctl->send_intr(CMD_IMG_SEND_REQ);
-	pr_debug("[LNK] write CMD_IMG_SEND_REQ(0x9400)\n");
+	if (dump->req)
+		dpld->dpctl->send_intr((u16)dump->req);
 
-	while (1) {
-		init_completion(&dpld->dump_recv_done);
-		ret = wait_for_completion_interruptible_timeout(
-				&dpld->dump_recv_done, DUMP_TIMEOUT);
-		if (!ret) {
-			pr_err("[LNK/E] No DATA_SEND_DONE_RESP!!!\n");
-			goto err_out;
+	if (dump->resp) {
+		err = cbp72_edpram_wait_response(dpld, dump->resp);
+		if (err < 0) {
+			mif_err("wait_response fail (%d)\n", err);
+			goto exit;
 		}
-
-		dest = (u8 *)dpld->ul_map.buff;
-
-		header.bop = *(u8 *)(dest);
-		header.total_frame = *(u16 *)(dest + 1);
-		header.curr_frame = *(u16 *)(dest + 3);
-		header.len = *(u16 *)(dest + 5);
-
-		pr_debug("total frame:%d, current frame:%d, data len:%d\n",
-			header.total_frame, header.curr_frame,
-			header.len);
-
-		dest += DP_DUMP_HEADER_SIZE;
-		plen = min_t(u16, header.len, DP_DEFAULT_DUMP_LEN);
-
-		memcpy(buff, dest, plen);
-		dest += plen;
-
-		ret = copy_to_user(uploaddata->firmware + tlen,	buff,  plen);
-		if (ret < 0) {
-			pr_err("[LNK/E] <%s> copy_to_user fail\n", __func__);
-			goto err_out;
-		}
-
-		tlen += plen;
-
-		if (header.total_frame == header.curr_frame) {
-			if (region) {
-				uploaddata->is_delta = tlen - uploaddata->size;
-				dpld->dpctl->send_intr(CMD_UL_RECEIVE_RESP);
-				break;
-			} else {
-				uploaddata->size = tlen;
-				region = 1;
-			}
-		}
-		dpld->dpctl->send_intr(CMD_UL_RECEIVE_RESP);
 	}
 
-	pr_debug("1st dump region data size=%d\n", uploaddata->size);
-	pr_debug("2st dump region data size=%d\n", uploaddata->is_delta);
+	if (dump->cmd)
+		return err;
 
-	init_completion(&dpld->gota_send_done);
-	ret = wait_for_completion_interruptible_timeout(
-			&dpld->gota_send_done, DUMP_TIMEOUT);
-	if (!ret) {
-		pr_err("[LNK/E] CP didn't send SEND_DONE_RESP\n");
-		goto err_out;
+
+	dest = (u8 *)dpld->ul_map.buff;
+
+	header.bop = *(u8 *)(dest);
+	header.total_frame = *(u16 *)(dest + 1);
+	header.curr_frame = *(u16 *)(dest + 3);
+	header.len = *(u16 *)(dest + 5);
+
+	mif_err("total frame:%d, current frame:%d, data len:%d\n",
+		header.total_frame, header.curr_frame, header.len);
+
+	plen = min_t(u16, header.len, DP_DEFAULT_DUMP_LEN);
+
+	memcpy(buff, dest + sizeof(struct ul_header), plen);
+	ret = copy_to_user(dump->buff, buff, plen);
+	if (ret < 0) {
+		mif_err("copy_to_user fail\n");
+		goto exit;
 	}
-
-	dpld->dpctl->send_intr(CMD_UL_RECEIVE_DONE_RESP);
-	pr_debug("[LNK] write CMD_UL_RECEIVE_DONE_RESP(0x9801)\n");
-
-	iowrite32(0, dpld->ul_map.magic); /*clear magic code */
+	buff_size = plen;
+	ret = copy_to_user(target + 4, &buff_size, sizeof(int));
+	if (ret < 0) {
+		mif_err("copy_to_user fail\n");
+		goto exit;
+	}
 
 	wake_unlock(&dpld->dpram_wake_lock);
-
-	vfree(buff);
-	return 0;
-
-err_out:
+	return err;
+exit:
 	vfree(buff);
 	iowrite32(0, dpld->ul_map.magic);
-	pr_err("[LNK/E] <%s> CDMA dump error out\n", __func__);
 	wake_unlock(&dpld->dpram_wake_lock);
 	return -EIO;
 }
 
-static int dpram_download
-(
-	struct dpram_link_device *dpld,
-	const char *buf,
-	int len
-)
+static void udl_cmd_handler(struct dpram_link_device *dpld, u16 cmd)
 {
-	struct dpram_ota_header header;
-	u16 nframes;
-	u16 curframe = 1;
-	u16 plen;
-	u8 *dest;
-	int ret;
-
-	nframes = DIV_ROUND_UP(len, DP_DEFAULT_WRITE_LEN);
-
-	pr_debug("[GOTA] download len = %d\n", len);
-
-	header.start_index = START_INDEX;
-	header.nframes = nframes;
-
-	while (len > 0) {
-		plen = min_t(int, len, DP_DEFAULT_WRITE_LEN);
-		dest = dpld->dl_map.buff;
-
-		pr_debug("[GOTA] Start write frame %d/%d\n", curframe, nframes);
-
-		header.curframe = curframe;
-		header.len = plen;
-
-		memcpy(dest, &header, sizeof(header));
-		dest += sizeof(header);
-
-		memcpy(dest, buf, plen);
-		dest += plen;
-		buf += plen;
-		len -= plen;
-
-		iowrite8(END_INDEX, dest+3);
-
-		init_completion(&dpld->gota_send_done);
-
-		if (curframe == 1) {
-			ret = wait_for_completion_interruptible_timeout(
-				&dpld->gota_start_complete,
-				GOTA_TIMEOUT);
-			if (!ret) {
-				pr_err("[GOTA/E] No DOWNLOAD_START!!!\n");
-				return -ENXIO;
-			}
-		}
-
-		dpld->dpctl->send_intr(CMD_IMG_SEND_REQ);
-		ret = wait_for_completion_interruptible_timeout(
-				&dpld->gota_send_done, GOTA_SEND_TIMEOUT);
-		if (!ret) {
-			pr_err("[GOTA/E] No SEND_DONE_RESP!!!\n");
-			return -ENXIO;
-		}
-
-		curframe++;
-	}
-
-	dpld->dpctl->send_intr(CMD_DL_SEND_DONE_REQ);
-	ret = wait_for_completion_interruptible_timeout(
-			&dpld->gota_update_done, GOTA_TIMEOUT);
-	if (!ret) {
-		pr_err("[GOTA/E] No UPDATE_DONE_NOTIFICATION!!!\n");
-		return -ENXIO;
-	}
-
-	return 0;
-}
-
-static int dpram_process_modem_update
-(
-	struct dpram_link_device *dpld,
-	struct dpram_firmware *pfw
-)
-{
-	int ret = 0;
-	char *buff = vmalloc(pfw->size);
-
-	pr_debug("[GOTA] modem size =[%d]\n", pfw->size);
-
-	if (!buff)
-		return -ENOMEM;
-
-	ret = copy_from_user(buff, pfw->firmware, pfw->size);
-	if (ret < 0) {
-		pr_err("[GOTA/E] <%s> copy_from_user fail\n", __func__);
-		goto out;
-	}
-
-	ret = dpram_download(dpld, buff, pfw->size);
-	if (ret < 0)
-		pr_err("[GOTA/E] <%s> firmware write fail\n", __func__);
-
-out:
-	vfree(buff);
-	return ret;
-}
-
-static void gota_cmd_handler(struct dpram_link_device *dpld, u16 cmd)
-{
-	if (cmd & GOTA_RESULT_FAIL) {
-		pr_err("[GOTA/E] <%s> Command failed: %04x\n", __func__, cmd);
+	if (cmd & UDL_RESULT_FAIL) {
+		mif_err("<%s> Command failed: %04x\n", dpld->ld.name, cmd);
 		return;
 	}
 
-	switch (GOTA_CMD_MASK(cmd)) {
-	case GOTA_CMD_RECEIVE_READY:
-		pr_debug("[GOTA] Send CP-->AP RECEIVE_READY\n");
-		dpld->dpctl->send_intr(CMD_DL_START_REQ);
+	switch (UDL_CMD_MASK(cmd)) {
+	case UDL_CMD_RECEIVE_READY:
+		mif_debug("<%s> Send CP-->AP RECEIVE_READY\n", dpld->ld.name);
+		dpld->dpctl->send_intr(CMD_IMG_START_REQ);
 		break;
-
-	case GOTA_CMD_DOWNLOAD_START_RESP:
-		pr_debug("[GOTA] Send CP-->AP DOWNLOAD_START_RESP\n");
-		complete_all(&dpld->gota_start_complete);
-		break;
-
-	case GOTA_CMD_SEND_DONE_RESP:
-		pr_debug("[GOTA] Send CP-->AP SEND_DONE_RESP\n");
-		complete_all(&dpld->gota_send_done);
-		break;
-
-	case GOTA_CMD_UPDATE_DONE:
-		pr_debug("[GOTA] Send CP-->AP UPDATE_DONE\n");
-		complete_all(&dpld->gota_update_done);
-		break;
-
-	case GOTA_CMD_IMAGE_SEND_RESP:
-		pr_debug("[GOTA] Send CP-->AP IMAGE_SEND_RESP\n");
-		complete_all(&dpld->gota_recv_done);
-		break;
-
 	default:
-		pr_err("[GOTA/E] <%s> Unknown command.. %x\n", __func__, cmd);
+		complete_all(&dpld->udl_cmd_complete);
 	}
 }
 
-static irqreturn_t dpram_irq_handler(int irq, void *p_ld)
+static irqreturn_t dpram_irq_handler(int irq, void *data)
 {
-	struct link_device *ld = (struct link_device *)p_ld;
+	struct link_device *ld = (struct link_device *)data;
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 	u16 int2ap = 0;
 
-	disable_irq_nosync(irq);
-
 	int2ap = dpld->dpctl->recv_intr();
 
-#if 0
-	getnstimeofday(&dpld->ts_now);
-	pr_err("\n[LNK] <%s:%s> {%ld.%09ld} int2ap = 0x%04X\n",
-		__func__, ld->name,
-		(long)(dpld->ts_now.tv_sec - dpld->ts_base.tv_sec),
-		(long)(dpld->ts_now.tv_nsec),
-		int2ap);
-#endif
+	if (dpld->dpctl->clear_intr)
+		dpld->dpctl->clear_intr();
+
+	if (!ld->mc)
+		return IRQ_HANDLED;
+
+	if (dpram_wake_up(dpld) < 0)
+		return IRQ_HANDLED;
 
 	if (int2ap == INT_POWERSAFE_FAIL) {
-		pr_err("[LNK] <%s> int2ap == INT_POWERSAFE_FAIL\n", __func__);
-		goto exit_irq;
+		mif_err("int2ap == INT_POWERSAFE_FAIL\n");
+		goto exit_isr;
 	}
 
 	if (ld->mdm_data->modem_type == QC_MDM6600) {
@@ -1277,23 +1421,24 @@ static irqreturn_t dpram_irq_handler(int irq, void *p_ld)
 			if (dpld->dpctl->dload_cmd_hdlr)
 				dpld->dpctl->dload_cmd_hdlr(dpld->dpctl,
 									int2ap);
-			goto exit_irq;
+			goto exit_isr;
 		}
 	}
 
-	if (GOTA_CMD_VALID(int2ap))
-		gota_cmd_handler(dpld, int2ap);
+	if (UDL_CMD_VALID(int2ap))
+		udl_cmd_handler(dpld, int2ap);
+	else if (EXT_INT_VALID(int2ap) && EXT_CMD_VALID(int2ap))
+		ext_command_handler(dpld, int2ap);
 	else if (INT_CMD_VALID(int2ap))
 		command_handler(dpld, int2ap);
 	else if (INT_VALID(int2ap))
 		non_command_handler(dpld, int2ap);
 	else
-		pr_err("[LNK/E] <%s> Invalid interrupt (0x%04X)\n",
-			__func__, int2ap);
+		mif_info("<%s> invalid interrupt 0x%04X\n", ld->name, int2ap);
 
-exit_irq:
-	dpld->dpctl->clear_intr();
-	enable_irq(irq);
+exit_isr:
+	dpram_allow_sleep(dpld);
+
 	return IRQ_HANDLED;
 }
 
@@ -1303,46 +1448,39 @@ static int dpram_send_binary(struct link_device *ld, struct sk_buff *skb)
 
 	if (ld->mdm_data->modem_type == SEC_CMC221)
 		err = cmc22x_idpram_send_main(ld, skb);
+	else if (ld->mdm_data->modem_type == VIA_CBP72)
+		err = cbp72_edpram_send_bin(ld, skb);
 
 	return err;
 }
 
 static int dpram_send(struct link_device *ld, struct io_device *iod,
-		      struct sk_buff *skb)
+		struct sk_buff *skb)
 {
-	int len = skb->len;
+	enum dev_format fmt = iod->format;
+	int len;
 
-	switch (iod->format) {
+	switch (fmt) {
+	case IPC_FMT:
+	case IPC_RAW:
+	case IPC_RFS:
+		return dpram_try_ipc_tx(ld, fmt, skb);
+
 	case IPC_BOOT:
 		return dpram_send_binary(ld, skb);
 
-	case IPC_FMT:
-		skb_queue_tail(&ld->sk_fmt_tx_q, skb);
-		break;
-
-	case IPC_RAW:
-		skb_queue_tail(&ld->sk_raw_tx_q, skb);
-		break;
-
-	case IPC_RFS:
-		skb_queue_tail(&ld->sk_rfs_tx_q, skb);
-		break;
-
 	default:
+		mif_err("ERR: %s: no TXQ for %s\n", ld->name, iod->name);
 		dev_kfree_skb_any(skb);
-		return 0;
+		return -ENODEV;
 	}
-
-	schedule_delayed_work(&ld->tx_delayed_work, 0);
-
-	return len;
 }
 
 static int dpram_set_dl_magic(struct link_device *ld, struct io_device *iod)
 {
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 
-	dpld->mode = DPRAM_LINK_MODE_DLOAD;
+	ld->mode = LINK_MODE_DLOAD;
 
 	iowrite32(DP_MAGIC_DMDL, dpld->dl_map.magic);
 
@@ -1352,8 +1490,16 @@ static int dpram_set_dl_magic(struct link_device *ld, struct io_device *iod)
 static int dpram_force_dump(struct link_device *ld, struct io_device *iod)
 {
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
-	if (ld->mdm_data->modem_type == SEC_CMC221)
-		return cmc22x_idpram_force_dump(dpld);
+
+	mif_err("<%s>\n", ld->name);
+
+	if (dpram_wake_up(dpld) < 0)
+		return -EFAULT;
+
+	dpram_trigger_force_cp_crash(dpld);
+
+	dpram_allow_sleep(dpld);
+
 	return 0;
 }
 
@@ -1362,7 +1508,7 @@ static int dpram_set_ul_magic(struct link_device *ld, struct io_device *iod)
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 	u8 *dest = dpld->ul_map.buff;
 
-	dpld->mode = DPRAM_LINK_MODE_ULOAD;
+	ld->mode = LINK_MODE_ULOAD;
 
 	if (ld->mdm_data->modem_type == SEC_CMC221) {
 		wake_lock(&dpld->dpram_wake_lock);
@@ -1376,8 +1522,6 @@ static int dpram_set_ul_magic(struct link_device *ld, struct io_device *iod)
 		iowrite8((u8)0x1, dest + 2);
 		iowrite8((u8)0x0, dest + 3);
 		iowrite8((u8)END_INDEX, dest + 4);
-
-		dpld->dpctl->send_intr(CMD_DL_START_REQ);
 	}
 
 	init_completion(&dpld->dump_start_complete);
@@ -1385,61 +1529,38 @@ static int dpram_set_ul_magic(struct link_device *ld, struct io_device *iod)
 	return 0;
 }
 
-static int dpram_modem_update(struct link_device *ld, struct io_device *iod,
-							unsigned long arg)
+static int dpram_dump_update(struct link_device *ld, struct io_device *iod,
+		unsigned long arg)
 {
-	int ret;
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
-	struct dpram_firmware fw;
+	struct dpram_dump_arg dump;
+	int ret;
 
-	pr_debug("[GOTA] <%s>\n", __func__);
-
-	ret = copy_from_user(&fw, (void __user *)arg, sizeof(fw));
+	ret = copy_from_user(&dump, (void __user *)arg, sizeof(dump));
 	if (ret  < 0) {
-		pr_err("[GOTA/E] <%s> copy_from_user fail\n", __func__);
+		mif_err("<%s> copy_from_user fail\n", ld->name);
 		return ret;
 	}
 
-	return dpram_process_modem_update(dpld, &fw);
-}
-
-static int dpram_dump_update
-(
-	struct link_device *ld,
-	struct io_device *iod,
-	unsigned long arg
-)
-{
-	struct dpram_link_device *dpld = to_dpram_link_device(ld);
-	struct dpram_firmware *fw = (struct dpram_firmware *)arg ;
-	struct dpram_dump_arg *dump = (struct dpram_dump_arg *)arg;
-
-	pr_debug("[LNK] <%s>\n", __func__);
-
 	if (ld->mdm_data->modem_type == SEC_CMC221)
-		return cmc22x_idpram_upload(dpld, dump);
+		return cmc22x_idpram_upload(dpld, &dump);
 	else
-		return dpram_upload(dpld, fw);
+		return dpram_upload(dpld, &dump, (unsigned char __user *)arg);
 }
 
-static int dpram_link_ioctl
-(
-	struct link_device *ld,
-	struct io_device *iod,
-	unsigned int cmd,
-	unsigned long arg
-)
+static int dpram_link_ioctl(struct link_device *ld, struct io_device *iod,
+		unsigned int cmd, unsigned long arg)
 {
 	int err = -EFAULT;
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 
-	pr_debug("[LNK] <%s> cmd = 0x%08X\n", __func__, cmd);
+	mif_info("<%s> cmd 0x%08X\n", ld->name, cmd);
 
 	switch (cmd) {
 	case IOCTL_DPRAM_SEND_BOOT:
 		err = cmc22x_idpram_send_boot(ld, arg);
 		if (err < 0) {
-			lnk_err(dpld, "dpram boot send fail\n");
+			mif_err("dpram boot send fail\n");
 			goto exit;
 		}
 		break;
@@ -1448,7 +1569,7 @@ static int dpram_link_ioctl
 		if (dpld->dpctl->cpimage_load_prepare) {
 			err = dpld->dpctl->cpimage_load_prepare(dpld->dpctl);
 			if (err < 0) {
-				lnk_err(dpld, "cpimage_load_prepare fail\n");
+				mif_err("cpimage_load_prepare fail\n");
 				goto exit;
 			}
 		}
@@ -1459,7 +1580,7 @@ static int dpram_link_ioctl
 			err = dpld->dpctl->cpimage_load(
 					(void *)arg, dpld->dpctl);
 			if (err < 0) {
-				lnk_err(dpld, "cpimage_load fail\n");
+				mif_err("cpimage_load fail\n");
 				goto exit;
 			}
 		}
@@ -1470,7 +1591,7 @@ static int dpram_link_ioctl
 			err = dpld->dpctl->nvdata_load(
 					(void *)arg, dpld->dpctl);
 			if (err < 0) {
-				lnk_err(dpld, "nvdata_load fail\n");
+				mif_err("nvdata_load fail\n");
 				goto exit;
 			}
 		}
@@ -1480,14 +1601,14 @@ static int dpram_link_ioctl
 		if (dpld->dpctl->phone_boot_start) {
 			err = dpld->dpctl->phone_boot_start(dpld->dpctl);
 			if (err < 0) {
-				lnk_err(dpld, "phone_boot_start fail\n");
+				mif_err("phone_boot_start fail\n");
 				goto exit;
 			}
 		}
 		if (dpld->dpctl->phone_boot_start_post_process) {
 			err = dpld->dpctl->phone_boot_start_post_process();
 			if (err < 0) {
-				lnk_err(dpld, "phone_boot_start_post_process fail\n");
+				mif_err("phone_boot_start_post_process fail\n");
 				goto exit;
 			}
 		}
@@ -1501,7 +1622,7 @@ static int dpram_link_ioctl
 			if (err < 0) {
 				dpld->dpctl->clear_intr();
 				enable_irq(dpld->irq);
-				lnk_err(dpld, "cpupload_step1 fail\n");
+				mif_err("cpupload_step1 fail\n");
 				goto exit;
 			}
 		}
@@ -1512,14 +1633,22 @@ static int dpram_link_ioctl
 			err = dpld->dpctl->cpupload_step2(
 					(void *)arg, dpld->dpctl);
 			if (err < 0) {
-				lnk_err(dpld, "cpupload_step2 fail\n");
+				dpld->dpctl->clear_intr();
+				enable_irq(dpld->irq);
+				mif_err("cpupload_step2 fail\n");
 				goto exit;
 			}
 		}
 		break;
 	case IOCTL_DPRAM_INIT_STATUS:
-		lnk_dbg(dpld, "get dpram init status\n");
+		mif_debug("get dpram init status\n");
 		return dpld->dpram_init_status;
+	case IOCTL_MODEM_DL_START:
+		err = dpram_set_dl_magic(ld, iod);
+		if (err < 0) {
+			mif_err("dpram set dl magic fail\n");
+			goto exit;
+		}
 	default:
 		break;
 	}
@@ -1532,20 +1661,21 @@ exit:
 
 static void dpram_table_init(struct dpram_link_device *dpld)
 {
-	struct link_device *ld = NULL;
-	u8 __iomem *dp_base = NULL;
+	struct link_device *ld;
+	u8 __iomem *dp_base;
 
 	if (!dpld) {
-		pr_err("[LNK/E] <%s> dpld == NULL\n", __func__);
+		mif_err("dpld == NULL\n");
 		return;
 	}
+	ld = &dpld->ld;
 
 	if (!dpld->dp_base) {
-		pr_err("[LNK/E] <%s> dpld->dp_base == NULL\n", __func__);
+		mif_err("<%s> dpld->dp_base == NULL\n",
+			ld->name);
 		return;
 	}
 
-	ld = &dpld->ld;
 	dp_base = dpld->dp_base;
 
 	/* Map for booting */
@@ -1557,6 +1687,10 @@ static void dpram_table_init(struct dpram_link_device *dpld)
 	} else if (ld->mdm_data->modem_type == QC_MDM6600) {
 		if (dpld->dpctl->bt_map_init)
 			dpld->dpctl->bt_map_init(dpld->dpctl);
+	} else if (ld->mdm_data->modem_type == VIA_CBP72) {
+		dpld->bt_map.magic = (u32 *)(dp_base);
+		dpld->bt_map.buff = (u8 *)(dp_base + DP_BOOT_BUFF_OFFSET);
+		dpld->bt_map.size = dpld->dp_size - 4;
 	} else {
 		dpld->bt_map.buff = (u8 *)(dp_base);
 		dpld->bt_map.req  = (u32 *)(dp_base + DP_BOOT_REQ_OFFSET);
@@ -1564,8 +1698,9 @@ static void dpram_table_init(struct dpram_link_device *dpld)
 		dpld->bt_map.size = dpld->dp_size - 4;
 	}
 
-	/* Map for download (FOTA, GOTA, etc.) */
-	if (ld->mdm_data->modem_type == SEC_CMC221) {
+	/* Map for download (FOTA, UDL, etc.) */
+	if (ld->mdm_data->modem_type == SEC_CMC221 ||
+			ld->mdm_data->modem_type == VIA_CBP72) {
 		dpld->dl_map.magic = (u32 *)(dp_base);
 		dpld->dl_map.buff  = (u8 *)(dp_base + DP_DLOAD_BUFF_OFFSET);
 	}
@@ -1583,47 +1718,50 @@ struct link_device *dpram_create_link_device(struct platform_device *pdev)
 	struct dpram_link_device *dpld = NULL;
 	struct link_device *ld = NULL;
 	struct modem_data *pdata = NULL;
+	struct modemlink_dpram_control *dpctl = NULL;
 	int ret = 0;
 	int i = 0;
+	int bsize;
+	int qsize;
+	char wq_name[32];
+	char wq_suffix[32];
 
 	/* Get the platform data */
 	pdata = (struct modem_data *)pdev->dev.platform_data;
 	if (!pdata) {
-		pr_err("[LNK/E] <%s> pdata == NULL\n", __func__);
+		mif_err("pdata == NULL\n");
 		goto err;
 	}
 	if (!pdata->dpram_ctl) {
-		pr_err("[LNK/E] <%s> pdata->dpram_ctl == NULL\n", __func__);
+		mif_err("pdata->dpram_ctl == NULL\n");
 		goto err;
 	}
-	pr_err("[LNK] <%s> link device = %s\n", __func__, pdata->link_name);
-	pr_err("[LNK] <%s> modem = %s\n", __func__, pdata->name);
+	mif_err("link device = %s\n", pdata->link_name);
+	mif_err("modem = %s\n", pdata->name);
 
 	/* Alloc DPRAM link device structure */
 	dpld = kzalloc(sizeof(struct dpram_link_device), GFP_KERNEL);
 	if (!dpld) {
-		pr_err("[LNK/E] <%s> Failed to kzalloc()\n", __func__);
+		mif_err("Failed to kzalloc()\n");
 		goto err;
 	}
 	ld = &dpld->ld;
 
 	/* Extract modem data and DPRAM control data from the platform data */
 	ld->mdm_data = pdata;
-	ld->name     = pdata->link_name;
-	dpld->dpctl  = pdata->dpram_ctl;
+	ld->name = pdata->link_name;
+	ld->ipc_version = pdata->ipc_version;
 
 	/* Set attributes as a link device */
-	ld->aligned = dpld->dpctl->aligned;
+	ld->aligned = pdata->dpram_ctl->aligned;
 	if (ld->aligned)
-		pr_err("[LNK] <%s> Aligned access is required!!!\n", __func__);
+		mif_err("Aligned access is required!!!\n");
 
-	ld->send         = dpram_send;
-	ld->gota_start   = dpram_set_dl_magic;
-	ld->force_dump   = dpram_force_dump;
-	ld->dump_start   = dpram_set_ul_magic;
-	ld->modem_update = dpram_modem_update;
-	ld->dump_update  = dpram_dump_update;
-	ld->ioctl        = dpram_link_ioctl;
+	ld->send = dpram_send;
+	ld->force_dump = dpram_force_dump;
+	ld->dump_start = dpram_set_ul_magic;
+	ld->dump_update = dpram_dump_update;
+	ld->ioctl = dpram_link_ioctl;
 
 	INIT_LIST_HEAD(&ld->list);
 
@@ -1634,71 +1772,104 @@ struct link_device *dpram_create_link_device(struct platform_device *pdev)
 	ld->skb_txq[IPC_RAW] = &ld->sk_raw_tx_q;
 	ld->skb_txq[IPC_RFS] = &ld->sk_rfs_tx_q;
 
-	INIT_DELAYED_WORK(&ld->tx_delayed_work, dpram_tx_work);
-
 	/* Set attributes as a dpram link device */
-	dpld->dp_base     = dpld->dpctl->dp_base;
-	dpld->dp_size     = dpld->dpctl->dp_size;
-	dpld->max_ipc_dev = dpld->dpctl->max_ipc_dev;
+	dpctl = pdata->dpram_ctl;
+	dpld->dpctl = dpctl;
 
-	dpld->irq = dpld->dpctl->dpram_irq;
+	dpld->dp_base = dpctl->dp_base;
+	dpld->dp_size = dpctl->dp_size;
+	dpld->dp_type = dpctl->dp_type;
+
+	dpld->max_ipc_dev = dpctl->max_ipc_dev;
+
+	dpld->irq = dpctl->dpram_irq;
 	if (dpld->irq < 0) {
-		pr_err("[LNK/E] <%s> Failed to get IRQ\n", __func__);
+		mif_err("Failed to get IRQ\n");
 		goto err;
 	}
-	pr_err("[LNK] <%s> DPRAM IRQ# = %d\n", __func__, dpld->irq);
+	mif_err("DPRAM IRQ# = %d\n", dpld->irq);
 
-	wake_lock_init(&dpld->dpram_wake_lock,
-		       WAKE_LOCK_SUSPEND,
-		       dpld->dpctl->dpram_wlock_name);
+	wake_lock_init(&dpld->dpram_wake_lock, WAKE_LOCK_SUSPEND,
+			dpctl->dpram_wlock_name);
 
 	init_completion(&dpld->dpram_init_cmd);
 	init_completion(&dpld->modem_pif_init_done);
-	init_completion(&dpld->gota_start_complete);
-	init_completion(&dpld->gota_send_done);
-	init_completion(&dpld->gota_recv_done);
-	init_completion(&dpld->gota_update_done);
+	init_completion(&dpld->udl_start_complete);
+	init_completion(&dpld->udl_cmd_complete);
+	init_completion(&dpld->crash_start_complete);
 	init_completion(&dpld->dump_start_complete);
 	init_completion(&dpld->dump_recv_done);
 
-	INIT_WORK(&dpld->rx_work, dpram_rx_work);
-	for (i = 0; i < dpld->max_ipc_dev; i++)
+	tasklet_init(&dpld->rx_tsk, dpram_ipc_rx_task, (unsigned long)dpld);
+
+	for (i = 0; i < dpld->max_ipc_dev; i++) {
 		skb_queue_head_init(&dpld->skb_rxq[i]);
+		atomic_set(&dpld->res_required[i], 0);
+	}
+
+	atomic_set(&dpld->accessing, 0);
 
 	/* Initialize DPRAM map (physical map -> logical map) */
 	dpram_table_init(dpld);
 
-	if (ld->mdm_data->modem_type == QC_MDM6600) {
-		if (dpld->dpctl->load_init)
-			dpld->dpctl->load_init(dpld->dpctl);
+#if 0
+	dpld->magic = dpctl->ipc_map->magic;
+	dpld->access = dpctl->ipc_map->access;
+	for (i = 0; i < dpld->max_ipc_dev; i++)
+		dpld->dev[i] = &dpctl->ipc_map->dev[i];
+	dpld->mbx2ap = dpctl->ipc_map->mbx_cp2ap;
+	dpld->mbx2cp = dpctl->ipc_map->mbx_ap2cp;
+#endif
+
+	/* Prepare rxb queue */
+	qsize = DPRAM_MAX_RXBQ_SIZE;
+	for (i = 0; i < dpld->max_ipc_dev; i++) {
+		bsize = rxbq_get_page_size(dpctl->get_rx_buff_size(i));
+		dpld->rxbq[i].size = qsize;
+		dpld->rxbq[i].in = 0;
+		dpld->rxbq[i].out = 0;
+		dpld->rxbq[i].rxb = rxbq_create_pool(bsize, qsize);
+		if (!dpld->rxbq[i].rxb) {
+			mif_err("ERR: <%s> %s rxbq_create_pool fail\n",
+				ld->name, get_dev_name(i));
+			goto err;
+		}
+		mif_err("<%s> %s mifb_pool(bsize:%d, qsize:%d) created\n",
+			ld->name, get_dev_name(i), bsize, qsize);
 	}
 
-	/* Disable IPC */
-	dpld->dpctl->set_magic(0);
-	dpld->dpctl->set_access(0);
-	dpld->dpram_init_status = DPRAM_INIT_STATE_NONE;
-
-	/* Prepare a clean buffer for DPRAM access */
+	/* Prepare a clean buffer */
 	dpld->buff = kzalloc(dpld->dp_size, GFP_KERNEL);
 	if (!dpld->buff) {
-		pr_err("[LNK/E] <%s> Failed to alloc dpld->buff\n", __func__);
+		mif_err("Failed to alloc dpld->buff\n");
 		goto err;
 	}
 
+	if (ld->mdm_data->modem_type == QC_MDM6600) {
+		if (dpctl->load_init)
+			dpctl->load_init(dpctl);
+	}
+
+	/* Disable IPC */
+	dpctl->set_magic(0);
+	dpctl->set_access(0);
+	dpld->dpram_init_status = DPRAM_INIT_STATE_NONE;
+
 	/* Register DPRAM interrupt handler */
-	ret = dpram_register_isr(dpld->irq,
-				 dpram_irq_handler,
-				 dpld->dpctl->dpram_irq_flags,
-				 dpld->dpctl->dpram_irq_name,
-				 ld);
+	ret = dpram_register_isr(dpld->irq, dpram_irq_handler,
+			 dpctl->dpram_irq_flags, dpctl->dpram_irq_name, ld);
 	if (ret)
 		goto err;
 
 	return ld;
 
 err:
-	kfree(dpld->buff);
-	kfree(dpld);
+	if (dpld) {
+		if (dpld->buff)
+			kfree(dpld->buff);
+		kfree(dpld);
+	}
+
 	return NULL;
 }
 

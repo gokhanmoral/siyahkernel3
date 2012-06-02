@@ -63,3 +63,13 @@ config IPC_CMC22x_OLD_RFS
 	bool "IPC: CMC22x ancient RFS"
 	depends on SEC_MODEM
 	default n
+
+config SIPC_VER_5
+	bool "IPC: Samsung IPC 5.0"
+	depends on SEC_MODEM
+	default n
+
+config SIM_DETECT
+	bool "SIM_DETECT pin"
+	depends on SEC_MODEM
+	default n

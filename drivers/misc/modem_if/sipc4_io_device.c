@@ -33,33 +33,18 @@
 #include "modem_prj.h"
 #include "modem_utils.h"
 
-#define HDLC_START		0x7F
-#define HDLC_END		0x7E
-#define SIZE_OF_HDLC_START	1
-#define SIZE_OF_HDLC_END	1
-#define MAX_RXDATA_SIZE		0x1000	/* 4 * 1024 */
+/*
+ * MAX_RXDATA_SIZE is used at making skb, when it called with page size
+ * it need more bytes to allocate itself (Ex, cache byte, shared info,
+ * padding...)
+ * So, give restriction to allocation size below 1 page to prevent
+ * big pages broken.
+ */
+#define MAX_RXDATA_SIZE		0x0E00	/* 4 * 1024 - 512 */
 #define MAX_MULTI_FMT_SIZE	0x4000	/* 16 * 1024 */
-#define MAX_LINK_PADDING_SIZE	3
 
 static const char hdlc_start[1] = { HDLC_START };
 static const char hdlc_end[1] = { HDLC_END };
-
-struct fmt_hdr {
-	u16 len;
-	u8 control;
-} __packed;
-
-struct raw_hdr {
-	u32 len;
-	u8 channel;
-	u8 control;
-} __packed;
-
-struct rfs_hdr {
-	u32 len;
-	u8 cmd;
-	u8 id;
-} __packed;
 
 static int rx_iodev_skb(struct sk_buff *skb);
 
@@ -129,13 +114,16 @@ static int get_hdlc_size(struct io_device *iod, char *buf)
 	struct raw_hdr *raw_header;
 	struct rfs_hdr *rfs_header;
 
-	pr_debug("[IOD] buf : %02x %02x %02x (%d)\n", *buf, *(buf + 1),
+	mif_debug("buf : %02x %02x %02x (%d)\n", *buf, *(buf + 1),
 				*(buf + 2), __LINE__);
 
 	switch (iod->format) {
 	case IPC_FMT:
 		fmt_header = (struct fmt_hdr *)buf;
-		return fmt_header->len;
+		if (iod->mc->mdm_data->ipc_version == SIPC_VER_42)
+			return fmt_header->len & 0x3FFF;
+		else
+			return fmt_header->len;
 	case IPC_RAW:
 	case IPC_MULTI_RAW:
 		raw_header = (struct raw_hdr *)buf;
@@ -191,7 +179,7 @@ static void *get_header(struct io_device *iod, size_t count,
 static inline int calc_padding_size(struct io_device *iod,
 	struct link_device *ld, unsigned len)
 {
-	if (likely(ld->aligned))
+	if (ld->aligned)
 		return (4 - (len & 0x3)) & 0x3;
 	else
 		return 0;
@@ -222,11 +210,11 @@ static int rx_hdlc_head_check(struct io_device *iod, struct link_device *ld,
 	if (!hdr->start) {
 		len = rx_hdlc_head_start_check(buf);
 		if (len < 0) {
-			pr_err("[IOD] Wrong HDLC start: 0x%x\n", *buf);
+			mif_err("Wrong HDLC start: 0x%x\n", *buf);
 			return len; /*Wrong hdlc start*/
 		}
 
-		pr_debug("[IOD] check len : %d, rest : %d (%d)\n", len,
+		mif_debug("check len : %d, rest : %d (%d)\n", len,
 					rest, __LINE__);
 
 		/* set the start flag of current packet */
@@ -254,7 +242,8 @@ static int rx_hdlc_head_check(struct io_device *iod, struct link_device *ld,
 		rest -= len; /* rest, call by value */
 	}
 
-	pr_debug("[IOD] check len : %d, rest : %d (%d)\n", len, rest, __LINE__);
+	mif_debug("check len : %d, rest : %d (%d)\n",
+			len, rest, __LINE__);
 
 	/* store the HDLC header to iod priv */
 	if (hdr->len < head_size) {
@@ -264,7 +253,7 @@ static int rx_hdlc_head_check(struct io_device *iod, struct link_device *ld,
 		done_len += len;
 	}
 
-	pr_debug("[IOD] check done_len : %d, rest : %d (%d)\n", done_len,
+	mif_debug("check done_len : %d, rest : %d (%d)\n", done_len,
 				rest, __LINE__);
 	return done_len;
 }
@@ -277,87 +266,107 @@ static int rx_hdlc_data_check(struct io_device *iod, struct link_device *ld,
 	struct sk_buff *skb = fragdata(iod, ld)->skb_recv;
 	int head_size = get_header_size(iod);
 	int data_size = get_hdlc_size(iod, hdr->hdr) - head_size;
-	int alloc_size = min(data_size, MAX_RXDATA_SIZE);
+	int alloc_size;
 	int len = 0;
 	int done_len = 0;
 	int rest_len = data_size - hdr->frag_len;
-	struct sk_buff *skb_new = NULL;
+	int continue_len = fragdata(iod, ld)->realloc_offset;
 
-	pr_debug("[IOD] head_size : %d, data_size : %d (%d)\n", head_size,
+	mif_debug("head_size : %d, data_size : %d (%d)\n", head_size,
 				data_size, __LINE__);
+
+	if (continue_len) {
+		/* check the HDLC header*/
+		if (rx_hdlc_head_start_check(buf) == SIZE_OF_HDLC_START) {
+			rest_len -= (head_size + SIZE_OF_HDLC_START);
+			continue_len += (head_size + SIZE_OF_HDLC_START);
+		}
+
+		buf += continue_len;
+		rest -= continue_len;
+		done_len += continue_len;
+		fragdata(iod, ld)->realloc_offset = 0;
+
+		mif_debug("realloc_offset = %d\n", continue_len);
+	}
 
 	/* first payload data - alloc skb */
 	if (!skb) {
-		switch (iod->format) {
-		case IPC_RFS:
-			alloc_size = min_t(int, data_size, rest) + head_size;
-			alloc_size = min(alloc_size, MAX_RXDATA_SIZE);
-			skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		/* make skb data size under MAX_RXDATA_SIZE */
+		alloc_size = min(data_size, MAX_RXDATA_SIZE);
+		alloc_size = min(alloc_size, rest_len);
+
+		/* exceptional case for RFS channel
+		 * make skb for header info first
+		 */
+		if (iod->format == IPC_RFS && !hdr->frag_len) {
+			skb = rx_alloc_skb(head_size, GFP_ATOMIC, iod, ld);
 			if (unlikely(!skb))
 				return -ENOMEM;
-
-			/* copy the RFS haeder to skb->data */
 			memcpy(skb_put(skb, head_size), hdr->hdr, head_size);
+			rx_iodev_skb(skb);
+		}
+
+		/* allocate first packet for data, when its size exceed
+		 * MAX_RXDATA_SIZE, this packet will split to
+		 * multiple packets
+		 */
+		if (iod->use_handover)
+			alloc_size += sizeof(struct ethhdr);
+
+		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		if (unlikely(!skb)) {
+			fragdata(iod, ld)->realloc_offset = continue_len;
+			return -ENOMEM;
+		}
+
+		if (iod->use_handover)
+			skb_reserve(skb, sizeof(struct ethhdr));
+		fragdata(iod, ld)->skb_recv = skb;
+	}
+
+	while (rest) {
+		/* copy length cannot exceed rest_len */
+		len = min_t(int, rest_len, rest);
+		/* copy length should be under skb tailroom size */
+		len = min(len, skb_tailroom(skb));
+		/* when skb tailroom is bigger than MAX_RXDATA_SIZE
+		 * restrict its size to MAX_RXDATA_SIZE just for convinience */
+		len = min(len, MAX_RXDATA_SIZE);
+
+		/* copy bytes to skb */
+		memcpy(skb_put(skb, len), buf, len);
+
+		/* adjusting variables */
+		buf += len;
+		rest -= len;
+		done_len += len;
+		rest_len -= len;
+		hdr->frag_len += len;
+
+		/* check if it is final for this packet sequence */
+		if (!rest_len || !rest)
 			break;
 
-		case IPC_MULTI_RAW:
-			if (iod->use_handover)
-				skb = rx_alloc_skb(alloc_size +
-					sizeof(struct ethhdr), GFP_ATOMIC,
-					iod, ld);
-			else
-				skb = rx_alloc_skb(alloc_size, GFP_ATOMIC,
-					iod, ld);
+		/* more bytes are remain for this packet sequence
+		 * pass fully loaded skb to rx queue
+		 * and allocate another skb for continues data recv chain
+		 */
+		rx_iodev_skb(skb);
+		fragdata(iod, ld)->skb_recv =  NULL;
 
-			if (unlikely(!skb))
-				return -ENOMEM;
+		alloc_size = min(rest_len, MAX_RXDATA_SIZE);
 
-			if (iod->use_handover)
-				skb_reserve(skb, sizeof(struct ethhdr));
-			break;
-
-		default:
-			skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
-			if (unlikely(!skb))
-				return -ENOMEM;
-			break;
+		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		if (unlikely(!skb)) {
+			fragdata(iod, ld)->realloc_offset = done_len;
+			return -ENOMEM;
 		}
 		fragdata(iod, ld)->skb_recv = skb;
 	}
 
-	/* if recv packet size is larger than user space */
-	while ((rest_len > MAX_RXDATA_SIZE) && (rest > 0)) {
-		len = MAX_RXDATA_SIZE - skb->len;
-		len = min_t(int, len, rest);
-		len = min(len, rest_len);
-		memcpy(skb_put(skb, len), buf, len);
-		buf += len;
-		done_len += len;
-		rest -= len;
-		rest_len -= len;
-
-		if (!rest_len)
-			break;
-
-		rx_iodev_skb(fragdata(iod, ld)->skb_recv);
-		fragdata(iod, ld)->skb_recv =  NULL;
-
-		alloc_size = min(rest_len, MAX_RXDATA_SIZE);
-		skb_new = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
-		if (unlikely(!skb_new))
-			return -ENOMEM;
-		skb = fragdata(iod, ld)->skb_recv = skb_new;
-	}
-
-	/* copy data to skb */
-	len = min(rest, alloc_size - skb->len);
-	len = min(len, rest_len);
-	pr_debug("[IOD] rest : %d, alloc_size : %d , len : %d (%d)\n",
+	mif_debug("rest : %d, alloc_size : %d , len : %d (%d)\n",
 				rest, alloc_size, skb->len, __LINE__);
-
-	memcpy(skb_put(skb, len), buf, len);
-	done_len += len;
-	hdr->frag_len += done_len;
 
 	return done_len;
 }
@@ -368,40 +377,40 @@ static int rx_multi_fmt_frame(struct sk_buff *rx_skb)
 	struct link_device *ld = skbpriv(rx_skb)->ld;
 	struct fmt_hdr *fh =
 		(struct fmt_hdr *)fragdata(iod, ld)->h_data.hdr;
-	unsigned int    id = fh->control & 0x7F;
+	unsigned int id = fh->control & 0x7F;
 	struct sk_buff *skb = iod->skb[id];
-	unsigned char  *data = fragdata(iod, ld)->skb_recv->data;
-	unsigned int    rcvd = fragdata(iod, ld)->skb_recv->len;
+	unsigned char *data = fragdata(iod, ld)->skb_recv->data;
+	unsigned int rcvd = fragdata(iod, ld)->skb_recv->len;
 
 	if (!skb) {
 		/* If there has been no multiple frame with this ID */
 		if (!(fh->control & 0x80)) {
 			/* It is a single frame because the "more" bit is 0. */
 #if 0
-			pr_err("\n[IOD] <%s:%s> Rx FMT frame (len %d)\n",
-				__func__, iod->name, rcvd);
+			mif_err("\n<%s> Rx FMT frame (len %d)\n",
+				iod->name, rcvd);
 			print_sipc4_fmt_frame(data);
-			pr_err("\n");
+			mif_err("\n");
 #endif
 			skb_queue_tail(&iod->sk_rx_q,
 					fragdata(iod, ld)->skb_recv);
-			pr_debug("[IOD] wake up wq of %s\n", iod->name);
+			mif_debug("wake up wq of %s\n", iod->name);
 			wake_up(&iod->wq);
 			return 0;
 		} else {
-			struct sipc4_fmt_hdr *ifh = NULL;
+			struct fmt_hdr *fh = NULL;
 			skb = rx_alloc_skb(MAX_MULTI_FMT_SIZE, GFP_ATOMIC,
 					iod, ld);
 			if (!skb) {
-				pr_err("[IOD/E] <%s> alloc_skb fail\n",
-					__func__);
+				mif_err("<%d> alloc_skb fail\n",
+					__LINE__);
 				return -ENOMEM;
 			}
 			iod->skb[id] = skb;
 
-			ifh = (struct sipc4_fmt_hdr *)data;
-			pr_err("[IOD] <%s> Start multi-frame (ID %d, len %d)",
-				__func__, id, ifh->len);
+			fh = (struct fmt_hdr *)data;
+			mif_info("Start multi-frame (ID %d, len %d)",
+				id, fh->len);
 		}
 	}
 
@@ -412,22 +421,104 @@ static int rx_multi_fmt_frame(struct sk_buff *rx_skb)
 
 	if (fh->control & 0x80) {
 		/* The last frame has not arrived yet. */
-		pr_err("[IOD] <%s> Receiving (ID %d, %d bytes)\n",
-			__func__, id, skb->len);
+		mif_info("Receiving (ID %d, %d bytes)\n",
+			id, skb->len);
 	} else {
 		/* It is the last frame because the "more" bit is 0. */
-		pr_err("[IOD] <%s> The Last (ID %d, %d bytes received)\n",
-			__func__, id, skb->len);
+		mif_info("The Last (ID %d, %d bytes received)\n",
+			id, skb->len);
 #if 0
-		pr_err("\n[IOD] <%s:%s> Rx FMT frame (len %d)\n",
-			__func__, iod->name, skb->len);
+		mif_err("\n<%s> Rx FMT frame (len %d)\n",
+			iod->name, skb->len);
 		print_sipc4_fmt_frame(skb->data);
-		pr_err("\n");
+		mif_err("\n");
 #endif
 		skb_queue_tail(&iod->sk_rx_q, skb);
 		iod->skb[id] = NULL;
-		pr_info("[IOD] wake up wq of %s\n", iod->name);
+		mif_info("wake up wq of %s\n", iod->name);
 		wake_up(&iod->wq);
+	}
+
+	return 0;
+}
+
+static int rx_multi_fmt_frame_sipc42(struct sk_buff *rx_skb)
+{
+	struct io_device *iod = skbpriv(rx_skb)->iod;
+	struct link_device *ld = skbpriv(rx_skb)->ld;
+	struct fmt_hdr *fh =
+		(struct fmt_hdr *)fragdata(iod, ld)->h_data.hdr;
+	unsigned int    id = fh->control & 0x7F;
+	struct sk_buff *skb = iod->skb[id];
+	unsigned char  *data = fragdata(iod, ld)->skb_recv->data;
+	unsigned int    rcvd = fragdata(iod, ld)->skb_recv->len;
+
+	u8 ch;
+	struct io_device *real_iod = NULL;
+
+	ch = (fh->len & 0xC000) >> 14;
+	fh->len = fh->len & 0x3FFF;
+	real_iod = ld->fmt_iods[ch];
+	if (!real_iod) {
+		mif_err("wrong channel %d\n", ch);
+		return -1;
+	}
+	skbpriv(rx_skb)->real_iod = real_iod;
+
+	if (!skb) {
+		/* If there has been no multiple frame with this ID */
+		if (!(fh->control & 0x80)) {
+			/* It is a single frame because the "more" bit is 0. */
+#if 0
+			mif_err("\n<%s> Rx FMT frame (len %d)\n",
+				iod->name, rcvd);
+			print_sipc4_fmt_frame(data);
+			mif_err("\n");
+#endif
+			skb_queue_tail(&real_iod->sk_rx_q,
+					fragdata(iod, ld)->skb_recv);
+			mif_debug("wake up wq of %s\n", iod->name);
+			wake_up(&real_iod->wq);
+			return 0;
+		} else {
+			struct fmt_hdr *fh = NULL;
+			skb = rx_alloc_skb(MAX_MULTI_FMT_SIZE, GFP_ATOMIC,
+					real_iod, ld);
+			if (!skb) {
+				mif_err("alloc_skb fail\n");
+				return -ENOMEM;
+			}
+			real_iod->skb[id] = skb;
+
+			fh = (struct fmt_hdr *)data;
+			mif_err("Start multi-frame (ID %d, len %d)",
+				id, fh->len);
+		}
+	}
+
+	/* Start multi-frame processing */
+
+	memcpy(skb_put(skb, rcvd), data, rcvd);
+	dev_kfree_skb_any(fragdata(real_iod, ld)->skb_recv);
+
+	if (fh->control & 0x80) {
+		/* The last frame has not arrived yet. */
+		mif_err("Receiving (ID %d, %d bytes)\n",
+			id, skb->len);
+	} else {
+		/* It is the last frame because the "more" bit is 0. */
+		mif_err("The Last (ID %d, %d bytes received)\n",
+			id, skb->len);
+#if 0
+		mif_err("\n<%s> Rx FMT frame (len %d)\n",
+			iod->name, skb->len);
+		print_sipc4_fmt_frame(skb->data);
+		mif_err("\n");
+#endif
+		skb_queue_tail(&real_iod->sk_rx_q, skb);
+		real_iod->skb[id] = NULL;
+		mif_info("wake up wq of %s\n", real_iod->name);
+		wake_up(&real_iod->wq);
 	}
 
 	return 0;
@@ -435,16 +526,27 @@ static int rx_multi_fmt_frame(struct sk_buff *rx_skb)
 
 static int rx_iodev_skb_raw(struct sk_buff *skb)
 {
-	int err;
+	int err = 0;
 	struct io_device *iod = skbpriv(skb)->real_iod;
-	struct link_device *ld = skbpriv(skb)->ld;
-	struct net_device *ndev;
-	struct iphdr *ip_header;
-	struct ethhdr *ehdr;
+	struct net_device *ndev = NULL;
+	struct iphdr *ip_header = NULL;
+	struct ethhdr *ehdr = NULL;
 	const char source[ETH_ALEN] = SOURCE_MAC_ADDR;
+
+	/* check the real_iod is open? */
+	/*
+	if (atomic_read(&iod->opened) == 0) {
+		mif_err("<%s> is not opened.\n",
+			iod->name);
+		pr_skb("drop packet", skb);
+		return -ENOENT;
+	}
+	*/
 
 	switch (iod->io_typ) {
 	case IODEV_MISC:
+		mif_debug("<%s> sk_rx_q.qlen = %d\n",
+			iod->name, iod->sk_rx_q.qlen);
 		skb_queue_tail(&iod->sk_rx_q, skb);
 		wake_up(&iod->wq);
 		return 0;
@@ -452,8 +554,8 @@ static int rx_iodev_skb_raw(struct sk_buff *skb)
 	case IODEV_NET:
 		ndev = iod->ndev;
 		if (!ndev) {
-			pr_err("[IOD] <%s:%s> iod->ndev == NULL",
-				__func__, iod->name);
+			mif_err("<%s> ndev == NULL",
+				iod->name);
 			return -EINVAL;
 		}
 
@@ -487,30 +589,31 @@ static int rx_iodev_skb_raw(struct sk_buff *skb)
 
 		if (err != NET_RX_SUCCESS)
 			dev_err(&ndev->dev, "rx error: %d\n", err);
+
 		return err;
 
 	default:
-		pr_err("[IOD] wrong io_type : %d\n", iod->io_typ);
+		mif_err("wrong io_type : %d\n", iod->io_typ);
 		return -EINVAL;
 	}
 }
 
 static void rx_iodev_work(struct work_struct *work)
 {
-	int ret;
-	struct sk_buff *skb;
+	int ret = 0;
+	struct sk_buff *skb = NULL;
 	struct io_device *iod = container_of(work, struct io_device,
 				rx_work.work);
 
 	while ((skb = skb_dequeue(&iod->sk_rx_q)) != NULL) {
 		ret = rx_iodev_skb_raw(skb);
 		if (ret < 0) {
-			pr_err("[IOD/E] <%s:%s> rx_iodev_skb_raw err = %d",
-				__func__, iod->name, ret);
+			mif_err("<%s> rx_iodev_skb_raw err = %d",
+				iod->name, ret);
 			dev_kfree_skb_any(skb);
 		} else if (ret == NET_RX_DROP) {
-			pr_err("[IOD/E] <%s:%s> ret == NET_RX_DROP\n",
-				__func__, iod->name);
+			mif_err("<%s> ret == NET_RX_DROP\n",
+				iod->name);
 			schedule_delayed_work(&iod->rx_work,
 						msecs_to_jiffies(100));
 			break;
@@ -525,20 +628,18 @@ static int rx_multipdp(struct sk_buff *skb)
 	struct link_device *ld = skbpriv(skb)->ld;
 	struct raw_hdr *raw_header =
 		(struct raw_hdr *)fragdata(iod, ld)->h_data.hdr;
-	struct io_raw_devices *io_raw_devs = NULL;
 	struct io_device *real_iod = NULL;
 
 	ch = raw_header->channel;
-	io_raw_devs = (struct io_raw_devices *)iod->private_data;
-	real_iod = io_raw_devs->raw_devices[ch];
+	real_iod = link_get_iod_with_channel(ld, 0x20 | ch);
 	if (!real_iod) {
-		pr_err("[IOD] %s: wrong channel %d\n", __func__, ch);
+		mif_err("wrong channel %d\n", ch);
 		return -1;
 	}
 
 	skbpriv(skb)->real_iod = real_iod;
 	skb_queue_tail(&iod->sk_rx_q, skb);
-	pr_debug("sk_rx_qlen:%d\n", iod->sk_rx_q.qlen);
+	mif_debug("sk_rx_qlen:%d\n", iod->sk_rx_q.qlen);
 
 	schedule_delayed_work(&iod->rx_work, 0);
 	return 0;
@@ -554,12 +655,15 @@ static int rx_iodev_skb(struct sk_buff *skb)
 		return rx_multipdp(skb);
 
 	case IPC_FMT:
-		return rx_multi_fmt_frame(skb);
+		if (iod->mc->mdm_data->ipc_version == SIPC_VER_42)
+			return rx_multi_fmt_frame_sipc42(skb);
+		else
+			return rx_multi_fmt_frame(skb);
 
 	case IPC_RFS:
 	default:
 		skb_queue_tail(&iod->sk_rx_q, skb);
-		pr_debug("[IOD] wake up wq of %s\n", iod->name);
+		mif_debug("wake up wq of %s\n", iod->name);
 		wake_up(&iod->wq);
 		return 0;
 	}
@@ -577,7 +681,7 @@ static int rx_hdlc_packet(struct io_device *iod, struct link_device *ld,
 	if (rest <= 0)
 		goto exit;
 
-	pr_debug("[IOD] <%s> RX_SIZE = %d, ld: %s\n", __func__, rest, ld->name);
+	mif_debug("RX_SIZE = %d, ld: %s\n", rest, ld->name);
 
 	if (fragdata(iod, ld)->h_data.frag_len) {
 		/*
@@ -593,7 +697,7 @@ next_frame:
 	err = len = rx_hdlc_head_check(iod, ld, buf, rest);
 	if (err < 0)
 		goto exit;
-	pr_debug("[IOD] check len : %d, rest : %d (%d)\n", len, rest,
+	mif_debug("check len : %d, rest : %d (%d)\n", len, rest,
 				__LINE__);
 
 	buf += len;
@@ -609,7 +713,7 @@ data_check:
 	err = len = rx_hdlc_data_check(iod, ld, buf, rest);
 	if (err < 0)
 		goto exit;
-	pr_debug("[IOD] check len : %d, rest : %d (%d)\n", len, rest,
+	mif_debug("check len : %d, rest : %d (%d)\n", len, rest,
 				__LINE__);
 
 	buf += len;
@@ -629,10 +733,10 @@ data_check:
 
 	err = len = rx_hdlc_tail_check(buf);
 	if (err < 0) {
-		pr_err("[IOD] Wrong HDLC end: 0x%02X\n", *buf);
+		mif_err("Wrong HDLC end: 0x%02X\n", *buf);
 		goto exit;
 	}
-	pr_debug("[IOD] check len : %d, rest : %d (%d)\n", len, rest,
+	mif_debug("check len : %d, rest : %d (%d)\n", len, rest,
 				__LINE__);
 	buf += len;
 	rest -= len;
@@ -660,6 +764,7 @@ data_check:
 	fragdata(iod, ld)->skb_recv = NULL;
 	memset(&fragdata(iod, ld)->h_data, 0x00,
 			sizeof(struct header_data));
+	fragdata(iod, ld)->realloc_offset = 0;
 
 	if (rest)
 		goto next_frame;
@@ -670,6 +775,13 @@ exit:
 	if (rest < 0)
 		err = -ERANGE;
 
+	if (err == -ENOMEM) {
+		if (!(fragdata(iod, ld)->h_data.frag_len))
+			memset(&fragdata(iod, ld)->h_data, 0x00,
+				sizeof(struct header_data));
+		return err;
+	}
+
 	if (err < 0 && fragdata(iod, ld)->skb_recv) {
 		dev_kfree_skb_any(fragdata(iod, ld)->skb_recv);
 		fragdata(iod, ld)->skb_recv = NULL;
@@ -677,6 +789,7 @@ exit:
 		/* clear headers */
 		memset(&fragdata(iod, ld)->h_data, 0x00,
 				sizeof(struct header_data));
+		fragdata(iod, ld)->realloc_offset = 0;
 	}
 
 	return err;
@@ -691,9 +804,9 @@ static int rx_rfs_packet(struct io_device *iod, struct link_device *ld,
 	struct sk_buff *skb;
 
 	if (data[0] != HDLC_START) {
-		pr_err("[IOD] <%s> Dropping RFS packet ... "
+		mif_err("Dropping RFS packet ... "
 		       "size = %d, start = %02X %02X %02X %02X\n",
-			__func__, size,
+			size,
 			data[0], data[1], data[2], data[3]);
 		return -EINVAL;
 	}
@@ -706,19 +819,18 @@ static int rx_rfs_packet(struct io_device *iod, struct link_device *ld,
 		if (pad >= 4) {
 			char *b = (char *)data;
 			unsigned sz = size;
-			pr_err("[IOD/E] <%s> size %d, No END_FLAG!!!\n",
-				__func__, size);
-			pr_err("[IOD/E] <%s> end = %02X %02X %02X %02X\n",
-				__func__, b[sz-4], b[sz-3], b[sz-2], b[sz-1]);
+			mif_err("size %d, No END_FLAG!!!\n", size);
+			mif_err("end = %02X %02X %02X %02X\n",
+				b[sz-4], b[sz-3], b[sz-2], b[sz-1]);
 			return -EINVAL;
 		} else {
-			pr_info("[IOD] <%s> padding = %d\n", __func__, pad);
+			mif_info("padding = %d\n", pad);
 		}
 	}
 
 	skb = rx_alloc_skb(size, GFP_ATOMIC, iod, ld);
 	if (unlikely(!skb)) {
-		pr_err("[IOD] <%s> alloc_skb fail\n", __func__);
+		mif_err("alloc_skb fail\n");
 		return -ENOMEM;
 	}
 
@@ -739,6 +851,18 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 	struct sk_buff *skb;
 	int err;
 
+	/* check the iod(except IODEV_DUMMY) is open?
+	 * if the iod is MULTIPDP, check this data on rx_iodev_skb_raw()
+	 * because, we cannot know the channel no in here.
+	 */
+	/*
+	if (iod->io_typ != IODEV_DUMMY && atomic_read(&iod->opened) == 0) {
+		mif_err("<%s> is not opened.\n", iod->name);
+		pr_buffer("drop packet", data, len, 16u);
+		return -ENOENT;
+	}
+	*/
+
 	switch (iod->format) {
 	case IPC_RFS:
 #ifdef CONFIG_IPC_CMC22x_OLD_RFS
@@ -753,7 +877,7 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 			wake_lock_timeout(&iod->wakelock, iod->waketime);
 		err = rx_hdlc_packet(iod, ld, data, len);
 		if (err < 0)
-			pr_err("[IOD] fail process HDLC frame\n");
+			mif_err("fail process HDLC frame\n");
 		return err;
 
 	case IPC_CMD:
@@ -765,15 +889,15 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 		/* save packet to sk_buff */
 		skb = rx_alloc_skb(len, GFP_ATOMIC, iod, ld);
 		if (!skb) {
-			pr_err("[IOD] fail alloc skb (%d)\n", __LINE__);
+			mif_err("fail alloc skb (%d)\n", __LINE__);
 			return -ENOMEM;
 		}
 
-		pr_debug("[IOD] boot len : %d\n", len);
+		mif_debug("boot len : %d\n", len);
 
 		memcpy(skb_put(skb, len), data, len);
 		skb_queue_tail(&iod->sk_rx_q, skb);
-		pr_debug("[IOD] skb len : %d\n", skb->len);
+		mif_debug("skb len : %d\n", skb->len);
 
 		wake_up(&iod->wq);
 		return len;
@@ -790,22 +914,60 @@ static void io_dev_modem_state_changed(struct io_device *iod,
 			enum modem_state state)
 {
 	iod->mc->phone_state = state;
-	pr_err("[IOD] <%s> modem state changed. (iod: %s, state: %d)\n",
-		__func__, iod->name, state);
+	mif_err("modem state changed. (iod: %s, state: %d)\n",
+		iod->name, state);
 
 	if ((state == STATE_CRASH_RESET) || (state == STATE_CRASH_EXIT)
 		|| (state == STATE_NV_REBUILDING))
 		wake_up(&iod->wq);
 }
 
+/**
+ * io_dev_sim_state_changed
+ * @iod:	IPC's io_device
+ * @sim_online: SIM is online?
+ */
+static void io_dev_sim_state_changed(struct io_device *iod, bool sim_online)
+{
+	if (atomic_read(&iod->opened) == 0) {
+		mif_err("iod is not opened: %s\n",
+				iod->name);
+	} else if (iod->mc->sim_state.online == sim_online) {
+		mif_err("sim state not changed.\n");
+	} else {
+		iod->mc->sim_state.online = sim_online;
+		iod->mc->sim_state.changed = true;
+		wake_lock_timeout(&iod->mc->bootd->wakelock,
+						iod->mc->bootd->waketime);
+		mif_err("sim state changed. (iod: %s, state: "
+				"[online=%d, changed=%d])\n",
+				iod->name, iod->mc->sim_state.online,
+				iod->mc->sim_state.changed);
+		wake_up(&iod->wq);
+	}
+}
+
 static int misc_open(struct inode *inode, struct file *filp)
 {
 	struct io_device *iod = to_io_device(filp->private_data);
+	struct mif_common *commons = &iod->mc->commons;
+	struct link_device *ld;
+	int ret;
 	filp->private_data = (void *)iod;
 
-	pr_err("[IOD] <%s> iod = %s\n", __func__, iod->name);
-	if (iod->link->init_comm)
-		return iod->link->init_comm(iod->link, iod);
+	mif_err("iod = %s\n", iod->name);
+	atomic_inc(&iod->opened);
+
+	list_for_each_entry(ld, &commons->link_dev_list, list) {
+		if (IS_CONNECTED(iod, ld) && ld->init_comm) {
+			ret = ld->init_comm(ld, iod);
+			if (ret < 0) {
+				mif_err("%s: init_comm error: %d\n",
+						ld->name, ret);
+				return ret;
+			}
+		}
+	}
 
 	return 0;
 }
@@ -813,11 +975,17 @@ static int misc_open(struct inode *inode, struct file *filp)
 static int misc_release(struct inode *inode, struct file *filp)
 {
 	struct io_device *iod = (struct io_device *)filp->private_data;
+	struct mif_common *commons = &iod->mc->commons;
+	struct link_device *ld;
 
-	pr_err("[IOD] <%s> iod = %s\n", __func__, iod->name);
+	mif_err("iod = %s\n", iod->name);
+	atomic_dec(&iod->opened);
+	skb_queue_purge(&iod->sk_rx_q);
 
-	if (iod->link->terminate_comm)
-		iod->link->terminate_comm(iod->link, iod);
+	list_for_each_entry(ld, &commons->link_dev_list, list) {
+		if (IS_CONNECTED(iod, ld) && ld->terminate_comm)
+			ld->terminate_comm(ld, iod);
+	}
 
 	return 0;
 }
@@ -828,143 +996,141 @@ static unsigned int misc_poll(struct file *filp, struct poll_table_struct *wait)
 
 	poll_wait(filp, &iod->wq, wait);
 
-	if ((!skb_queue_empty(&iod->sk_rx_q))
-				&& (iod->mc->phone_state != STATE_OFFLINE))
+	if ((!skb_queue_empty(&iod->sk_rx_q)) &&
+	    (iod->mc->phone_state != STATE_OFFLINE)) {
 		return POLLIN | POLLRDNORM;
-	else if ((iod->mc->phone_state == STATE_CRASH_RESET) ||
+	} else if ((iod->mc->phone_state == STATE_CRASH_RESET) ||
 			(iod->mc->phone_state == STATE_CRASH_EXIT) ||
-			(iod->mc->phone_state == STATE_NV_REBUILDING))
+			(iod->mc->phone_state == STATE_NV_REBUILDING) ||
+			(iod->mc->sim_state.changed)) {
+		if (iod->format == IPC_RAW) {
+			msleep(20);
+			return 0;
+		}
 		return POLLHUP;
-	else
+	} else {
 		return 0;
+	}
 }
 
 static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-	int i;
 	int p_state;
 	struct io_device *iod = (struct io_device *)filp->private_data;
-	struct io_raw_devices *io_raw_devs;
+	struct link_device *ld = get_current_link(iod);
+	char cpinfo_buf[530] = "CP Crash ";
 
-	pr_debug("[IOD] <%s> cmd = 0x%x\n", __func__, cmd);
+	mif_debug("cmd = 0x%x\n", cmd);
 
 	switch (cmd) {
 	case IOCTL_MODEM_ON:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_ON\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_ON\n");
 		return iod->mc->ops.modem_on(iod->mc);
 
 	case IOCTL_MODEM_OFF:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_OFF\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_OFF\n");
 		return iod->mc->ops.modem_off(iod->mc);
 
 	case IOCTL_MODEM_RESET:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_RESET\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_RESET\n");
 		return iod->mc->ops.modem_reset(iod->mc);
 
 	case IOCTL_MODEM_BOOT_ON:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_BOOT_ON\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_BOOT_ON\n");
 		return iod->mc->ops.modem_boot_on(iod->mc);
 
 	case IOCTL_MODEM_BOOT_OFF:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_BOOT_OFF\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_BOOT_OFF\n");
 		return iod->mc->ops.modem_boot_off(iod->mc);
 
 	/* TODO - will remove this command after ril updated */
 	case IOCTL_MODEM_START:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_START\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_START\n");
 		return 0;
 
 	case IOCTL_MODEM_STATUS:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_STATUS\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_STATUS\n");
 
 		p_state = iod->mc->phone_state;
 		if ((p_state == STATE_CRASH_RESET) ||
-			(p_state == STATE_CRASH_EXIT)) {
-			pr_err("[IOD] send err state : %d\n", p_state);
-		/*	iod->mc->phone_state = STATE_OFFLINE; */
+		    (p_state == STATE_CRASH_EXIT)) {
+			mif_err("<%s> send err state : %d\n",
+				iod->name, p_state);
+		} else if (iod->mc->sim_state.changed) {
+			int s_state = iod->mc->sim_state.online ?
+					STATE_SIM_ATTACH : STATE_SIM_DETACH;
+			iod->mc->sim_state.changed = false;
+			return s_state;
 		} else if (p_state == STATE_NV_REBUILDING) {
-			pr_info("[IOD] send nv rebuild state : %d\n",
+			mif_info("send nv rebuild state : %d\n",
 				p_state);
 			iod->mc->phone_state = STATE_ONLINE;
 		}
 		return p_state;
 
 	case IOCTL_MODEM_PROTOCOL_SUSPEND:
-		pr_info("[IOD] misc_ioctl : IOCTL_MODEM_PROTOCOL_SUSPEND\n");
+		mif_info("misc_ioctl : IOCTL_MODEM_PROTOCOL_SUSPEND\n");
 
 		if (iod->format != IPC_MULTI_RAW)
 			return -EINVAL;
-		io_raw_devs = (struct io_raw_devices *)iod->private_data;
 
-		for (i = 0; i < MAX_RAW_DEVS; i++) {
-			if (io_raw_devs->raw_devices[i] &&
-			(io_raw_devs->raw_devices[i]->io_typ == IODEV_NET)) {
-				netif_stop_queue(
-					io_raw_devs->raw_devices[i]->ndev);
-				pr_info("[IOD] netif stopped : %s\n",
-					io_raw_devs->raw_devices[i]->name);
-			}
-		}
+		iodevs_for_each(&iod->mc->commons, iodev_netif_stop, 0);
 		return 0;
 
 	case IOCTL_MODEM_PROTOCOL_RESUME:
-		pr_info("[IOD] misc_ioctl : IOCTL_MODEM_PROTOCOL_RESUME\n");
+		mif_info("misc_ioctl : IOCTL_MODEM_PROTOCOL_RESUME\n");
 
 		if (iod->format != IPC_MULTI_RAW)
 			return -EINVAL;
-		io_raw_devs = (struct io_raw_devices *)iod->private_data;
 
-		for (i = 0; i < MAX_RAW_DEVS; i++) {
-			if (io_raw_devs->raw_devices[i] &&
-			(io_raw_devs->raw_devices[i]->io_typ == IODEV_NET)) {
-				netif_wake_queue(
-					io_raw_devs->raw_devices[i]->ndev);
-				pr_info("[IOD] netif woke : %s\n",
-					io_raw_devs->raw_devices[i]->name);
-			}
-		}
+		iodevs_for_each(&iod->mc->commons, iodev_netif_wake, 0);
 		return 0;
 
 	case IOCTL_MODEM_DUMP_START:
-		pr_err("[IOD] misc_ioctl : IOCTL_MODEM_DUMP_START\n");
-		return iod->link->dump_start(iod->link, iod);
+		mif_err("misc_ioctl : IOCTL_MODEM_DUMP_START\n");
+		return ld->dump_start(ld, iod);
 
 	case IOCTL_MODEM_DUMP_UPDATE:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_DUMP_UPDATE\n");
-		return iod->link->dump_update(iod->link, iod, arg);
+		mif_debug("misc_ioctl : IOCTL_MODEM_DUMP_UPDATE\n");
+		return ld->dump_update(ld, iod, arg);
 
 	case IOCTL_MODEM_FORCE_CRASH_EXIT:
-		pr_debug("[IOD] misc_ioctl : IOCTL_MODEM_FORCE_CRASH_EXIT\n");
+		mif_debug("misc_ioctl : IOCTL_MODEM_FORCE_CRASH_EXIT\n");
 		if (iod->mc->ops.modem_force_crash_exit)
 			return iod->mc->ops.modem_force_crash_exit(iod->mc);
 		return -EINVAL;
 
 	case IOCTL_MODEM_CP_UPLOAD:
-		pr_err("[IOD] misc_ioctl : IOCTL_MODEM_CP_UPLOAD\n");
-		panic("CP Crash");
+		mif_err("misc_ioctl : IOCTL_MODEM_CP_UPLOAD\n");
+		if (copy_from_user(cpinfo_buf + strlen(cpinfo_buf),
+			(void __user *)arg, MAX_CPINFO_SIZE) != 0)
+			panic("CP Crash");
+		else
+			panic(cpinfo_buf);
 		return 0;
 
 	case IOCTL_MODEM_DUMP_RESET:
-		pr_err("[IOD] misc_ioctl : IOCTL_MODEM_DUMP_RESET\n");
+		mif_err("misc_ioctl : IOCTL_MODEM_DUMP_RESET\n");
 		return iod->mc->ops.modem_dump_reset(iod->mc);
 
 	default:
 		 /* If you need to handle the ioctl for specific link device,
-		  * then assign the link ioctl handler to iod->link->ioctl
+		  * then assign the link ioctl handler to ld->ioctl
 		  * It will be call for specific link ioctl */
-		if (iod->link->ioctl)
-			return iod->link->ioctl(iod->link, iod, cmd, arg);
+		if (ld->ioctl)
+			return ld->ioctl(ld, iod, cmd, arg);
 
-		pr_err("[IOD] misc_ioctl : ioctl 0x%X is not defined.\n", cmd);
+		mif_err("misc_ioctl : ioctl 0x%X is not defined.\n", cmd);
 		return -EINVAL;
 	}
 	return 0;
 }
 
-static ssize_t misc_write(struct file *filp, const char __user * buf,
+static ssize_t misc_write(struct file *filp, const char __user *buf,
 			size_t count, loff_t *ppos)
 {
 	struct io_device *iod = (struct io_device *)filp->private_data;
+	struct link_device *ld = get_current_link(iod);
 	int frame_len = 0;
 	char frame_header_buf[sizeof(struct raw_hdr)];
 	struct sk_buff *skb;
@@ -977,12 +1143,12 @@ static ssize_t misc_write(struct file *filp, const char __user * buf,
 		    get_header_size(iod) +
 		    count +
 		    SIZE_OF_HDLC_END;
-	if (likely(iod->link->aligned))
+	if (ld->aligned)
 		frame_len += MAX_LINK_PADDING_SIZE;
 
 	skb = alloc_skb(frame_len, GFP_KERNEL);
 	if (!skb) {
-		pr_err("[IOD] fail alloc skb (%d)\n", __LINE__);
+		mif_err("fail alloc skb (%d)\n", __LINE__);
 		return -ENOMEM;
 	}
 
@@ -1021,29 +1187,30 @@ static ssize_t misc_write(struct file *filp, const char __user * buf,
 		break;
 	}
 
-	skb_put(skb, calc_padding_size(iod, iod->link, skb->len));
+	skb_put(skb, calc_padding_size(iod, ld, skb->len));
+
 #if 0
 	if (iod->format == IPC_FMT) {
-		pr_err("\n[LNK] <%s:%s> Tx HDLC FMT frame (len %d)\n",
-			__func__, iod->name, skb->len);
+		mif_err("\n<%s> Tx HDLC FMT frame (len %d)\n",
+			iod->name, skb->len);
 		print_sipc4_hdlc_fmt_frame(skb->data);
-		pr_err("\n");
+		mif_err("\n");
 	}
 #endif
 #if 0
 	if (iod->format == IPC_RAW) {
-		pr_err("\n[LNK] <%s:%s> Tx HDLC RAW frame (len %d)\n",
-			__func__, iod->name, skb->len);
+		mif_err("\n<%s> Tx HDLC RAW frame (len %d)\n",
+			iod->name, skb->len);
 		mif_print_data(skb->data, (skb->len < 64 ? skb->len : 64));
-		pr_err("\n");
+		mif_err("\n");
 	}
 #endif
 #if 0
 	if (iod->format == IPC_RFS) {
-		pr_err("\n[LNK] <%s:%s> Tx HDLC RFS frame (len %d)\n",
-			__func__, iod->name, skb->len);
+		mif_err("\n<%s> Tx HDLC RFS frame (len %d)\n",
+			iod->name, skb->len);
 		mif_print_data(skb->data, (skb->len < 64 ? skb->len : 64));
-		pr_err("\n");
+		mif_err("\n");
 	}
 #endif
 
@@ -1051,14 +1218,22 @@ static ssize_t misc_write(struct file *filp, const char __user * buf,
 	 * into the specific sk_buff_q and run work-q to send data
 	 */
 	tx_size = skb->len;
-	err = iod->link->send(iod->link, iod, skb);
+
+	skbpriv(skb)->iod = iod;
+	skbpriv(skb)->ld = ld;
+
+	err = ld->send(ld, iod, skb);
 	if (err < 0)
 		return err;
 
 	if (err != tx_size)
-		pr_err("mif: %s: WARNNING: wrong tx size: %s, format=%d "
-			"count=%d, tx_size=%d, return_size=%d", __func__,
+		mif_err("WARNNING: wrong tx size: %s, format=%d "
+			"count=%d, tx_size=%d, return_size=%d",
 			iod->name, iod->format, count, tx_size, err);
+
+	/* Temporaly enable t he RFS log for debugging IPC RX pedding issue */
+	if (iod->format == IPC_RFS)
+		mif_info("write rfs size = %d\n", count);
 
 	return count;
 }
@@ -1067,31 +1242,52 @@ static ssize_t misc_read(struct file *filp, char *buf, size_t count,
 			loff_t *f_pos)
 {
 	struct io_device *iod = (struct io_device *)filp->private_data;
-	struct sk_buff *skb;
+	struct sk_buff *skb = NULL;
 	int pktsize = 0;
 
 	skb = skb_dequeue(&iod->sk_rx_q);
 	if (!skb) {
-		pr_err("[IOD] no data from sk_rx_q\n");
+		mif_err("<%s> no data from sk_rx_q\n", iod->name);
 		return 0;
 	}
+	mif_debug("<%s> skb->len : %d\n", iod->name, skb->len);
 
 	if (skb->len > count) {
-		pr_err("[IOD] skb len is too big = %d,%d!(%d)\n",
-				count, skb->len, __LINE__);
-		dev_kfree_skb_any(skb);
-		return -EFAULT;
+		/* BOOT device receviced rx data as serial stream, return data
+		 by User requested size */
+		if (iod->format == IPC_BOOT) {
+			mif_err("skb->len %d > count %d\n", skb->len,
+				count);
+			pr_skb("BOOT-wRX", skb);
+			if (copy_to_user(buf, skb->data, count) != 0) {
+				dev_kfree_skb_any(skb);
+				return -EFAULT;
+			}
+			skb_pull(skb, count);
+			if (skb->len) {
+				mif_info("queue-head, skb->len = %d\n",
+					skb->len);
+				skb_queue_head(&iod->sk_rx_q, skb);
+			}
+
+			return count;
+		} else {
+			mif_err("<%s> skb->len %d > count %d\n",
+					iod->name, skb->len, count);
+			dev_kfree_skb_any(skb);
+			return -EFAULT;
+		}
 	}
-	pr_debug("[IOD] skb len : %d\n", skb->len);
 
 	pktsize = skb->len;
 	if (copy_to_user(buf, skb->data, pktsize) != 0) {
 		dev_kfree_skb_any(skb);
 		return -EFAULT;
 	}
-	dev_kfree_skb_any(skb);
+	if (iod->format == IPC_FMT)
+		mif_debug("copied %d bytes to user\n", pktsize);
 
-	pr_debug("[IOD] copy to user : %d\n", pktsize);
+	dev_kfree_skb_any(skb);
 
 	return pktsize;
 }
@@ -1111,7 +1307,7 @@ static int misc_mmap(struct file *filp, struct vm_area_struct *vma)
 	size = vma->vm_end - vma->vm_start;
 	offset = vma->vm_pgoff << PAGE_SHIFT;
 	if (offset + size > (C2C_CP_RGN_SIZE + C2C_SH_RGN_SIZE)) {
-		iod_err(iod, "offset + size > C2C_CP_RGN_SIZE\n");
+		mif_err("offset + size > C2C_CP_RGN_SIZE\n");
 		return -EINVAL;
 	}
 
@@ -1122,12 +1318,12 @@ static int misc_mmap(struct file *filp, struct vm_area_struct *vma)
 	pfn = __phys_to_pfn(C2C_CP_RGN_ADDR + offset);
 	r = remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot);
 	if (r) {
-		iod_err(iod, "Failed in remap_pfn_range()!!!\n");
+		mif_err("Failed in remap_pfn_range()!!!\n");
 		return -EAGAIN;
 	}
 
-	pr_err("[IOD] <%s> VA = 0x%08lx, offset = 0x%lx, size = %lu\n",
-		__func__, vma->vm_start, offset, size);
+	mif_err("VA = 0x%08lx, offset = 0x%lx, size = %lu\n",
+		vma->vm_start, offset, size);
 
 	return 0;
 }
@@ -1148,40 +1344,50 @@ static const struct file_operations misc_io_fops = {
 
 static int vnet_open(struct net_device *ndev)
 {
+	struct vnet *vnet = netdev_priv(ndev);
 	netif_start_queue(ndev);
+	atomic_inc(&vnet->iod->opened);
 	return 0;
 }
 
 static int vnet_stop(struct net_device *ndev)
 {
+	struct vnet *vnet = netdev_priv(ndev);
+	atomic_dec(&vnet->iod->opened);
 	netif_stop_queue(ndev);
 	return 0;
 }
 
 static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
-	int ret;
-	int skb_pull_bytes = 0;
-	int headroom, tailroom;
-	struct raw_hdr hd;
-	struct sk_buff *skb_new;
+	int ret = 0;
+	int headroom = 0;
+	int tailroom = 0;
+	struct sk_buff *skb_new = NULL;
 	struct vnet *vnet = netdev_priv(ndev);
 	struct io_device *iod = vnet->iod;
+	struct link_device *ld = get_current_link(iod);
+	struct raw_hdr hd;
 
-	/* umts doesn't need to discard ethernet header */
+	/* When use `handover' with Network Bridge,
+	 * user -> TCP/IP(kernel) -> bridge device -> TCP/IP(kernel) -> this.
+	 *
+	 * We remove the one ethernet header of skb before using skb->len,
+	 * because the skb has two ethernet headers.
+	 */
 	if (iod->use_handover) {
 		if (iod->id >= PSD_DATA_CHID_BEGIN &&
 			iod->id <= PSD_DATA_CHID_END)
-			skb_pull_bytes = sizeof(struct ethhdr);
+			skb_pull(skb, sizeof(struct ethhdr));
 	}
 
 	hd.len = skb->len + sizeof(hd);
 	hd.control = 0;
 	hd.channel = iod->id & 0x1F;
 
-	headroom = sizeof(hd) + sizeof(hdlc_start) + skb_pull_bytes;
+	headroom = sizeof(hd) + sizeof(hdlc_start);
 	tailroom = sizeof(hdlc_end);
-	if (likely(iod->link->aligned))
+	if (ld->aligned)
 		tailroom += MAX_LINK_PADDING_SIZE;
 	if (skb_headroom(skb) < headroom || skb_tailroom(skb) < tailroom) {
 		skb_new = skb_copy_expand(skb, headroom, tailroom, GFP_ATOMIC);
@@ -1192,16 +1398,16 @@ static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 	} else
 		skb_new = skb;
 
-	if (skb_pull_bytes)
-		skb_pull(skb_new, skb_pull_bytes);
-
 	memcpy(skb_push(skb_new, sizeof(hd)), &hd, sizeof(hd));
 	memcpy(skb_push(skb_new, sizeof(hdlc_start)), hdlc_start,
 				sizeof(hdlc_start));
 	memcpy(skb_put(skb_new, sizeof(hdlc_end)), hdlc_end, sizeof(hdlc_end));
-	skb_put(skb_new, calc_padding_size(iod, iod->link,  skb_new->len));
+	skb_put(skb_new, calc_padding_size(iod, ld,  skb_new->len));
 
-	ret = iod->link->send(iod->link, iod, skb_new);
+	skbpriv(skb_new)->iod = iod;
+	skbpriv(skb_new)->ld = ld;
+
+	ret = ld->send(ld, iod, skb_new);
 	if (ret < 0) {
 		netif_stop_queue(ndev);
 		dev_kfree_skb_any(skb_new);
@@ -1245,7 +1451,7 @@ static void vnet_setup_ether(struct net_device *ndev)
 	ndev->watchdog_timeo = 5 * HZ;
 }
 
-int init_io_device(struct io_device *iod)
+int sipc4_init_io_device(struct io_device *iod)
 {
 	int ret = 0;
 	struct vnet *vnet;
@@ -1253,10 +1459,10 @@ int init_io_device(struct io_device *iod)
 	/* Get modem state from modem control device */
 	iod->modem_state_changed = io_dev_modem_state_changed;
 
+	iod->sim_state_changed = io_dev_sim_state_changed;
+
 	/* Get data from link device */
 	iod->recv = io_dev_recv_data_from_link_dev;
-
-	INIT_LIST_HEAD(&iod->list);
 
 	/* Register misc or net device */
 	switch (iod->io_typ) {
@@ -1271,7 +1477,7 @@ int init_io_device(struct io_device *iod)
 
 		ret = misc_register(&iod->miscdev);
 		if (ret)
-			pr_err("failed to register misc io device : %s\n",
+			mif_err("failed to register misc io device : %s\n",
 						iod->name);
 
 		break;
@@ -1285,7 +1491,7 @@ int init_io_device(struct io_device *iod)
 			iod->ndev = alloc_netdev(0, iod->name, vnet_setup);
 
 		if (!iod->ndev) {
-			pr_err("failed to alloc netdev\n");
+			mif_err("failed to alloc netdev\n");
 			return -ENOMEM;
 		}
 
@@ -1293,9 +1499,9 @@ int init_io_device(struct io_device *iod)
 		if (ret)
 			free_netdev(iod->ndev);
 
-		pr_debug("%s: %d(iod:0x%p)\n", __func__, __LINE__, iod);
+		mif_debug("(iod:0x%p)\n", iod);
 		vnet = netdev_priv(iod->ndev);
-		pr_debug("%s: %d(vnet:0x%p)\n", __func__, __LINE__, vnet);
+		mif_debug("(vnet:0x%p)\n", vnet);
 		vnet->iod = iod;
 
 		break;
@@ -1310,21 +1516,23 @@ int init_io_device(struct io_device *iod)
 
 		ret = misc_register(&iod->miscdev);
 		if (ret)
-			pr_err("failed to register misc io device : %s\n",
+			mif_err("failed to register misc io device : %s\n",
 						iod->name);
 		ret = device_create_file(iod->miscdev.this_device,
 				&attr_waketime);
 		if (ret)
-			pr_err("failed to create sysfs file : %s\n", iod->name);
+			mif_err("failed to create sysfs file : %s\n",
+					iod->name);
 
 		break;
 
 	default:
-		pr_err("wrong io_type : %d\n", iod->io_typ);
+		mif_err("wrong io_type : %d\n", iod->io_typ);
 		return -EINVAL;
 	}
 
-	pr_debug("[IOD] %s(%d) : init_io_device() done : %d\n",
+	mif_debug("%s(%d) : init_io_device() done : %d\n",
 				iod->name, iod->io_typ, ret);
 	return ret;
 }
+
