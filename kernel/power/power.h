@@ -250,6 +250,8 @@ static inline void suspend_thaw_processes(void)
 /* kernel/power/wakelock.c */
 extern struct workqueue_struct *suspend_work_queue;
 extern struct wake_lock main_wake_lock;
+extern struct workqueue_struct *sync_work_queue;
+extern struct wake_lock sync_wake_lock;
 extern suspend_state_t requested_suspend_state;
 #endif
 
@@ -268,4 +270,20 @@ ssize_t  wake_unlock_store(struct kobject *kobj, struct kobj_attribute *attr,
 /* kernel/power/earlysuspend.c */
 void request_suspend_state(suspend_state_t state);
 suspend_state_t get_suspend_state(void);
+#endif
+
+struct pm_wd_data {
+	struct task_struct *tsk;
+	int timeout;
+};
+#ifdef CONFIG_PM_WATCHDOG_TIMEOUT
+void pm_wd_timeout(unsigned long data);
+void pm_wd_add_timer(struct timer_list *timer, struct pm_wd_data *data,
+			int timeout);
+void pm_wd_del_timer(struct timer_list *timer);
+#else
+static inline void pm_wd_timeout(unsigned long data) { }
+static inline void pm_wd_add_timer(struct timer_list *timer,
+				struct pm_wd_data *data, int timeout) { }
+static inline void pm_wd_del_timer(struct timer_list *timer) { }
 #endif
