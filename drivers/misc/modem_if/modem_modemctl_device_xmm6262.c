@@ -140,7 +140,7 @@ static irqreturn_t phone_active_irq_handler(int irq, void *_mc)
 				phone_reset, phone_active_value, cp_dump_value);
 
 	if (phone_reset && phone_active_value)
-		phone_state = STATE_BOOTING;
+		phone_state = STATE_ONLINE;
 	else if (phone_reset && !phone_active_value) {
 		if (cp_dump_value)
 			phone_state = STATE_CRASH_EXIT;
@@ -151,9 +151,6 @@ static irqreturn_t phone_active_irq_handler(int irq, void *_mc)
 
 	if (mc->iod && mc->iod->modem_state_changed)
 		mc->iod->modem_state_changed(mc->iod, phone_state);
-
-	if (mc->bootd && mc->bootd->modem_state_changed)
-		mc->bootd->modem_state_changed(mc->bootd, phone_state);
 
 	if (phone_active_value)
 		irq_set_irq_type(mc->irq_phone_active, IRQ_TYPE_LEVEL_LOW);

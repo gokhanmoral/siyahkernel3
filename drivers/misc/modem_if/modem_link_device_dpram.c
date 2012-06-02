@@ -31,28 +31,6 @@
 #include "modem_link_device_dpram.h"
 #include "modem_utils.h"
 
-static int dpram_lock_write(struct dpram_link_device *dpld)
-{    
-	int lock_value;
-
-	lock_value = atomic_inc_return(&dpld->dpram_write_lock);
-	if (lock_value != 1)
-		return -1;
-
-	return lock_value;
-}
-
-static void dpram_unlock_write(struct dpram_link_device *dpld)
-{
-	int lock_value;
-
-	lock_value = atomic_dec_return(&dpld->dpram_write_lock);
-
-	if (lock_value != 0)
-		pr_info("[LNK] <%s> lock_value=%d\n",
-			__func__, lock_value);
-}
-
 static int memcmp16_to_io(const void __iomem *to, void *from, int size)
 {
 	int count = size >> 1;
@@ -383,13 +361,6 @@ static int dpram_write
 			__func__, ld->name, size);
 #endif
 
-	/* Lock dpram_write_lock */
-	if (dpram_lock_write(dpld) < 0) {
-		dpram_unlock_write(dpld);
-		len = -EAGAIN;
-		goto exit;
-	}
-
 	head = dpctl->get_tx_head(dev_id);
 	tail = dpctl->get_tx_tail(dev_id);
 	qsize = dpctl->get_tx_buff_size(dev_id);
@@ -399,7 +370,6 @@ static int dpram_write
 			__func__, ld->name);
 		dpctl->set_tx_head(dev_id, 0);
 		dpctl->set_tx_tail(dev_id, 0);
-		dpram_unlock_write(dpld);
 		len = -EINVAL;
 		goto exit;
 	}
@@ -412,7 +382,6 @@ static int dpram_write
 			dev_id, qsize, space, head, tail, size);
 		mask = dpctl->get_mask_req_ack(dev_id);
 		dpctl->send_intr(INT_NON_CMD(mask));
-		dpram_unlock_write(dpld);
 		len = -EAGAIN;
 		goto exit;
 	}
@@ -472,9 +441,6 @@ static int dpram_write
 	head = (u32)((head + size) % qsize);
 	dpctl->set_tx_head(dev_id, head);
 
-	/* Unlock dpram_write_lock */
-	dpram_unlock_write(dpld);
-
 	/* Send interrupt to CP */
 	mask = dpctl->get_mask_send(dev_id);
 	dpctl->send_intr(INT_NON_CMD(mask));
@@ -499,7 +465,7 @@ static void dpram_tx_work(struct work_struct *work)
 
 	for (i = 0; i < dpld->max_ipc_dev; i++) {
 		while ((skb = skb_dequeue(ld->skb_txq[i]))) {
-			if (ld->mode == LINK_MODE_IPC) {
+			if (dpld->mode == DPRAM_LINK_MODE_IPC) {
 				ret = dpram_write(dpld, i, skb->data, skb->len);
 				if (ret < 0) {
 					skb_queue_head(ld->skb_txq[i], skb);
@@ -507,9 +473,8 @@ static void dpram_tx_work(struct work_struct *work)
 					break;
 				}
 			} else {
-				pr_err("[LNK] <%s:%s> "
-				       "ld->mode != LINK_MODE_IPC\n",
-					__func__, ld->name);
+				pr_err("[LNK] <%s> dpld->mode != IPC_MODE\n",
+					__func__);
 			}
 
 			dev_kfree_skb_any(skb);
@@ -535,8 +500,8 @@ static void non_command_handler(struct dpram_link_device *dpld, u16 non_cmd)
 	u16 mask = 0;
 
 	/* Check DPRAM mode */
-	if (ld->mode != LINK_MODE_IPC) {
-		pr_err("[LNK/E] <%s:%s> ld->mode != LINK_MODE_IPC",
+	if (dpld->mode != DPRAM_LINK_MODE_IPC) {
+		pr_err("[LNK/E] <%s:%s> dpld->mode != DPRAM_LINK_MODE_IPC",
 			__func__, ld->name);
 		return;
 	}
@@ -594,7 +559,7 @@ static int dpram_init_ipc(struct dpram_link_device *dpld)
 	magic = dpctl->get_magic();
 	access = dpctl->get_access();
 
-	if ((ld->mode == LINK_MODE_IPC) &&
+	if ((dpld->mode == DPRAM_LINK_MODE_IPC) &&
 	    (magic == DPRAM_MAGIC_CODE && access == 1)) {
 		pr_err("[LNK] <%s:%s> IPC is already initialized!\n",
 			__func__, ld->name);
@@ -644,7 +609,7 @@ static int dpram_init_ipc(struct dpram_link_device *dpld)
 		return -1;
 	}
 
-	ld->mode = LINK_MODE_IPC;
+	dpld->mode = DPRAM_LINK_MODE_IPC;
 
 	return 0;
 }
@@ -819,13 +784,13 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	struct dpram_boot_img cp_img;
 	u8 *img_buff = NULL;
 
-	ld->mode = LINK_MODE_BOOT;
+	dpld->mode = DPRAM_LINK_MODE_BOOT;
 	cmc22x_idpram_disable_ipc(dpld);
 
 	/* Test memory... After testing, memory is cleared. */
 	if (dpram_test_memory(ld->name, bt_buff, dpld->bt_map.size) < 0) {
 		pr_err("\n[LNK/E] <%s> dpram_test_memory fail!\n\n", __func__);
-		ld->mode = LINK_MODE_INVALID;
+		dpld->mode = DPRAM_LINK_MODE_INVALID;
 		return -EIO;
 	}
 
@@ -840,7 +805,7 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	img_buff = kzalloc(dpld->bt_map.size, GFP_KERNEL);
 	if (!img_buff) {
 		pr_err("[LNK/E] <%s> kzalloc fail\n", __func__);
-		ld->mode = LINK_MODE_INVALID;
+		dpld->mode = DPRAM_LINK_MODE_INVALID;
 		return -ENOMEM;
 	}
 
@@ -885,7 +850,7 @@ static int cmc22x_idpram_send_boot(struct link_device *ld, unsigned long arg)
 	return 0;
 
 err:
-	ld->mode = LINK_MODE_INVALID;
+	dpld->mode = DPRAM_LINK_MODE_INVALID;
 	kfree(img_buff);
 
 	pr_err("[LNK/E] <%s> Boot send fail!!!\n\n", __func__);
@@ -895,7 +860,6 @@ err:
 static int cmc22x_idpram_send_main(struct link_device *ld, struct sk_buff *skb)
 {
 	int err = 0;
-	int ret = 0;
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 	struct dpram_boot_frame *bf = (struct dpram_boot_frame *)skb->data;
 	u8 __iomem *buff = (dpld->bt_map.buff + bf->offset);
@@ -933,14 +897,8 @@ static int cmc22x_idpram_send_main(struct link_device *ld, struct sk_buff *skb)
 	}
 
 exit:
-	if (err < 0)
-		ret = err;
-	else
-		ret = skb->len;
-
 	dev_kfree_skb_any(skb);
-
-	return ret;
+	return err;
 }
 
 static void cmc22x_idpram_wait_dump(unsigned long arg)
@@ -1359,14 +1317,18 @@ static int dpram_send(struct link_device *ld, struct io_device *iod,
 		return dpram_send_binary(ld, skb);
 
 	case IPC_FMT:
+		skb_queue_tail(&ld->sk_fmt_tx_q, skb);
+		break;
+
 	case IPC_RAW:
+		skb_queue_tail(&ld->sk_raw_tx_q, skb);
+		break;
+
 	case IPC_RFS:
-		skb_queue_tail(ld->skb_txq[iod->format], skb);
+		skb_queue_tail(&ld->sk_rfs_tx_q, skb);
 		break;
 
 	default:
-		pr_err("[LNK] <%s:%s> No TXQ for %s\n",
-			__func__, ld->name, iod->name);
 		dev_kfree_skb_any(skb);
 		return 0;
 	}
@@ -1380,7 +1342,7 @@ static int dpram_set_dl_magic(struct link_device *ld, struct io_device *iod)
 {
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 
-	ld->mode = LINK_MODE_DLOAD;
+	dpld->mode = DPRAM_LINK_MODE_DLOAD;
 
 	iowrite32(DP_MAGIC_DMDL, dpld->dl_map.magic);
 
@@ -1400,7 +1362,7 @@ static int dpram_set_ul_magic(struct link_device *ld, struct io_device *iod)
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 	u8 *dest = dpld->ul_map.buff;
 
-	ld->mode = LINK_MODE_ULOAD;
+	dpld->mode = DPRAM_LINK_MODE_ULOAD;
 
 	if (ld->mdm_data->modem_type == SEC_CMC221) {
 		wake_lock(&dpld->dpram_wake_lock);
@@ -1550,8 +1512,6 @@ static int dpram_link_ioctl
 			err = dpld->dpctl->cpupload_step2(
 					(void *)arg, dpld->dpctl);
 			if (err < 0) {
-				dpld->dpctl->clear_intr();
-				enable_irq(dpld->irq);
 				lnk_err(dpld, "cpupload_step2 fail\n");
 				goto exit;
 			}
@@ -1691,8 +1651,6 @@ struct link_device *dpram_create_link_device(struct platform_device *pdev)
 	wake_lock_init(&dpld->dpram_wake_lock,
 		       WAKE_LOCK_SUSPEND,
 		       dpld->dpctl->dpram_wlock_name);
-
-	atomic_set(&dpld->dpram_write_lock, 0);
 
 	init_completion(&dpld->dpram_init_cmd);
 	init_completion(&dpld->modem_pif_init_done);

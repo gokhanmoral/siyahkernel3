@@ -15,6 +15,7 @@
 #ifndef __MODEM_UTILS_H__
 #define __MODEM_UTILS_H__
 
+#define MAX_SKB_LOG_LEN ((size_t)16)
 #define RAW_DEV(rdevs, i) (((struct io_raw_devices *)rdevs)->raw_devices[i])
 
 /**
@@ -66,13 +67,10 @@ int pr_buffer(const char *tag, const char *data, size_t data_len,
 							size_t max_len);
 
 /* print a sk_buff as hex string */
-#define pr_skb(tag, skb) \
-	pr_buffer(tag, (char *)((skb)->data), (size_t)((skb)->len), (size_t)16)
-
-/* print a urb as hex string */
-#define pr_urb(tag, urb) \
-	pr_buffer(tag, (char *)((urb)->transfer_buffer), \
-			(size_t)((urb)->actual_length), (size_t)16)
+static inline int pr_skb(const char *tag, struct sk_buff *skb)
+{
+	return pr_buffer(tag, skb->data, skb->len, MAX_SKB_LOG_LEN);
+}
 
 /* flow control CMD from CP, it use in serial devices */
 int link_rx_flowctl_cmd(struct link_device *ld, const char *data, size_t len);

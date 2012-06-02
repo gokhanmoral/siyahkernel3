@@ -252,7 +252,7 @@ err_request_irq:
 #endif /* CONFIG_MACH_U1_KOR_LGT */
 
 
-#if defined(CONFIG_MACH_C1CTC) || defined(CONFIG_MACH_M0_CTC)
+#if defined(CONFIG_MACH_C1CTC)
 #include "modem_link_device_dpram.h"
 
 #define PIF_TIMEOUT		(180 * HZ)

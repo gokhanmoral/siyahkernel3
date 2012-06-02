@@ -93,7 +93,6 @@ static struct io_device *create_io_device(struct modem_io_t *io_t,
 	iod->link_types = io_t->links;
 	iod->net_typ = pdata->modem_net;
 	iod->use_handover = pdata->use_handover;
-	atomic_set(&iod->opened, 0);
 
 	/* link between io device and modem control */
 	iod->mc = modemctl;

@@ -90,8 +90,6 @@ enum modem_state {
 	STATE_ONLINE,
 	STATE_NV_REBUILDING, /* <= rebuilding start */
 	STATE_LOADER_DONE,
-	STATE_SIM_ATTACH,
-	STATE_SIM_DETACH,
 };
 
 enum com_state {
@@ -100,19 +98,6 @@ enum com_state {
 	COM_HANDSHAKE,
 	COM_BOOT,
 	COM_CRASH,
-};
-
-enum link_mode {
-	LINK_MODE_INVALID = 0,
-	LINK_MODE_IPC,
-	LINK_MODE_BOOT,
-	LINK_MODE_DLOAD,
-	LINK_MODE_ULOAD,
-};
-
-struct sim_state {
-	bool online;	/* SIM is online? */
-	bool changed;	/* online is changed? */
 };
 
 struct header_data {
@@ -202,8 +187,6 @@ struct io_device {
 	enum modem_network net_typ;
 	bool               use_handover;	/* handover 2+ link devices */
 
-	atomic_t opened;
-
 	/* Rx queue of sk_buff */
 	struct sk_buff_head sk_rx_q;
 
@@ -226,9 +209,6 @@ struct io_device {
 	 * crashing or whatever...
 	 */
 	void (*modem_state_changed)(struct io_device *iod, enum modem_state);
-
-	/* inform the IO device that the SIM is not inserting or removing */
-	void (*sim_state_changed)(struct io_device *iod, bool sim_online);
 
 	struct link_device *link;
 	struct modem_ctl   *mc;
@@ -254,10 +234,6 @@ struct link_device {
 	/* Modem data */
 	struct modem_data *mdm_data;
 
-	/* Operation mode of the link device */
-	enum link_mode mode;
-
-	/* TX queue of socket buffers */
 	struct sk_buff_head sk_fmt_tx_q;
 	struct sk_buff_head sk_raw_tx_q;
 	struct sk_buff_head sk_rfs_tx_q;
@@ -326,8 +302,7 @@ struct modem_ctl {
 	char *name;
 	struct modem_data *mdm_data;
 
-	enum modem_state phone_state;
-	struct sim_state sim_state;
+	int phone_state;
 
 	unsigned gpio_cp_on;
 	unsigned gpio_reset_req_n;
@@ -338,10 +313,8 @@ struct modem_ctl {
 	unsigned gpio_flm_uart_sel;
 	unsigned gpio_cp_warm_reset;
 	unsigned gpio_cp_off;
-	unsigned gpio_sim_detect;
 
 	int irq_phone_active;
-	int irq_sim_detect;
 
 #ifdef CONFIG_LTE_MODEM_CMC221
 	const struct attribute_group *group;
