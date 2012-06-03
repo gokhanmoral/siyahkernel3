@@ -2433,6 +2433,9 @@ static int finish_port_resume(struct usb_device *udev)
  retry_reset_resume:
 		status = usb_reset_and_verify_device(udev);
 
+	if (udev->quirks & USB_QUIRK_NO_GET_STATUS)
+		goto done;
+
  	/* 10.5.4.5 says be sure devices in the tree are still there.
  	 * For now let's assume the device didn't go crazy on resume,
 	 * and device drivers will know about any resume quirks.
@@ -2471,6 +2474,7 @@ static int finish_port_resume(struct usb_device *udev)
 		}
 		status = 0;
 	}
+done:
 	return status;
 }
 
@@ -2554,12 +2558,14 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 
 		/* TRSMRCY = 10 msec */
 		msleep(10);
-#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
+
 		/* If portstatus's still resuming, retry GET_PORT_STATUS */
-		if (portstatus & USB_PORT_STAT_SUSPEND)
-			status = hub_port_status(hub, port1, &portstatus,
-				&portchange);
-#endif
+		if (udev->quirks & USB_QUIRK_HSIC_TUNE)
+			if (portstatus & USB_PORT_STAT_SUSPEND) {
+				usleep_range(5000, 10000);
+				status = hub_port_status(hub, port1,
+						&portstatus, &portchange);
+			}
 	}
 
  SuspendCleared:
@@ -2977,12 +2983,14 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 			udev->descriptor.bMaxPacketSize0 =
 					buf->bMaxPacketSize0;
 			kfree(buf);
-#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
-#else
-			retval = hub_port_reset(hub, port1, udev, delay);
-			if (retval < 0)		/* error or disconnect */
-				goto fail;
-#endif
+
+			if (!(udev->quirks & USB_QUIRK_HSIC_TUNE)) {
+				retval =
+				hub_port_reset(hub, port1, udev, delay);
+				if (retval < 0)	/* error or disconnect */
+					goto fail;
+			}
+
 			if (oldspeed != udev->speed) {
 				dev_dbg(&udev->dev,
 					"device reset changed speed!\n");
@@ -4074,3 +4082,19 @@ void usb_queue_reset_device(struct usb_interface *iface)
 	schedule_work(&iface->reset_ws);
 }
 EXPORT_SYMBOL_GPL(usb_queue_reset_device);
+
+void usb_force_disconnect(struct usb_device *udev)
+{
+	struct usb_hub *parent_hub;
+	int port1 = udev->portnum;
+
+	if (!udev->parent)
+		return;
+
+	parent_hub = hdev_to_hub(udev->parent);
+	if (!parent_hub)
+		return;
+
+	hub_port_logical_disconnect(parent_hub, port1);
+}
+EXPORT_SYMBOL_GPL(usb_force_disconnect);
