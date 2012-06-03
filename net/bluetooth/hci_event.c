@@ -1404,10 +1404,6 @@ static inline void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 
 		conn->type = SCO_LINK;
 	}
-	if (!conn->ssp_mode || !conn->hdev->ssp_mode) {
-		__u8 auth = AUTH_DISABLED;
-		hci_send_cmd(hdev, HCI_OP_WRITE_AUTH_ENABLE, 1, &auth);
-	}
 
 	if (!ev->status) {
 		conn->handle = __le16_to_cpu(ev->handle);
@@ -1594,7 +1590,8 @@ static inline void hci_auth_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 	if (!conn)
 		goto unlock;
 
-	/* SS_BLUETOOTH(gudam.ryu) 2012. 03. 02 - Fixed for opp sending fail, if the devices were unpaired on the remote end */
+	/* SS_BLUETOOTH(gudam.ryu) 2012. 03. 02 - Fixed for opp sending fail,
+	if the devices were unpaired on the remote end */
 	if (ev->status == 0x06 && hdev->ssp_mode > 0 &&
 			conn->ssp_mode > 0) {
 		struct hci_cp_auth_requested cp;
@@ -1618,7 +1615,7 @@ static inline void hci_auth_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 		}
 	} else {
 		mgmt_auth_failed(hdev->id, &conn->dst, ev->status);
-		conn->disc_timeout = HCI_DISCONN_TIMEOUT/200; // 0.01 sec
+		conn->disc_timeout = HCI_DISCONN_TIMEOUT/200; /* 0.01 sec */
 	}
 
 	clear_bit(HCI_CONN_AUTH_PEND, &conn->pend);
@@ -2761,7 +2758,7 @@ static inline void hci_simple_pair_complete_evt(struct hci_dev *hdev, struct sk_
 	if (!test_bit(HCI_CONN_AUTH_PEND, &conn->pend) && ev->status != 0) {
 		mgmt_auth_failed(hdev->id, &conn->dst, ev->status);
 		conn->out = 1;
-		conn->disc_timeout = HCI_DISCONN_TIMEOUT/200; // 0.01 sec
+		conn->disc_timeout = HCI_DISCONN_TIMEOUT/200; /* 0.01 sec */
 	}
 	hci_conn_put(conn);
 

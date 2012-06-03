@@ -1265,7 +1265,7 @@ static void if_tag_stat_update(const char *ifname, uid_t uid,
 	struct data_counters *uid_tag_counters;
 	struct sock_tag *sock_tag_entry;
 	struct iface_stat *iface_entry;
-	struct tag_stat *new_tag_stat;
+	struct tag_stat *new_tag_stat = NULL;
 	MT_DEBUG("qtaguid: if_tag_stat_update(ifname=%s "
 		"uid=%u sk=%p dir=%d proto=%d bytes=%d)\n",
 		 ifname, uid, sk, direction, proto, bytes);
@@ -1333,7 +1333,12 @@ static void if_tag_stat_update(const char *ifname, uid_t uid,
 		new_tag_stat = create_if_tag_stat(iface_entry, tag);
 		new_tag_stat->parent_counters = uid_tag_counters;
 	}
-	tag_stat_update(new_tag_stat, direction, proto, bytes);
+
+	if (new_tag_stat)
+		tag_stat_update(new_tag_stat, direction, proto, bytes);
+	else
+		WARN(1, "%s: new_tag_stat is NULL\n", __func__);
+
 	spin_unlock_bh(&iface_entry->tag_stat_list_lock);
 }
 
