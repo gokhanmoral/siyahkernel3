@@ -1088,14 +1088,14 @@ __cma_alloc(const struct device *dev, const char *type,
 			 (void *)size, (void *)alignment,
 			 dev_name(dev), type ?: "");
 
-	if (!size || alignment & (alignment - 1))
+	if (!size || (alignment & ~alignment))
 		return -EINVAL;
 
 	if (alignment < PAGE_SIZE)
 		alignment = PAGE_SIZE;
 
-	if (size & (alignment - 1))
-		size = ALIGN(size + alignment, alignment);
+	if (!IS_ALIGNED(size, alignment))
+		size = ALIGN(size, alignment);
 
 	mutex_lock(&cma_mutex);
 
