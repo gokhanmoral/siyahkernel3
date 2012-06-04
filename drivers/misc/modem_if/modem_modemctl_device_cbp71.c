@@ -34,13 +34,13 @@ static int cbp71_on(struct modem_ctl *mc)
 {
 	int RetVal = 0;
 	int dpram_init_RetVal = 0;
-	struct link_device *ld = get_current_link(mc->iod);
-	struct dpram_link_device *dpram_ld = to_dpram_link_device(ld);
+	struct dpram_link_device *dpram_ld =
+				to_dpram_link_device(mc->iod->link);
 
-	mif_info("cbp71_on()\n");
+	pr_info("[MODEM_IF] cbp71_on()\n");
 
 	if (!mc->gpio_cp_off || !mc->gpio_cp_reset) {
-		mif_err("no gpio data\n");
+		pr_err("[MODEM_IF] no gpio data\n");
 		return -ENXIO;
 	}
 	gpio_set_value(mc->gpio_cp_reset, 0);
@@ -56,7 +56,7 @@ static int cbp71_on(struct modem_ctl *mc)
 
 	/* Wait here until the PHONE is up.
 	* Waiting as the this called from IOCTL->UM thread */
-	mif_debug("power control waiting for INT_MASK_CMD_PIF_INIT_DONE\n");
+	pr_debug("[MODEM_IF] power control waiting for INT_MASK_CMD_PIF_INIT_DONE\n");
 
 	/* 1HZ = 1 clock tick, 100 default */
 	dpram_ld->clear_interrupt(dpram_ld);
@@ -69,8 +69,8 @@ static int cbp71_on(struct modem_ctl *mc)
 
 	if (!dpram_init_RetVal) {
 		/*RetVal will be 0 on timeout, non zero if interrupted */
-		mif_err("INIT_START cmd was not arrived.\n");
-		mif_err("init_cmd_wait_condition is 0 and wait timeout happend\n");
+		pr_warn("[MODEM_IF] INIT_START cmd was not arrived.\n");
+		pr_warn("init_cmd_wait_condition is 0 and wait timeout happend\n");
 		return -ENXIO;
 	}
 
@@ -81,12 +81,12 @@ static int cbp71_on(struct modem_ctl *mc)
 
 	if (!RetVal) {
 		/*RetVal will be 0 on timeout, non zero if interrupted */
-		mif_err("PIF init failed\n");
-		mif_err("pif_init_wait_condition is 0 and wait timeout happend\n");
+		pr_warn("[MODEM_IF] PIF init failed\n");
+		pr_warn("pif_init_wait_condition is 0 and wait timeout happend\n");
 		return -ENXIO;
 	}
 
-	mif_debug("complete cbp71_on\n");
+	pr_debug("[MODEM_IF] complete cbp71_on\n");
 
 	mc->iod->modem_state_changed(mc->iod, STATE_ONLINE);
 
@@ -95,14 +95,14 @@ static int cbp71_on(struct modem_ctl *mc)
 
 static int cbp71_off(struct modem_ctl *mc)
 {
-	mif_debug("cbp71_off()\n");
+	pr_debug("[MODEM_IF] cbp71_off()\n");
 
 	if (!mc->gpio_cp_off || !mc->gpio_cp_reset) {
-		mif_err("no gpio data\n");
+		pr_err("[MODEM_IF] no gpio data\n");
 		return -ENXIO;
 	}
 
-	mif_err("Phone power Off. - do nothing\n");
+	pr_warn("[MODEM_IF] Phone power Off. - do nothing\n");
 
 	mc->iod->modem_state_changed(mc->iod, STATE_OFFLINE);
 
@@ -113,7 +113,7 @@ static int cbp71_reset(struct modem_ctl *mc)
 {
 	int ret = 0;
 
-	mif_debug("cbp71_reset()\n");
+	pr_debug("[MODEM_IF] cbp71_reset()\n");
 
 	ret = cbp71_off(mc);
 	if (ret)
@@ -130,10 +130,10 @@ static int cbp71_reset(struct modem_ctl *mc)
 
 static int cbp71_boot_on(struct modem_ctl *mc)
 {
-	mif_debug("cbp71_boot_on()\n");
+	pr_debug("[MODEM_IF] cbp71_boot_on()\n");
 
 	if (!mc->gpio_cp_reset) {
-		mif_err("no gpio data\n");
+		pr_err("[MODEM_IF] no gpio data\n");
 		return -ENXIO;
 	}
 	gpio_set_value(mc->gpio_cp_reset, 0);
@@ -147,7 +147,7 @@ static int cbp71_boot_on(struct modem_ctl *mc)
 
 static int cbp71_boot_off(struct modem_ctl *mc)
 {
-	mif_debug("cbp71_boot_off()\n");
+	pr_debug("[MODEM_IF] cbp71_boot_off()\n");
 	return 0;
 }
 
@@ -159,7 +159,7 @@ static irqreturn_t phone_active_irq_handler(int irq, void *_mc)
 	struct modem_ctl *mc = (struct modem_ctl *)_mc;
 
 	if (!mc->gpio_cp_reset || !mc->gpio_phone_active) {
-		mif_err("no gpio data\n");
+		pr_err("[MODEM_IF] no gpio data\n");
 		return IRQ_HANDLED;
 	}
 
@@ -181,7 +181,7 @@ static irqreturn_t phone_active_irq_handler(int irq, void *_mc)
 	else
 		irq_set_irq_type(mc->irq_phone_active, IRQ_TYPE_LEVEL_HIGH);
 
-	mif_info("phone_active_irq_handler : phone_state=%d\n", phone_state);
+	pr_info("phone_active_irq_handler : phone_state=%d\n", phone_state);
 
 	return IRQ_HANDLED;
 }
@@ -220,14 +220,15 @@ int cbp71_init_modemctl_device(struct modem_ctl *mc,
 	ret = request_irq(mc->irq_phone_active, phone_active_irq_handler,
 			IRQF_TRIGGER_HIGH, "phone_active", mc);
 	if (ret) {
-		mif_err("failed to irq_phone_active request_irq: %d\n"
+		pr_err("[MODEM_IF]failed to irq_phone_active request_irq: %d\n"
 			, ret);
 		return ret;
 	}
 
 	ret = enable_irq_wake(mc->irq_phone_active);
 	if (ret)
-		mif_err("failed to enable_irq_wake:%d\n", ret);
+		pr_err("[MODEM_IF] %s: failed to enable_irq_wake:%d\n",
+					__func__, ret);
 
 	return ret;
 }

@@ -63,26 +63,24 @@ enum modem_network {
 
 enum sipc_ver {
 	NO_SIPC_VER = 0,
-	SIPC_VER_40 = 40,
-	SIPC_VER_41 = 41,
-	SIPC_VER_42 = 42,
-	SIPC_VER_50 = 50,
+	SIPC_VER_40,
+	SIPC_VER_41,
+	SIPC_VER_50,
 	MAX_SIPC_VER,
 };
 
 enum sipc_dev_type {
-	IPC_FMT_DEV = 0,
-	IPC_RAW_DEV,
-	IPC_RFS_DEV,
+	FMT_DEV = 0,
+	RAW_DEV,
+	RFS_DEV,
 	MAX_IPC_DEV,
 };
 
 /**
  * struct modem_io_t - declaration for io_device
  * @name:	device name
- * @id:		contain format & channel information
- *		(id & 11100000b)>>5 = format  (eg, 0=FMT, 1=RAW, 2=RFS)
- *		(id & 00011111b)    = channel (valid only if format is RAW)
+ * @id:		id. contain channel information if this is IPC_RAW
+ *		when IPC_RAW: .id = 0x30 | channel
  * @format:	device format
  * @io_type:	type of this io_device
  * @links:	list of link_devices to use this io_device
@@ -99,10 +97,9 @@ struct modem_io_t {
 	char *name;
 	int   id;
 	enum dev_format format;
-	enum modem_io io_type;
+	enum modem_io   io_type;
 	enum modem_link links;
 	enum modem_link tx_link;
-	bool rx_gather;
 };
 
 struct modemlink_pm_data {
@@ -116,13 +113,6 @@ struct modemlink_pm_data {
 	int (*link_reconnect)(void);
 	int (*port_enable)(int, int);
 	int *p_hub_status;
-	bool has_usbhub;
-
-	atomic_t freqlock;
-	int (*cpufreq_lock)(void);
-	int (*cpufreq_unlock)(void);
-
-	int autosuspend_delay_ms; /* if zero, the default value is used */
 };
 
 struct modemlink_pm_link_activectl {
@@ -140,38 +130,8 @@ enum dpram_type {
 
 enum dpram_speed {
 	DPRAM_SPEED_LOW,
-	DPRAM_SPEED_MID,
 	DPRAM_SPEED_HIGH,
 	MAX_DPRAM_SPEED
-};
-
-struct dpram_circ {
-	u16 __iomem *head;
-	u16 __iomem *tail;
-	u8  __iomem *buff;
-	u32          size;
-};
-
-struct dpram_ipc_device {
-	char name[16];
-	int  id;
-
-	struct dpram_circ txq;
-	struct dpram_circ rxq;
-
-	u16 mask_req_ack;
-	u16 mask_res_ack;
-	u16 mask_send;
-};
-
-struct dpram_ipc_map {
-	u16 __iomem *magic;
-	u16 __iomem *access;
-
-	struct dpram_ipc_device dev[MAX_IPC_DEV];
-
-	u16 __iomem *mbx_cp2ap;
-	u16 __iomem *mbx_ap2cp;
 };
 
 struct modemlink_dpram_control {
@@ -234,11 +194,10 @@ struct modemlink_dpram_control {
 	char            *dpram_wlock_name;
 
 	int              max_ipc_dev;
-
-	struct dpram_ipc_map *ipc_map;
 };
 
 #define DPRAM_MAGIC_CODE	0xAA
+
 
 /* platform data */
 struct modem_data {
@@ -252,14 +211,7 @@ struct modem_data {
 	unsigned gpio_phone_active;
 	unsigned gpio_cp_dump_int;
 	unsigned gpio_flm_uart_sel;
-#if defined(CONFIG_MACH_M0_CTC)
-	unsigned gpio_flm_uart_sel_rev06;
-#endif
 	unsigned gpio_cp_warm_reset;
-	unsigned gpio_sim_detect;
-#ifdef CONFIG_LINK_DEVICE_DPRAM
-	unsigned gpio_dpram_int;
-#endif
 
 #ifdef CONFIG_LTE_MODEM_CMC221
 	unsigned gpio_dpram_status;
@@ -276,9 +228,6 @@ struct modem_data {
 	void (*vbus_off)(void);
 	struct regulator *cp_vbus;
 #endif
-
-	/* Switch with 2 links in a modem */
-	unsigned gpio_dynamic_switching;
 
 	/* Modem component */
 	enum modem_network  modem_net;
@@ -303,23 +252,54 @@ struct modem_data {
 	void (*gpio_revers_bias_clear)(void);
 	void (*gpio_revers_bias_restore)(void);
 
-	/* Handover with 2+ modems */
+	/* Handover with 2+ link devices */
 	bool use_handover;
-
-	/* Debugging option */
-	bool use_mif_log;
 };
 
+/* DEBUG */
 #define LOG_TAG "mif: "
+#define lnk_log(level, lnk, s, args...) \
+	printk(level LOG_TAG "%s: %s: " s, lnk->ld.name, __func__, ##args)
+#define iod_log(level, iod, s, args...) \
+	printk(level LOG_TAG "%s-%s: %s: " s, iod->link->name, iod->name, \
+	__func__, ##args)
+#define mdm_log(level, mctl, s, args...) \
+	printk(level LOG_TAG "%s-%s: %s: " s, mctl->name, mctl->iod->name, \
+	__func__, ##args)
+#define mif_trace(s, args...) \
+	printk(KERN_DEBUG LOG_TAG ": %s: %d: called(%pF): " s, __func__, \
+	__LINE__, __builtin_return_address(0), ##args)
 
-#define mif_err(fmt, ...) \
-	pr_err(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
-#define mif_debug(fmt, ...) \
-	pr_debug(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
-#define mif_info(fmt, ...) \
-	pr_info(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
-#define mif_trace(fmt, ...) \
-	printk(KERN_DEBUG "mif: %s: %d: called(%pF): " fmt, \
-		__func__, __LINE__, __builtin_return_address(0), ##__VA_ARGS__)
+
+#ifdef DEBUG
+/* for link device debug log */
+#define lnk_dbg(lnk, s, args...)	lnk_log(KERN_DEBUG, lnk, s, ##args)
+#define lnk_info(lnk, s, args...)	lnk_log(KERN_INFO, lnk, s, ##args)
+#define lnk_err(lnk, s, args...)	lnk_log(KERN_ERR, lnk, s, ##args)
+/* for io device debug log */
+#define iod_dbg(iod, s, args...)	iod_log(KERN_DEBUG, iod, s, ##args)
+#define iod_info(iod, s, args...)	iod_log(KERN_INFO, iod, s, ##args)
+#define iod_err(iod, s, args...)	iod_log(KERN_ERR, iod, s, ##args)
+/* for modemctl debug log */
+#define mdm_dbg(dev, s, args...)	mdm_log(KERN_DEBUG, dev, s, ##args)
+#define mdm_info(dev, s, args...)	mdm_log(KERN_INFO, dev, s, ##args)
+#define mdm_err(dev, s, args...)	mdm_log(KERN_ERR, dev, s, ##args)
+#else
+/* for link device ship log */
+#define lnk_dbg(lnk, s, args...)	\
+			({ if (0) lnk_log(KERN_DEBUG, lnk, s, ##args); 0; })
+#define lnk_info(lnk, s, args...)	lnk_log(KERN_DEBUG, lnk, s, ##args)
+#define lnk_err(lnk, s, args...)	lnk_log(KERN_ERR, lnk, s, ##args)
+/* for io device ship log */
+#define iod_dbg(iod, s, args...)	\
+			({ if (0) iod_log(KERN_DEBUG, iod, s, ##args); 0; })
+#define iod_info(iod, s, args...)	iod_log(KERN_DEBUG, iod, s, ##args)
+#define iod_err(iod, s, args...)	iod_log(KERN_ERR, iod, s, ##args)
+/* for modemctl debug log */
+#define mdm_dbg(dev, s, args...)	\
+	({ if (0) mdm_log(KERN_DEBUG, dev, s, ##args); 0; })
+#define mdm_info(dev, s, args...)	mdm_log(KERN_DEBUG, dev, s, ##args)
+#define mdm_err(dev, s, args...)	mdm_log(KERN_ERR, dev, s, ##args)
+#endif
 
 #endif

@@ -22,13 +22,13 @@
 	int type ## _init_modemctl_device(struct modem_ctl *mc,	\
 				struct modem_data *pdata)
 #define DECLARE_MODEM_INIT_DUMMY(type)	\
-	static DECLARE_MODEM_INIT(type) { return 0; }
+	DECLARE_MODEM_INIT(type) { return 0; }
 
 #define DECLARE_LINK_INIT(type)	\
 		struct link_device *type ## _create_link_device(	\
 		struct platform_device *pdev)
 #define DECLARE_LINK_INIT_DUMMY(type)	\
-	static DECLARE_LINK_INIT(type) { return NULL; }
+	DECLARE_LINK_INIT(type) { return NULL; }
 
 #define MODEM_INIT_CALL(type)	type ## _init_modemctl_device
 #define LINK_INIT_CALL(type)	type ## _create_link_device
@@ -113,7 +113,7 @@ DECLARE_LINK_INIT_DUMMY(c2c)
 #endif
 
 typedef int (*modem_init_call)(struct modem_ctl *, struct modem_data *);
-static modem_init_call modem_init_func[] = {
+modem_init_call modem_init_func[] = {
 	MODEM_INIT_CALL(xmm6260),
 	MODEM_INIT_CALL(xmm6262),
 	MODEM_INIT_CALL(cbp71),
@@ -124,7 +124,7 @@ static modem_init_call modem_init_func[] = {
 };
 
 typedef struct link_device *(*link_init_call)(struct platform_device *);
-static link_init_call link_init_func[] = {
+link_init_call link_init_func[] = {
 	LINK_INIT_CALL(undefined),
 	LINK_INIT_CALL(mipi),
 	LINK_INIT_CALL(dpram),

@@ -59,18 +59,19 @@ static long modem_net_flowcontrol_device_ioctl(
 	this_net = get_net_ns_by_pid(current->pid);
 	ndev = __dev_get_by_name(this_net, dev_name);
 	if (ndev == NULL) {
-		mif_err("device = %s not exist\n", dev_name);
+		pr_err("[MODEM_IF] %s: device = %s not exist\n", __func__,
+					dev_name);
 		return -ENODEV;
 	}
 
 	switch (cmd) {
 	case IOCTL_MODEM_NET_SUSPEND:
 		netif_stop_queue(ndev);
-		mif_info("NET SUSPEND(%s)\n", dev_name);
+		pr_info("[MODEM_IF] NET SUSPEND(%s)\n", dev_name);
 		break;
 	case IOCTL_MODEM_NET_RESUME:
 		netif_wake_queue(ndev);
-		mif_info("NET RESUME(%s)\n", dev_name);
+		pr_info("[MODEM_IF] NET RESUME(%s)\n", dev_name);
 		break;
 	default:
 		return -EINVAL;
@@ -92,7 +93,7 @@ static int __init modem_net_flowcontrol_device_init(void)
 
 	net_flowcontrol_dev = kzalloc(sizeof(struct io_device), GFP_KERNEL);
 	if (!net_flowcontrol_dev) {
-		mif_err("net_flowcontrol_dev io device memory alloc fail\n");
+		pr_err("[MODEM_IF] net_flowcontrol_dev io device memory alloc fail\n");
 		return -ENOMEM;
 	}
 
@@ -102,7 +103,7 @@ static int __init modem_net_flowcontrol_device_init(void)
 
 	ret = misc_register(&net_flowcontrol_dev->miscdev);
 	if (ret) {
-		mif_err("failed to register misc br device : %s\n",
+		pr_err("[MODEM_IF] failed to register misc br device : %s\n",
 			net_flowcontrol_dev->miscdev.name);
 		kfree(net_flowcontrol_dev);
 	}
