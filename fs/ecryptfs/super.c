@@ -156,6 +156,7 @@ static int ecryptfs_show_options(struct seq_file *m, struct vfsmount *mnt)
 	if (mount_crypt_stat->global_default_cipher_key_size)
 		seq_printf(m, ",ecryptfs_key_bytes=%zd",
 			   mount_crypt_stat->global_default_cipher_key_size);
+	/* change@wtl.fzhang encryption filter */
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	if (mount_crypt_stat->flags & ECRYPTFS_ENABLE_FILTERING)
 		seq_printf(m, ",ecryptfs_enable_filtering");
