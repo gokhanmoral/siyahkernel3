@@ -275,7 +275,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 */
 void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 {
-#ifndef CUSTOMER_HW_SAMSUNG
+#ifdef CUSTOMER_HW_SAMSUNG
 	struct cntry_locales_custom *cloc_ptr;
 
 	if (!cspec)
@@ -285,6 +285,9 @@ void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 	if (cloc_ptr) {
 		strlcpy(cspec->ccode, cloc_ptr->custom_locale, WLC_CNTRY_BUF_SZ);
 		cspec->rev = cloc_ptr->custom_locale_rev;
+	} else {
+		strlcpy(cspec->ccode, "JP", WLC_CNTRY_BUF_SZ);
+		cspec->rev = 5;
 	}
 	return;
 #else
