@@ -213,8 +213,6 @@ static const struct nla_policy nl80211_policy[NL80211_ATTR_MAX+1] = {
 	[NL80211_ATTR_BT_VENDOR_ID] = { .type = NLA_U32 },
 	[NL80211_ATTR_BTCOEX_DATA] = { .type = NLA_BINARY,
 				      .len = IEEE80211_MAX_DATA_LEN },
-	[NL80211_ATTR_PRIV_CMD] = { .type = NLA_NUL_STRING, .len = 128 },
-
 };
 
 /* policy for the key attributes */
@@ -1850,10 +1848,8 @@ static int nl80211_get_key(struct sk_buff *skb, struct genl_info *info)
 
 	hdr = nl80211hdr_put(msg, info->snd_pid, info->snd_seq, 0,
 			     NL80211_CMD_NEW_KEY);
-	if (IS_ERR(hdr)) {
-		nlmsg_free(msg);
+	if (IS_ERR(hdr))
 		return PTR_ERR(hdr);
-	}
 
 	cookie.msg = msg;
 	cookie.idx = key_idx;
@@ -1864,10 +1860,8 @@ static int nl80211_get_key(struct sk_buff *skb, struct genl_info *info)
 		NLA_PUT(msg, NL80211_ATTR_MAC, ETH_ALEN, mac_addr);
 
 	if (pairwise && mac_addr &&
-	    !(rdev->wiphy.flags & WIPHY_FLAG_IBSS_RSN)) {
-		nlmsg_free(msg);
+	    !(rdev->wiphy.flags & WIPHY_FLAG_IBSS_RSN))
 		return -ENOENT;
-	}
 
 	err = rdev->ops->get_key(&rdev->wiphy, dev, key_idx, pairwise,
 				 mac_addr, &cookie, get_key_callback);
@@ -5467,27 +5461,6 @@ static int nl80211_set_power_save(struct sk_buff *skb, struct genl_info *info)
 	return err;
 }
 
-static int nl80211_priv_cmd(struct sk_buff *skb, struct genl_info *info)
-{
-	struct cfg80211_registered_device *rdev = info->user_ptr[0];
-	struct wireless_dev *wdev;
-	struct net_device *dev = info->user_ptr[1];
-	int err;
-
-	if (!info->attrs[NL80211_ATTR_PRIV_CMD])
-		return -EINVAL;
-
-	wdev = dev->ieee80211_ptr;
-
-	if (!rdev->ops->priv_cmd)
-		return -EOPNOTSUPP;
-
-	err = rdev->ops->priv_cmd(wdev->wiphy, dev,
-		nla_data(info->attrs[NL80211_ATTR_PRIV_CMD]));
-
-	return err;
-}
-
 static int nl80211_get_power_save(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
@@ -6124,22 +6097,6 @@ static int nl80211_btcoex_notify(struct sk_buff *skb,
 	len = nla_len(info->attrs[NL80211_ATTR_BTCOEX_DATA]);
 
 	return dev->ops->notify_btcoex(&dev->wiphy, buf, len);
-}
-
-static int nl80211_p2p_flush_notify(struct sk_buff *skb,
-					   struct genl_info *info)
-{
-
-	struct cfg80211_registered_device *dev = info->user_ptr[0];
-    printk("%s() enter steven\n", __func__);
-
-	if (!dev)
-		return -ENODEV;
-
-	if (!dev->ops->notify_p2p_flush)
-		return -EOPNOTSUPP;
-
-	return dev->ops->notify_p2p_flush(&dev->wiphy);
 }
 
 static int nl80211_btcoex_notify_bt_vendor(struct sk_buff *skb,
@@ -6793,22 +6750,7 @@ static struct genl_ops nl80211_ops[] = {
 		.cmd = NL80211_CMD_BTCOEX,
 		.doit = nl80211_btcoex_notify,
 		.policy = nl80211_policy,
-		/* can be retrieved by unprivileged users */
-		.internal_flags = NL80211_FLAG_NEED_NETDEV |
-				  NL80211_FLAG_NEED_RTNL,
-	},
-	{
-		.cmd = NL80211_CMD_PRIV,
-		.doit = nl80211_priv_cmd,
-		.policy = nl80211_policy,
 		.flags = GENL_ADMIN_PERM,
-		.internal_flags = NL80211_FLAG_NEED_NETDEV |
-				  NL80211_FLAG_NEED_RTNL,
-	},
-    {
-		.cmd = NL80211_CMD_P2P_FLUSH,
-		.doit = nl80211_p2p_flush_notify,
-		.policy = nl80211_policy,
 		.internal_flags = NL80211_FLAG_NEED_NETDEV |
 				  NL80211_FLAG_NEED_RTNL,
 	},

@@ -1128,10 +1128,6 @@ static void wiphy_update_regulatory(struct wiphy *wiphy,
 			handle_band(wiphy, band, initiator);
 	}
 
-#ifdef CONFIG_MACH_PX
-	last_request->processed = true;
-#endif
-
 	reg_process_beacons(wiphy);
 	reg_process_ht_flags(wiphy);
 	if (wiphy->reg_notifier)

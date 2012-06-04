@@ -843,16 +843,10 @@ static int cfg80211_netdev_notifier_call(struct notifier_block * nb,
 		if (!dev->wireless_handlers)
 			dev->wireless_handlers = &cfg80211_wext_handler;
 #else
-#ifdef CONFIG_MACH_PX
-		dev->ieee80211_ptr->wiphy->wext = &cfg80211_wext_handler;
-		printk_once(KERN_WARNING "cfg80211: wext will work even though "
-			"kernel was compiled with CONFIG_WIRELESS_EXT=n.\n");
-#else
 		printk_once(KERN_WARNING "cfg80211: wext will not work because "
 			    "kernel was compiled with CONFIG_WIRELESS_EXT=n. "
 			    "Tools using wext interface, like iwconfig will "
 			    "not work.\n");
-#endif
 #endif
 		wdev->wext.default_key = -1;
 		wdev->wext.default_mgmt_key = -1;

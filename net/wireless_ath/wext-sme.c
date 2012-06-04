@@ -24,11 +24,8 @@ int cfg80211_mgd_wext_connect(struct cfg80211_registered_device *rdev,
 	ASSERT_RDEV_LOCK(rdev);
 	ASSERT_WDEV_LOCK(wdev);
 
-#ifdef CONFIG_MACH_PX
-#else
 	if (!netif_running(wdev->netdev))
 		return 0;
-#endif
 
 	wdev->wext.connect.ie = wdev->wext.ie;
 	wdev->wext.connect.ie_len = wdev->wext.ie_len;
