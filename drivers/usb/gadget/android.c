@@ -71,9 +71,6 @@ MODULE_VERSION("1.0");
 
 static const char longname[] = "Gadget Android";
 
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-static int composite_string_index;
-#endif
 /* Default vendor and product IDs, overridden by userspace */
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
@@ -1114,10 +1111,8 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	if (enabled && !dev->enabled) {
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 		struct android_usb_function *f;
-		cdev->next_string_id = composite_string_index;
-#else
-		cdev->next_string_id = 0;
 #endif
+		cdev->next_string_id = 0;
 		/* update values in composite driver's copy of device descriptor */
 		cdev->desc.idVendor = device_desc.idVendor;
 		cdev->desc.idProduct = device_desc.idProduct;
@@ -1353,9 +1348,7 @@ static int android_bind(struct usb_composite_dev *cdev)
 			longname, gadget->name);
 		device_desc.bcdDevice = __constant_cpu_to_le16(0x9999);
 	}
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-	composite_string_index = 4;
-#endif
+
 	usb_gadget_set_selfpowered(gadget);
 	dev->cdev = cdev;
 

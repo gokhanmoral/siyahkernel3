@@ -767,23 +767,7 @@ static long  mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 	DEBUG_MTPB("[%s] \tline = [%d]\n", __func__, __LINE__);
 
 	switch (code) {
-	case MTP_ONLY_ENABLE:
-		printk(KERN_DEBUG "[%s:%d] MTP_ONLY_ENABLE ioctl:\n",
-						 __func__, __LINE__);
-		if (dev->cdev && dev->cdev->gadget) {
-			usb_gadget_disconnect(cdev->gadget);
-			printk(KERN_DEBUG "[%s:%d] B4 disconectng gadget\n",
-							__func__, __LINE__);
-			msleep(20);
-			usb_gadget_connect(cdev->gadget);
-			printk(KERN_DEBUG "[%s:%d] after usb_gadget_connect\n",
-						__func__, __LINE__);
-		}
-		status = 10;
-		printk(KERN_DEBUG "[%s:%d] MTP_ONLY_ENABLE clearing error 0\n",
-							__func__, __LINE__);
-		the_mtpg->error = 0;
-		break;
+
 	case MTP_DISABLE:
 		/*mtp_function_enable(mtp_disable_desc);*/
 		if (dev->cdev && dev->cdev->gadget) {
