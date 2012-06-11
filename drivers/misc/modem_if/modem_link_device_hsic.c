@@ -166,8 +166,10 @@ static void usb_rx_complete(struct urb *urb)
 		switch (pipe_data->format) {
 		case IF_USB_FMT_EP:
 			iod_format = IPC_FMT;
+#if 0
 			pr_buffer("IPC-RX", (char *)urb->transfer_buffer,
 				(size_t)urb->actual_length, MAX_SKB_LOG_LEN);
+#endif
 			break;
 		case IF_USB_RAW_EP:
 			iod_format = IPC_MULTI_RAW;
@@ -391,8 +393,10 @@ static void usb_tx_work(struct work_struct *work)
 				continue;
 			}
 
+#if 0
 			if (iod->format == IPC_FMT)
 				pr_skb("IPC-TX", skb);
+#endif
 
 			usb_mark_last_busy(usb_ld->usbdev);
 			ret = usb_tx_urb_with_skb(usb_ld->usbdev,
