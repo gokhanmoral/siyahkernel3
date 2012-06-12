@@ -198,9 +198,9 @@ dhd_custom_get_mac_address(unsigned char *buf)
 /* Customized Locale table : OPTIONAL feature */
 const struct cntry_locales_custom translate_custom_table[] = {
 /* Table should be filled out based on custom platform regulatory requirement */
-#ifdef BCM4334_CHIP
+//#ifdef BCM4334_CHIP
 	{"",   "XZ", 11},  /* Universal if Country code is unknown or empty */
-#endif
+//#endif
 	{"AE", "AE", 1},
 	{"AR", "AR", 1},
 	{"AT", "AT", 1},
@@ -275,7 +275,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 */
 void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 {
-#ifdef CUSTOMER_HW_SAMSUNG
+#ifndef CUSTOMER_HW_SAMSUNG
 	struct cntry_locales_custom *cloc_ptr;
 
 	if (!cspec)
@@ -309,11 +309,11 @@ void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 			return;
 		}
 	}
-#ifdef EXAMPLE_TABLE
+//#ifdef EXAMPLE_TABLE
 	/* if no country code matched return first universal code from translate_custom_table */
 	memcpy(cspec->ccode, translate_custom_table[0].custom_locale, WLC_CNTRY_BUF_SZ);
 	cspec->rev = translate_custom_table[0].custom_locale_rev;
-#endif /* EXMAPLE_TABLE */
+//#endif /* EXMAPLE_TABLE */
 	return;
 #endif /* CUSTOMER_HW_SAMSUNG) */
 }
