@@ -4884,7 +4884,7 @@ static int max17042_low_batt_cb(void)
 #ifdef RECAL_SOC_FOR_MAXIM
 static bool max17042_need_soc_recal(void)
 {
-	pr_info("%s: HW(0x%x)\n", __func__, system_rev);
+	pr_debug("%s: HW(0x%x)\n", __func__, system_rev);
 
 	if (system_rev >= NO_NEED_RECAL_SOC_HW_REV)
 		return false;
