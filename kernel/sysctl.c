@@ -228,7 +228,7 @@ int sysctl_legacy_va_layout;
 #endif
 
 extern int late_init_android_gadget(int romtype);
-extern int u1_gps_ntt_init(void);
+//extern int u1_gps_ntt_init(void);
 int
 rom_feature_set_sysctl(struct ctl_table *table, int write,
                      void __user *buffer, size_t *lenp,
@@ -245,7 +245,7 @@ rom_feature_set_sysctl(struct ctl_table *table, int write,
 		if( (rom_feature_set & 0x10) == 0x10)
 		{
 			rom_feature_set = rom_feature_set_save;
-			u1_gps_ntt_init();
+//			u1_gps_ntt_init();
 			return 0;
 		}
 		rom_feature_set_save = rom_feature_set;
