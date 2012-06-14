@@ -3,6 +3,7 @@ export KERNELDIR=`readlink -f .`
 export INITRAMFS_SOURCE=`readlink -f $KERNELDIR/../initramfs3`
 export PARENT_DIR=`readlink -f ..`
 export USE_SEC_FIPS_MODE=true
+CROSS_COMPILE=$PARENT_DIR/android_prebuilt/linux-x86/toolchain/arm-eabi-4.4.3/bin/arm-eabi-
 
 if [ "${1}" != "" ];then
   export KERNELDIR=`readlink -f ${1}`
@@ -20,7 +21,7 @@ fi
 export ARCH=arm
 
 cd $KERNELDIR/
-nice -n 10 make -j4 modules || exit 1
+nice -n 10 make -j4 || exit 1
 
 #remove previous initramfs files
 rm -rf $INITRAMFS_TMP
