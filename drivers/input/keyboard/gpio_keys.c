@@ -389,6 +389,8 @@ static inline int64_t get_time_inms(void) {
 
 #define HOME_KEY_VAL	102
 extern void mdnie_toggle_negative(void);
+static int homekey_trg_cnt = 4;
+static int homekey_trg_ms = 300;
 
 static void gpio_keys_report_event(struct gpio_button_data *bdata)
 {
@@ -405,7 +407,7 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 	if(button->code == HOME_KEY_VAL)
 	{
 		if(state) {
-			if (  get_time_inms() - homekey_lasttime < 300) {
+			if (  get_time_inms() - homekey_lasttime < homekey_trg_ms) {
 				homekey_count++;
 				printk(KERN_INFO "repeated home_key action %d.\n", homekey_count);
 			}
@@ -415,7 +417,7 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 			}
 		}
 		else {
-			if(homekey_count==3)
+			if(homekey_count==homekey_trg_cnt)
 			{
 				mdnie_toggle_negative();
 				homekey_count = 0;
