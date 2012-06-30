@@ -160,15 +160,15 @@ static unsigned int get_nr_run_avg(void)
 #define DEF_FREQ_STEP				(40)
 #define DEF_START_DELAY				(0)
 
-#define UP_THRESHOLD_AT_MIN_FREQ		(95)
-#define FREQ_FOR_RESPONSIVENESS			(100000)
+#define UP_THRESHOLD_AT_MIN_FREQ		(60)
+#define FREQ_FOR_RESPONSIVENESS			(500000)
 
 #define HOTPLUG_DOWN_INDEX			(0)
 #define HOTPLUG_UP_INDEX			(1)
 
 #ifdef CONFIG_CPU_EXYNOS4210
 static int hotplug_rq[4][2] = {
-	{0, 350}, {350, 200}, {200, 300}, {300, 0}
+	{0, 300}, {300, 200}, {200, 300}, {300, 0}
 };
 
 static int hotplug_freq[4][2] = {
@@ -982,7 +982,7 @@ static int check_down(void)
 		&& online > dbs_tuners_ins.max_cpu_lock)
 		return 1;
 
-	if (num_hist == 0 || num_hist % down_rate)
+	if (num_hist % down_rate)
 		return 0;
     if(num_hist == 0) num_hist = MAX_HOTPLUG_RATE; //make it circular -gm
 
