@@ -389,8 +389,11 @@ static inline int64_t get_time_inms(void) {
 
 #define HOME_KEY_VAL	102
 extern void mdnie_toggle_negative(void);
-static int homekey_trg_cnt = 4;
-static int homekey_trg_ms = 300;
+int homekey_trg_cnt = 4;
+int homekey_trg_ms = 300;
+
+static int mdnie_shortcut_enabled = 1;
+module_param_named(mdnie_shortcut_enabled, mdnie_shortcut_enabled, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
 static void gpio_keys_report_event(struct gpio_button_data *bdata)
 {
@@ -404,7 +407,7 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 	int state = (gpio_get_value_cansleep(button->gpio) ? 1 : 0) ^ button->active_low;
 
 	//mdnie negative effect toggle by gm
-	if(button->code == HOME_KEY_VAL)
+	if((button->code == HOME_KEY_VAL) && mdnie_shortcut_enabled)
 	{
 		if(state) {
 			if (  get_time_inms() - homekey_lasttime < homekey_trg_ms) {
@@ -417,7 +420,7 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 			}
 		}
 		else {
-			if(homekey_count==homekey_trg_cnt)
+			if(homekey_count>=homekey_trg_cnt - 1)
 			{
 				mdnie_toggle_negative();
 				homekey_count = 0;
