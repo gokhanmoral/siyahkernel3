@@ -199,7 +199,7 @@ dhd_custom_get_mac_address(unsigned char *buf)
 const struct cntry_locales_custom translate_custom_table[] = {
 /* Table should be filled out based on custom platform regulatory requirement */
 //#ifdef BCM4334_CHIP
-	{"",   "XZ", 11},  /* Universal if Country code is unknown or empty */
+	{"",   "XZ", 1},  /* Universal if Country code is unknown or empty */
 //#endif
 	{"AE", "AE", 1},
 	{"AR", "AR", 1},
