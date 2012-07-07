@@ -92,6 +92,7 @@
 #define MAX_USING_FINGER_NUM 10
 
 #define MXT224_AUTOCAL_WAIT_TIME		2000
+#define printk(arg, ...)
 
 #if defined(U1_EUR_TARGET)
 static bool gbfilter;
