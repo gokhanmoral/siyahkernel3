@@ -48,6 +48,15 @@ struct wake_lock {
 		ktime_t         max_time;
 		ktime_t         last_time;
 	} stat;
+	struct {
+		int             count;
+		int             expire_count;
+		int             wakeup_count;
+		ktime_t         total_time;
+		ktime_t         prevent_suspend_time;
+		ktime_t         max_time;
+		ktime_t         last_time;
+	} exclusive_stat;
 #endif
 #endif
 };
