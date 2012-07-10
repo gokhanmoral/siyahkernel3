@@ -93,7 +93,7 @@ static int exynos_target(struct cpufreq_policy *policy,
 {
 	unsigned int index, old_index = UINT_MAX;
 	unsigned int arm_volt, safe_arm_volt = 0;
-	int ret = 0, i;
+	int ret = 0;
 	struct cpufreq_frequency_table *freq_table = exynos_info->freq_table;
 	unsigned int *volt_table = exynos_info->volt_table;
 
@@ -102,21 +102,28 @@ static int exynos_target(struct cpufreq_policy *policy,
 	if (exynos_cpufreq_disable)
 		goto out;
 
-	freqs.old = policy->cur;
+	freqs.old = exynos_getspeed(policy->cpu);
 
-	/*
-	 * cpufreq_frequency_table_target() cannot be used for freqs.old
-	 * because policy->min/max may have been changed. If changed, the
-	 * resulting old_index may be inconsistent with freqs.old, which
-	 * will lead to inconsistent voltage/frequency configurations later.
-	 */
-	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-		if (freq_table[i].frequency == freqs.old)
-			old_index = freq_table[i].index;
-	}
-	if (old_index == UINT_MAX) {
-		ret = -EINVAL;
-		goto out;
+	if(policy->max < freqs.old || policy->min > freqs.old)
+	{
+		struct cpufreq_policy policytemp;
+		memcpy(&policytemp, policy, sizeof(struct cpufreq_policy));
+		if(policytemp.max < freqs.old)
+			policytemp.max = freqs.old;
+		if(policytemp.min > freqs.old)
+			policytemp.min = freqs.old;
+		if (cpufreq_frequency_table_target(&policytemp, freq_table,
+						   freqs.old, relation, &old_index)) {
+			ret = -EINVAL;
+			goto out;
+		}
+	} else
+	{
+		if (cpufreq_frequency_table_target(policy, freq_table,
+						   freqs.old, relation, &old_index)) {
+			ret = -EINVAL;
+			goto out;
+		}
 	}
 
 	if (cpufreq_frequency_table_target(policy, freq_table,
