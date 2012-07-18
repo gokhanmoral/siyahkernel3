@@ -54,6 +54,10 @@ extern int dhd_prot_init(dhd_pub_t *dhdp);
 
 /* Stop protocol: sync w/dongle state. */
 extern void dhd_prot_stop(dhd_pub_t *dhdp);
+#ifdef PROP_TXSTATUS
+extern int dhd_wlfc_init(dhd_pub_t *dhd);
+extern void dhd_wlfc_deinit(dhd_pub_t *dhd);
+#endif
 
 /* Add any protocol-specific data header.
  * Caller must reserve prot_hdrlen prepend space.

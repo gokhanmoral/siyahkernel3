@@ -335,6 +335,7 @@ extern uint pkttotlen(osl_t *osh, void *p);
 extern void *pktlast(osl_t *osh, void *p);
 extern uint pktsegcnt(osl_t *osh, void *p);
 extern uint pktsegcnt_war(osl_t *osh, void *p);
+extern uint8 *pktoffset(osl_t *osh, void *p,  uint offset);
 
 
 #define	PKTPRIO_VDSCP	0x100

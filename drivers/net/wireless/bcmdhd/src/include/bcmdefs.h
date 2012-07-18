@@ -27,9 +27,6 @@
 #ifndef	_bcmdefs_h_
 #define	_bcmdefs_h_
 
-
-
-
 #define BCM_REFERENCE(data)	((void)(data))
 
 
@@ -39,8 +36,6 @@
 	 \
 	typedef char STATIC_ASSERT_FAIL[(expr) ? 1 : -1]; \
 }
-
-
 
 #define bcmreclaimed		0
 #define _data	_data
@@ -56,8 +51,6 @@
 #ifndef BCMFASTPATH
 #define BCMFASTPATH
 #endif
-
-
 
 #define _data	_data
 #define BCMROMDAT_NAME(_data)	_data
@@ -92,8 +85,6 @@
 #else
 #define CHIPTYPE(bus)	(bus)
 #endif
-
-
 
 #if defined(BCMSPROMBUS)
 #define SPROMBUS	(BCMSPROMBUS)
@@ -153,7 +144,7 @@ typedef unsigned long dmaaddr_t;
 	do { \
 		(_pa) = (_val);			\
 	} while (0)
-#endif
+#endif  /* BCMDMA64OSL */
 
 
 typedef struct  {
@@ -170,9 +161,6 @@ typedef struct {
 	uint nsegs;
 	hnddma_seg_t segs[MAX_DMA_SEGS];
 } hnddma_seg_map_t;
-
-
-
 
 #if defined(BCM_RPC_NOCOPY) || defined(BCM_RCP_TXNOCOPY)
 
@@ -193,6 +181,10 @@ typedef struct {
 #define BCMDONGLEOVERHEAD	(BCMDONGLEHDRSZ + BCMDONGLEPADSZ)
 
 
+#if defined(NO_BCMDBG_ASSERT)
+# undef BCMDBG_ASSERT
+# undef BCMASSERT_LOG
+#endif
 #if defined(BCMASSERT_LOG)
 #define BCMASSERT_SUPPORT
 #endif
@@ -218,5 +210,14 @@ typedef struct {
 
 #define	MAXSZ_NVRAM_VARS	4096
 
-
+#ifdef DL_NVRAM
+#define NVRAM_ARRAY_MAXSIZE	DL_NVRAM
+#else
+#define NVRAM_ARRAY_MAXSIZE	MAXSZ_NVRAM_VARS
 #endif
+
+#ifdef BCMUSBDEV_ENABLED
+extern uint32 gFWID;
+#endif
+
+#endif  /* _bcmdefs_h_ */

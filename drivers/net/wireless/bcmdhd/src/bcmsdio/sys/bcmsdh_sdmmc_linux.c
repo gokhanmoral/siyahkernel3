@@ -79,6 +79,9 @@ extern void wl_cfg80211_set_parent_dev(void *dev);
 
 extern void sdioh_sdmmc_devintr_off(sdioh_info_t *sd);
 extern void sdioh_sdmmc_devintr_on(sdioh_info_t *sd);
+extern int dhd_os_check_wakelock(void *dhdp);
+extern int dhd_os_check_if_up(void *dhdp);
+extern void *bcmsdh_get_drvdata(void);
 
 int sdio_function_init(void);
 void sdio_function_cleanup(void);
@@ -99,6 +102,7 @@ PBCMSDH_SDMMC_INSTANCE gInstance;
 
 extern int bcmsdh_probe(struct device *dev);
 extern int bcmsdh_remove(struct device *dev);
+extern volatile bool dhd_mmc_suspend;
 
 static int bcmsdh_sdmmc_probe(struct sdio_func *func,
                               const struct sdio_device_id *id)
@@ -137,14 +141,14 @@ static int bcmsdh_sdmmc_probe(struct sdio_func *func,
 
 static void bcmsdh_sdmmc_remove(struct sdio_func *func)
 {
-	sd_trace(("bcmsdh_sdmmc: %s Enter\n", __FUNCTION__));
+	sd_err(("bcmsdh_sdmmc: %s Enter\n", __FUNCTION__));
 	sd_info(("sdio_bcmsdh: func->class=%x\n", func->class));
 	sd_info(("sdio_vendor: 0x%04x\n", func->vendor));
 	sd_info(("sdio_device: 0x%04x\n", func->device));
 	sd_info(("Function#: 0x%04x\n", func->num));
 
 	if (func->num == 2) {
-		sd_trace(("F2 found, calling bcmsdh_remove...\n"));
+		sd_err(("F2 found, calling bcmsdh_remove...\n"));
 		bcmsdh_remove(&func->dev);
 	} else if (func->num == 1) {
 		sdio_claim_host(func);
@@ -165,19 +169,101 @@ static const struct sdio_device_id bcmsdh_sdmmc_ids[] = {
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4334) },
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4324) },
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_43239) },
-#ifndef BOARD_PANDA
 	{ SDIO_DEVICE_CLASS(SDIO_CLASS_NONE)		},
-#endif
 	{ /* end: all zeroes */				},
 };
 
 MODULE_DEVICE_TABLE(sdio, bcmsdh_sdmmc_ids);
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 39)) && defined(CONFIG_PM)
+static int bcmsdh_sdmmc_suspend(struct device *pdev)
+{
+	struct sdio_func *func = dev_to_sdio_func(pdev);
+
+	if (func->num != 2)
+		return 0;
+
+	sd_trace(("%s Enter\n", __FUNCTION__));
+
+	if (dhd_os_check_wakelock(bcmsdh_get_drvdata()))
+		return -EBUSY;
+#if defined(OOB_INTR_ONLY)
+	bcmsdh_oob_intr_set(0);
+#endif	/* defined(OOB_INTR_ONLY) */
+	dhd_mmc_suspend = TRUE;
+	smp_mb();
+
+	return 0;
+}
+
+static int bcmsdh_sdmmc_resume(struct device *pdev)
+{
+#if defined(OOB_INTR_ONLY)
+	struct sdio_func *func = dev_to_sdio_func(pdev);
+#endif
+	sd_trace(("%s Enter\n", __FUNCTION__));
+	dhd_mmc_suspend = FALSE;
+#if defined(OOB_INTR_ONLY)
+	if ((func->num == 2) && dhd_os_check_if_up(bcmsdh_get_drvdata()))
+		bcmsdh_oob_intr_set(1);
+#endif /* (OOB_INTR_ONLY) */
+
+	smp_mb();
+	return 0;
+}
+
+static const struct dev_pm_ops bcmsdh_sdmmc_pm_ops = {
+	.suspend	= bcmsdh_sdmmc_suspend,
+	.resume		= bcmsdh_sdmmc_resume,
+};
+#endif  /* (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 39)) && defined(CONFIG_PM) */
+
+#if defined(BCMLXSDMMC)
+static struct semaphore *notify_semaphore = NULL;
+
+static int dummy_probe(struct sdio_func *func,
+                              const struct sdio_device_id *id)
+{
+	if (notify_semaphore)
+	up(notify_semaphore);
+	return 0;
+}
+
+static void dummy_remove(struct sdio_func *func)
+{
+}
+
+static struct sdio_driver dummy_sdmmc_driver = {
+	.probe		= dummy_probe,
+	.remove		= dummy_remove,
+	.name		= "dummy_sdmmc",
+	.id_table	= bcmsdh_sdmmc_ids,
+	};
+
+int sdio_func_reg_notify(void* semaphore)
+{
+	notify_semaphore = semaphore;
+	return sdio_register_driver(&dummy_sdmmc_driver);
+}
+
+void sdio_func_unreg_notify(void)
+{
+	sdio_unregister_driver(&dummy_sdmmc_driver);
+}
+#endif /* defined(BCMLXSDMMC) */
 
 static struct sdio_driver bcmsdh_sdmmc_driver = {
 	.probe		= bcmsdh_sdmmc_probe,
 	.remove		= bcmsdh_sdmmc_remove,
 	.name		= "bcmsdh_sdmmc",
 	.id_table	= bcmsdh_sdmmc_ids,
+#if 0
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 39)) && defined(CONFIG_PM)
+	.drv = {
+	.pm	= &bcmsdh_sdmmc_pm_ops,
+	},
+#endif /* (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 39)) && defined(CONFIG_PM) */
+#endif /* (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 39)) && defined(CONFIG_PM) */
 	};
 
 struct sdos_info {

@@ -135,18 +135,6 @@ static void watchdog_stop(void)
 #endif
 }
 
-#if defined(PET_BY_WORKQUEUE)
-static int __devinit watchdog_cpu_callback(struct notifier_block *nfb,
-					   unsigned long action, void *hcpu)
-{
-	switch (action) {
-	case CPU_ONLINE:
-		watchdog_start();
-	}
-	return NOTIFY_OK;
-}
-#endif
-
 static int watchdog_probe(struct platform_device *pdev)
 {
 	wd_clk = clk_get(NULL, "watchdog");
@@ -166,7 +154,6 @@ static int watchdog_probe(struct platform_device *pdev)
 #if defined(PET_BY_WORKQUEUE)
 	watchdog_wq = create_singlethread_workqueue("pet_watchdog");
 	watchdog_start();
-	hotcpu_notifier(watchdog_cpu_callback, 0);
 #elif defined(PET_BY_DIRECT_TIMER)
 	init_timer(&pet_watchdog_timer);
 	pet_watchdog_timer.function = pet_watchdog_timer_fn;

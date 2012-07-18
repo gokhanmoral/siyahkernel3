@@ -177,8 +177,8 @@
 /* Firmware tossed this packet */
 #define WLFC_CTL_PKTFLAG_TOSSED_BYWLC	3
 
-#define WLFC_D11_STATUS_INTERPRET(txs)	((((txs)->status & TX_STATUS_SUPR_MASK) >> \
-		TX_STATUS_SUPR_SHIFT)) ? WLFC_CTL_PKTFLAG_D11SUPPRESS : WLFC_CTL_PKTFLAG_DISCARD
+#define WLFC_D11_STATUS_INTERPRET(txs)	\
+	(((txs)->status.suppr_ind != 0) ? WLFC_CTL_PKTFLAG_D11SUPPRESS : WLFC_CTL_PKTFLAG_DISCARD)
 
 #ifdef PROP_TXSTATUS_DEBUG
 #define WLFC_DBGMESG(x) printf x

@@ -155,8 +155,10 @@ static int cancel_transfer(struct sec_otghost *otghost,
 		otg_list_pop(&cancel_td->td_list_entry);
 		parent_ed->num_td--;
 
-		if (parent_ed->num_td == 0)
+		if (parent_ed->num_td == 0) {
 			remove_ed_from_scheduler(parent_ed);
+			parent_ed->is_need_to_insert_scheduler = true;
+		}
 	}
 
 	if (parent_ed->num_td) {

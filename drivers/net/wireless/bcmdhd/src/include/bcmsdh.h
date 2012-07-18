@@ -55,7 +55,13 @@ typedef void (*bcmsdh_cb_fn_t)(void *);
  *    implementation may maintain a single "default" handle (e.g. the first or
  *    most recent one) to enable single-instance implementations to pass NULL.
  */
+
+#if defined(NDIS630)
+extern bcmsdh_info_t *bcmsdh_attach(osl_t *osh, void *cfghdl,
+	void **regsva, uint irq, shared_info_t *sh);
+#else
 extern bcmsdh_info_t *bcmsdh_attach(osl_t *osh, void *cfghdl, void **regsva, uint irq);
+#endif
 
 /* Detach - freeup resources allocated in attach */
 extern int bcmsdh_detach(osl_t *osh, void *sdh);
@@ -70,6 +76,8 @@ extern int bcmsdh_intr_disable(void *sdh);
 /* Register/deregister device interrupt handler. */
 extern int bcmsdh_intr_reg(void *sdh, bcmsdh_cb_fn_t fn, void *argh);
 extern int bcmsdh_intr_dereg(void *sdh);
+/* Enable/disable SD card interrupt forward */
+extern void bcmsdh_intr_forward(void *sdh, bool pass);
 
 #if defined(DHD_DEBUG)
 /* Query pending interrupt status from the host controller */
@@ -199,6 +207,9 @@ extern int bcmsdh_register(bcmsdh_driver_t *driver);
 extern void bcmsdh_unregister(void);
 extern bool bcmsdh_chipmatch(uint16 vendor, uint16 device);
 extern void bcmsdh_device_remove(void * sdh);
+
+extern int bcmsdh_reg_sdio_notify(void* semaphore);
+extern void bcmsdh_unreg_sdio_notify(void);
 
 #if defined(OOB_INTR_ONLY)
 extern int bcmsdh_register_oob_intr(void * dhdp);

@@ -15,6 +15,7 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/cpufreq.h>
+#include <linux/regulator/consumer.h>
 
 #include <mach/map.h>
 #include <mach/regs-clock.h>
@@ -37,6 +38,7 @@ struct cpufreq_clkdiv {
 	unsigned int	clkdiv;
 };
 
+static struct regulator *arm_regulator;
 static unsigned int exynos4210_volt_table[CPUFREQ_LEVEL_END];
 
 static struct cpufreq_frequency_table exynos4210_freq_table[] = {
@@ -247,6 +249,11 @@ bool exynos4210_pms_change(unsigned int old_index, unsigned int new_index)
 	return (old_pm == new_pm) ? 0 : 1;
 }
 
+static void exynos4210_set_arm_volt(unsigned int arm_volt)
+{
+	regulator_set_voltage(arm_regulator, arm_volt, arm_volt + 25000);
+}
+
 static void exynos4210_set_frequency(unsigned int old_index,
 				  unsigned int new_index)
 {
@@ -420,9 +427,16 @@ int exynos4210_cpufreq_init(struct exynos_dvfs_info *info)
 	info->min_support_idx = min_support_idx;
 	info->cpu_clk = cpu_clk;
 	info->volt_table = exynos4210_volt_table;
+	info->set_volt = exynos4210_set_arm_volt;
 	info->freq_table = exynos4210_freq_table;
 	info->set_freq = exynos4210_set_frequency;
 	info->need_apll_change = exynos4210_pms_change;
+
+	arm_regulator = regulator_get(NULL, "vdd_arm");
+	if (IS_ERR(arm_regulator)) {
+		printk(KERN_ERR "failed to get resource %s\n", "vdd_arm");
+		goto err_mout_apll;
+	}
 
 	return 0;
 

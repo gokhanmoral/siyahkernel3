@@ -29,7 +29,7 @@
 #include <proto/bcmeth.h>
 #include <proto/bcmevent.h>
 
-#if WLC_E_LAST != 89
+#if WLC_E_LAST != 92
 #error "You need to add an entry to bcmevent_names[] for the new event"
 #endif
 
@@ -126,7 +126,8 @@ const bcmevent_name_t bcmevent_names[] = {
 	{ WLC_E_GTK_PLUMBED, "GTK_PLUMBED" },
 #endif
 	{ WLC_E_ASSOC_REQ_IE, "ASSOC_REQ_IE" },
-	{ WLC_E_ASSOC_RESP_IE, "ASSOC_RESP_IE" }
+	{ WLC_E_ASSOC_RESP_IE, "ASSOC_RESP_IE" },
+	{ WLC_E_ACTION_FRAME_RX_NDIS, "WLC_E_ACTION_FRAME_RX_NDIS" }
 };
 
 const int bcmevent_names_size = ARRAYSIZE(bcmevent_names);

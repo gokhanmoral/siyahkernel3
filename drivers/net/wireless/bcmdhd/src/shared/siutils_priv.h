@@ -105,15 +105,21 @@ typedef struct si_info {
 
 #define PCI(si)		((BUSTYPE((si)->pub.bustype) == PCI_BUS) &&	\
 			 ((si)->pub.buscoretype == PCI_CORE_ID))
-#define PCIE(si)	((BUSTYPE((si)->pub.bustype) == PCI_BUS) &&	\
+
+#define PCIE_GEN1(si)	((BUSTYPE((si)->pub.bustype) == PCI_BUS) &&	\
 			 ((si)->pub.buscoretype == PCIE_CORE_ID))
+
+#define PCIE_GEN2(si)	((BUSTYPE((si)->pub.bustype) == PCI_BUS) &&	\
+			 ((si)->pub.buscoretype == PCIE2_CORE_ID))
+
+#define PCIE(si)	(PCIE_GEN1(si) || PCIE_GEN2(si))
+
 #define PCMCIA(si)	((BUSTYPE((si)->pub.bustype) == PCMCIA_BUS) && ((si)->memseg == TRUE))
 
 /* Newer chips can access PCI/PCIE and CC core without requiring to change
  * PCI BAR0 WIN
  */
-#define SI_FAST(si) (((si)->pub.buscoretype == PCIE_CORE_ID) ||	\
-		     (((si)->pub.buscoretype == PCI_CORE_ID) && (si)->pub.buscorerev >= 13))
+#define SI_FAST(si) (PCIE(si) || (PCI(si) && ((si)->pub.buscorerev >= 13)))
 
 #define PCIEREGS(si) (((char *)((si)->curmap) + PCI_16KB0_PCIREGS_OFFSET))
 #define CCREGS_FAST(si) (((char *)((si)->curmap) + PCI_16KB0_CCREGS_OFFSET))
@@ -141,10 +147,10 @@ typedef struct si_info {
 #define	ILP_DIV_1MHZ		4		/* ILP = 1 MHz */
 
 #define PCI_FORCEHT(si)	\
-	(((PCIE(si)) && (si->pub.chip == BCM4311_CHIP_ID) && ((si->pub.chiprev <= 1))) || \
-	((PCI(si) || PCIE(si)) && (si->pub.chip == BCM4321_CHIP_ID)) || \
-	(PCIE(si) && (si->pub.chip == BCM4716_CHIP_ID)) || \
-	(PCIE(si) && (si->pub.chip == BCM4748_CHIP_ID)))
+	(((PCIE_GEN1(si)) && (si->pub.chip == BCM4311_CHIP_ID) && ((si->pub.chiprev <= 1))) || \
+	((PCI(si) || PCIE_GEN1(si)) && (si->pub.chip == BCM4321_CHIP_ID)) || \
+	(PCIE_GEN1(si) && (si->pub.chip == BCM4716_CHIP_ID)) || \
+	(PCIE_GEN1(si) && (si->pub.chip == BCM4748_CHIP_ID)))
 
 /* GPIO Based LED powersave defines */
 #define DEFAULT_GPIO_ONTIME	10		/* Default: 10% on */

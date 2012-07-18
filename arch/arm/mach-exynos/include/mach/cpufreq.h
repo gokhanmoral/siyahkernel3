@@ -68,10 +68,12 @@ struct exynos_dvfs_info {
 	unsigned int	pm_lock_idx;
 	unsigned int	max_support_idx;
 	unsigned int	min_support_idx;
+	unsigned int	gov_support_freq;
 	struct clk	*cpu_clk;
 	unsigned int	*volt_table;
 	struct cpufreq_frequency_table	*freq_table;
 	void (*set_freq)(unsigned int, unsigned int);
+	void (*set_volt)(unsigned int);
 	bool (*need_apll_change)(unsigned int, unsigned int);
 };
 

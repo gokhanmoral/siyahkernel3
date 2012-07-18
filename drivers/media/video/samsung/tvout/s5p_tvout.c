@@ -64,7 +64,7 @@ int tvout_dbg_flag;
 
 
 #ifdef CONFIG_HDMI_EARJACK_MUTE
-int hdmi_audio_ext;
+bool hdmi_audio_ext;
 
 /* To provide an interface fo Audio path control */
 static ssize_t hdmi_set_audio_read(struct device *dev,
@@ -80,16 +80,18 @@ static ssize_t hdmi_set_audio_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	char *after;
-	unsigned long value = !strncmp(buf, "1", 1) ? true : false;
+	bool value = !strncmp(buf, "1", 1) ? true : false;
 
-	printk(KERN_ERR "[HDMI] Change AUDIO PATH: %ld\n", value);
+	printk(KERN_ERR "[HDMI] Change AUDIO PATH: %d\n", (int)value);
 
-	if (value) {
-		s5p_hdmi_ctrl_set_audio(1);
-		hdmi_audio_ext = 0;
-	} else {
-		s5p_hdmi_ctrl_set_audio(0);
-		hdmi_audio_ext = 1;
+	if (value == hdmi_audio_ext) {
+		if (value) {
+			hdmi_audio_ext = 0;
+			s5p_hdmi_ctrl_set_audio(1);
+		} else {
+			hdmi_audio_ext = 1;
+			s5p_hdmi_ctrl_set_audio(0);
+		}
 	}
 
 	return size;
@@ -439,6 +441,8 @@ static int __devinit s5p_tvout_probe(struct platform_device *pdev)
 		&dev_attr_hdmi_audio_set_ext) < 0)
 		printk(KERN_ERR "Failed to create device file(%s)!\n",
 			dev_attr_hdmi_audio_set_ext.attr.name);
+
+	hdmi_audio_ext = false;
 #endif
 
 	return 0;

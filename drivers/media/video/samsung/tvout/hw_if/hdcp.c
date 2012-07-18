@@ -157,8 +157,9 @@ static int s5p_ddc_read(u8 reg, int bytes, u8 *dest)
 	};
 
 	do {
-		if (!s5p_hdmi_reg_get_hpd_status() ||
-		    s5p_hdmi_ctrl_status() == false || on_stop_process)
+		if (s5p_hdmi_ctrl_status() == false ||
+		    !s5p_hdmi_reg_get_hpd_status() ||
+		    on_stop_process)
 			goto ddc_read_err;
 
 		ret = i2c_transfer(i2c->adapter, msg, 2);
@@ -197,8 +198,9 @@ static int s5p_ddc_write(u8 reg, int bytes, u8 *src)
 	memcpy(&msg[1], src, bytes);
 
 	do {
-		if (!s5p_hdmi_reg_get_hpd_status() ||
-		    s5p_hdmi_ctrl_status() == false || on_stop_process)
+		if (s5p_hdmi_ctrl_status() == false ||
+		    !s5p_hdmi_reg_get_hpd_status() ||
+		    on_stop_process)
 			goto ddc_write_err;
 
 		ret = i2c_master_send(i2c, msg, bytes + 1);

@@ -3699,6 +3699,7 @@ static int mc1n2_hwdep_ioctl_notify(struct snd_soc_codec *codec,
 				      struct mc1n2_ctrl_args *args)
 {
 	MCDRV_PATH_INFO path;
+	int err;
 
 #if (defined ALSA_VER_ANDROID_2_6_35) || (defined ALSA_VER_ANDROID_3_0)
 	struct mc1n2_data *mc1n2 = snd_soc_codec_get_drvdata(codec);
@@ -3710,11 +3711,19 @@ static int mc1n2_hwdep_ioctl_notify(struct snd_soc_codec *codec,
 	case MCDRV_NOTIFY_CALL_START:
 	case MCDRV_NOTIFY_2MIC_CALL_START:
 		mc1n2_current_mode |= MC1N2_MODE_CALL_ON;
-		mc1n2->pdata->set_adc_power_contraints(0);
+		err = mc1n2->pdata->set_adc_power_constraints(0);
+		if (err < 0) {
+			dev_err(codec->dev,
+				"%s:%d:Error VADC_3.3V[On]\n", __func__, err);
+		}
 		break;
 	case MCDRV_NOTIFY_CALL_STOP:
 		mc1n2_current_mode &= ~MC1N2_MODE_CALL_ON;
-		mc1n2->pdata->set_adc_power_contraints(1);
+		err = mc1n2->pdata->set_adc_power_constraints(1);
+		if (err < 0) {
+			dev_err(codec->dev,
+				"%s:%d:Error VADC_3.3V[Off]\n", __func__, err);
+		}
 		break;
 	case MCDRV_NOTIFY_MEDIA_PLAY_START:
 		break;
