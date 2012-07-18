@@ -277,87 +277,86 @@ static int rx_hdlc_data_check(struct io_device *iod, struct link_device *ld,
 	struct sk_buff *skb = fragdata(iod, ld)->skb_recv;
 	int head_size = get_header_size(iod);
 	int data_size = get_hdlc_size(iod, hdr->hdr) - head_size;
-	int alloc_size = min(data_size, MAX_RXDATA_SIZE);
+	int alloc_size;
 	int len = 0;
 	int done_len = 0;
 	int rest_len = data_size - hdr->frag_len;
-	struct sk_buff *skb_new = NULL;
 
 	pr_debug("[IOD] head_size : %d, data_size : %d (%d)\n", head_size,
 				data_size, __LINE__);
 
 	/* first payload data - alloc skb */
 	if (!skb) {
-		switch (iod->format) {
-		case IPC_RFS:
-			alloc_size = min_t(int, data_size, rest) + head_size;
-			alloc_size = min(alloc_size, MAX_RXDATA_SIZE);
-			skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		/* make skb data size under MAX_RXDATA_SIZE */
+		alloc_size = min(data_size, MAX_RXDATA_SIZE);
+		alloc_size = min(alloc_size, rest_len);
+
+		/* exceptional case for RFS channel
+		 * make skb for header info first
+		 */
+		if (iod->format == IPC_RFS) {
+			skb = rx_alloc_skb(head_size, GFP_ATOMIC, iod, ld);
 			if (unlikely(!skb))
 				return -ENOMEM;
-
-			/* copy the RFS haeder to skb->data */
 			memcpy(skb_put(skb, head_size), hdr->hdr, head_size);
-			break;
-
-		case IPC_MULTI_RAW:
-			if (iod->use_handover)
-				skb = rx_alloc_skb(alloc_size +
-					sizeof(struct ethhdr), GFP_ATOMIC,
-					iod, ld);
-			else
-				skb = rx_alloc_skb(alloc_size, GFP_ATOMIC,
-					iod, ld);
-
-			if (unlikely(!skb))
-				return -ENOMEM;
-
-			if (iod->use_handover)
-				skb_reserve(skb, sizeof(struct ethhdr));
-			break;
-
-		default:
-			skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
-			if (unlikely(!skb))
-				return -ENOMEM;
-			break;
+			rx_iodev_skb(skb);
 		}
+
+		/* allocate first packet for data, when its size exceed
+		 * MAX_RXDATA_SIZE, this packet will split to
+		 * multiple packets
+		 */
+		if (iod->use_handover)
+			alloc_size += sizeof(struct ethhdr);
+
+		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		if (unlikely(!skb))
+			return -ENOMEM;
+
+		if (iod->use_handover)
+			skb_reserve(skb, sizeof(struct ethhdr));
 		fragdata(iod, ld)->skb_recv = skb;
 	}
 
-	/* if recv packet size is larger than user space */
-	while ((rest_len > MAX_RXDATA_SIZE) && (rest > 0)) {
-		len = MAX_RXDATA_SIZE - skb->len;
-		len = min_t(int, len, rest);
-		len = min(len, rest_len);
-		memcpy(skb_put(skb, len), buf, len);
-		buf += len;
-		done_len += len;
-		rest -= len;
-		rest_len -= len;
+	while (rest) {
+		/* copy length cannot exceed rest_len */
+		len = min_t(int, rest_len, rest);
+		/* copy length should be under skb tailroom size */
+		len = min(len, skb_tailroom(skb));
+		/* when skb tailroom is bigger than MAX_RXDATA_SIZE
+		 * restrict its size to MAX_RXDATA_SIZE just for convinience */
+		len = min(len, MAX_RXDATA_SIZE);
 
-		if (!rest_len)
+		/* copy bytes to skb */
+		memcpy(skb_put(skb, len), buf, len);
+
+		/* adjusting variables */
+		buf += len;
+		rest -= len;
+		done_len += len;
+		rest_len -= len;
+		hdr->frag_len += len;
+
+		/* check if it is final for this packet sequence */
+		if (!rest_len || !rest)
 			break;
 
-		rx_iodev_skb(fragdata(iod, ld)->skb_recv);
+		/* more bytes are remain for this packet sequence
+		 * pass fully loaded skb to rx queue
+		 * and allocate another skb for continues data recv chain
+		 */
+		rx_iodev_skb(skb);
 		fragdata(iod, ld)->skb_recv =  NULL;
 
 		alloc_size = min(rest_len, MAX_RXDATA_SIZE);
-		skb_new = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
-		if (unlikely(!skb_new))
+		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		if (unlikely(!skb))
 			return -ENOMEM;
-		skb = fragdata(iod, ld)->skb_recv = skb_new;
+		fragdata(iod, ld)->skb_recv = skb;
 	}
 
-	/* copy data to skb */
-	len = min(rest, alloc_size - skb->len);
-	len = min(len, rest_len);
 	pr_debug("[IOD] rest : %d, alloc_size : %d , len : %d (%d)\n",
 				rest, alloc_size, skb->len, __LINE__);
-
-	memcpy(skb_put(skb, len), buf, len);
-	done_len += len;
-	hdr->frag_len += done_len;
 
 	return done_len;
 }

@@ -2915,13 +2915,16 @@ static ssize_t set_mxt_firm_status_show(struct device *dev,
 
 }
 
-static ssize_t key_threshold_show(struct device *dev,
+static ssize_t tsp_threshold_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%u\n", copy_data->threshold);
+	if (copy_data->mxt_version_disp == 0x80)
+		return sprintf(buf, "%u\n", copy_data->threshold);
+	else
+		return sprintf(buf, "%u\n", copy_data->threshold_e);
 }
 
-static ssize_t key_threshold_store(struct device *dev,
+static ssize_t tsp_threshold_store(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t size)
 {
@@ -2932,21 +2935,28 @@ static ssize_t key_threshold_store(struct device *dev,
 	int ret;
 	u16 address = 0;
 	u16 size_one;
-	if (sscanf(buf, "%d", &copy_data->threshold) == 1) {
+	int threshold;
+
+	if (copy_data->mxt_version_disp == 0x80)
+		threshold = copy_data->threshold;
+	else
+		threshold = copy_data->threshold_e;
+
+	if (sscanf(buf, "%d", &threshold) == 1) {
 		printk(KERN_ERR "[TSP] threshold value %d\n",
-			copy_data->threshold);
+			threshold);
 		ret =
-		    get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9,
-				    &size_one, &address);
+			get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9,
+					&size_one, &address);
 		size_one = 1;
-		value = (u8) copy_data->threshold;
+		value = (u8) threshold;
 		write_mem(copy_data, address + (u16) object_register, size_one,
 			  &value);
 		read_mem(copy_data, address + (u16) object_register,
 			 (u8) size_one, &val);
 
 		printk(KERN_ERR "[TSP] T%d Byte%d is %d\n",
-		       TOUCH_MULTITOUCHSCREEN_T9, object_register, val);
+			   TOUCH_MULTITOUCHSCREEN_T9, object_register, val);
 	}
 
 	return size;
@@ -3135,7 +3145,7 @@ static DEVICE_ATTR(tsp_firm_update, S_IRUGO | S_IWUSR | S_IWGRP,
 static DEVICE_ATTR(tsp_firm_update_status, S_IRUGO | S_IWUSR | S_IWGRP,
 	set_mxt_firm_status_show, NULL);/* firmware update status return */
 static DEVICE_ATTR(tsp_threshold, S_IRUGO | S_IWUSR | S_IWGRP,
-	key_threshold_show, key_threshold_store);/* threshold return, store */
+	tsp_threshold_show, tsp_threshold_store);/* threshold return, store */
 static DEVICE_ATTR(tsp_firm_version_phone, S_IRUGO | S_IWUSR | S_IWGRP,
 	set_mxt_firm_version_show, NULL);	/* PHONE */
 static DEVICE_ATTR(tsp_firm_version_panel, S_IRUGO | S_IWUSR | S_IWGRP,

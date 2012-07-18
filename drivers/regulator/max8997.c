@@ -317,6 +317,14 @@ static int max8997_ldo_disable(struct regulator_dev *rdev)
 	return max8997_update_reg(i2c, reg, val<<shift, mask<<shift);
 }
 
+static int max8997_ldo_suspend_enable(struct regulator_dev *rdev)
+{
+	if (rdev->use_count > 0)
+		return max8997_ldo_enable(rdev);
+	else
+		return max8997_ldo_disable(rdev);
+}
+
 static int max8997_get_voltage_register(struct regulator_dev *rdev,
 				int *_reg, int *_shift, int *_mask)
 {
@@ -774,7 +782,7 @@ static struct regulator_ops max8997_ldo_ops = {
 	.disable		= max8997_ldo_disable,
 	.get_voltage		= max8997_get_voltage,
 	.set_voltage		= max8997_set_voltage_ldo,
-	.set_suspend_enable	= max8997_ldo_enable,
+	.set_suspend_enable	= max8997_ldo_suspend_enable,
 	.set_suspend_disable	= max8997_ldo_disable,
 };
 

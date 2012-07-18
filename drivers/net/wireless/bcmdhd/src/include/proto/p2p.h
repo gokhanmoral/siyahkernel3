@@ -81,7 +81,7 @@ typedef struct wifi_p2p_ie wifi_p2p_ie_t;
 #define P2P_SEID_P2P_IF         16  /* P2P Interface */
 #define P2P_SEID_VNDR           221 /* Vendor-specific subelement */
 
-#define P2P_SE_VS_ID_SERVICES   0x1b /* BRCM subel: L2 Services */
+#define P2P_SE_VS_ID_SERVICES   0x1b /* BRCM proprietary subel: L2 Services */
 
 
 /* WiFi P2P IE subelement: P2P Capability (capabilities info) */
