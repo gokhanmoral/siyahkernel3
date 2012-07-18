@@ -4068,7 +4068,7 @@ static const u8 *mxt224_config[] = {
 #define MXT224E_ATCHCALTHR		35
 #define MXT224E_BLEN_BATT		32
 #define MXT224E_BLEN_CHRG		16
-#define MXT224E_MOVFILTER_BATT		46
+#define MXT224E_MOVFILTER_BATT		13
 #define MXT224E_MOVFILTER_CHRG		46
 #define MXT224E_ACTVSYNCSPERX_NORMAL		32
 #define MXT224E_NEXTTCHDI_NORMAL		0
@@ -5584,7 +5584,17 @@ static struct platform_device exynos4_busfreq = {
 };
 #endif
 
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+static struct platform_device watchdog_reset_device = {
+	.name = "watchdog-reset",
+	.id = -1,
+};
+#endif
+
 static struct platform_device *smdkc210_devices[] __initdata = {
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+	&watchdog_reset_device,
+#endif
 	&exynos4_device_pd[PD_MFC],
 	&exynos4_device_pd[PD_G3D],
 	&exynos4_device_pd[PD_LCD0],

@@ -970,6 +970,11 @@ int fimc_s_fmt_vid_capture(struct file *file, void *fh, struct v4l2_format *f)
 #endif
 			fimc_calc_frame_ratio(ctrl, cap);
 		}
+#if defined(CONFIG_MACH_U1_BD) || defined(CONFIG_MACH_Q1_BD)
+		else {
+			fimc_calc_frame_ratio(ctrl, cap);
+		}
+#endif
 
 		if (!(mbus_fmt->width && mbus_fmt->height)) {
 			mbus_fmt->width = cap->fmt.width;
