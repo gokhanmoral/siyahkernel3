@@ -33,6 +33,9 @@
 
 #include <plat/cpu.h>
 #include <plat/exynos4.h>
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+#include <plat/regs-watchdog.h>
+#endif
 
 extern void exynos_secondary_startup(void);
 extern unsigned int gic_bank_offset;
@@ -145,12 +148,19 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	unsigned long timeout;
 	int ret;
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+	unsigned int tmp_wtcon;
+#endif
 
 	/*
 	 * Set synchronisation state between this boot processor
 	 * and the secondary one
 	 */
 	spin_lock(&boot_lock);
+
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+	tmp_wtcon = __raw_readl(S3C2410_WTCON);
+#endif
 
 	ret = exynos_power_up_cpu(cpu);
 	if (ret) {
@@ -201,6 +211,10 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 
 		udelay(10);
 	}
+
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+	__raw_writel(tmp_wtcon, S3C2410_WTCON);
+#endif
 
 	/*
 	 * now the secondary core is starting up let it run its

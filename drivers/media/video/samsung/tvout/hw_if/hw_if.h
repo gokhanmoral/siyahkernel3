@@ -394,7 +394,7 @@ extern void s5p_hdmi_reg_hpd_gen(void);
 extern int s5p_hdmi_reg_intc_set_isr(irqreturn_t (*isr)(int, void *), u8 num);
 extern void s5p_hdmi_reg_intc_enable(enum s5p_hdmi_interrrupt intr, u8 en);
 #ifdef CONFIG_HDMI_EARJACK_MUTE
-extern int hdmi_audio_ext;
+extern bool hdmi_audio_ext;
 #endif
 extern void s5p_hdmi_reg_audio_enable(u8 en);
 extern int s5p_hdmi_audio_init(

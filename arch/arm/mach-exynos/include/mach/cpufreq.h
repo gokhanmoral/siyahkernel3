@@ -75,6 +75,7 @@ struct exynos_dvfs_info {
 	unsigned int	*volt_table;
 	struct cpufreq_frequency_table	*freq_table;
 	void (*set_freq)(unsigned int, unsigned int);
+	void (*set_volt)(unsigned int);
 	bool (*need_apll_change)(unsigned int, unsigned int);
 };
 

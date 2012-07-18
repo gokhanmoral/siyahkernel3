@@ -379,7 +379,9 @@ static int s5p_tvout_tvif_s_std(
 
 	if (i == S5P_TVOUT_TVIF_NO_OF_STANDARD) {
 		tvout_err("There is no TV standard(0x%08Lx)\n", std_id);
-
+#ifdef CONFIG_HAS_EARLYSUSPEND
+		s5p_tvout_mutex_unlock();
+#endif
 		return -EINVAL;
 	}
 

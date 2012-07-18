@@ -23,7 +23,7 @@ enum mic_type {
 struct mc1n2_platform_data {
 	void (*set_main_mic_bias)(bool on);
 	void (*set_sub_mic_bias)(bool on);
-	void (*set_adc_power_contraints)(int disabled);
+	int (*set_adc_power_constraints)(int disabled);
 };
 
 #endif

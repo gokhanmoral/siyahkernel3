@@ -34,13 +34,6 @@
 #include <linux/sensor/sensors_core.h>
 #endif
 
-#if defined(CONFIG_MACH_S2PLUS)
-#include <linux/regulator/machine.h>
-#include <linux/err.h>
-#include <linux/delay.h>
-#endif
-
-#define LIGHT_BUFFER_NUM	5
 #define PROX_READ_NUM		40
 
 /* ADDSEL is LOW */
@@ -61,19 +54,9 @@ static u8 reg_defaults[8] = {
 	0x00, /* ALS_LSB: read only register */
 	0x30, /* PS_CMD: interrupt disable */
 	0x00, /* PS_DATA: read only register */
-#if defined(CONFIG_MACH_S2PLUS)
-	0x03, /* PS_THD: 3 */
-#else
 	0x0A, /* PS_THD: 10 */
-#endif
 };
 
-static const int adc_table[4] = {
-	15,
-	150,
-	1500,
-	15000,
-};
 
 enum {
 	LIGHT_ENABLED = BIT(0),
@@ -103,8 +86,6 @@ struct cm3663_data {
 	int als_index_count;
 	int irq;
 	int avg[3];
-	int light_count;
-	int light_buffer;
 	ktime_t light_poll_delay;
 	ktime_t prox_poll_delay;
 	u8 power_state;
@@ -173,8 +154,6 @@ static void cm3663_light_enable(struct cm3663_data *cm3663)
 #if defined(CONFIG_MACH_S2PLUS)
 	printk(KERN_INFO "[%s]\n", __func__);
 #endif
-	cm3663->light_count = 0;
-	cm3663->light_buffer = 0;
 	cm3663_i2c_read(cm3663, REGS_ARA, &tmp);
 	cm3663_i2c_read(cm3663, REGS_ARA, &tmp);
 	cm3663_i2c_read(cm3663, REGS_ARA, &tmp);
@@ -515,27 +494,14 @@ static void cm3663_work_func_light(struct work_struct *work)
 					      work_light);
 
 	als = lightsensor_get_alsvalue(cm3663);
-
-	for (i = 0; ARRAY_SIZE(adc_table); i++)
-		if (als <= adc_table[i])
-			break;
-
-	if (cm3663->light_buffer == i) {
-		if (cm3663->light_count++ == LIGHT_BUFFER_NUM) {
 #if defined(CONFIG_MACH_S2PLUS)
-			input_report_rel(cm3663->light_input_dev,
-							REL_MISC, als + 1);
+	input_report_rel(cm3663->light_input_dev,
+					REL_MISC, als + 1);
 #else
-			input_report_abs(cm3663->light_input_dev,
-							ABS_MISC, als + 1);
+	input_report_abs(cm3663->light_input_dev,
+					ABS_MISC, als + 1);
 #endif
-			input_sync(cm3663->light_input_dev);
-			cm3663->light_count = 0;
-		}
-	} else {
-		cm3663->light_buffer = i;
-		cm3663->light_count = 0;
-	}
+	input_sync(cm3663->light_input_dev);
 }
 
 static void cm3663_work_func_prox(struct work_struct *work)
@@ -938,26 +904,6 @@ static int cm3663_resume(struct device *dev)
 	/* Turn power back on if we were before suspend. */
 	struct i2c_client *client = to_i2c_client(dev);
 	struct cm3663_data *cm3663 = i2c_get_clientdata(client);
-
-	/* [S2PLUS] Temporary Patch */
-#if defined(CONFIG_MACH_S2PLUS)
-	struct regulator *regulator;
-	int ret = 0;
-
-	regulator = regulator_get(NULL, "vcc_pls_2.8v");
-	if (IS_ERR(regulator)) {
-		printk(KERN_ERR
-			"vcc_pls_2.8v regulator get err\n");
-		return -1;
-	}
-	if (!regulator_is_enabled(regulator)) {
-		printk(KERN_ERR "%s: vcc_pls_2.8v is off. so ON\n",
-		__func__);
-		ret = regulator_enable(regulator);
-	}
-	regulator_put(regulator);
-	mdelay(100);
-#endif
 
 	if (cm3663->power_state & LIGHT_ENABLED)
 		cm3663_light_enable(cm3663);

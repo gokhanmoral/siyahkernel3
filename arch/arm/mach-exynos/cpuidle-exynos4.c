@@ -34,6 +34,9 @@
 #include <plat/pm.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+#include <plat/regs-watchdog.h>
+#endif
 #include <plat/usb-phy.h>
 #include <mach/regs-usb-phy.h>
 
@@ -376,12 +379,22 @@ static struct sleep_save exynos4_lpa_save[] = {
 	SAVE_ITEM(EXYNOS4_CLKSRC_MASK_PERIL0),
 	SAVE_ITEM(EXYNOS4_CLKSRC_MASK_PERIL1),
 	SAVE_ITEM(EXYNOS4_CLKSRC_MASK_DMC),
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+	SAVE_ITEM(S3C2410_WTDAT),
+	SAVE_ITEM(S3C2410_WTCNT),
+	SAVE_ITEM(S3C2410_WTCON),
+#endif
 };
 
 static struct sleep_save exynos4_aftr_save[] = {
 	/* CMU side */
 	SAVE_ITEM(S5P_CLKSRC_AUDSS),
 	SAVE_ITEM(S5P_CLKDIV_AUDSS),
+#ifdef CONFIG_SEC_WATCHDOG_RESET	
+	SAVE_ITEM(S3C2410_WTDAT),
+	SAVE_ITEM(S3C2410_WTCNT),
+	SAVE_ITEM(S3C2410_WTCON),
+#endif
 };
 
 static struct sleep_save exynos4_set_clksrc[] = {
