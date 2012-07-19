@@ -584,7 +584,7 @@ static int hci_uart_tty_access_allowed(void)
     char name[TASK_COMM_LEN];
     get_task_comm(name, current_thread_info()->task);
     BT_DBG("%s: %s", __func__, name);
-    if (strcmp(name, "brcm_poke_helpe")) {
+    if (strcmp(name, "bccmd")) {
 		BT_ERR("%s isn't allowed", name);
 		return -EACCES;
     }
