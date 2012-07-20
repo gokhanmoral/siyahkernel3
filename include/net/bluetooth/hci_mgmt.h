@@ -21,9 +21,7 @@
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS
    SOFTWARE IS DISCLAIMED.
 */
-#ifdef CONFIG_BT_MGMT
-#include "hci_mgmt.h"
-#else
+
 #ifndef __HCI_H
 #define __HCI_H
 
@@ -79,7 +77,14 @@ enum {
 	HCI_INQUIRY,
 
 	HCI_RAW,
+	HCI_RESET,
+};
 
+/*
+ * BR/EDR and/or LE controller flags: the flags defined here should represent
+ * states from the controller.
+ */
+enum {
 	HCI_SETUP,
 	HCI_AUTO_OFF,
 	HCI_MGMT,
@@ -87,8 +92,10 @@ enum {
 	HCI_SERVICE_CACHE,
 	HCI_LINK_KEYS,
 	HCI_DEBUG_KEYS,
-
-	HCI_RESET,
+	HCI_UNREGISTER,
+	HCI_LE_SCAN,
+	HCI_SSP_ENABLED,
+	HCI_LE_ENABLED,
 };
 
 /* HCI ioctl defines */
@@ -124,7 +131,8 @@ enum {
 #define HCI_PAIRING_TIMEOUT	(60000)	/* 60 seconds */
 #define HCI_IDLE_TIMEOUT	(6000)	/* 6 seconds */
 #define HCI_INIT_TIMEOUT	(10000)	/* 10 seconds */
-#define HCI_CMD_TIMEOUT		(1000)	/* 1 seconds */
+#define HCI_CMD_TIMEOUT		(3000)	/* 3 seconds */
+#define HCI_ACL_TX_TIMEOUT	(45000)	/* 45 seconds */
 
 /* HCI data types */
 #define HCI_COMMAND_PKT		0x01
@@ -159,6 +167,8 @@ enum {
 #define ESCO_3EV3	0x0080
 #define ESCO_2EV5	0x0100
 #define ESCO_3EV5	0x0200
+/* wbs */
+#define ESCO_WBS	(ESCO_EV3 | (EDR_ESCO_MASK ^ ESCO_2EV3))
 
 #define SCO_ESCO_MASK	(ESCO_HV1 | ESCO_HV2 | ESCO_HV3)
 #define EDR_ESCO_MASK	(ESCO_2EV3 | ESCO_3EV3 | ESCO_2EV5 | ESCO_3EV5)
@@ -166,12 +176,18 @@ enum {
 /* change applied EDR ESCO packet */
 #ifdef CONFIG_BT_CSR8811
 #define ALL_ESCO_MASK (SCO_ESCO_MASK | ESCO_EV3 | ESCO_EV4 | ESCO_EV5 | \
-   ESCO_2EV3 /*EDR_ESCO_MASK*/)
+ESCO_2EV3 /*EDR_ESCO_MASK*/)
 #else
 #define ALL_ESCO_MASK (SCO_ESCO_MASK | ESCO_EV3 | ESCO_EV4 | ESCO_EV5 | \
-   EDR_ESCO_MASK)
+EDR_ESCO_MASK)
 #endif
 /* SS_BLUEZ_BT(is80.hwang) End */
+/* wbs */
+/* Air Coding Format */
+#define ACF_TRANS	0x0003;
+
+/* Retransmission Effort */
+#define RE_LINK_QUALITY		0x02;
 
 /* ACL flags */
 #define ACL_START_NO_FLUSH	0x00
@@ -215,6 +231,7 @@ enum {
 
 #define LMP_EV4		0x01
 #define LMP_EV5		0x02
+#define LMP_NO_BREDR	0x20
 #define LMP_LE		0x40
 
 #define LMP_SNIFF_SUBR	0x02
@@ -272,10 +289,28 @@ enum {
 #define HCI_LK_UNAUTH_COMBINATION	0x04
 #define HCI_LK_AUTH_COMBINATION		0x05
 #define HCI_LK_CHANGED_COMBINATION	0x06
-/* The spec doesn't define types for SMP keys */
-#define HCI_LK_SMP_LTK			0x81
-#define HCI_LK_SMP_IRK			0x82
-#define HCI_LK_SMP_CSRK			0x83
+
+/* The spec doesn't define types for SMP keys, the _MASTER suffix is implied */
+#define HCI_SMP_STK			0x80
+#define HCI_SMP_STK_SLAVE		0x81
+#define HCI_SMP_LTK			0x82
+#define HCI_SMP_LTK_SLAVE		0x83
+
+/* Extended Inquiry Response field types */
+#define EIR_FLAGS		0x01 /* flags */
+#define EIR_UUID16_SOME		0x02 /* 16-bit UUID, more available */
+#define EIR_UUID16_ALL		0x03 /* 16-bit UUID, all listed */
+#define EIR_UUID32_SOME		0x04 /* 32-bit UUID, more available */
+#define EIR_UUID32_ALL		0x05 /* 32-bit UUID, all listed */
+#define EIR_UUID128_SOME	0x06 /* 128-bit UUID, more available */
+#define EIR_UUID128_ALL		0x07 /* 128-bit UUID, all listed */
+#define EIR_NAME_SHORT		0x08 /* shortened local name */
+#define EIR_NAME_COMPLETE	0x09 /* complete local name */
+#define EIR_TX_POWER		0x0A /* transmit power level */
+#define EIR_CLASS_OF_DEV	0x0D /* Class of Device */
+#define EIR_SSP_HASH_C		0x0E /* Simple Pairing Hash C */
+#define EIR_SSP_RAND_R		0x0F /* Simple Pairing Randomizer R */
+#define EIR_DEVICE_ID		0x10 /* device ID */
 
 /* -----  HCI Commands ---- */
 #define HCI_OP_NOP			0x0000
@@ -458,6 +493,14 @@ struct hci_rp_user_confirm_reply {
 } __packed;
 
 #define HCI_OP_USER_CONFIRM_NEG_REPLY	0x042d
+
+#define HCI_OP_USER_PASSKEY_REPLY		0x042e
+struct hci_cp_user_passkey_reply {
+	bdaddr_t bdaddr;
+	__le32	passkey;
+} __packed;
+
+#define HCI_OP_USER_PASSKEY_NEG_REPLY	0x042f
 
 #define HCI_OP_REMOTE_OOB_DATA_REPLY	0x0430
 struct hci_cp_remote_oob_data_reply {
@@ -729,6 +772,28 @@ struct hci_rp_read_bd_addr {
 	bdaddr_t bdaddr;
 } __packed;
 
+/* monitoring of the RSSI of the link between two Bluetooth devices */
+#define HCI_OP_READ_RSSI		0x1405
+struct hci_cp_read_rssi {
+	__le16	handle;
+} __packed;
+
+struct hci_rp_read_rssi {
+	__u8	status;
+	__le16	handle;
+	__s8	rssi;
+} __packed;
+
+#define HCI_OP_WRITE_PAGE_SCAN_ACTIVITY	0x0c1c
+struct hci_cp_write_page_scan_activity {
+	__le16   interval;
+	__le16   window;
+} __packed;
+
+#define HCI_OP_WRITE_PAGE_SCAN_TYPE	0x0c47
+	#define PAGE_SCAN_TYPE_STANDARD		0x00
+	#define PAGE_SCAN_TYPE_INTERLACED	0x01
+
 #define HCI_OP_LE_SET_EVENT_MASK	0x2001
 struct hci_cp_le_set_event_mask {
 	__u8     mask[8];
@@ -740,6 +805,18 @@ struct hci_rp_le_read_buffer_size {
 	__le16   le_mtu;
 	__u8     le_max_pkt;
 } __packed;
+
+#define HCI_OP_LE_SET_SCAN_PARAM	0x200b
+struct hci_cp_le_set_scan_param {
+	__u8    type;
+	__le16  interval;
+	__le16  window;
+	__u8    own_address_type;
+	__u8    filter_policy;
+} __packed;
+
+#define LE_SCANNING_DISABLED		0x00
+#define LE_SCANNING_ENABLED		0x01
 
 #define HCI_OP_LE_SET_SCAN_ENABLE	0x200c
 struct hci_cp_le_set_scan_enable {
@@ -801,6 +878,12 @@ struct hci_cp_le_ltk_neg_reply {
 struct hci_rp_le_ltk_neg_reply {
 	__u8	status;
 	__le16	handle;
+} __packed;
+
+#define HCI_OP_LE_TEST_END		0x201f
+struct hci_rp_le_test_end {
+	__u8	status;
+	__u16	num_pkts;
 } __packed;
 
 /* ---- HCI Events ---- */
@@ -1057,6 +1140,12 @@ struct hci_ev_user_confirm_req {
 	__le32		passkey;
 } __packed;
 
+#define HCI_EV_USER_PASSKEY_REQUEST	0x34
+struct hci_ev_user_passkey_req {
+	bdaddr_t	bdaddr;
+} __packed;
+
+
 #define HCI_EV_REMOTE_OOB_DATA_REQUEST	0x35
 struct hci_ev_remote_oob_data_request {
 	bdaddr_t bdaddr;
@@ -1067,6 +1156,13 @@ struct hci_ev_simple_pair_complete {
 	__u8     status;
 	bdaddr_t bdaddr;
 } __packed;
+
+#define HCI_EV_USER_PASSKEY_NOTIFICATION	0x3b
+struct hci_ev_user_passkey_notification {
+	bdaddr_t	bdaddr;
+	__le32		passkey;
+} __packed;
+
 
 #define HCI_EV_REMOTE_HOST_FEATURES	0x3d
 struct hci_ev_remote_host_features {
@@ -1315,6 +1411,6 @@ struct hci_inquiry_req {
 };
 #define IREQ_CACHE_FLUSH 0x0001
 
-#endif /* __HCI_H */
+extern bool enable_le;
 
-#endif /* BT_MGMT */
+#endif /* __HCI_H */

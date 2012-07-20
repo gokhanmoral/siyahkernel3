@@ -1458,4 +1458,9 @@ config BT_BCM4334
 	default n
 	help
 	  Adds BCM4334 RFKILL driver for Broadcom BCM4334 chipset
+config BT_MGMT
+	bool "Bluetooth Mgmt"
+	default n
+	help
+	  This is for bluetooth mgmt
 endif
