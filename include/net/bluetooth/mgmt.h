@@ -21,6 +21,10 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+#ifdef CONFIG_BT_MGMT
+#include "mgmt_mgmt.h"
+#else
+
 #define MGMT_INDEX_NONE			0xFFFF
 
 struct mgmt_hdr {
@@ -211,6 +215,12 @@ struct mgmt_cp_unblock_device {
 	bdaddr_t bdaddr;
 } __packed;
 
+#define MGMT_OP_LE_TEST_END		0x0028
+struct mgmt_rp_le_test_end {
+	__u8 status;
+	__u16 num_pkts;
+} __packed;
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	__le16 opcode;
@@ -301,3 +311,5 @@ struct mgmt_ev_remote_name {
 } __packed;
 
 #define MGMT_EV_DISCOVERING		0x0014
+
+#endif /*BT_MGMT*/
