@@ -411,7 +411,7 @@ declare_store(hotplug_on) {
 	if (!hotplug_on && strcmp(buf, "on\n") == 0) {
 		hotplug_on = 1;
 		// restart worker thread.
-		hotpluging_rate = CHECK_DELAY;
+		hotpluging_rate = CHECK_DELAY_ON;
 		queue_delayed_work_on(0, hotplug_wq, &hotplug_work, hotpluging_rate);
 		printk("second_core: hotplug is on!\n");
 	}

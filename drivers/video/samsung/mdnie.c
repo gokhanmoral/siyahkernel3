@@ -683,7 +683,7 @@ static ssize_t user_mode_store(struct device *dev,
 	sscanf(buf, "%d", &value);
 
 	mdnie->user_mode = value;
-	set_mdnie_value(mdnie);
+	set_mdnie_value(mdnie, 0);
 
 	return size;
 }
@@ -710,7 +710,7 @@ static ssize_t user_cb_store(struct device *dev,
 		mdnie->user_cb = (128 << 8);
 	}
 
-	set_mdnie_value(mdnie);
+	set_mdnie_value(mdnie, 0);
 
 	return size;
 }
@@ -737,7 +737,7 @@ static ssize_t user_cr_store(struct device *dev,
 		mdnie->user_cr = 128;
 	}
 
-	set_mdnie_value(mdnie);
+	set_mdnie_value(mdnie, 0);
 
 	return size;
 }
@@ -824,7 +824,7 @@ void mdnie_toggle_negative(void)
 	g_mdnie->negative = !g_mdnie->negative;
 	mutex_unlock(&g_mdnie->lock);
 
-	set_mdnie_value(g_mdnie);
+	set_mdnie_value(g_mdnie, 0);
 }
 
 static int mdnie_probe(struct platform_device *pdev)

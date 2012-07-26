@@ -59,7 +59,7 @@
 
 struct s3cfb_fimd_desc		*fbfimd;
 
-/*inline struct s3cfb_global *get_fimd_global(int id)
+inline struct s3cfb_global *get_fimd_global(int id)
 {
 	struct s3cfb_global *fbdev;
 
@@ -69,7 +69,7 @@ struct s3cfb_fimd_desc		*fbfimd;
 		fbdev = fbfimd->fbdev[1];
 
 	return fbdev;
-}*/
+}
 
 int s3cfb_vsync_status_check(void)
 {

@@ -811,6 +811,7 @@ static struct attribute *dbs_attributes[] = {
 	&cpu_down_rate.attr,
 #ifndef CONFIG_CPU_EXYNOS4210
 	&up_nr_cpus.attr,
+#endif
 	/* priority: hotplug_lock > max_cpu_lock > min_cpu_lock
 	   Exception: hotplug_lock on early_suspend uses min_cpu_lock */
 	&max_cpu_lock.attr,
