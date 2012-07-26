@@ -18,7 +18,7 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-subdev.h>
 #ifdef CONFIG_VIDEO_SAMSUNG_V4L2
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 #endif
 #include <media/s5k5bafx_platform.h>
 #include "s5k5bafx-v2.h"
@@ -1253,6 +1253,8 @@ static int s5k5bafx_s_stream(struct v4l2_subdev *sd, int enable)
 	int err = 0;
 
 	cam_info("s_stream: mode = %d\n", enable);
+
+	BUG_ON(!state->initialized);
 
 	switch (enable) {
 	case STREAM_MODE_CAM_OFF:

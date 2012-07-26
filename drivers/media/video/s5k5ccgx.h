@@ -20,7 +20,7 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-subdev.h>
 #include <media/s5k5ccgx_platform.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 #include <linux/workqueue.h>
 
 #define S5K5CCGX_DRIVER_NAME	"S5K5CCGX"
@@ -32,11 +32,10 @@
  ************************************/
 #define FEATURE_YUV_CAPTURE
 /* #define CONFIG_LOAD_FILE */ /* for tuning */
-#define NEW_CAM_DRV
 
 /** Debuging Feature **/
 #define CONFIG_CAM_DEBUG
-#define CONFIG_CAM_TRACE /* Enable it with CONFIG_CAM_DEBUG */
+/* #define CONFIG_CAM_TRACE*/ /* Enable it with CONFIG_CAM_DEBUG */
 /* #define CONFIG_CAM_AF_DEBUG *//* Enable it with CONFIG_CAM_DEBUG */
 /* #define DEBUG_WRITE_REGS */
 /***********************************/
@@ -246,6 +245,15 @@ struct s5k5ccgx_framesize {
 #define FRM_RATIO(framesize) \
 	(((framesize)->width) * 10 / ((framesize)->height))
 
+struct s5k5ccgx_interval {
+	struct timeval curr_time;
+	struct timeval before_time;
+};
+
+#define GET_ELAPSED_TIME(cur, before) \
+		(((cur).tv_sec - (before).tv_sec) * USEC_PER_SEC \
+		+ ((cur).tv_usec - (before).tv_usec))
+
 struct s5k5ccgx_fps {
 	u32 index;
 	u32 fps;
@@ -313,6 +321,8 @@ struct s5k5ccgx_gps_info {
 };
 
 struct s5k5ccgx_focus {
+	struct s5k5ccgx_interval win_stable;
+
 	enum v4l2_focusmode mode;
 	enum af_result_status status;
 	enum preflash_status preflash;
@@ -324,7 +334,8 @@ struct s5k5ccgx_focus {
 	u32 ae_lock:1;
 	u32 awb_lock:1;
 	u32 touch:1;
-	u32 af_cancel:1;
+	u32 reset_done:1;
+	u32 cancel:1;
 };
 
 struct s5k5ccgx_exif {
@@ -338,21 +349,14 @@ struct s5k5ccgx_exif {
 
 /* EXIF - flash filed */
 #define EXIF_FLASH_FIRED		(0x01)
+#define EXIF_FLASH_MODE_FIRING		(0x01 << 3)
+#define EXIF_FLASH_MODE_SUPPRESSION	(0x02 << 3)
 #define EXIF_FLASH_MODE_AUTO		(0x03 << 3)
 
 struct s5k5ccgx_regset {
 	u32 size;
 	u8 *data;
 };
-
-struct s5k5ccgx_stream_time {
-	struct timeval curr_time;
-	struct timeval before_time;
-};
-
-#define GET_ELAPSED_TIME(cur, before) \
-		(((cur).tv_sec - (before).tv_sec) * USEC_PER_SEC \
-		+ ((cur).tv_usec - (before).tv_usec))
 
 #ifdef CONFIG_LOAD_FILE
 #define DEBUG_WRITE_REGS
@@ -475,11 +479,12 @@ struct s5k5ccgx_state {
 #if !defined(FEATURE_YUV_CAPTURE)
 	struct s5k5ccgx_jpeg_param jpeg;
 #endif
-	struct s5k5ccgx_stream_time stream_time;
+	struct s5k5ccgx_interval stream_time;
 	const struct s5k5ccgx_regs *regs;
 	struct mutex ctrl_lock;
 	struct mutex af_lock;
 	struct work_struct af_work;
+	struct work_struct af_win_work;
 	struct workqueue_struct *workqueue;
 	enum s5k5ccgx_runmode runmode;
 	enum v4l2_sensor_mode sensor_mode;
@@ -553,9 +558,12 @@ static inline void debug_msleep(struct v4l2_subdev *sd, u32 msecs)
 #define FLASH_LOW_LIGHT_LEVEL		0x4A
 #endif /* CONFIG_VIDEO_S5K5CCGX_P2 */
 
-#define FIRST_AF_SEARCH_COUNT   80
-#define SECOND_AF_SEARCH_COUNT  80
-#define AE_STABLE_SEARCH_COUNT	7 /* 4->7. but ae-unstable still occurs. */
+#define FIRST_AF_SEARCH_COUNT		220
+#define SECOND_AF_SEARCH_COUNT		220
+#define AE_STABLE_SEARCH_COUNT		22
+
+#define AF_SEARCH_DELAY			33
+#define AE_STABLE_SEARCH_DELAY		33
 
 /* Sensor AF first,second window size.
  * we use constant values intead of reading sensor register */
@@ -603,7 +611,7 @@ static s32 large_file;
 #elif defined(CONFIG_VIDEO_S5K5CCGX_P2)
 #include "s5k5ccgx_regs-p2.h"
 #else
-#include "s5k5ccgx_reg.h"
+#include "s5k5ccgx_regs-p4w.h"
 #endif /* CONFIG_VIDEO_S5K5CCGX_P4W*/
 
 #endif /* __S5K5CCGX_H__ */

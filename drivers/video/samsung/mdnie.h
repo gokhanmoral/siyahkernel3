@@ -6,10 +6,10 @@
 enum MODE {
 	DYNAMIC,
 	STANDARD,
-	MOVIE,
 #if !defined(CONFIG_FB_MDNIE_PWM)
 	NATURAL,
 #endif
+	MOVIE,
 	MODE_MAX,
 };
 
@@ -25,7 +25,7 @@ enum SCENARIO {
 	SCENARIO_MAX,
 };
 
-#ifdef CONFIG_TARGET_LOCALE_KOR
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_TARGET_LOCALE_NTT)
 enum SCENARIO_DMB {
 	DMB_NORMAL_MODE = 20,
 	DMB_WARM_MODE,
@@ -114,7 +114,18 @@ struct mdnie_info {
 extern struct mdnie_info *g_mdnie;
 
 int mdnie_send_sequence(struct mdnie_info *mdnie, const unsigned short *seq);
-extern void set_mdnie_value(struct mdnie_info *mdnie);
+extern void set_mdnie_value(struct mdnie_info *mdnie, u8 force);
+#if defined(CONFIG_FB_MDNIE_PWM)
+extern void set_mdnie_pwm_value(struct mdnie_info *mdnie, int value);
+#endif
 extern int mdnie_txtbuf_to_parsing(char const *pFilepath);
+
+extern void check_lcd_type(void);
+struct mdnie_backlight_value {
+	unsigned int max;
+	unsigned int mid;
+	unsigned char low;
+	unsigned char 	dim;
+};
 
 #endif /* __MDNIE_H__ */

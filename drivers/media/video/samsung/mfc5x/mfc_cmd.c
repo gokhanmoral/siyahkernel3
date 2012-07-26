@@ -56,7 +56,13 @@ irqreturn_t mfc_irq(int irq, void *dev_id)
 				(r2h_args.arg[1] >> 16) & 0xFFFF,
 				(r2h_args.arg[1]        & 0xFFFF));
 	} else {
-		mfc_err("Unknown R2H return value: %d\n", r2h_cmd);
+		mfc_dbg("Unknown R2H return value: %d\n", r2h_cmd);
+#if 0
+		mfc_err("== (0x64: 0x%08x) (0x68: 0x%08x) (0xE4: 0x%08x)  (0xE8: 0x%08x)\n", read_reg(0x64), read_reg(0x68),read_reg(0xe4), read_reg(0xe8));
+		mfc_err("== (0xF0: 0x%08x) (0xF4: 0x%08x) (0xF8: 0x%08x)  (0xFC: 0x%08x)\n", read_reg(0xf0), read_reg(0xf4), read_reg(0xf8), read_reg(0xfc));
+		mfc_err("== PWR 0x%08x CLK 0x%08x MASK 0x%08x PEND 0x%08x\n", __raw_readl(S5P_PMU_MFC_CONF),__raw_readl(EXYNOS4_CLKGATE_IP_MFC),
+									__raw_readl(S5P_VA_GIC_CPU + 0x1010c), __raw_readl(S5P_VA_GIC_CPU + 0x1020c));
+#endif
 	}
 
 #ifdef MFC_PERF
@@ -70,18 +76,19 @@ irqreturn_t mfc_irq(int irq, void *dev_id)
 	}
 #endif
 
-	/* FIXME: codec wait_queue processing */
-	dev->irq_sys = 1;
-	wake_up(&dev->wait_sys);
-
 	/*
 	 * FIXME: check is codec command return or error
 	 * move to mfc_wait_codec() ?
 	 */
+
 	write_reg(0xFFFF, MFC_SI_RTN_CHID);
 
 	write_reg(0, MFC_RISC2HOST_CMD);
 	write_reg(0, MFC_RISC_HOST_INT);
+
+	/* FIXME: codec wait_queue processing */
+	dev->irq_sys = 1;
+	wake_up(&dev->wait_sys);
 
 	return IRQ_HANDLED;
 }
@@ -134,7 +141,32 @@ mfc_wait_sys(struct mfc_dev *dev, enum mfc_r2h_ret ret, long timeout)
 		return false;
 	}
 
+#if SUPPORT_SLICE_ENCODING
+	if ((ret == FRAME_DONE_RET) && (r2h_cmd == EDFU_INIT_RET)
+		&& (dev->slice_encoding_flag == 0)) {
+		mfc_dbg("Slice encoding start : %d\n", r2h_cmd);
+		dev->slice_encoding_flag = 1;
+		dev->slice_sys = 0;
+	} else if ((ret == FRAME_DONE_RET) && (r2h_cmd == FRAME_DONE_RET)
+		&& (dev->slice_encoding_flag)) {
+		mfc_dbg("Slice encoding done : %d\n", r2h_cmd);
+		dev->slice_sys = 1;
+		dev->slice_encoding_flag = 0;
+		if (dev->wait_slice_timeout == 1)
+			wake_up(&dev->wait_slice);
+	}
+#endif
+
 	if (r2h_cmd != ret) {
+#if SUPPORT_SLICE_ENCODING
+		/* exceptional case: FRAME_START -> EDFU_INIT_RET */
+		if ((ret == FRAME_DONE_RET) && (r2h_cmd == EDFU_INIT_RET))
+			return true;
+
+		/* exceptional case: CLOSE_CH_RET -> ABORT_RET */
+		if ((ret == CLOSE_CH_RET) && (r2h_cmd == ABORT_RET))
+			return true;
+#endif
 		mfc_err("F/W return (%d) waiting for (%d)\n",
 			r2h_cmd, ret);
 
@@ -319,6 +351,19 @@ int mfc_cmd_inst_close(struct mfc_inst_ctx *ctx)
 		mfc_err("failed to close instance\n");
 		return MFC_CLOSE_FAIL;
 	}
+#if SUPPORT_SLICE_ENCODING
+	/* retry instance close */
+	if (r2h_cmd == ABORT_RET) {
+		if (write_h2r_cmd(CLOSE_CH, &h2r_args) == false)
+			return MFC_CMD_FAIL;
+
+		if (mfc_wait_sys(ctx->dev, CLOSE_CH_RET,
+			msecs_to_jiffies(H2R_INT_TIMEOUT)) == false) {
+			mfc_err("failed to close instance\n");
+			return MFC_CLOSE_FAIL;
+		}
+	}
+#endif
 
 	return MFC_OK;
 }
@@ -415,3 +460,45 @@ int mfc_cmd_frame_start(struct mfc_inst_ctx *ctx)
 	return MFC_OK;
 }
 
+#if SUPPORT_SLICE_ENCODING
+int mfc_cmd_slice_start(struct mfc_inst_ctx *ctx)
+{
+	struct mfc_enc_ctx *enc_ctx = (struct mfc_enc_ctx *)ctx->c_priv;
+	struct mfc_cmd_args h2r_args;
+
+	/* all codec command pass the shared mem addrees */
+	write_reg(ctx->shmofs, MFC_SI_CH1_HOST_WR_ADR);
+
+	if (enc_ctx->slicecount == 0) {
+		write_reg((FRAME_START << 16 & 0x70000) | ctx->cmd_id,
+			MFC_SI_CH1_INST_ID);
+
+		enc_ctx->slicecount = 1;
+	} else {
+		memset(&h2r_args, 0, sizeof(struct mfc_cmd_args));
+		h2r_args.arg[0] = enc_ctx->streamaddr >> 11;
+
+		if (write_h2r_cmd(CONTINUE_ENC, &h2r_args) == false)
+			return MFC_CMD_FAIL;
+	}
+
+#ifdef MFC_PERF
+	do_gettimeofday(&tv1);
+#endif
+
+	if (mfc_wait_sys(ctx->dev, FRAME_DONE_RET,
+		msecs_to_jiffies(CODEC_INT_TIMEOUT)) == false) {
+		mfc_err("failed to slice start\n");
+		return MFC_DEC_EXE_TIME_OUT;
+	}
+
+	if (r2h_cmd == EDFU_INIT_RET)
+		enc_ctx->slicecount++;
+	else /* FRAME_DONE_RET */
+		enc_ctx->slicecount = 0;
+
+	enc_ctx->slicesize = r2h_args.arg[2];
+
+	return MFC_OK;
+}
+#endif

@@ -22,6 +22,7 @@
 #define EXYNOS_VIDEONODE_GSC_OUT(x)		(24 + (x) * 3)
 #define EXYNOS_VIDEONODE_GSC_CAP(x)		(25 + (x) * 3)
 
+#define EXYNOS_VIDEONODE_FLITE(x)		(36 + x)
 /* Exynos4x12 supports video, graphic0~1 layer
  * Exynos5250 supports graphic0~3 layer */
 #define EXYNOS_VIDEONODE_MXR_GRP(x)		(16 + x)

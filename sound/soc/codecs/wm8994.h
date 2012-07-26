@@ -32,6 +32,11 @@
 #define WM8994_FLL_SRC_LRCLK  3
 #define WM8994_FLL_SRC_BCLK   4
 
+enum wm8994_vmid_mode {
+	WM8994_VMID_NORMAL,
+	WM8994_VMID_FORCE,
+};
+
 typedef void (*wm8958_micdet_cb)(u16 status, void *data);
 
 int wm8994_mic_detect(struct snd_soc_codec *codec, struct snd_soc_jack *jack,
@@ -48,6 +53,8 @@ struct wm8994_access_mask {
 
 extern const struct wm8994_access_mask wm8994_access_masks[WM8994_CACHE_SIZE];
 extern const u16 wm8994_reg_defaults[WM8994_CACHE_SIZE];
+
+int wm8994_vmid_mode(struct snd_soc_codec *codec, enum wm8994_vmid_mode mode);
 
 int wm8958_aif_ev(struct snd_soc_dapm_widget *w,
 		  struct snd_kcontrol *kcontrol, int event);
@@ -82,9 +89,11 @@ struct wm8994_priv {
 	struct wm8994_fll_config fll[2], fll_suspend[2];
 	struct completion fll_locked[2];
 	bool fll_locked_irq;
+	bool fll_byp;
 
 	int vmid_refcount;
 	int active_refcount;
+	enum wm8994_vmid_mode vmid_mode;
 
 	int dac_rates[2];
 	int lrclk_shared[2];
@@ -132,6 +141,7 @@ struct wm8994_priv {
 	bool jack_mic;
 	int btn_mask;
 	bool jackdet;
+	int jackdet_mode;
 
 	wm8958_micdet_cb jack_cb;
 	void *jack_cb_data;

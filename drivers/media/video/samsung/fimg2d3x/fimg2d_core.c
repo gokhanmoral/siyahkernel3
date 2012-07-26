@@ -48,17 +48,13 @@ int g2d_clk_disable(struct g2d_global *g2d_dev)
 
 void g2d_sysmmu_on(struct g2d_global *g2d_dev)
 {
-	g2d_clk_enable(g2d_dev);
-	s5p_sysmmu_enable(g2d_dev->dev,
+	exynos_sysmmu_enable(g2d_dev->dev,
 			(unsigned long)virt_to_phys((void *)init_mm.pgd));
-	g2d_clk_disable(g2d_dev);
 }
 
 void g2d_sysmmu_off(struct g2d_global *g2d_dev)
 {
-	g2d_clk_enable(g2d_dev);
-	s5p_sysmmu_disable(g2d_dev->dev);
-	g2d_clk_disable(g2d_dev);
+	exynos_sysmmu_disable(g2d_dev->dev);
 }
 
 void g2d_fail_debug(g2d_params *params)
@@ -154,17 +150,13 @@ int g2d_check_overlap(g2d_rect src_rect, g2d_rect dst_rect, g2d_clip clip)
 	src_start_addr = (unsigned int)GET_START_ADDR(src_rect);
 	src_end_addr = src_start_addr + (unsigned int)GET_RECT_SIZE(src_rect);
 	dst_start_addr = (unsigned int)GET_START_ADDR_C(dst_rect, clip);
-	dst_end_addr = dst_start_addr +
-			(unsigned int)GET_RECT_SIZE_C(dst_rect, clip);
+	dst_end_addr = dst_start_addr + (unsigned int)GET_RECT_SIZE_C(dst_rect, clip);
 
-	if ((dst_start_addr >= src_start_addr) &&
-			(dst_start_addr <= src_end_addr))
+	if ((dst_start_addr >= src_start_addr) && (dst_start_addr <= src_end_addr))
 		return true;
-	if ((dst_end_addr >= src_start_addr) &&
-			(dst_end_addr <= src_end_addr))
+	if ((dst_end_addr >= src_start_addr) && (dst_end_addr <= src_end_addr))
 		return true;
-	if ((src_start_addr >= dst_start_addr) &&
-			(src_end_addr <= dst_end_addr))
+	if ((src_start_addr >= dst_start_addr) && (src_end_addr <= dst_end_addr))
 		return true;
 
 	return false;
@@ -194,8 +186,7 @@ int g2d_do_blit(struct g2d_global *g2d_dev, g2d_params *params)
 		g2d_clip clip_src;
 		g2d_clip_for_src(&params->src_rect, &params->dst_rect, &params->clip, &clip_src);
 
-		if (g2d_check_overlap(params->src_rect, params->dst_rect,
-				params->clip))
+		if (g2d_check_overlap(params->src_rect, params->dst_rect, params->clip))
 			return false;
 
 		g2d_dev->src_attribute =
@@ -234,8 +225,8 @@ int g2d_do_blit(struct g2d_global *g2d_dev, g2d_params *params)
 		}
 	}
 
-	s5p_sysmmu_set_tablebase_pgd(g2d_dev->dev,
-					(u32)virt_to_phys((void *)pgd));
+	exynos_sysmmu_disable(g2d_dev->dev);
+	exynos_sysmmu_enable(g2d_dev->dev, (u32)virt_to_phys((void *)pgd));
 
 	if(g2d_init_regs(g2d_dev, params) < 0) {
 		return false;

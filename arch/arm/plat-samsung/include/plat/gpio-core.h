@@ -117,6 +117,8 @@ extern void s3c_gpiolib_add(struct s3c_gpio_chip *chip);
  */
 extern void samsung_gpiolib_add_4bit_chips(struct s3c_gpio_chip *chip,
 					   int nr_chips);
+extern void samsung_gpiolib_add_4bit_chips_no_pm(struct s3c_gpio_chip *chip,
+					   int nr_chips);
 extern void samsung_gpiolib_add_4bit2_chips(struct s3c_gpio_chip *chip,
 					    int nr_chips);
 extern void samsung_gpiolib_add_2bit_chips(struct s3c_gpio_chip *chip,

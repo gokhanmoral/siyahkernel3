@@ -107,6 +107,10 @@ static inline struct s5k5bafx_state *to_state(struct v4l2_subdev *sd)
 #define REG_PAGE_ISO        0x7000
 #define REG_ADDR_ISO        0x14C8
 
+#ifdef CONFIG_MACH_U1_KOR_LGT
+#include  "s5k5bafx_setfile_lgt.h"
+#else
 #include  "s5k5bafx_setfile.h"
+#endif
 
 #endif /* __S5K5BAFX_H */

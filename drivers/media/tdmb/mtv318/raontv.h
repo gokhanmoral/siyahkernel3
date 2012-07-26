@@ -193,6 +193,7 @@ S32  rtvTDMB_GetRSSI(void);
 U32  rtvTDMB_GetCNR(void);
 U32  rtvTDMB_GetCER(void);
 U32  rtvTDMB_GetBER(void);
+UINT rtvTDMB_GetAntennaLevel(U32 dwCER);
 U32  rtvTDMB_GetPreviousFrequency(void);
 void rtvTDMB_DisableStreamOut(void);
 INT  rtvTDMB_OpenSubChannel(U32 dwChFreqKHz, UINT nSubChID,

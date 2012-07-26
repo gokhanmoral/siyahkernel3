@@ -97,21 +97,44 @@ int stmpe811_write_register(struct i2c_client *client,
 	return 0;
 }
 
-u16 stmpe811_get_adc_data(u8 channel)
+u16 stmpe811_get_adc_data(u8 ch)
 {
 	struct i2c_client *client = stmpe811_adc_i2c_client;
 	u8 data[2];
 	u16 w_data;
+	int prog, retry_cnt;
 	int data_channel_addr;
 
-	stmpe811_write_register(client, STMPE811_ADC_CAPT, (1 << channel));
-	msleep(20);
+	stmpe811_write_register(client, STMPE811_ADC_CAPT, (1 << ch));
 
-	data_channel_addr = STMPE811_ADC_DATA_CH0 + (channel * 2);
+	prog = 0;
+	retry_cnt = 10;
+	do {
+		stmpe811_i2c_read(client, STMPE811_ADC_CAPT, data, (u8)1);
+		pr_debug("%s: ADC_CAPT(0x%x)\n", __func__, data[0]);
+
+		prog = (data[0] & (1 << ch));
+
+		if (prog) {
+			pr_debug("%s: ch%d conversion completed\n",
+							__func__, ch);
+			break;
+		} else {
+			pr_info("%s: ch%d conversion progressing\n",
+							__func__, ch);
+			msleep(20);
+		}
+	} while ((!prog) && (--retry_cnt > 0));
+
+	if (retry_cnt == 0) {
+		pr_err("%s: ch%d conversion fail\n", __func__, ch);
+		return -EBUSY;
+	}
+
+	data_channel_addr = STMPE811_ADC_DATA_CH0 + (ch * 2);
 	stmpe811_i2c_read(client, data_channel_addr, data, (u8)2);
-	w_data = ((data[0]<<8) | data[1]) & 0x0FFF;
-	pr_debug("%s: STMPE811_ADC_DATA_CH%d(0x%x, %d)\n", __func__,
-				channel, w_data, w_data);
+	w_data = ((data[0] << 8) | data[1]) & 0x0FFF;
+	pr_debug("%s: ADC_DATA_CH%d(0x%x, %d)\n", __func__, ch, w_data, w_data);
 
 	return w_data;
 }
@@ -385,8 +408,10 @@ static int stmpe811_adc_i2c_probe(struct i2c_client *client,
 
 	/* create sysfs for debugging and factory mode*/
 	adc_dev = device_create(sec_class, NULL, 0, NULL, "adc");
-	if (IS_ERR(adc_dev))
+	if (IS_ERR(adc_dev)) {
+		ret = -ENOMEM;
 		goto deregister_misc;
+	}
 
 	ret = device_create_file(adc_dev, &dev_attr_adc_data);
 	if (ret < 0)
@@ -407,10 +432,11 @@ dev_attr_adc_value_err:
 destroy_device:
 	device_destroy(sec_class, 0);
 deregister_misc:
-	misc_deregister(&stmpe811_adc_device);
 reg_init_error:
+	misc_deregister(&stmpe811_adc_device);
 misc_register_fail:
 	pr_info("stmpe811 probe fail: %d\n", ret);
+	kfree(adc_data);
 	return ret;
 }
 
@@ -431,16 +457,33 @@ static int stmpe811_adc_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
+static int stmpe811_adc_suspend(struct device *dev)
+{
+
+	return 0;
+}
+
+static int stmpe811_adc_resume(struct device *dev)
+{
+	return 0;
+}
+
 static const struct i2c_device_id stmpe811_adc_device_id[] = {
 	{"stmpe811-adc", 0},
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, stmpe811_adc_device_id);
 
+static const struct dev_pm_ops stmpe811_adc_pm_ops = {
+	.suspend = stmpe811_adc_suspend,
+	.resume = stmpe811_adc_resume,
+};
+
 static struct i2c_driver stmpe811_adc_i2c_driver = {
 	.driver = {
 		.owner	= THIS_MODULE,
 		.name	= "stmpe811-adc",
+		.pm = &stmpe811_adc_pm_ops,
 	},
 	.probe		= stmpe811_adc_i2c_probe,
 	.remove		= stmpe811_adc_i2c_remove,

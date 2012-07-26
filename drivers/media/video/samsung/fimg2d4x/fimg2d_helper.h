@@ -13,7 +13,25 @@
 #ifndef __FIMG2D_HELPER_H
 #define __FIMG2D_HELPER_H
 
+#include <linux/sched.h>
 #include "fimg2d.h"
+
+#define rect_w(r)	((r)->x2 - (r)->x1)
+#define rect_h(r)	((r)->y2 - (r)->y1)
+
+static inline char *perfname(enum perf_desc id)
+{
+	switch (id) {
+	case PERF_INNERCACHE:
+		return "INNER$";
+	case PERF_OUTERCACHE:
+		return "OUTER$";
+	case PERF_BLIT:
+		return "BITBLT";
+	default:
+		return "";
+	}
+}
 
 static inline char *imagename(enum image_object image)
 {
@@ -29,9 +47,13 @@ static inline char *imagename(enum image_object image)
 	}
 }
 
-static inline long elapsed_usec(struct timeval *start, struct timeval *end)
+static inline long elapsed_usec(struct fimg2d_context *ctx, enum perf_desc desc)
 {
-	long sec, usec, time;
+	struct fimg2d_perf *perf = &ctx->perf[desc];
+#ifdef PERF_TIMEVAL
+	struct timeval *start = &perf->start;
+	struct timeval *end = &perf->end;
+	long sec, usec;
 
 	sec = end->tv_sec - start->tv_sec;
 	if (end->tv_usec >= start->tv_usec) {
@@ -40,33 +62,44 @@ static inline long elapsed_usec(struct timeval *start, struct timeval *end)
 		usec = end->tv_usec + 1000000 - start->tv_usec;
 		sec--;
 	}
-	time = sec * 1000000 + usec;
-
-	return time; /* microseconds */
+	return sec * 1000000 + usec;
+#else
+	return (long)(perf->end - perf->start)/1000;
+#endif
 }
 
-static inline void perf_start(struct fimg2d_context *ctx,
-				enum perf_desc desc)
+static inline void perf_start(struct fimg2d_context *ctx, enum perf_desc desc)
 {
-	struct timeval time;
 	struct fimg2d_perf *perf = &ctx->perf[desc];
 
-	if (!(perf->valid & 0x01)) {
+	if (!perf->valid) {
+#ifdef PERF_TIMEVAL
+		struct timeval time;
 		do_gettimeofday(&time);
 		perf->start = time;
+#else
+		long time;
+		perf->start = sched_clock();
+		time = perf->start / 1000;
+#endif
 		perf->valid = 0x01;
 	}
 }
 
-static inline void perf_end(struct fimg2d_context *ctx,
-				enum perf_desc desc)
+static inline void perf_end(struct fimg2d_context *ctx, enum perf_desc desc)
 {
-	struct timeval time;
 	struct fimg2d_perf *perf = &ctx->perf[desc];
 
-	if (!(perf->valid & 0x10)) {
+	if (perf->valid == 0x01) {
+#ifdef PERF_TIMEVAL
+		struct timeval time;
 		do_gettimeofday(&time);
 		perf->end = time;
+#else
+		long time;
+		perf->end = sched_clock();
+		time = perf->end / 1000;
+#endif
 		perf->valid |= 0x10;
 	}
 }
@@ -78,10 +111,7 @@ static inline void perf_clear(struct fimg2d_context *ctx)
 		ctx->perf[i].valid = 0;
 }
 
-int point_to_offset(int point, enum color_format cf);
-int width_to_bytes(int pixels, enum color_format cf);
 void perf_print(struct fimg2d_context *ctx, int seq_no);
-void fimg2d_print_params(struct fimg2d_blit __user *u);
 void fimg2d_dump_command(struct fimg2d_bltcmd *cmd);
 
 #endif /* __FIMG2D_HELPER_H */

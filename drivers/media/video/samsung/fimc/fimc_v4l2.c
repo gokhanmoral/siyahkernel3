@@ -16,7 +16,8 @@
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 #include <linux/videodev2.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_media.h>
+#include <linux/videodev2_exynos_camera.h>
 #include <media/v4l2-ioctl.h>
 #include <plat/fimc.h>
 
@@ -271,10 +272,15 @@ static int fimc_dqbuf(struct file *filp, void *fh, struct v4l2_buffer *b)
 static int fimc_log_status(struct file *filp, void *fh)
 {
 	struct fimc_control *ctrl = ((struct fimc_prv_data *)fh)->ctrl;
+	int framecnt_seq;
 
 	printk(KERN_INFO "fimc%d ctrl->status is %d\n", ctrl->id, ctrl->status);
 
 #if defined (CONFIG_ARCH_EXYNOS4)
+	framecnt_seq = fimc_hwget_output_buf_sequence(ctrl);
+	printk(KERN_INFO "fimc(%d) framecnt_seq is %d\n", ctrl->id, framecnt_seq);
+	printk(KERN_INFO "fimc(%d) availble_buf is %d\n", ctrl->id, fimc_hwget_number_of_bits(framecnt_seq));
+
 	fimc_sfr_dump(ctrl);
 #endif
 	return 0;

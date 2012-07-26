@@ -56,7 +56,7 @@ static void s5p_fimd_lite_set_par(struct s5p_fimd_lite *fimd_lite,
 	unsigned int cfg;
 
 	lcd = fimd_lite->lcd;
-	timing = lcd->timing;
+	timing = lcd->panel.timing;
 
 	/* set window control */
 	cfg = readl(fimd_lite->iomem_base + S5P_WINCON(win_id));
@@ -98,7 +98,7 @@ static void s5p_fimd_lite_set_clock(struct s5p_fimd_lite *fimd_lite)
 	struct fb_videomode timing;
 
 	lcd = fimd_lite->lcd;
-	timing = lcd->timing;
+	timing = lcd->panel.timing;
 
 	clk = fimd_lite->clk;
 
@@ -196,7 +196,7 @@ static void s5p_change_dynamic_refresh(struct s5p_fimd_dynamic_refresh
 	u32 vclk, src_clk, refresh;
 
 	lcd = fimd_lite->lcd;
-	timing = lcd->timing;
+	timing = lcd->panel.timing;
 
 	cfg = readl(fimd_lite->iomem_base + S5P_VIDCON0);
 	cfg &= ~(S5P_VIDCON0_CLKVALUP_START_FRAME | S5P_VIDCON0_CLKVAL_F(0xFF));
@@ -254,7 +254,7 @@ static void s5p_change_dynamic_refresh(struct s5p_fimd_dynamic_refresh
 
 	refresh = timing.refresh -
 			((vclk - (src_clk / fimd_refresh->clkdiv)) / MHZ);
-	dev_info(fimd_lite->dev, "expected refresh rate: %d fps\n", refresh);
+	dev_dbg(fimd_lite->dev, "expected refresh rate: %d fps\n", refresh);
 }
 
 static irqreturn_t s5p_fimd_lite_irq_frame(int irq, void *dev_id)
@@ -290,7 +290,7 @@ static void s5p_fimd_lite_lcd_init(struct s5p_fimd_lite *fimd_lite)
 	struct fb_videomode timing;
 
 	lcd = fimd_lite->lcd;
-	timing = lcd->timing;
+	timing = lcd->panel.timing;
 
 	cfg = 0;
 	cfg |= lcd->vidcon1;
@@ -299,14 +299,14 @@ static void s5p_fimd_lite_lcd_init(struct s5p_fimd_lite *fimd_lite)
 
 	/* set timing */
 	cfg = 0;
-	cfg |= S5P_VIDTCON0_VFPD(timing.upper_margin - 1);
-	cfg |= S5P_VIDTCON0_VBPD(timing.lower_margin - 1);
+	cfg |= S5P_VIDTCON0_VBPD(timing.upper_margin - 1);
+	cfg |= S5P_VIDTCON0_VFPD(timing.lower_margin - 1);
 	cfg |= S5P_VIDTCON0_VSPW(timing.vsync_len - 1);
 	writel(cfg, fimd_lite->iomem_base + S5P_VIDTCON0);
 
 	cfg = 0;
-	cfg |= S5P_VIDTCON1_HFPD(timing.left_margin - 1);
-	cfg |= S5P_VIDTCON1_HBPD(timing.right_margin - 1);
+	cfg |= S5P_VIDTCON1_HBPD(timing.left_margin - 1);
+	cfg |= S5P_VIDTCON1_HFPD(timing.right_margin - 1);
 	cfg |= S5P_VIDTCON1_HSPW(timing.hsync_len - 1);
 
 	writel(cfg, fimd_lite->iomem_base + S5P_VIDTCON1);

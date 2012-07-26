@@ -37,17 +37,17 @@ static struct exynos4_pmu_conf exynos52xx_pmu_config[] = {
 	{ EXYNOS5_DIS_IRQ_ISP_ARM_LOCAL_SYS_PWR_REG,		{ 0x0, 0x0, 0x0} },
 	{ EXYNOS5_DIS_IRQ_ISP_ARM_CENTRAL_SYS_PWR_REG,		{ 0x0, 0x0, 0x0} },
 	{ EXYNOS5_ARM_COMMON_SYS_PWR_REG,			{ 0x0, 0x0, 0x2} },
-	{ EXYNOS5_ARM_L2_SYS_PWR_REG,				{ 0x3, 0x3, 0x3} },
-	{ EXYNOS5_CMU_ACLKSTOP_SYS_PWR_REG,			{ 0x1, 0x0, 0x1} },
-	{ EXYNOS5_CMU_SCLKSTOP_SYS_PWR_REG,			{ 0x1, 0x0, 0x1} },
+	{ EXYNOS5_ARM_L2_SYS_PWR_REG,				{ 0x0, 0x0, 0x3} },
+	{ EXYNOS5_CMU_ACLKSTOP_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
+	{ EXYNOS5_CMU_SCLKSTOP_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
-	{ EXYNOS5_CMU_ACLKSTOP_SYSMEM_SYS_PWR_REG,		{ 0x1, 0x0, 0x1} },
-	{ EXYNOS5_CMU_SCLKSTOP_SYSMEM_SYS_PWR_REG,		{ 0x1, 0x0, 0x1} },
+	{ EXYNOS5_CMU_ACLKSTOP_SYSMEM_SYS_PWR_REG,		{ 0x1, 0x0, 0x0} },
+	{ EXYNOS5_CMU_SCLKSTOP_SYSMEM_SYS_PWR_REG,		{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_SYSMEM_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
-	{ EXYNOS5_DRAM_FREQ_DOWN_SYS_PWR_REG,			{ 0x1, 0x1, 0x1} },
-	{ EXYNOS5_DDRPHY_DLLOFF_SYS_PWR_REG,			{ 0x1, 0x1, 0x1} },
+	{ EXYNOS5_DRAM_FREQ_DOWN_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
+	{ EXYNOS5_DDRPHY_DLLOFF_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
 	{ EXYNOS5_DDRPHY_DLLLOCK_SYS_PWR_REG,			{ 0x1, 0x1, 0x1} },
-	{ EXYNOS5_APLL_SYSCLK_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
+	{ EXYNOS5_APLL_SYSCLK_SYS_PWR_REG,			{ 0x0, 0x0, 0x0} },
 	{ EXYNOS5_MPLL_SYSCLK_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_VPLL_SYSCLK_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_EPLL_SYSCLK_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
@@ -91,8 +91,6 @@ static struct exynos4_pmu_conf exynos52xx_pmu_config[] = {
 	{ EXYNOS5_PAD_ISOLATION_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_PAD_ISOLATION_SYSMEM_SYS_PWR_REG,		{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_PAD_ALV_SEL_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
-	{ EXYNOS5_XUSBXTI_SYS_PWR_REG,				{ 0x1, 0x1, 0x1} },
-	{ EXYNOS5_XXTI_SYS_PWR_REG,				{ 0x1, 0x1, 0x0} },
 	{ EXYNOS5_EXT_REGULATOR_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
 	{ EXYNOS5_GPIO_MODE_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_GPIO_MODE_SYSMEM_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
@@ -105,28 +103,41 @@ static struct exynos4_pmu_conf exynos52xx_pmu_config[] = {
 	{ EXYNOS5_G3D_SYS_PWR_REG,				{ 0x7, 0x0, 0x0} },
 	{ EXYNOS5_DISP1_SYS_PWR_REG,				{ 0x7, 0x0, 0x0} },
 	{ EXYNOS5_MAU_SYS_PWR_REG,				{ 0x7, 0x7, 0x0} },
-	{ EXYNOS5_GPS_SYS_PWR_REG,				{ 0x7, 0x0, 0x0} },
 	{ EXYNOS5_CMU_CLKSTOP_GSCL_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_CLKSTOP_ISP_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_CLKSTOP_MFC_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_CLKSTOP_G3D_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_CLKSTOP_DISP1_SYS_PWR_REG,		{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_CLKSTOP_MAU_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
-	{ EXYNOS5_CMU_CLKSTOP_GPS_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_SYSCLK_GSCL_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_SYSCLK_ISP_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_SYSCLK_MFC_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_SYSCLK_G3D_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_SYSCLK_DISP1_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_SYSCLK_MAU_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
-	{ EXYNOS5_CMU_SYSCLK_GPS_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_GSCL_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_ISP_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_MFC_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_G3D_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_DISP1_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_MAU_SYS_PWR_REG,			{ 0x1, 0x1, 0x0} },
+	{ EXYNOS5_XXTI_SYS_PWR_REG,				{ 0x1, 0x1, 0x0} },
+};
+
+static struct exynos4_pmu_conf exynos52xx_pmu_config_gps[] = {
+	/* { .reg = address, .val = { AFTR, LPA, SLEEP } */
+	{ EXYNOS5_CMU_ACLKSTOP_SYS_PWR_REG,			{ 0x1, 0x0, 0x1} },
+	{ EXYNOS5_CMU_SCLKSTOP_SYS_PWR_REG,			{ 0x1, 0x0, 0x1} },
+	{ EXYNOS5_CMU_ACLKSTOP_SYSMEM_SYS_PWR_REG,		{ 0x1, 0x0, 0x1} },
+	{ EXYNOS5_CMU_SCLKSTOP_SYSMEM_SYS_PWR_REG,		{ 0x1, 0x0, 0x1} },
+	{ EXYNOS5_DRAM_FREQ_DOWN_SYS_PWR_REG,			{ 0x1, 0x1, 0x1} },
+	{ EXYNOS5_DDRPHY_DLLOFF_SYS_PWR_REG,			{ 0x1, 0x1, 0x1} },
+	{ EXYNOS5_GPS_SYS_PWR_REG,				{ 0x7, 0x0, 0x0} },
+	{ EXYNOS5_CMU_CLKSTOP_GPS_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
+	{ EXYNOS5_CMU_SYSCLK_GPS_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
 	{ EXYNOS5_CMU_RESET_GPS_SYS_PWR_REG,			{ 0x1, 0x0, 0x0} },
+	{ EXYNOS5_XXTI_SYS_PWR_REG,				{ 0x1, 0x1, 0x0} },
+	{ EXYNOS5_ARM_L2_SYS_PWR_REG,				{ 0x3, 0x3, 0x3} },
 };
 
 static struct exynos4_pmu_conf exynos52xx_pmu_c2c_config[] = {
@@ -151,7 +162,6 @@ void __iomem *list_both_cnt_feed[] = {
 	EXYNOS5_G3D_OPTION,
 	EXYNOS5_DISP1_OPTION,
 	EXYNOS5_MAU_OPTION,
-	EXYNOS5_GPS_OPTION,
 	EXYNOS5_TOP_PWR_OPTION,
 	EXYNOS5_TOP_PWR_SYSMEM_OPTION,
 };
@@ -177,14 +187,27 @@ static void exynos5_init_pmu(void)
 		__raw_writel(tmp, list_both_cnt_feed[i]);
 	}
 
+	if (samsung_rev() < EXYNOS5250_REV_1_0) {
+		tmp = __raw_readl(EXYNOS5_GPS_OPTION);
+		tmp |= (EXYNOS5_USE_SC_FEEDBACK |
+			EXYNOS5_USE_SC_COUNTER);
+		__raw_writel(tmp, EXYNOS5_GPS_OPTION);
+	}
+
 	/*
 	 * SKIP_DEACTIVATE_ACEACP_IN_PWDN_BITFIELD Enable
 	 * MANUAL_L2RSTDISABLE_CONTROL_BITFIELD Enable
 	 */
-	tmp = __raw_readl(EXYNOS5_ARM_COMMON_OPTION);
-	tmp |= (EXYNOS5_MANUAL_L2RSTDISABLE_CONTROL |
-		EXYNOS5_SKIP_DEACTIVATE_ACEACP_IN_PWDN);
-	__raw_writel(tmp, EXYNOS5_ARM_COMMON_OPTION);
+	if (samsung_rev() < EXYNOS5250_REV_1_0) {
+		tmp = __raw_readl(EXYNOS5_ARM_COMMON_OPTION);
+		tmp |= (EXYNOS5_MANUAL_L2RSTDISABLE_CONTROL |
+			EXYNOS5_SKIP_DEACTIVATE_ACEACP_IN_PWDN);
+		__raw_writel(tmp, EXYNOS5_ARM_COMMON_OPTION);
+	} else {
+		tmp = __raw_readl(EXYNOS5_ARM_COMMON_OPTION);
+		tmp |= EXYNOS5_SKIP_DEACTIVATE_ACEACP_IN_PWDN;
+		__raw_writel(tmp, EXYNOS5_ARM_COMMON_OPTION);
+	}
 
 	/*
 	 * Disable WFI/WFE on XXX_OPTION
@@ -197,6 +220,42 @@ static void exynos5_init_pmu(void)
 	}
 }
 
+void exynos5_pmu_xclkout_set(unsigned int enable, enum xclkout_select source)
+{
+	unsigned int tmp;
+
+	if (enable) {
+		tmp = __raw_readl(S5P_PMU_DEBUG);
+		/* CLKOUT enable */
+		tmp &= ~ (0xF << S5P_PMU_CLKOUT_SEL_SHIFT | S5P_CLKOUT_DISABLE);
+		tmp |= (source << S5P_PMU_CLKOUT_SEL_SHIFT);
+		__raw_writel(tmp, S5P_PMU_DEBUG);
+	} else {
+		tmp = __raw_readl(S5P_PMU_DEBUG);
+		/* CLKOUT disable */
+		tmp |= S5P_CLKOUT_DISABLE;
+		__raw_writel(tmp, S5P_PMU_DEBUG);
+	}
+
+	printk(KERN_DEBUG "pmu_debug: 0x%08x\n", __raw_readl(S5P_PMU_DEBUG));
+}
+EXPORT_SYMBOL_GPL(exynos5_pmu_xclkout_set);
+
+void exynos5_sys_powerdown_xxti_control(unsigned int enable)
+{
+	unsigned int count = entry_cnt;
+
+	if (enable)
+		exynos5_pmu_config[count - 1].val[SYS_SLEEP] = 0x1;
+	else
+		exynos5_pmu_config[count - 1].val[SYS_SLEEP] = 0x0;
+
+	printk(KERN_DEBUG "xxti_control: %ld\n",
+			exynos5_pmu_config[count - 1].val[SYS_SLEEP]);
+}
+EXPORT_SYMBOL_GPL(exynos5_sys_powerdown_xxti_control);
+
+
 void exynos5_sys_powerdown_conf(enum sys_powerdown mode)
 {
 	unsigned int count = entry_cnt;
@@ -208,8 +267,15 @@ void exynos5_sys_powerdown_conf(enum sys_powerdown mode)
 		__raw_writel(exynos5_pmu_config[count - 1].val[mode],
 				exynos5_pmu_config[count - 1].reg);
 
-	if ((mode != SYS_AFTR) && (exynos4_is_c2c_use())) {
+	if (samsung_rev() < EXYNOS5250_REV_1_0) {
+		for (i = 0; i < ARRAY_SIZE(exynos52xx_pmu_config_gps); i++) {
+			__raw_writel(exynos52xx_pmu_config_gps[i].val[mode],
+					exynos52xx_pmu_config_gps[i].reg);
+		}
 
+	}
+
+	if ((mode != SYS_AFTR) && (exynos4_is_c2c_use())) {
 		pr_info("%s power mode enter with C2C Enabling\n"
 				, (mode == SYS_LPA) ? "LPA" : "SLEEP");
 

@@ -24,23 +24,35 @@
 #include <linux/fb.h>
 #include <linux/backlight.h>
 #include <linux/regulator/consumer.h>
+#include <linux/firmware.h>
 
 #include <video/mipi_display.h>
 
+#include <plat/cpu.h>
 #include <plat/mipi_dsim2.h>
+
+#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+#include <linux/devfreq/exynos4_display.h>
+#endif
 
 #include "s6e8aa0_gamma.h"
 #ifdef CONFIG_BACKLIGHT_SMART_DIMMING
 #include "smart_dimming.h"
 #endif
 
+#define LDI_FW_PATH "s6e8aa0/reg_%s.bin"
+#define MAX_STR				255
 #define LDI_MTP_LENGTH		24
+#define MAX_READ_LENGTH		64
 #define DSIM_PM_STABLE_TIME	(10)
 #define MIN_BRIGHTNESS		(0)
 #define MAX_BRIGHTNESS		(24)
 
 #define VER_142			(0x8e)	/* MACH_SLP_PQ */
+#define VER_174			(0xae)	/* MACH_SLP_PQ Dali */
 #define VER_42			(0x2a)	/* MACH_SLP_PQ_LTE */
+#define VER_32			(0x20)	/* MACH_SLP_PQ M0 B-Type */
+#define VER_210			(0xd2)	/* MACH_SLP_PQ M0 A-Type */
 
 #define AID_DISABLE		(0x4)
 #define AID_1			(0x5)
@@ -59,6 +71,11 @@ struct str_elvss {
 	u8 limit;
 };
 
+struct panel_model {
+	int ver;
+	char *name;
+};
+
 enum {
 	DSIM_NONE_STATE = 0,
 	DSIM_RESUME_COMPLETE = 1,
@@ -73,10 +90,11 @@ struct s6e8aa0 {
 	unsigned int			power;
 	unsigned int			current_brightness;
 	unsigned int			updated;
-	unsigned int			gamma;
+	unsigned int			brightness;
 	unsigned int			resume_complete;
 	unsigned int			acl_enable;
 	unsigned int			cur_acl;
+	unsigned int			cur_addr;
 
 	struct lcd_device		*ld;
 	struct backlight_device		*bd;
@@ -87,6 +105,14 @@ struct s6e8aa0 {
 	struct mutex			lock;
 	struct regulator		*reg_vdd3;
 	struct regulator		*reg_vci;
+
+	const struct panel_model	*model;
+	unsigned int		model_count;
+
+#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+	struct notifier_block	nb_disp;
+#endif
+
 	bool				enabled;
 #ifdef CONFIG_BACKLIGHT_SMART_DIMMING
 	unsigned int			support_elvss;
@@ -96,6 +122,7 @@ struct s6e8aa0 {
 #endif
 };
 
+/* FIXME:!! remove global after arrange fimd */
 struct s6e8aa0 *lcd_global;
 
 static void s6e8aa0_regulator_enable(struct s6e8aa0 *lcd)
@@ -139,38 +166,6 @@ static void s6e8aa0_apply_level_1_key(struct s6e8aa0 *lcd)
 		(unsigned int)data_to_send, ARRAY_SIZE(data_to_send));
 }
 
-void s6e8aa0_update_panel_cond(int high_freq)
-{
-	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd_global);
-	const unsigned char *data;
-	unsigned int size;
-	const unsigned char data_to_send_60fps[] = {
-		0xf8, 0x3d, 0x35, 0x00, 0x00, 0x00, 0x93, 0x00, 0x3c,
-		0x7d, 0x08, 0x27, 0x7d, 0x3f, 0x00, 0x00, 0x00, 0x20,
-		0x04, 0x08, 0x6e, 0x00, 0x00, 0x00, 0x02, 0x08, 0x08,
-		0x23, 0x23, 0xc0, 0xc8, 0x08, 0x48, 0xc1, 0x00, 0xc1,
-		0xff, 0xff, 0xc8
-	};
-	const unsigned char data_to_send_40fps[] = {
-		0xf8, 0x3d, 0x35, 0x00, 0x00, 0x00, 0x93, 0x00, 0x3c,
-		0x7e, 0x08, 0x27, 0x7d, 0x3f, 0x00, 0x00, 0x00, 0x20,
-		0x04, 0x08, 0x6e, 0x00, 0x00, 0x00, 0x02, 0x0a, 0x0a,
-		0x23, 0x23, 0xc0, 0xc8, 0x08, 0x48, 0xc1, 0x00, 0xc1,
-		0xff, 0xff, 0xc8
-	};
-
-	if (high_freq) {
-		data = data_to_send_60fps;
-		size = ARRAY_SIZE(data_to_send_60fps);
-	} else {
-		data = data_to_send_40fps;
-		size = ARRAY_SIZE(data_to_send_40fps);
-	}
-
-	ops->cmd_write(lcd_to_master(lcd_global), MIPI_DSI_DCS_LONG_WRITE,
-			(unsigned int)data, size);
-}
-
 static unsigned char s6e8aa0_apply_aid_panel_cond(unsigned int aid)
 {
 	unsigned char ret;
@@ -193,7 +188,7 @@ static unsigned char s6e8aa0_apply_aid_panel_cond(unsigned int aid)
 	return ret;
 }
 
-static void s6e8aa0_panel_cond(struct s6e8aa0 *lcd)
+static void s6e8aa0_panel_cond(struct s6e8aa0 *lcd, int high_freq)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 	unsigned char data_to_send_v42[] = {
@@ -203,12 +198,35 @@ static void s6e8aa0_panel_cond(struct s6e8aa0 *lcd)
 		0x23, 0x63, 0xc0, 0xc1, 0x01, 0x81, 0xc1, 0x00, 0xc8,
 		0xc1, 0xd3, 0x01
 	};
+	/* same with v174(0xae) panel */
 	unsigned char data_to_send_v142[] = {
 		0xf8, 0x3d, 0x35, 0x00, 0x00, 0x00, 0x93, 0x00, 0x3c,
 		0x7d, 0x08, 0x27, 0x7d, 0x3f, 0x00, 0x00, 0x00, 0x20,
 		0x04, 0x08, 0x6e, 0x00, 0x00, 0x00, 0x02, 0x08, 0x08,
 		0x23, 0x23, 0xc0, 0xc8, 0x08, 0x48, 0xc1, 0x00, 0xc1,
-		0xff, 0xff, 0xc8,
+		0xff, 0xff, 0xc8
+	};
+	/* FIXME:!! using pdata or h/w revision, check with u1hd */
+	unsigned char data_to_send_v142_trats[] = {
+		0xf8, 0x19, 0x35, 0x00, 0x00, 0x00, 0x93, 0x00, 0x3c,
+		0x7d, 0x08, 0x27, 0x7d, 0x3f, 0x00, 0x00, 0x00, 0x20,
+		0x04, 0x08, 0x6e, 0x00, 0x00, 0x00, 0x02, 0x08, 0x08,
+		0x23, 0x23, 0xc0, 0xc1, 0x01, 0x41, 0xc1, 0x00, 0xc1,
+		0xf6, 0xf6, 0xc1
+	};
+	unsigned char data_to_send_v32[] = {
+		0xf8, 0x19, 0x35, 0x00, 0x00, 0x00, 0x94, 0x00, 0x3c,
+		0x7d, 0x10, 0x27, 0x08, 0x6e, 0x00, 0x00, 0x00, 0x00,
+		0x04, 0x08, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08,
+		0x23, 0x6e, 0xc0, 0xc1, 0x01, 0x81, 0xc1, 0x00, 0xc3,
+		0xf6, 0xf6, 0xc1
+	};
+	unsigned char data_to_send_v210[] = {
+		0xf8, 0x3d, 0x32, 0x00, 0x00, 0x00, 0x8d, 0x00, 0x39,
+		0x78, 0x08, 0x26, 0x78, 0x3c, 0x00, 0x00, 0x00, 0x20,
+		0x04, 0x08, 0x69, 0x00, 0x00, 0x00, 0x02, 0x07, 0x07,
+		0x21, 0x21, 0xc0, 0xc8, 0x08, 0x48, 0xc1, 0x00, 0xc1,
+		0xff, 0xff, 0xc8
 	};
 	unsigned char *data_to_send;
 	unsigned int size;
@@ -216,12 +234,27 @@ static void s6e8aa0_panel_cond(struct s6e8aa0 *lcd)
 	if (lcd->ver == VER_42) {
 		data_to_send = data_to_send_v42;
 		size = ARRAY_SIZE(data_to_send_v42);
-	} else if (lcd->ver == VER_142) {
+	} else if (lcd->ver == VER_142 || lcd->ver == VER_174) {
 		data_to_send_v142[18] = s6e8aa0_apply_aid_panel_cond(lcd->aid);
-		data_to_send = data_to_send_v142;
+		if (soc_is_exynos4210())
+			data_to_send = data_to_send_v142_trats;
+		else
+			data_to_send = data_to_send_v142;
 		size = ARRAY_SIZE(data_to_send_v142);
+	} else if (lcd->ver == VER_32) {
+		data_to_send = data_to_send_v32;
+		size = ARRAY_SIZE(data_to_send_v32);
+	} else if (lcd->ver == VER_210) {
+		data_to_send = data_to_send_v210;
+		size = ARRAY_SIZE(data_to_send_v210);
 	} else
 		return;
+
+	if (!high_freq) {
+		data_to_send[9] = 0x7e;
+		data_to_send[25] = 0x0a;
+		data_to_send[26] = 0x0a;
+	}
 
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
 			(unsigned int)data_to_send, size);
@@ -252,10 +285,13 @@ static void s6e8aa0_etc_source_control(struct s6e8aa0 *lcd)
 static void s6e8aa0_etc_pentile_control(struct s6e8aa0 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
-	const unsigned char data_to_send[] = {
+	unsigned char data_to_send[] = {
 		0xb6, 0x0c, 0x02, 0x03, 0x32, 0xff, 0x44, 0x44, 0xc0,
 		0x00
 	};
+
+	if (lcd->ver == VER_32)
+		data_to_send[5] = 0xc0;
 
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
 		(unsigned int)data_to_send, ARRAY_SIZE(data_to_send));
@@ -286,9 +322,14 @@ static void s6e8aa0_etc_mipi_control2(struct s6e8aa0 *lcd)
 static void s6e8aa0_etc_power_control(struct s6e8aa0 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
-	const unsigned char data_to_send[] = {
-		0xf4, 0xcf, 0x0a, 0x12, 0x10, 0x19, 0x33, 0x02
+	unsigned char data_to_send[] = {
+		0xf4, 0xcf, 0x0a, 0x12, 0x10, 0x1e, 0x33, 0x02
 	};
+
+	if (lcd->ver == VER_32) {
+		data_to_send[3] = 0x15;
+		data_to_send[5] = 0x19;
+	}
 
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
 		(unsigned int)data_to_send, ARRAY_SIZE(data_to_send));
@@ -333,22 +374,32 @@ static void s6e8aa0_elvss_nvm_set(struct s6e8aa0 *lcd)
 		0x40, 0x41, 0xd9, 0x00, 0x60, 0x19
 	};
 
-	switch (lcd->gamma) {
-	case 0 ... 3: /* 30cd ~ 100cd */
-		data_to_send[11] = 0xdf;
-		break;
-	case 4 ... 5: /* 120cd ~ 150cd */
-		data_to_send[11] = 0xdd;
-		break;
-	case 6 ... 7: /* 180cd ~ 210cd */
-		data_to_send[11] = 0xd9;
-		break;
-	case 8 ... 10: /* 240cd ~ 300cd */
+	/* FIXME: !! need to change brightness and elvss */
+	if (lcd->ver == VER_32) {
+		data_to_send[8] = 0x07;
+		data_to_send[11] = 0xc1;
+	} else if (lcd->ver == VER_210 || lcd->ver == VER_174) {
+		data_to_send[8] = 0x07;
 		data_to_send[11] = 0xd0;
-		break;
-	default:
-		break;
+	} else {
+		switch (lcd->brightness) {
+		case 0 ... 6: /* 30cd ~ 100cd */
+			data_to_send[11] = 0xdf;
+			break;
+		case 7 ... 11: /* 120cd ~ 150cd */
+			data_to_send[11] = 0xdd;
+			break;
+		case 12 ... 15: /* 180cd ~ 210cd */
+			data_to_send[11] = 0xd9;
+			break;
+		case 16 ... 24: /* 240cd ~ 300cd */
+			data_to_send[11] = 0xd0;
+			break;
+		default:
+			break;
+		}
 	}
+
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
 		(unsigned int)data_to_send, ARRAY_SIZE(data_to_send));
 }
@@ -410,6 +461,7 @@ static void s6e8aa0_acl_off(struct s6e8aa0 *lcd)
 static void s6e8aa0_acl_ctrl_set(struct s6e8aa0 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
+	/* FIXME: !! must be review acl % value */
 	/* Full white 50% reducing setting */
 	const unsigned char cutoff_50[] = {
 		0xc1, 0x47, 0x53, 0x13, 0x53, 0x00, 0x00, 0x02, 0xcf,
@@ -434,33 +486,33 @@ static void s6e8aa0_acl_ctrl_set(struct s6e8aa0 *lcd)
 
 	if (lcd->acl_enable) {
 		if (lcd->cur_acl == 0) {
-			if (lcd->gamma == 0 || lcd->gamma == 1) {
+			if (lcd->brightness == 0 || lcd->brightness == 1) {
 				s6e8aa0_acl_off(lcd);
 				dev_dbg(&lcd->ld->dev,
 					"cur_acl=%d\n", lcd->cur_acl);
 			} else
 				s6e8aa0_acl_on(lcd);
 		}
-		switch (lcd->gamma) {
-		case 0: /* 30cd */
+		switch (lcd->brightness) {
+		case 0 ... 1: /* 30cd */
 			s6e8aa0_acl_off(lcd);
 			lcd->cur_acl = 0;
 			break;
-		case 1 ... 3: /* 50cd ~ 90cd */
+		case 2 ... 6: /* 50cd ~ 100cd */
 			ops->cmd_write(lcd_to_master(lcd),
 				MIPI_DSI_DCS_LONG_WRITE,
 				(unsigned int)cutoff_40,
 				ARRAY_SIZE(cutoff_40));
 			lcd->cur_acl = 40;
 			break;
-		case 4 ... 7: /* 120cd ~ 210cd */
+		case 7 ... 16: /* 120cd ~ 210cd */
 			ops->cmd_write(lcd_to_master(lcd),
 				MIPI_DSI_DCS_LONG_WRITE,
 				(unsigned int)cutoff_45,
 				ARRAY_SIZE(cutoff_45));
 			lcd->cur_acl = 45;
 			break;
-		case 8 ... 10: /* 220cd ~ 300cd */
+		case 17 ... 24: /* 220cd ~ 300cd */
 			ops->cmd_write(lcd_to_master(lcd),
 				MIPI_DSI_DCS_LONG_WRITE,
 				(unsigned int)cutoff_50,
@@ -527,7 +579,7 @@ static unsigned int s6e8aa0_read_mtp(struct s6e8aa0 *lcd, u8 *mtp_data)
 	return ret;
 }
 
-unsigned int convert_gamma_to_brightness(int gamma)
+unsigned int convert_brightness_to_gamma(int brightness)
 {
 	const unsigned int gamma_table[] = {
 		30, 30, 50, 70, 80, 90, 100, 120, 130, 140,
@@ -535,17 +587,17 @@ unsigned int convert_gamma_to_brightness(int gamma)
 		240, 250, 260, 270, 280, 300
 	};
 
-	return gamma_table[gamma] - 1;
+	return gamma_table[brightness] - 1;
 }
 
-static int s6e8aa0_update_gamma_ctrl(struct s6e8aa0 *lcd, int gamma)
+static int s6e8aa0_update_gamma_ctrl(struct s6e8aa0 *lcd, int brightness)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 
 #ifdef CONFIG_BACKLIGHT_SMART_DIMMING
-	unsigned int brightness;
+	unsigned int gamma;
 	unsigned char gamma_set[GAMMA_TABLE_COUNT] = {0,};
-	brightness = convert_gamma_to_brightness(gamma);
+	gamma = convert_brightness_to_gamma(brightness);
 
 	gamma_set[0] = 0xfa;
 	gamma_set[1] = 0x01;
@@ -557,7 +609,7 @@ static int s6e8aa0_update_gamma_ctrl(struct s6e8aa0 *lcd, int gamma)
 			GAMMA_TABLE_COUNT);
 #else
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_LONG_WRITE,
-			(unsigned int)s6e8aa0_22_gamma_table[gamma],
+			(unsigned int)s6e8aa0_22_gamma_table[brightness],
 			GAMMA_TABLE_COUNT);
 #endif
 
@@ -565,16 +617,16 @@ static int s6e8aa0_update_gamma_ctrl(struct s6e8aa0 *lcd, int gamma)
 	ops->cmd_write(lcd_to_master(lcd), MIPI_DSI_DCS_SHORT_WRITE_PARAM,
 			0xf7, 0x03);
 
-	lcd->gamma = gamma;
+	lcd->brightness = brightness;
 
 	s6e8aa0_acl_ctrl_set(lcd);
 
 	return 0;
 }
 
-static int s6e8aa0_gamma_ctrl(struct s6e8aa0 *lcd, int gamma)
+static int s6e8aa0_gamma_ctrl(struct s6e8aa0 *lcd, int brightness)
 {
-	s6e8aa0_update_gamma_ctrl(lcd, gamma);
+	s6e8aa0_update_gamma_ctrl(lcd, brightness);
 
 	return 0;
 }
@@ -586,26 +638,18 @@ static int s6e8aa0_panel_init(struct s6e8aa0 *lcd)
 		s6e8aa0_apply_level_2_key(lcd);
 
 	s6e8aa0_sleep_out(lcd);
-	mdelay(60);
+	usleep_range(5000, 6000);
 
-	s6e8aa0_panel_cond(lcd);
+	s6e8aa0_panel_cond(lcd, 1);
 	s6e8aa0_display_condition_set(lcd);
 
 	s6e8aa0_gamma_ctrl(lcd, lcd->bd->props.brightness);
 
 	s6e8aa0_etc_source_control(lcd);
-	s6e8aa0_etc_elvss_control(lcd);
 	s6e8aa0_etc_pentile_control(lcd);
-	s6e8aa0_etc_mipi_control1(lcd);
-	s6e8aa0_etc_mipi_control2(lcd);
-	s6e8aa0_etc_power_control(lcd);
-	s6e8aa0_etc_mipi_control3(lcd);
-	s6e8aa0_etc_mipi_control4(lcd);
-
 	s6e8aa0_elvss_nvm_set(lcd);
-
-	s6e8aa0_acl_ctrl_set(lcd);
-	s6e8aa0_acl_on(lcd);
+	s6e8aa0_etc_power_control(lcd);
+	s6e8aa0_etc_elvss_control(lcd);
 
 	/* if ID3 value is not 33h, branch private elvss mode */
 	mdelay(lcd->ddi_pd->power_on_delay);
@@ -687,6 +731,12 @@ static int s6e8aa0_set_brightness(struct backlight_device *bd)
 {
 	int ret = 0, brightness = bd->props.brightness;
 	struct s6e8aa0 *lcd = bl_get_data(bd);
+
+	if (!lcd->enabled) {
+		dev_err(lcd->dev,
+			"lcd off: brightness set failed.\n");
+		return -EINVAL;
+	}
 
 	if (brightness < MIN_BRIGHTNESS ||
 		brightness > bd->props.max_brightness) {
@@ -773,8 +823,6 @@ static void s6e8aa0_power_on(struct mipi_dsim_lcd_device *dsim_dev,
 	struct s6e8aa0 *lcd = dev_get_drvdata(&dsim_dev->dev);
 
 	if (enable) {
-		mdelay(lcd->ddi_pd->power_on_delay);
-
 		/* lcd power on */
 		s6e8aa0_regulator_enable(lcd);
 
@@ -793,18 +841,9 @@ static void s6e8aa0_power_on(struct mipi_dsim_lcd_device *dsim_dev,
 static void s6e8aa0_set_sequence(struct mipi_dsim_lcd_device *dsim_dev)
 {
 	struct s6e8aa0 *lcd = dev_get_drvdata(&dsim_dev->dev);
-	int ret;
-
-	ret = s6e8aa0_check_mtp(dsim_dev);
-	if (ret < 0) {
-		dev_err(lcd->dev, "failed to get mtp information.\n");
-		return;
-	}
 
 	s6e8aa0_panel_init(lcd);
 	s6e8aa0_display_on(lcd);
-
-	mdelay(50);
 }
 
 static ssize_t acl_control_show(struct device *dev, struct
@@ -839,12 +878,199 @@ static ssize_t acl_control_store(struct device *dev, struct
 	return size;
 }
 
-static DEVICE_ATTR(acl_control, 0664, acl_control_show, acl_control_store);
+static ssize_t lcd_type_show(struct device *dev, struct
+	device_attribute * attr, char *buf)
+{
+	struct s6e8aa0 *lcd = dev_get_drvdata(dev);
+	char temp[32];
+	int i;
+
+	for (i = 0; i < lcd->model_count; i++) {
+		if (lcd->ver == lcd->model[i].ver)
+			break;
+	}
+
+	if (i == lcd->model_count)
+		return -EINVAL;
+
+	sprintf(temp, "%s\n", lcd->model[i].name);
+	strcpy(buf, temp);
+
+	return strlen(buf);
+}
+
+static int s6e8aa0_read_reg(struct s6e8aa0 *lcd, unsigned int addr, char *buf)
+{
+	unsigned char data[MAX_READ_LENGTH];
+	unsigned int size;
+	int i;
+	int pos = 0;
+	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
+
+	memset(data, 0x0, ARRAY_SIZE(data));
+	size = ops->cmd_read(lcd_to_master(lcd),
+			MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM,
+			addr, MAX_READ_LENGTH, data);
+	if (!size) {
+		dev_err(lcd->dev, "failed to read 0x%.2x register.\n", addr);
+		return size;
+	}
+
+	pos += sprintf(buf, "0x%.2x, ", addr);
+	for (i = 1; i < size+1; i++) {
+		if (i % 9 == 0)
+			pos += sprintf(buf+pos, "\n");
+		pos += sprintf(buf+pos, "0x%.2x, ", data[i-1]);
+	}
+	pos += sprintf(buf+pos, "\n");
+
+	return pos;
+}
+
+static int s6e8aa0_write_reg(struct s6e8aa0 *lcd, char *name)
+{
+	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
+	const struct firmware *fw;
+	char fw_path[MAX_STR+1];
+	int ret = 0;
+
+	mutex_lock(&lcd->lock);
+	snprintf(fw_path, MAX_STR, LDI_FW_PATH, name);
+
+	ret = request_firmware(&fw, fw_path, lcd->dev);
+	if (ret) {
+		dev_err(lcd->dev, "failed to request firmware.\n");
+		mutex_unlock(&lcd->lock);
+		return ret;
+	}
+
+	if (fw->size < 2)
+		ret = ops->cmd_write(lcd_to_master(lcd),
+				MIPI_DSI_DCS_SHORT_WRITE,
+				(unsigned int)fw->data, fw->size);
+	else
+		ret = ops->cmd_write(lcd_to_master(lcd),
+				MIPI_DSI_DCS_LONG_WRITE,
+				(unsigned int)fw->data, fw->size);
+	if (ret)
+		dev_err(lcd->dev, "failed to write 0x%.2x register and %d error.\n",
+			fw->data[0], ret);
+
+	release_firmware(fw);
+	mutex_unlock(&lcd->lock);
+
+	return ret;
+}
+
+static ssize_t read_reg_show(struct device *dev, struct
+	device_attribute * attr, char *buf)
+{
+	struct s6e8aa0 *lcd = dev_get_drvdata(dev);
+
+	if (lcd->cur_addr == 0) {
+		dev_err(dev, "failed to set current lcd register.\n");
+		return -EINVAL;
+	}
+
+	return s6e8aa0_read_reg(lcd, lcd->cur_addr, buf);
+}
+
+static ssize_t read_reg_store(struct device *dev, struct
+	device_attribute * attr, const char *buf, size_t size)
+{
+	struct s6e8aa0 *lcd = dev_get_drvdata(dev);
+	unsigned int value;
+	int ret;
+
+	ret = sscanf(buf, "0x%x", &value);
+	if (ret < 0)
+		return ret;
+
+	dev_info(dev, "success to set 0x%x address.\n", value);
+	lcd->cur_addr = value;
+
+	return size;
+}
+
+static ssize_t write_reg_store(struct device *dev, struct
+	device_attribute * attr, const char *buf, size_t size)
+{
+	struct s6e8aa0 *lcd = dev_get_drvdata(dev);
+	char name[32];
+	int ret;
+
+	ret = sscanf(buf, "%s", name);
+	if (ret < 0)
+		return ret;
+
+	ret = s6e8aa0_write_reg(lcd, name);
+	if (ret < 0)
+		return ret;
+
+	dev_info(dev, "success to set %s address.\n", name);
+
+	return size;
+}
+
+static struct device_attribute device_attrs[] = {
+	__ATTR(acl_control, S_IRUGO|S_IWUSR|S_IWGRP,
+			acl_control_show, acl_control_store),
+	__ATTR(lcd_type, S_IRUGO,
+			lcd_type_show, NULL),
+	__ATTR(read_reg, S_IRUGO|S_IWUSR|S_IWGRP,
+			read_reg_show, read_reg_store),
+	__ATTR(write_reg, S_IWUSR|S_IWGRP,
+			NULL, write_reg_store),
+};
+
+static struct panel_model s6e8aa0_model[] = {
+	{
+		.ver = VER_142,			/* MACH_SLP_PQ */
+		.name = "SMD_AMS465GS0x",
+	}, {
+		.ver = VER_174,			/* MACH_SLP_PQ Dali */
+		.name = "SMD_AMS465GS0x",
+	}, {
+		.ver = VER_42,			/* MACH_SLP_PQ_LTE */
+		.name = "SMD_AMS465GS0x",
+	}, {
+		.ver = VER_32,			/* MACH_SLP_PQ M0 B-Type */
+		.name = "SMD_AMS480GYXX-0",
+	}, {
+		.ver = VER_210,			/* MACH_SLP_PQ M0 A-Type */
+		.name = "SMD_AMS465GS0x",
+	}
+};
+
+#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+static int s6e8aa0_notifier_callback(struct notifier_block *this,
+			unsigned long event, void *_data)
+{
+	struct s6e8aa0 *lcd = container_of(this, struct s6e8aa0, nb_disp);
+
+	if (lcd->power == FB_BLANK_POWERDOWN)
+		return NOTIFY_DONE;
+
+	switch (event) {
+	case EXYNOS4_DISPLAY_LV_HF:
+		s6e8aa0_panel_cond(lcd, 1);
+		break;
+	case EXYNOS4_DISPLAY_LV_LF:
+		s6e8aa0_panel_cond(lcd, 0);
+		break;
+	default:
+		return NOTIFY_BAD;
+	}
+
+	return NOTIFY_DONE;
+}
+#endif
 
 static int s6e8aa0_probe(struct mipi_dsim_lcd_device *dsim_dev)
 {
 	struct s6e8aa0 *lcd;
 	int ret;
+	int i;
 
 	lcd = kzalloc(sizeof(struct s6e8aa0), GFP_KERNEL);
 	if (!lcd) {
@@ -858,6 +1084,7 @@ static int s6e8aa0_probe(struct mipi_dsim_lcd_device *dsim_dev)
 
 	mutex_init(&lcd->lock);
 
+	/* FIXME:!! regulator changed from PMIC to DCDC */
 	lcd->reg_vdd3 = regulator_get(lcd->dev, "VDD3");
 	if (IS_ERR(lcd->reg_vdd3)) {
 		ret = PTR_ERR(lcd->reg_vdd3);
@@ -890,15 +1117,28 @@ static int s6e8aa0_probe(struct mipi_dsim_lcd_device *dsim_dev)
 		goto err_unregister_lcd;
 	}
 
+#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+	lcd->nb_disp.notifier_call = s6e8aa0_notifier_callback;
+	ret = exynos4_display_register_client(&lcd->nb_disp);
+	if (ret < 0)
+		dev_warn(&lcd->ld->dev, "failed to register exynos-display notifier\n");
+#endif
+
 	lcd->bd->props.max_brightness = MAX_BRIGHTNESS;
 	lcd->bd->props.brightness = MAX_BRIGHTNESS;
 
 	lcd->acl_enable = 1;
 	lcd->cur_acl = 0;
-
-	ret = device_create_file(&lcd->ld->dev, &dev_attr_acl_control);
-	if (ret < 0)
-		dev_err(&lcd->ld->dev, "failed to add sysfs entries\n");
+	lcd->model = s6e8aa0_model;
+	lcd->model_count = ARRAY_SIZE(s6e8aa0_model);
+	for (i = 0; i < ARRAY_SIZE(device_attrs); i++) {
+		ret = device_create_file(&lcd->ld->dev,
+					&device_attrs[i]);
+		if (ret < 0) {
+			dev_err(&lcd->ld->dev, "failed to add sysfs entries\n");
+			break;
+		}
+	}
 
 	dev_set_drvdata(&dsim_dev->dev, lcd);
 
@@ -936,6 +1176,10 @@ static void s6e8aa0_remove(struct mipi_dsim_lcd_device *dsim_dev)
 
 	regulator_put(lcd->reg_vdd3);
 
+#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+	exynos4_display_unregister_client(&lcd->nb_disp);
+#endif
+
 	kfree(lcd);
 }
 
@@ -970,6 +1214,7 @@ static struct mipi_dsim_lcd_driver s6e8aa0_dsim_ddi_driver = {
 	.id = -1,
 
 	.power_on = s6e8aa0_power_on,
+	.check_mtp = s6e8aa0_check_mtp,
 	.set_sequence = s6e8aa0_set_sequence,
 	.probe = s6e8aa0_probe,
 	.remove = s6e8aa0_remove,

@@ -52,7 +52,7 @@ static u8 test_pkt[TEST_PKT_SIZE] __attribute__((aligned(8))) = {
 
 static void s3c_udc_ep_set_stall(struct s3c_ep *ep);
 
-#if defined(CONFIG_BATTERY_SAMSUNG) || defined(CONFIG_BATTERY_SAMSUNG_S2PLUS)
+#if defined(CONFIG_BATTERY_SAMSUNG)
 u32 cable_connected;
 
 void s3c_udc_cable_connect(struct s3c_udc *dev)
@@ -510,6 +510,16 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 		DEBUG_ISR("\tReset interrupt - (GOTGCTL):0x%x\n", usb_status);
 		__raw_writel(INT_RESET, dev->regs + S3C_UDC_OTG_GINTSTS);
 
+#if defined(CONFIG_MACH_M0_CMCC)
+		pr_info("[YSJ][%s] intr_status=0x%x, "
+					"gintmsk=0x%x, "
+					"usb_status=0x%x\n",
+					__func__,
+					intr_status,
+					gintmsk,
+					usb_status);
+#endif
+
 		set_conf_done = 0;
 
 		if ((usb_status & 0xc0000) == (0x3 << 18)) {
@@ -541,11 +551,15 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 				}
 #endif
 				spin_unlock(&dev->lock);
+#if defined(CONFIG_MACH_M0_CMCC)
+				pr_info("[YSJ][%s] disconnect gadget",
+					__func__);
+#endif
 				dev->driver->disconnect(&dev->gadget);
 				spin_lock(&dev->lock);
 			}
 
-#if defined(CONFIG_BATTERY_SAMSUNG) || defined(CONFIG_BATTERY_SAMSUNG_S2PLUS)
+#if defined(CONFIG_BATTERY_SAMSUNG)
 			s3c_udc_cable_disconnect(dev);
 #endif
 		}
@@ -1332,7 +1346,7 @@ static void s3c_ep0_setup(struct s3c_udc *dev)
 			reset_available = 1;
 			dev->req_config = 1;
 		}
-#if defined(CONFIG_BATTERY_SAMSUNG) || defined(CONFIG_BATTERY_SAMSUNG_S2PLUS)
+#if defined(CONFIG_BATTERY_SAMSUNG)
 		s3c_udc_cable_connect(dev);
 #endif
 		break;

@@ -187,6 +187,7 @@ extern int Si4709_dev_ch_spacing_set(int);
 extern int Si4709_dev_chan_select(u32);
 extern int Si4709_dev_chan_get(u32 *);
 
+extern int Si4709_dev_seek_full(u32 *);
 extern int Si4709_dev_seek_up(u32 *);
 extern int Si4709_dev_seek_down(u32 *);
 extern int Si4709_dev_seek_auto(u32 *);

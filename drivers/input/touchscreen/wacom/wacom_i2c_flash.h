@@ -59,7 +59,7 @@
 #define MAX_ADDR_W8501   0x7FFF
 
 #define MAX_BLOCK_514    47
-#if defined(CONFIG_MACH_P4)
+#if defined(CONFIG_MACH_P4NOTE)
 #define MPUVER_514       0x22
 #define BLVER_514        0x70
 #else
@@ -77,22 +77,22 @@
 
 #define PEN_QUERY '*'
 
-extern int wacom_i2c_chksum(struct wacom_i2c *wac_i2c,
-			    unsigned char *flash_data, size_t datasize,
-			    unsigned long *max_address);
+extern int wacom_i2c_flash_chksum(struct wacom_i2c *wac_i2c,
+			unsigned char *flash_data,
+			unsigned long *max_address);
 extern int wacom_i2c_flash_cmd(struct wacom_i2c *wac_i2c);
 extern int wacom_i2c_flash_query(struct wacom_i2c *wac_i2c,
-				 u8 query, u8 recvdQuery);
+			u8 query, u8 recvdQuery);
 extern int wacom_i2c_flash_end(struct wacom_i2c *wac_i2c);
 extern int wacom_i2c_flash_enter(struct wacom_i2c *wac_i2c);
 extern int wacom_i2c_flash_BLVer(struct wacom_i2c *wac_i2c);
 extern int wacom_i2c_flash_mucId(struct wacom_i2c *wac_i2c);
 extern int wacom_i2c_flash_erase(struct wacom_i2c *wac_i2c,
-				 u8 cmd_erase, u8 cmd_block, u8 endBlock);
+			u8 cmd_erase, u8 cmd_block, u8 endBlock);
 extern int wacom_i2c_flash_write(struct wacom_i2c *wac_i2c,
-				 unsigned long startAddr, u8 size,
-				 unsigned long maxAddr);
+			unsigned long startAddr, u8 size,
+			unsigned long maxAddr);
 extern int wacom_i2c_flash_verify(struct wacom_i2c *wac_i2c,
-				  unsigned long startAddr, u8 size,
-				  unsigned long maxAddr);
+			unsigned long startAddr, u8 size,
+			unsigned long maxAddr);
 extern int wacom_i2c_flash(struct wacom_i2c *wac_i2c);

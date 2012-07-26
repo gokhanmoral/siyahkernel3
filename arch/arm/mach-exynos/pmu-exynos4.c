@@ -15,6 +15,7 @@
 
 #include <mach/regs-clock.h>
 #include <mach/pmu.h>
+#include <mach/regs-pmu.h>
 
 #include <plat/cpu.h>
 
@@ -94,6 +95,7 @@ static struct exynos4_pmu_conf exynos4210_pmu_config[] = {
 	{ S5P_MAUDIO_SYS,			{ 7, 7, 0 } },
 	{ S5P_GPS_SYS,				{ 7, 0, 0 } },
 	{ S5P_GPS_ALIVE_SYS,			{ 7, 0, 0 } },
+	{ S5P_XUSBXTI_SYS,			{ 1, 1, 0 } },
 };
 
 static struct exynos4_pmu_conf exynos4212_pmu_config[] = {
@@ -105,7 +107,7 @@ static struct exynos4_pmu_conf exynos4212_pmu_config[] = {
 	{ S5P_DIS_IRQ_ARM_CORE1_CENTRAL_SYS,	{ 0, 0, 0 } },
 	{ S5P_ISP_ARM_SYS,			{ 1, 0, 0 } },
 	{ S5P_DIS_IRQ_ISP_ARM_LOCAL_SYS,	{ 0, 0, 0 } },
-	{ S5P_DIS_IRQ_ISP_ARM_CENTRAL_SYS,	{ 0, 0, 0 } },
+	{ S5P_DIS_IRQ_ISP_ARM_CENTRAL_SYS,	{ 1, 0, 0 } },
 	{ S5P_ARM_COMMON_SYS,			{ 0, 0, 2 } },
 	{ S5P_ARM_L2_0_SYS,			{ 0, 0, 3 } },
 	{ S5P_ARM_L2_0_OPTION,			{ 0x10, 0x10, 0 } },
@@ -141,7 +143,7 @@ static struct exynos4_pmu_conf exynos4212_pmu_config[] = {
 	{ S5P_CMU_RESET_MFC_SYS,		{ 1, 0, 0 } },
 	{ S5P_CMU_RESET_G3D_SYS,		{ 1, 0, 0 } },
 	{ S5P_CMU_RESET_LCD0_SYS,		{ 1, 0, 0 } },
-	{ S5P_CMU_RESET_ISP_SYS,		{ 1, 0, 0 } },
+	{ S5P_CMU_RESET_ISP_SYS,		{ 0, 0, 0 } },
 	{ S5P_CMU_RESET_MAUDIO_SYS,		{ 1, 1, 0 } },
 	{ S5P_CMU_RESET_GPS_SYS,		{ 1, 0, 0 } },
 	{ S5P_TOP_BUS_SYS,			{ 3, 0, 0 } },
@@ -198,8 +200,9 @@ static struct exynos4_pmu_conf exynos4212_pmu_config[] = {
 	{ S5P_MAUDIO_SYS,			{ 7, 7, 0 } },
 	{ S5P_GPS_SYS,				{ 7, 0, 0 } },
 	{ S5P_GPS_ALIVE_SYS,			{ 7, 0, 0 } },
-	{ S5P_CMU_SYSCLK_ISP_SYS,		{ 1, 0, 0 } },
+	{ S5P_CMU_SYSCLK_ISP_SYS,		{ 0, 0, 0 } },
 	{ S5P_CMU_SYSCLK_GPS_SYS,		{ 1, 0, 0 } },
+	{ S5P_XUSBXTI_SYS,			{ 1, 1, 0 } },
 };
 
 static struct exynos4_pmu_conf exynos4412_pmu_config[] = {
@@ -208,6 +211,8 @@ static struct exynos4_pmu_conf exynos4412_pmu_config[] = {
 	{ S5P_ARM_CORE2_SYS,			{ 0, 0, 2 } },
 	{ S5P_ARM_CORE3_SYS,			{ 0, 0, 2 } },
 	{ S5P_ISP_ARM_SYS,			{ 1, 0, 0 } },
+	{ S5P_DIS_IRQ_ISP_ARM_LOCAL_SYS,	{ 0, 0, 0 } },
+	{ S5P_DIS_IRQ_ISP_ARM_CENTRAL_SYS,	{ 1, 0, 0 } },
 	{ S5P_ARM_COMMON_SYS,			{ 0, 0, 2 } },
 	{ S5P_ARM_L2_0_SYS,			{ 0, 0, 3 } },
 	{ S5P_ARM_L2_0_OPTION,			{ 0x10, 0x10, 0 } },
@@ -296,6 +301,7 @@ static struct exynos4_pmu_conf exynos4412_pmu_config[] = {
 	{ S5P_GPS_ALIVE_SYS,			{ 7, 0, 0 } },
 	{ S5P_CMU_SYSCLK_ISP_SYS,		{ 1, 0, 0 } },
 	{ S5P_CMU_SYSCLK_GPS_SYS,		{ 1, 0, 0 } },
+	{ S5P_XUSBXTI_SYS,			{ 1, 1, 0 } },
 };
 
 static struct exynos4_pmu_conf exynos4x12_c2c_pmu_conf[] = {
@@ -324,9 +330,38 @@ static struct exynos4_c2c_pmu_conf exynos4_config_for_c2c[] = {
 #endif
 };
 
-static void __iomem *exynos4_pmu_init_zero[] = {
-	S5P_CMU_RESET_ISP_SYS,
-};
+void exynos4_pmu_xclkout_set(unsigned int enable, enum xclkout_select source)
+{
+	unsigned int tmp;
+
+	if (enable) {
+		tmp = __raw_readl(S5P_PMU_DEBUG);
+		/* CLKOUT enable */
+		tmp &= ~(0xF << S5P_PMU_CLKOUT_SEL_SHIFT | S5P_CLKOUT_DISABLE);
+		tmp |= (source << S5P_PMU_CLKOUT_SEL_SHIFT);
+		__raw_writel(tmp, S5P_PMU_DEBUG);
+	} else {
+		tmp = __raw_readl(S5P_PMU_DEBUG);
+		tmp |= S5P_CLKOUT_DISABLE; /* CLKOUT disable */
+		__raw_writel(tmp, S5P_PMU_DEBUG);
+	}
+	printk(KERN_DEBUG "pmu_debug: 0x%08x\n", __raw_readl(S5P_PMU_DEBUG));
+}
+EXPORT_SYMBOL_GPL(exynos4_pmu_xclkout_set);
+
+void exynos4_sys_powerdown_xusbxti_control(unsigned int enable)
+{
+	unsigned int count = entry_cnt;
+
+	if (enable)
+		exynos4_pmu_config[count - 1].val[SYS_SLEEP] = 0x1;
+	else
+		exynos4_pmu_config[count - 1].val[SYS_SLEEP] = 0x0;
+
+	printk(KERN_DEBUG "xusbxti_control: %ld\n",
+			exynos4_pmu_config[count - 1].val[SYS_SLEEP]);
+}
+EXPORT_SYMBOL_GPL(exynos4_sys_powerdown_xusbxti_control);
 
 void exynos4_sys_powerdown_conf(enum sys_powerdown mode)
 {
@@ -387,14 +422,6 @@ static int __init exynos4_pmu_init(void)
 
 	if(!soc_is_exynos4210())
 		exynos4_reset_assert_ctrl(1);
-
-	/*
-	 * on exynos4x12, CMU reset system power register should to be set 0x0
-	 */
-	if (!soc_is_exynos4210()) {
-		for (i = 0; i < ARRAY_SIZE(exynos4_pmu_init_zero); i++)
-			__raw_writel(0x0, exynos4_pmu_init_zero[i]);
-	}
 
 	if (soc_is_exynos4210()) {
 		exynos4_pmu_config = exynos4210_pmu_config;

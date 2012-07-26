@@ -30,6 +30,9 @@
 
 #include <linux/regulator/consumer.h>
 
+#define MAX77686_SMPL_ENABLE			(0x1)
+#define MAX77686_WTSR_ENABLE			(0x2)
+
 /* MAX77686 regulator IDs */
 enum max77686_regulators {
 	MAX77686_LDO1 = 0,
@@ -97,6 +100,11 @@ struct max77686_opmode_data {
 	int mode;
 };
 
+struct max77686_buck234_gpio_data {
+	int gpio;
+	int data;
+};
+
 struct max77686_platform_data {
 	/* IRQ */
 	int irq_gpio;
@@ -107,16 +115,18 @@ struct max77686_platform_data {
 	/* ---- PMIC ---- */
 	struct max77686_regulator_data *regulators;
 	int num_regulators;
+	int has_full_constraints;
 
 	struct max77686_opmode_data *opmode_data;
 	int ramp_rate;
+	int wtsr_smpl;
 
 	/*
 	 * GPIO-DVS feature is not enabled with the current version of
 	 * MAX77686 driver. Buck2/3/4_voltages[0] is used as the default
 	 * voltage at probe. DVS/SELB gpios are set as OUTPUT-LOW.
 	 */
-	int buck234_gpio_dvs[3]; /* GPIO of [0]DVS1, [1]DVS2, [2]DVS3 */
+	struct max77686_buck234_gpio_data buck234_gpio_dvs[3]; /* GPIO of [0]DVS1, [1]DVS2, [2]DVS3 */
 	int buck234_gpio_selb[3]; /* [0]SELB2, [1]SELB3, [2]SELB4 */
 	unsigned int buck2_voltage[8]; /* buckx_voltage in uV */
 	unsigned int buck3_voltage[8];

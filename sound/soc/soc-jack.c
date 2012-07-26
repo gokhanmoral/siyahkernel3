@@ -19,6 +19,10 @@
 #include <linux/delay.h>
 #include <trace/events/asoc.h>
 
+#ifdef CONFIG_JACK_MON
+#include <linux/jack.h>
+#endif
+
 #include <linux/switch.h>
 #include <linux/sec_jack.h>
 
@@ -85,6 +89,17 @@ void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask)
 		else
 			switch_set_state(&android_switch, SEC_JACK_NO_DEVICE);
 	}
+
+#ifdef CONFIG_JACK_MON
+	if (mask & SND_JACK_HEADSET) {
+		if (status & SND_JACK_MICROPHONE)
+			jack_event_handler("earjack", SND_JACK_HEADSET);
+		else if (status & SND_JACK_HEADPHONE)
+			jack_event_handler("earjack", SND_JACK_HEADPHONE);
+		else
+			jack_event_handler("earjack", 0);
+	}
+#endif
 
 	trace_snd_soc_jack_report(jack, mask, status);
 

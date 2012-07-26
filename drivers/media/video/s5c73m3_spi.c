@@ -43,6 +43,58 @@ int spi_xmit(const u8 *addr, const int len)
 	return ret;
 }
 
+static inline
+int spi_xmit_rx(u8 *in_buf, size_t len)
+{
+	int ret;
+	u8 read_out_buf[2];
+
+	struct spi_message msg;
+	struct spi_transfer xfer = {
+		.tx_buf = read_out_buf,
+		.rx_buf = in_buf,
+		.len	= len,
+		.cs_change = 0,
+	};
+
+	spi_message_init(&msg);
+
+	spi_message_add_tail(&xfer, &msg);
+
+	ret = spi_sync(g_spi, &msg);
+
+	if (ret < 0)
+		dev_err(&g_spi->dev, "%s - error %d\n",
+				__func__, ret);
+
+	return ret;
+}
+
+int s5c73m3_spi_read(u8 *buf, size_t len, const int rxSize)
+{
+	int k;
+	int ret = 0;
+	int z = 0;
+
+	u8 paddingData[32];
+	u32 count = len/rxSize;
+	u32 extra = len%rxSize;
+
+	for (k = 0; k < count; k++) {
+		ret = spi_xmit_rx(&buf[rxSize*k], rxSize);
+		if (ret < 0)
+			return -EINVAL;
+	}
+
+	if (extra != 0) {
+		ret = spi_xmit_rx(&buf[rxSize*k], extra);
+		if (ret < 0)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
 int s5c73m3_spi_write(const u8 *addr, const int len, const int txSize)
 {
 	int i, j = 0;

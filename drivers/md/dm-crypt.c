@@ -1651,7 +1651,7 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	cc->start = tmpll;
 
 	ret = -ENOMEM;
-#ifdef CONFIG_MACH_U1
+#if 1
 	cc->io_queue = create_singlethread_workqueue("kcryptd_io");
 #else
 	cc->io_queue = alloc_workqueue("kcryptd_io",
@@ -1663,7 +1663,7 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		ti->error = "Couldn't create kcryptd io queue";
 		goto bad;
 	}
-#ifdef CONFIG_MACH_U1
+#if 1
 	cc->crypt_queue = create_singlethread_workqueue("kcryptd");
 #else
 	cc->crypt_queue = alloc_workqueue("kcryptd",

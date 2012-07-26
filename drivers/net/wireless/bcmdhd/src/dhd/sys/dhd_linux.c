@@ -450,11 +450,7 @@ int dhd_idletime = DHD_IDLETIME_TICKS;
 module_param(dhd_idletime, int, 0);
 
 /* Use polling */
-#ifdef CONFIG_MACH_MIDAS_02_BD
-uint dhd_poll = TRUE;
-#else
 uint dhd_poll = FALSE;
-#endif
 module_param(dhd_poll, uint, 0);
 
 /* Use interrupts */
@@ -2335,11 +2331,11 @@ static bool dhd_check_hang(struct net_device *net, dhd_pub_t *dhdp, int error)
 	if (!dhdp)
 		return FALSE;
 #ifdef BCM4334_CHIP
-	if ((error == -ETIMEDOUT) || (error == -EREMOTEIO) || (dhdp->tx_seq_badcnt >= 2)
+	if ((error == -ETIMEDOUT) || (error == -EREMOTEIO) || (dhdp->tx_seqerr_cnt >= 2)
 		|| ((dhdp->busstate == DHD_BUS_DOWN)&&(!dhdp->dongle_reset))) {
 		DHD_ERROR(("%s: Event HANG send up due to re=%d te=%d e=%d s=%d tse=%d\n",
 			__FUNCTION__, dhdp->rxcnt_timeout, dhdp->txcnt_timeout, error,
-			dhdp->busstate, dhdp->tx_seq_badcnt));
+			dhdp->busstate, dhdp->tx_seqerr_cnt));
 		net_os_send_hang_message(net);
 		return TRUE;
 	}
@@ -2681,7 +2677,7 @@ dhd_stop(struct net_device *net)
 	dhd->pub.rxcnt_timeout = 0;
 	dhd->pub.txcnt_timeout = 0;
 #ifdef BCM4334_CHIP
-	dhd->pub.tx_seq_badcnt = 0;
+	dhd->pub.tx_seqerr_cnt = 0;
 #endif
 	OLD_MOD_DEC_USE_COUNT;
 exit:
@@ -3457,6 +3453,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef AUTOCOUNTRY
 	int autocountry = 1;
 #endif
+#ifdef VSDB
+	int interference_mode = 3;
+#endif
 #ifdef PROP_TXSTATUS
 	dhd->wlfc_enabled = FALSE;
 	/* enable WLFC only if the firmware is VSDB */
@@ -3807,6 +3806,14 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		DHD_ERROR(("%s Setting WL UP failed %d\n", __FUNCTION__, ret));
 		goto done;
 	}
+#ifdef VSDB
+	dhd_wl_ioctl_cmd(dhd, WLC_SET_INTERFERENCE_MODE, (int *)&interference_mode, sizeof(int), TRUE, 0);
+#endif
+
+#ifdef BCM4334_CHIP
+	bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn, 4, iovbuf, sizeof(iovbuf));
+	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+#endif
 
 #ifdef BCM4334_CHIP
 	bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn, 4, iovbuf, sizeof(iovbuf));

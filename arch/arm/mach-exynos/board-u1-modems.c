@@ -58,21 +58,33 @@ static struct modem_io_t umts_io_devices[] = {
 		.links = LINKTYPE(LINKDEV_HSIC),
 	},
 	[4] = {
+#ifdef CONFIG_SLP
+		.name = "pdp0",
+#else
 		.name = "rmnet0",
+#endif
 		.id = 0x2A,
 		.format = IPC_RAW,
 		.io_type = IODEV_NET,
 		.links = LINKTYPE(LINKDEV_HSIC),
 	},
 	[5] = {
+#ifdef CONFIG_SLP
+		.name = "pdp1",
+#else
 		.name = "rmnet1",
+#endif
 		.id = 0x2B,
 		.format = IPC_RAW,
 		.io_type = IODEV_NET,
 		.links = LINKTYPE(LINKDEV_HSIC),
 	},
 	[6] = {
+#ifdef CONFIG_SLP
+		.name = "pdp2",
+#else
 		.name = "rmnet2",
+#endif
 		.id = 0x2C,
 		.format = IPC_RAW,
 		.io_type = IODEV_NET,
@@ -159,6 +171,9 @@ static struct modem_data umts_modem_data = {
 	.gpio_cp_dump_int = GPIO_CP_DUMP_INT,
 	.gpio_flm_uart_sel = 0,
 	.gpio_cp_warm_reset = 0,
+#if defined(CONFIG_SIM_DETECT)
+	.gpio_sim_detect = GPIO_SIM_DETECT,
+#endif
 
 	.modem_type = IMC_XMM6260,
 	.link_types = LINKTYPE(LINKDEV_HSIC),
@@ -183,29 +198,45 @@ static void xmm_gpio_revers_bias_clear(void)
 	gpio_direction_output(modem_link_pm_data.gpio_link_hostwake, 0);
 	gpio_direction_output(umts_modem_data.gpio_cp_dump_int, 0);
 
+	if (umts_modem_data.gpio_sim_detect)
+		gpio_direction_output(umts_modem_data.gpio_sim_detect, 0);
+
 	msleep(20);
 }
 
 static void xmm_gpio_revers_bias_restore(void)
 {
-	s3c_gpio_cfgpin(umts_modem_data.gpio_phone_active, S3C_GPIO_SFN(0xF));
-	gpio_direction_output(modem_link_pm_data.gpio_link_hostwake, 0);
-	s3c_gpio_cfgpin(modem_link_pm_data.gpio_link_hostwake,
-						S3C_GPIO_SFN(0xF));
-	s3c_gpio_setpull(modem_link_pm_data.gpio_link_hostwake,
-						S3C_GPIO_PULL_NONE);
-	irq_set_irq_type(gpio_to_irq(modem_link_pm_data.gpio_link_hostwake),
-				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING);
-	enable_irq_wake(gpio_to_irq(modem_link_pm_data.gpio_link_hostwake));
+	unsigned gpio_link_hostwake = modem_link_pm_data.gpio_link_hostwake;
+	unsigned gpio_cp_dump_int = umts_modem_data.gpio_cp_dump_int;
+	unsigned gpio_sim_detect = umts_modem_data.gpio_sim_detect;
 
-	gpio_direction_input(umts_modem_data.gpio_cp_dump_int);
+	s3c_gpio_cfgpin(umts_modem_data.gpio_phone_active, S3C_GPIO_SFN(0xF));
+	gpio_direction_output(gpio_link_hostwake, 0);
+	s3c_gpio_cfgpin(gpio_link_hostwake, S3C_GPIO_SFN(0xF));
+	s3c_gpio_setpull(gpio_link_hostwake, S3C_GPIO_PULL_NONE);
+	irq_set_irq_type(gpio_to_irq(gpio_link_hostwake),
+			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING);
+	enable_irq_wake(gpio_to_irq(gpio_link_hostwake));
+
+	gpio_direction_input(gpio_cp_dump_int);
 	/*
-	s3c_gpio_cfgpin(umts_modem_data.gpio_cp_dump_int, S3C_GPIO_SFN(0xF));
-	s3c_gpio_setpull(umts_modem_data.gpio_cp_dump_int, S3C_GPIO_PULL_DOWN);
-	irq_set_irq_type(gpio_to_irq(umts_modem_data.gpio_cp_dump_int),
+	s3c_gpio_cfgpin(gpio_cp_dump_int, S3C_GPIO_SFN(0xF));
+	s3c_gpio_setpull(gpio_cp_dump_int, S3C_GPIO_PULL_DOWN);
+	irq_set_irq_type(gpio_to_irq(gpio_cp_dump_int),
 				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING);
-	enable_irq_wake(gpio_to_irq(umts_modem_data.gpio_cp_dump_int));
+	enable_irq_wake(gpio_to_irq(gpio_cp_dump_int));
 	*/
+
+	/* gpio_direction_input(mc->gpio_suspend_request); */
+
+	if (umts_modem_data.gpio_sim_detect) {
+		gpio_direction_output(gpio_sim_detect, 0);
+		s3c_gpio_cfgpin(gpio_sim_detect, S3C_GPIO_SFN(0xF));
+		s3c_gpio_setpull(gpio_sim_detect, S3C_GPIO_PULL_NONE);
+		irq_set_irq_type(gpio_to_irq(gpio_sim_detect),
+				IRQ_TYPE_EDGE_BOTH);
+		enable_irq_wake(gpio_to_irq(gpio_sim_detect));
+	}
 }
 
 /* HSIC specific function */
@@ -221,18 +252,18 @@ void set_slave_wake(void)
 		}
 		gpio_direction_output(
 			modem_link_pm_data.gpio_link_slavewake, 1);
-		mdelay(10);
-		while (spin--) {
-			if (!gpio_get_value(
-				modem_link_pm_data.gpio_link_hostwake))
-				break;
-			mdelay(10);
-		}
 	}
 }
 
 void set_host_states(struct platform_device *pdev, int type)
 {
+	int val = gpio_get_value(umts_modem_data.gpio_cp_reset);
+
+	if (!val) {
+		pr_info("CP not ready, Active State low\n");
+		return;
+	}
+
 	if (active_ctl.gpio_initialized) {
 		if (type)
 			set_slave_wake();
@@ -270,8 +301,7 @@ void set_hsic_lpa_states(int states)
 			break;
 		case STATE_HSIC_LPA_PHY_INIT:
 			gpio_set_value(umts_modem_data.gpio_pda_active, 1);
-			gpio_set_value(modem_link_pm_data.gpio_link_slavewake,
-				1);
+			set_slave_wake();
 			pr_info(LOG_TAG "set hsic lpa phy init: "
 				"slave wake-up (%d)\n",
 				gpio_get_value(
@@ -324,6 +354,7 @@ static void umts_modem_cfg_gpio(void)
 	unsigned gpio_phone_active = umts_modem_data.gpio_phone_active;
 	unsigned gpio_cp_dump_int = umts_modem_data.gpio_cp_dump_int;
 	unsigned gpio_flm_uart_sel = umts_modem_data.gpio_flm_uart_sel;
+	unsigned gpio_sim_detect = umts_modem_data.gpio_sim_detect;
 	unsigned irq_phone_active = umts_modem_res[0].start;
 
 	if (gpio_reset_req_n) {
@@ -369,7 +400,7 @@ static void umts_modem_cfg_gpio(void)
 			printk(KERN_ERR "fail to request gpio %s : %d\n",
 			       "PHONE_ACTIVE", err);
 		}
-		gpio_direction_input(gpio_phone_active);
+		/* gpio_direction_input(gpio_phone_active); */
 		s3c_gpio_cfgpin(gpio_phone_active, S3C_GPIO_SFN(0xF));
 		s3c_gpio_setpull(gpio_phone_active, S3C_GPIO_PULL_NONE);
 		pr_err("check phone active = %d\n", irq_phone_active);
@@ -396,6 +427,19 @@ static void umts_modem_cfg_gpio(void)
 	if (gpio_phone_active)
 		irq_set_irq_type(gpio_to_irq(gpio_phone_active),
 							IRQ_TYPE_LEVEL_HIGH);
+
+	if (gpio_sim_detect) {
+		err = gpio_request(gpio_sim_detect, "SIM_DETECT");
+		if (err)
+			printk(KERN_ERR "fail to request gpio %s: %d\n",
+				"SIM_DETECT", err);
+
+		/* gpio_direction_input(gpio_sim_detect); */
+		s3c_gpio_cfgpin(gpio_sim_detect, S3C_GPIO_SFN(0xF));
+		s3c_gpio_setpull(gpio_sim_detect, S3C_GPIO_PULL_NONE);
+		irq_set_irq_type(gpio_to_irq(gpio_sim_detect),
+							IRQ_TYPE_EDGE_BOTH);
+	}
 
 	printk(KERN_INFO "umts_modem_cfg_gpio done\n");
 }

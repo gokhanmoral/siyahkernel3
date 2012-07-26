@@ -55,16 +55,46 @@ static struct sleep_save exynos4212_clock_save[] = {
 	SAVE_ITEM(EXYNOS4_CLKSRC_MASK_ISP),
 	SAVE_ITEM(EXYNOS4_CLKSRC_ISP),
 	SAVE_ITEM(EXYNOS4_CLKSRC_CAM1),
+	SAVE_ITEM(EXYNOS4_CLKOUT_CMU_LEFTBUS),
+	SAVE_ITEM(EXYNOS4_CLKOUT_CMU_RIGHTBUS),
+	SAVE_ITEM(EXYNOS4_CLKOUT_CMU_TOP),
+	SAVE_ITEM(EXYNOS4_CLKOUT_CMU_DMC),
+	SAVE_ITEM(EXYNOS4_CLKOUT_CMU_CPU),
+#ifdef CONFIG_EXYNOS4_ENABLE_CLOCK_DOWN
+	SAVE_ITEM(EXYNOS4_PWR_CTRL1),
+	SAVE_ITEM(EXYNOS4_PWR_CTRL2),
+#endif
 };
 
 static struct sleep_save exynos4212_epll_save[] = {
+	SAVE_ITEM(EXYNOS4_EPLL_LOCK),
+	SAVE_ITEM(EXYNOS4_EPLL_CON0),
+	SAVE_ITEM(EXYNOS4_EPLL_CON1),
 	SAVE_ITEM(EXYNOS4_EPLL_CON2),
 };
 
 static struct sleep_save exynos4212_vpll_save[] = {
+	SAVE_ITEM(EXYNOS4_VPLL_LOCK),
+	SAVE_ITEM(EXYNOS4_VPLL_CON0),
+	SAVE_ITEM(EXYNOS4_VPLL_CON1),
 	SAVE_ITEM(EXYNOS4_VPLL_CON2),
 };
 #endif
+
+struct exynos4_cmu_conf {
+	void __iomem *reg;
+	unsigned long val;
+};
+
+static struct exynos4_cmu_conf exynos4x12_cmu_config[] = {
+	/* Register Address		Value */
+	{ EXYNOS4_CLKOUT_CMU_LEFTBUS,	0x0},
+	{ EXYNOS4_CLKOUT_CMU_RIGHTBUS,	0x0},
+	{ EXYNOS4_CLKOUT_CMU_TOP,	0x0},
+	{ EXYNOS4_CLKOUT_CMU_DMC,	0x0},
+	{ EXYNOS4_CLKOUT_CMU_CPU,	0x0},
+	{ EXYNOS4_CLKOUT_CMU_ISP,	0x0},
+};
 
 static int exynos4212_clk_bus_dmc0_ctrl(struct clk *clk, int enable)
 {
@@ -160,21 +190,19 @@ static struct clksrc_clk exynos4212_clk_aclk_gdr_user = {
 	.reg_src = { .reg = EXYNOS4_CLKSRC_RIGHTBUS, .shift = 4, .size = 1 },
 };
 
-static struct clksrc_clk exynos4212_clk_mout_aclk_400 = {
-	.clk	= {
-		.name		= "mout_aclk_400",
-	},
-	.sources = &exynos4_clkset_aclk,
-	.reg_src = { .reg = EXYNOS4_CLKSRC_TOP1, .shift = 8, .size = 1 },
-	.reg_div = { .reg = EXYNOS4_CLKDIV_TOP, .shift = 24, .size = 3 },
-};
-
 static struct clksrc_clk exynos4212_clk_mout_aclk_266 = {
 	.clk	= {
 		.name		= "mout_aclk_266",
 	},
 	.sources = &exynos4_clkset_aclk,
 	.reg_src = { .reg = EXYNOS4_CLKSRC_TOP1, .shift = 4, .size = 1 },
+};
+
+static struct clksrc_clk exynos4212_clk_dout_aclk_266 = {
+	.clk	= {
+		.name		= "dout_aclk_266",
+		.parent		= &exynos4212_clk_mout_aclk_266.clk,
+	},
 	.reg_div = { .reg = EXYNOS4_CLKDIV_TOP, .shift = 20, .size = 3 },
 };
 
@@ -184,30 +212,53 @@ static struct clksrc_clk exynos4212_clk_mout_aclk_200 = {
 	},
 	.sources = &exynos4_clkset_aclk,
 	.reg_src = { .reg = EXYNOS4_CLKSRC_TOP0, .shift = 12, .size = 1 },
+};
+
+static struct clksrc_clk exynos4212_clk_dout_aclk_200 = {
+	.clk	= {
+		.name		= "dout_aclk_200",
+		.parent		= &exynos4212_clk_mout_aclk_200.clk,
+	},
 	.reg_div = { .reg = EXYNOS4_CLKDIV_TOP, .shift = 0, .size = 3 },
 };
 
-static struct clk *exynos4212_clk_aclk_400_list[] = {
-	[0] = &clk_fin_mpll,
-	[1] = &exynos4212_clk_mout_aclk_400.clk,
-};
-
-static struct clksrc_sources exynos4212_clkset_aclk_400 = {
-	.sources	= exynos4212_clk_aclk_400_list,
-	.nr_sources	= ARRAY_SIZE(exynos4212_clk_aclk_400_list),
-};
-
-struct clksrc_clk exynos4212_clk_aclk_400 = {
+static struct clksrc_clk exynos4212_clk_mout_aclk_400_mcuisp = {
 	.clk	= {
-		.name		= "aclk_400",
+		.name		= "mout_aclk_400_mcuisp",
 	},
-	.sources = &exynos4212_clkset_aclk_400,
+	.sources = &exynos4_clkset_aclk,
+	.reg_src = { .reg = EXYNOS4_CLKSRC_TOP1, .shift = 8, .size = 1 },
+};
+
+static struct clksrc_clk exynos4212_clk_dout_aclk_400_mcuisp = {
+	.clk	= {
+		.name		= "dout_aclk_400_mcuisp",
+		.parent		= &exynos4212_clk_mout_aclk_400_mcuisp.clk,
+	},
+	.reg_div = { .reg = EXYNOS4_CLKDIV_TOP, .shift = 24, .size = 3 },
+};
+
+static struct clk *exynos4212_clk_aclk_400_mcuisp_list[] = {
+	[0] = &clk_fin_mpll,
+	[1] = &exynos4212_clk_dout_aclk_400_mcuisp.clk,
+};
+
+static struct clksrc_sources exynos4212_clkset_aclk_400_mcuisp = {
+	.sources	= exynos4212_clk_aclk_400_mcuisp_list,
+	.nr_sources	= ARRAY_SIZE(exynos4212_clk_aclk_400_mcuisp_list),
+};
+
+struct clksrc_clk exynos4212_clk_aclk_400_mcuisp = {
+	.clk	= {
+		.name		= "aclk_400_mcuisp",
+	},
+	.sources = &exynos4212_clkset_aclk_400_mcuisp,
 	.reg_src = { .reg = EXYNOS4_CLKSRC_TOP1, .shift = 24, .size = 1 },
 };
 
 static struct clk *exynos4212_clk_aclk_266_list[] = {
 	[0] = &clk_fin_mpll,
-	[1] = &exynos4212_clk_mout_aclk_266.clk,
+	[1] = &exynos4212_clk_dout_aclk_266.clk,
 };
 
 static struct clksrc_sources exynos4212_clkset_aclk_266 = {
@@ -225,7 +276,7 @@ struct clksrc_clk exynos4212_clk_aclk_266 = {
 
 static struct clk *exynos4212_clk_aclk_200_list[] = {
 	[0] = &clk_fin_mpll,
-	[1] = &exynos4212_clk_mout_aclk_200.clk,
+	[1] = &exynos4212_clk_dout_aclk_200.clk,
 };
 
 static struct clksrc_sources exynos4212_clkset_aclk_200 = {
@@ -321,10 +372,11 @@ static struct clksrc_clk *exynos4212_sysclks[] = {
 	&exynos4212_clk_mout_mpll_user,
 	&exynos4212_clk_aclk_gdl_user,
 	&exynos4212_clk_aclk_gdr_user,
-	&exynos4212_clk_mout_aclk_400,
+	&exynos4212_clk_mout_aclk_400_mcuisp,
 	&exynos4212_clk_mout_aclk_266,
 	&exynos4212_clk_mout_aclk_200,
-	&exynos4212_clk_aclk_400,
+	&exynos4212_clk_dout_aclk_200,
+	&exynos4212_clk_aclk_400_mcuisp,
 	&exynos4212_clk_aclk_266,
 	&exynos4212_clk_mout_jpeg0,
 	&exynos4212_clk_mout_jpeg1,
@@ -364,7 +416,6 @@ static struct clk exynos4212_init_clocks_off[] = {
 		.devname	= SYSMMU_CLOCK_NAME(g2d_acp, 15),
 		.enable		= exynos4_clk_ip_dmc_ctrl,
 		.ctrlbit	= (1 << 24),
-#ifndef CONFIG_EXYNOS_C2C
 	}, {
 		.name		= "sysmmu",
 		.devname	= SYSMMU_CLOCK_NAME(ispcx, 22),
@@ -404,14 +455,28 @@ static struct clk exynos4212_init_clocks_off[] = {
 		.name		= "qec2c",
 		.enable		= exynos4_clk_ip_dmc_ctrl,
 		.ctrlbit	= (1 << 30),
-	}, {
-		.name		= "async_c2c_xiul",
-		.enable		= exynos4_clk_ip_dmc_ctrl,
-		.ctrlbit	= (1 << 27),
+#ifndef CONFIG_SAMSUNG_C2C
 	}, {
 		.name		= "c2c",
+		.devname	= "samsung-c2c",
 		.enable		= exynos4_clk_ip_dmc_ctrl,
-		.ctrlbit	= (1 << 26),
+#ifdef CONFIG_MACH_M0_CTC
+		.ctrlbit	= (1 << 26 | 1 << 27),
+#else
+		.ctrlbit	= (1 << 26 | 1 << 27 | 1 << 31),
+#endif
+	}, {
+		.name		= "sclk_c2c_off",
+		.enable		= exynos4212_clk_sclk_dmc_ctrl,
+		.ctrlbit	= (1 << 8),
+	}, {
+		.name		= "pclk_c2c_off",
+		.enable		= exynos4212_clk_bus_dmc1_ctrl,
+		.ctrlbit	= (1 << 27 | 1 << 30),
+	}, {
+		.name		= "aclk_c2c_off",
+		.enable		= exynos4212_clk_bus_dmc0_ctrl,
+		.ctrlbit	= (1 << 21 | 1 << 22 | 1 << 24),
 #endif
 	}, {
 		.name		= "mtcadc",
@@ -546,16 +611,12 @@ static struct clk exynos4212_init_clocks[] = {
 		.enable		= exynos4212_clk_ip_dmc1_ctrl,
 		.ctrlbit	= (1 << 0),
 	}, {
+#ifdef CONFIG_MACH_M0_CTC
 		.name		= "gpioc2c",
 		.enable		= exynos4_clk_ip_dmc_ctrl,
 		.ctrlbit	= (1 << 31),
-#ifdef CONFIG_EXYNOS_C2C
 	}, {
-		.name		= "qec2c",
-		.enable		= exynos4_clk_ip_dmc_ctrl,
-		.ctrlbit	= (1 << 30),
 #endif
-	}, {
 		.name		= "qegdl",
 		.enable		= exynos4_clk_ip_dmc_ctrl,
 		.ctrlbit	= (1 << 29),
@@ -563,16 +624,6 @@ static struct clk exynos4212_init_clocks[] = {
 		.name		= "async_cpu_xiur",
 		.enable		= exynos4_clk_ip_dmc_ctrl,
 		.ctrlbit	= (1 << 28),
-#ifdef CONFIG_EXYNOS_C2C
-	}, {
-		.name		= "async_c2c_xiul",
-		.enable		= exynos4_clk_ip_dmc_ctrl,
-		.ctrlbit	= (1 << 27),
-	}, {
-		.name		= "c2c",
-		.enable		= exynos4_clk_ip_dmc_ctrl,
-		.ctrlbit	= (1 << 26),
-#endif
 	}, {
 		.name		= "async_gdr",
 		.enable		= exynos4_clk_ip_dmc_ctrl,
@@ -633,31 +684,26 @@ static struct clk exynos4212_init_clocks[] = {
 		.name		= "g2d_acp",
 		.enable		= exynos4_clk_ip_dmc_ctrl,
 		.ctrlbit	= (1 << 23),
-	},
-#ifndef CONFIG_SAMSUNG_C2C
-	{
-		.name		= "c2c",
-		.devname	= "samsung-c2c",
-		.enable		= exynos4_clk_ip_dmc_ctrl,
-		.ctrlbit	= (1 << 26 | 1 << 27 | 1 << 30 | 1 << 31),
 	}, {
-		.name		= "sclk_c2c_off",
-		.enable		= exynos4212_clk_sclk_dmc_ctrl,
-		.ctrlbit	= (1 << 8),
+		.name		= "uart_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 31),
 	}, {
-		.name		= "pclk_c2c_off",
-		.enable		= exynos4212_clk_bus_dmc1_ctrl,
-		.ctrlbit	= (1 << 27 | 1 << 30 | 1 << 31),
+		.name		= "wdt_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 30),
 	}, {
-		.name		= "aclk_c2c_off",
-		.enable		= exynos4212_clk_bus_dmc0_ctrl,
-		.ctrlbit	= (1 << 21 | 1 << 22 | 1 << 24),
-	},
-#endif
-	{
+		.name		= "pwm_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 28),
+	}, {
 		.name		= "mtcadc",
 		.enable		= exynos4212_clk_ip_isp0_ctrl,
 		.ctrlbit	= (1 << 27),
+	}, {
+		.name		= "i2c1_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 26),
 	}, {
 		.name		= "i2c0_isp",
 		.enable		= exynos4212_clk_ip_isp0_ctrl,
@@ -666,6 +712,10 @@ static struct clk exynos4212_init_clocks[] = {
 		.name		= "mpwm_isp",
 		.enable		= exynos4212_clk_ip_isp0_ctrl,
 		.ctrlbit	= (1 << 24),
+	}, {
+		.name		= "mcuctl_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 23),
 	}, {
 		.name		= "qelite1",
 		.enable		= exynos4212_clk_ip_isp0_ctrl,
@@ -687,9 +737,41 @@ static struct clk exynos4212_init_clocks[] = {
 		.enable		= exynos4212_clk_ip_isp0_ctrl,
 		.ctrlbit	= (1 << 14),
 	}, {
+		.name		= "sysmmu_lite1",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 12),
+	}, {
+		.name		= "sysmmu_lite0",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 11),
+	}, {
+		.name		= "gic_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 7),
+	}, {
+		.name		= "mcu_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 5),
+	}, {
+		.name		= "lite1",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 4),
+	}, {
 		.name		= "lite0",
 		.enable		= exynos4212_clk_ip_isp0_ctrl,
 		.ctrlbit	= (1 << 3),
+	}, {
+		.name		= "fd",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 2),
+	}, {
+		.name		= "drc",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 1),
+	}, {
+		.name		= "isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 0),
 	}, {
 		.name		= "spi1_isp",
 		.enable		= exynos4212_clk_ip_isp1_ctrl,
@@ -698,6 +780,26 @@ static struct clk exynos4212_init_clocks[] = {
 		.name		= "spi0_isp",
 		.enable		= exynos4212_clk_ip_isp1_ctrl,
 		.ctrlbit	= (1 << 12),
+	}, {
+		.name		= "aync_caxim",
+		.enable		= exynos4212_clk_ip_isp1_ctrl,
+		.ctrlbit	= (1 << 0),
+	}, {
+		.name		= "sysmmu_fd",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 10),
+	}, {
+		.name		= "sysmmu_drc",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 9),
+	}, {
+		.name		= "sysmmu_isp",
+		.enable		= exynos4212_clk_ip_isp0_ctrl,
+		.ctrlbit	= (1 << 8),
+	}, {
+		.name		= "sysmmu_ispcx",
+		.enable		= exynos4212_clk_ip_isp1_ctrl,
+		.ctrlbit	= (1 << 4),
 	},
 };
 
@@ -716,8 +818,8 @@ static struct clksrc_clk exynos4212_clksrcs[] = {
 
 static struct clk exynos4212_clk_isp[] = {
 	{
-		.name	= "aclk_400_muxed",
-		.parent = &exynos4212_clk_aclk_400.clk,
+		.name	= "aclk_400_mcuisp_muxed",
+		.parent = &exynos4212_clk_aclk_400_mcuisp.clk,
 	}, {
 		.name	= "aclk_200_muxed",
 		.parent	= &exynos4_clk_aclk_200.clk,
@@ -727,9 +829,7 @@ static struct clk exynos4212_clk_isp[] = {
 static struct clksrc_clk exynos4212_clk_isp_srcs_div0 = {
 	.clk		= {
 		.name		= "sclk_mcuisp_div0",
-		.parent		= &exynos4212_clk_aclk_400.clk,
-		.enable		= exynos4212_clk_ip_isp0_ctrl,
-		.ctrlbit	= (0xFFFFFFFF << 0),
+		.parent		= &exynos4212_clk_aclk_400_mcuisp.clk,
 	},
 	.reg_div = { .reg = EXYNOS4_CLKDIV_ISP1, .shift = 4, .size = 3 },
 };
@@ -764,6 +864,24 @@ static struct clksrc_clk exynos4212_clk_isp_srcs[] = {
 		.reg_div = { .reg = EXYNOS4_CLKDIV_ISP, .shift = 28, .size = 4 },
 	}, {
 		.clk		= {
+			.name		= "sclk_spi1_isp",
+			.enable		= exynos4212_clk_ip_isp_ctrl,
+			.ctrlbit	= (1 << 2),
+		},
+		.sources = &exynos4_clkset_group,
+		.reg_src = { .reg = EXYNOS4_CLKSRC_ISP, .shift = 8, .size = 4 },
+		.reg_div = { .reg = EXYNOS4_CLKDIV_ISP, .shift = 16, .size = 12 },
+	}, {
+		.clk		= {
+			.name		= "sclk_spi0_isp",
+			.enable		= exynos4212_clk_ip_isp_ctrl,
+			.ctrlbit	= (1 << 1),
+		},
+		.sources = &exynos4_clkset_group,
+		.reg_src = { .reg = EXYNOS4_CLKSRC_ISP, .shift = 4, .size = 4 },
+		.reg_div = { .reg = EXYNOS4_CLKDIV_ISP, .shift = 4, .size = 12 },
+	}, {
+		.clk		= {
 			.name		= "sclk_pwm_isp",
 			.enable		= exynos4212_clk_ip_isp_ctrl,
 			.ctrlbit	= (1 << 0),
@@ -773,6 +891,86 @@ static struct clksrc_clk exynos4212_clk_isp_srcs[] = {
 		.reg_div = { .reg = EXYNOS4_CLKDIV_ISP, .shift = 0, .size = 4 },
 	},
 };
+
+static u32 epll_div_4212[][6] = {
+	{ 416000000, 0, 104, 3, 1, 0 },
+	{ 408000000, 0,  68, 2, 1, 0 },
+	{ 400000000, 0, 100, 3, 1, 0 },
+	{ 200000000, 0, 100, 3, 2, 0 },
+	{ 192000000, 0,  64, 2, 2, 0 },
+	{ 180633600, 0,  90, 3, 2, 20762 },
+	{ 180000000, 0,  60, 2, 2,  0 },
+};
+
+static unsigned long exynos4212_epll_get_rate(struct clk *clk)
+{
+	return clk->rate;
+}
+
+static int exynos4212_epll_set_rate(struct clk *clk, unsigned long rate)
+{
+	unsigned int epll_con, epll_con_k;
+	unsigned int i;
+	unsigned int tmp;
+	unsigned int epll_rate;
+	unsigned int locktime;
+	unsigned int lockcnt;
+
+	/* Return if nothing changed */
+	if (clk->rate == rate)
+		return 0;
+
+	if (clk->parent)
+		epll_rate = clk_get_rate(clk->parent);
+	else
+		epll_rate = clk_ext_xtal_mux.rate;
+
+	if (epll_rate != 24000000) {
+		pr_err("Invalid Clock : recommended clock is 24MHz.\n");
+		return -EINVAL;
+	}
+
+	epll_con = __raw_readl(EXYNOS4_EPLL_CON0);
+	epll_con &= ~(0x1 << 27 | \
+			PLL36XX_MDIV_MASK << PLL36XX_MDIV_SHIFT |   \
+			PLL36XX_PDIV_MASK << PLL36XX_PDIV_SHIFT | \
+			PLL36XX_SDIV_MASK << PLL36XX_SDIV_SHIFT);
+
+	for (i = 0; i < ARRAY_SIZE(epll_div_4212); i++) {
+		if (epll_div_4212[i][0] == rate) {
+			epll_con_k = epll_div_4212[i][5] << 0;
+			epll_con |= epll_div_4212[i][2] << PLL36XX_MDIV_SHIFT;
+			epll_con |= epll_div_4212[i][3] << PLL36XX_PDIV_SHIFT;
+			epll_con |= epll_div_4212[i][4] << PLL36XX_SDIV_SHIFT;
+			break;
+		}
+	}
+
+	if (i == ARRAY_SIZE(epll_div_4212)) {
+		printk(KERN_ERR "%s: Invalid Clock EPLL Frequency\n",
+				__func__);
+		return -EINVAL;
+	}
+
+	epll_rate /= 1000000;
+
+	/* 3000 max_cycls : specification data */
+	locktime = 3000 / epll_rate * epll_div_4212[i][3];
+	lockcnt = locktime * 10000 / (10000 / epll_rate);
+
+	__raw_writel(lockcnt, EXYNOS4_EPLL_LOCK);
+	__raw_writel(epll_con, EXYNOS4_EPLL_CON0);
+	__raw_writel(epll_con_k, EXYNOS4_EPLL_CON1);
+
+
+	do {
+		tmp = __raw_readl(EXYNOS4_EPLL_CON0);
+	} while (!(tmp & 0x1 << EXYNOS4_EPLLCON0_LOCKED_SHIFT));
+
+	clk->rate = rate;
+
+	return 0;
+}
 
 static struct vpll_div_data vpll_div_4212[] = {
 	{54000000, 2, 72, 4, 0, 0, 0, 0},
@@ -840,16 +1038,34 @@ static int exynos4212_clock_suspend(void)
 {
 	s3c_pm_do_save(exynos4212_clock_save, ARRAY_SIZE(exynos4212_clock_save));
 	s3c_pm_do_save(exynos4212_vpll_save, ARRAY_SIZE(exynos4212_vpll_save));
+#if (defined(CONFIG_MACH_M0) && defined(CONFIG_TARGET_LOCALE_EUR)) || \
+	((defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_M0)) && \
+	defined(CONFIG_TARGET_LOCALE_KOR))
 	s3c_pm_do_save(exynos4212_epll_save, ARRAY_SIZE(exynos4212_epll_save));
-
+#endif
 	return 0;
 }
 
 static void exynos4212_clock_resume(void)
 {
-	s3c_pm_do_restore_core(exynos4212_clock_save, ARRAY_SIZE(exynos4212_clock_save));
+	unsigned int tmp;
+
 	s3c_pm_do_restore_core(exynos4212_vpll_save, ARRAY_SIZE(exynos4212_vpll_save));
+#if (defined(CONFIG_MACH_M0) && defined(CONFIG_TARGET_LOCALE_EUR)) || \
+	((defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_M0)) && \
+	defined(CONFIG_TARGET_LOCALE_KOR))
 	s3c_pm_do_restore_core(exynos4212_epll_save, ARRAY_SIZE(exynos4212_epll_save));
+#endif
+	/* waiting epll & vpll locking time */
+	do {
+		tmp = __raw_readl(EXYNOS4_EPLL_CON0);
+	} while (!(tmp & 0x1 << EXYNOS4_EPLLCON0_LOCKED_SHIFT));
+
+	do {
+		tmp = __raw_readl(EXYNOS4_VPLL_CON0);
+	} while (!(tmp & 0x1 << EXYNOS4_VPLLCON0_LOCKED_SHIFT));
+
+	s3c_pm_do_restore_core(exynos4212_clock_save, ARRAY_SIZE(exynos4212_clock_save));
 }
 #else
 #define exynos4212_clock_suspend NULL
@@ -864,6 +1080,7 @@ struct syscore_ops exynos4212_clock_syscore_ops = {
 void __init exynos4212_register_clocks(void)
 {
 	int ptr;
+	unsigned int tmp;
 
 	/* usbphy1 is removed in exynos 4212 */
 	exynos4_clkset_group_list[4] = NULL;
@@ -900,6 +1117,8 @@ void __init exynos4212_register_clocks(void)
 	exynos4_clk_sclk_fimg2d.reg_div.shift = 0;
 	exynos4_clk_sclk_fimg2d.reg_div.size = 4;
 
+	exynos4_epll_ops.get_rate = exynos4212_epll_get_rate;
+	exynos4_epll_ops.set_rate = exynos4212_epll_set_rate;
 	exynos4_vpll_ops.get_rate = exynos4212_vpll_get_rate;
 	exynos4_vpll_ops.set_rate = exynos4212_vpll_set_rate;
 
@@ -915,6 +1134,20 @@ void __init exynos4212_register_clocks(void)
 	s3c_register_clksrc(&exynos4212_clk_isp_srcs_div0, 1);
 	s3c_register_clksrc(exynos4212_clk_isp_srcs, ARRAY_SIZE(exynos4212_clk_isp_srcs));
 	s3c_register_clocks(exynos4212_clk_isp, ARRAY_SIZE(exynos4212_clk_isp));
+	s3c_disable_clocks(&exynos4212_clk_isp_srcs[3].clk, 1);
+	s3c_disable_clocks(&exynos4212_clk_isp_srcs[4].clk, 1);
+	s3c_disable_clocks(&exynos4212_clk_isp_srcs[5].clk, 1);
+	s3c_disable_clocks(&exynos4212_clk_isp_srcs[6].clk, 1);
+
+	/* To save power,
+	 * Disable CLKOUT of LEFTBUS, RIGHTBUS, TOP, DMC, CPU and ISP
+	 */
+	for (ptr = 0 ; ptr < ARRAY_SIZE(exynos4x12_cmu_config) ; ptr++) {
+		tmp = __raw_readl(exynos4x12_cmu_config[ptr].reg);
+		tmp &= ~(0x1 << 16);
+		tmp |= (exynos4x12_cmu_config[ptr].val << 16);
+		__raw_writel(tmp, exynos4x12_cmu_config[ptr].reg);
+	}
 
 	register_syscore_ops(&exynos4212_clock_syscore_ops);
 }

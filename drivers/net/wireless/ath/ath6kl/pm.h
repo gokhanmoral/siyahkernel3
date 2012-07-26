@@ -18,3 +18,7 @@ void ath6kl_config_suspend_wake_lock(struct ath6kl *ar, struct sk_buff *skb,
 				     bool is_event_pkt);
 void ath6kl_setup_android_resource(struct ath6kl *ar);
 void ath6kl_cleanup_android_resource(struct ath6kl *ar);
+#ifdef CONFIG_HAS_WAKELOCK
+void ath6kl_p2p_acquire_wakelock(struct ath6kl *ar, int wl_timeout);
+void ath6kl_p2p_release_wakelock(struct ath6kl *ar);
+#endif

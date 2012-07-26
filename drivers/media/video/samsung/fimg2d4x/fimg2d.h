@@ -38,28 +38,36 @@
 /* ioctl commands */
 #define FIMG2D_IOCTL_MAGIC	'F'
 #define FIMG2D_BITBLT_BLIT	_IOWR(FIMG2D_IOCTL_MAGIC, 0, struct fimg2d_blit)
-#define FIMG2D_BITBLT_SYNC	_IO(FIMG2D_IOCTL_MAGIC, 1)
+#define FIMG2D_BITBLT_SYNC	_IOW(FIMG2D_IOCTL_MAGIC, 1, int)
 #define FIMG2D_BITBLT_VERSION	_IOR(FIMG2D_IOCTL_MAGIC, 2, struct fimg2d_version)
 
-/**
- * DO NOT CHANGE THIS ORDER
- */
-enum image_object {
-	IMAGE_DST = 0,
-	IMAGE_SRC,
-	IMAGE_MSK,
-	IMAGE_END,
+struct fimg2d_version {
+	unsigned int hw;
+	unsigned int sw;
 };
-#define MAX_IMAGES		IMAGE_END
-#define IDST			IMAGE_DST
-#define ISRC			IMAGE_SRC
-#define IMSK			IMAGE_MSK
 
+/**
+ * @BLIT_SYNC: sync mode, to wait for blit done irq
+ * @BLIT_ASYNC: async mode, not to wait for blit done irq
+ *
+ */
+enum blit_sync {
+	BLIT_SYNC,
+	BLIT_ASYNC,
+};
+
+/**
+ * @ADDR_PHYS: physical address
+ * @ADDR_USER: user virtual address (physically Non-contiguous)
+ * @ADDR_USER_CONTIG: user virtual address (physically Contiguous)
+ * @ADDR_DEVICE: specific device virtual address
+ */
 enum addr_space {
-	ADDR_UNKNOWN,
+	ADDR_NONE,
 	ADDR_PHYS,
 	ADDR_KERN,
 	ADDR_USER,
+	ADDR_USER_CONTIG,
 	ADDR_DEVICE,
 };
 
@@ -148,12 +156,12 @@ enum scaling {
 };
 
 /**
- * @SCALING_PERCENTAGE: percentage of width, height
- * @SCALING_PIXELS: coordinate of src, dest
+ * @SCALING_PIXELS: ratio in pixels
+ * @SCALING_RATIO: ratio in fixed point 16
  */
 enum scaling_factor {
-	SCALING_PERCENTAGE,
 	SCALING_PIXELS,
+	SCALING_RATIO,
 };
 
 /**
@@ -234,50 +242,53 @@ enum blit_op {
 #ifdef __KERNEL__
 
 /**
- * blit_sync - [kernel] bitblt sync mode
- * @BLIT_SYNC: sync mode
- * @BLIT_ASYNC: async mode
+ * @TMP: temporary buffer for 2-step blit at a single command
  *
- * Sync/async mode is capability of FIMG2D device driver
- * Sync mode is to wait for bitblt done irq,
- * async mode is not to wait for the irq.
- * User only need to pass 'pinnable' information via struct fimg2d_addr.
- * If memory allocator is pinnable, the driver can use async and batch
- * bitblt.
+ * DO NOT CHANGE THIS ORDER
  */
-enum blit_sync {
-	BLIT_SYNC,
-	BLIT_ASYNC,
+enum image_object {
+	IMAGE_SRC = 0,
+	IMAGE_MSK,
+	IMAGE_TMP,
+	IMAGE_DST,
+	IMAGE_END,
 };
+#define MAX_IMAGES		IMAGE_END
+#define ISRC			IMAGE_SRC
+#define IMSK			IMAGE_MSK
+#define ITMP			IMAGE_TMP
+#define IDST			IMAGE_DST
+#define image_table(u)		\
+	{			\
+		(u)->src,	\
+		(u)->msk,	\
+		(u)->tmp,	\
+		(u)->dst	\
+	}
 
 /**
- * @addr: start address of clipped region for cache operation
- * @size: size of clipped region for cache operation
+ * @size: dma size of image
+ * @cached: cached dma size of image
  */
-struct fimg2d_cache {
+struct fimg2d_dma {
 	unsigned long addr;
 	size_t size;
+	size_t cached;
+};
+
+struct fimg2d_dma_group {
+	struct fimg2d_dma base;
+	struct fimg2d_dma plane2;
 };
 
 #endif /* __KERNEL__ */
 
-struct fimg2d_version {
-	unsigned int hw;
-	unsigned int sw;
-};
-
 /**
  * @start: start address or unique id of image
- * @size: whole length of allocated image
- * @cacheable: memory is cacheable
- * @pinnable: memory is pinnable. currently not supported.
  */
 struct fimg2d_addr {
 	enum addr_space type;
 	unsigned long start;
-	size_t size;
-	int cacheable;
-	int pinnable;
 };
 
 struct fimg2d_rect {
@@ -288,25 +299,16 @@ struct fimg2d_rect {
 };
 
 /**
- * if factor is percentage, scale_w and scale_h are valid
- * if factor is pixels, src_w, src_h, dst_w, dst_h are valid
+ * pixels can be different from src, dst or clip rect
  */
 struct fimg2d_scale {
 	enum scaling mode;
-	enum scaling_factor factor;
 
-	/* percentage */
-	int scale_w;
-	int scale_h;
-
-	/* pixels */
+	/* ratio in pixels */
 	int src_w, src_h;
 	int dst_w, dst_h;
 };
 
-/**
- * coordinate from start address(0,0) of image
- */
 struct fimg2d_clip {
 	bool enable;
 	int x1;
@@ -331,80 +333,94 @@ struct fimg2d_bluscr {
 
 /**
  * @plane2: address info for CbCr in YCbCr 2plane mode
+ * @rect: crop/clip rect
+ * @need_cacheopr: true if cache coherency is required
  */
 struct fimg2d_image {
-	struct fimg2d_addr addr;
-	struct fimg2d_addr plane2;
 	int width;
 	int height;
 	int stride;
 	enum pixel_order order;
 	enum color_format fmt;
+	struct fimg2d_addr addr;
+	struct fimg2d_addr plane2;
+	struct fimg2d_rect rect;
+	bool need_cacheopr;
 };
 
 /**
- * @op: bitblt operation mode
- * @premult: premultiplied or non_premultiplied mode
- * @g_alpha: global(constant) alpha. 0xff is opaque, 0x0 is transparnet
+ * @solid_color:
+ *         src color instead of src image
+ *         color format and order must be ARGB8888(A is MSB).
+ * @g_alpha: global(constant) alpha. 0xff is opaque, 0 is transparnet
  * @dither: dithering
  * @rotate: rotation degree in clockwise
- * @scaling: common scaling info for source and mask image.
+ * @premult: alpha premultiplied mode for read & write
+ * @scaling: common scaling info for src and mask image.
  * @repeat: repeat type (tile mode)
  * @bluscr: blue screen and transparent mode
- * @clipping: clipping region must be the same to or smaller than dest rect
- * @solid_color: valid when op is solid fill or src is null
- * @src: source image info. set null when use solid_color
- * @msk: mask image info. set null when does not use mask
- * @dst: dest image info. must be set
- * @src_rect: source region to read. set null when use solid_color
- * @dst_rect: dest region to write. must be set
- * @msk_rect: mask region to read. set null when does not use mask
- * @seq_no: debugging info. set sequence number or pid
+ * @clipping: clipping rect within dst rect
  */
-struct fimg2d_blit {
-	enum blit_op op;
-
-	enum premultiplied premult;
+struct fimg2d_param {
+	unsigned long solid_color;
 	unsigned char g_alpha;
 	bool dither;
 	enum rotation rotate;
-	struct fimg2d_scale *scaling;
-	struct fimg2d_repeat *repeat;
-	struct fimg2d_bluscr *bluscr;
-	struct fimg2d_clip *clipping;
+	enum premultiplied premult;
+	struct fimg2d_scale scaling;
+	struct fimg2d_repeat repeat;
+	struct fimg2d_bluscr bluscr;
+	struct fimg2d_clip clipping;
+};
 
-	unsigned long solid_color;
+/**
+ * @op: blit operation mode
+ * @src: set when using src image
+ * @msk: set when using mask image
+ * @tmp: set when using 2-step blit at a single command
+ * @dst: dst must not be null
+ *         * tmp image must be the same to dst except memory address
+ * @seq_no: user debugging info.
+ *          for example, user can set sequence number or pid.
+ */
+struct fimg2d_blit {
+	enum blit_op op;
+	struct fimg2d_param param;
 	struct fimg2d_image *src;
-	struct fimg2d_image *dst;
 	struct fimg2d_image *msk;
-
-	struct fimg2d_rect *src_rect;
-	struct fimg2d_rect *dst_rect;
-	struct fimg2d_rect *msk_rect;
-
+	struct fimg2d_image *tmp;
+	struct fimg2d_image *dst;
+	enum blit_sync sync;
 	unsigned int seq_no;
 };
 
 #ifdef __KERNEL__
 
-/* enables definition to estimate performance */
+/**
+ * Enables definition to estimate performance.
+ * These debug codes includes printk, so perf
+ * data are unreliable under multi instance environment
+ */
 #undef PERF_PROFILE
+#define PERF_TIMEVAL
 
 enum perf_desc {
-	PERF_L1CC_FLUSH,
-	PERF_WORKQUE,
-	PERF_L2CC_FLUSH,
-	PERF_SFR,
+	PERF_INNERCACHE,
+	PERF_OUTERCACHE,
 	PERF_BLIT,
-	PERF_KERN,	/* a whole driver */
 	PERF_END
 };
 #define MAX_PERF_DESCS		PERF_END
 
 struct fimg2d_perf {
 	int valid;
+#ifdef PERF_TIMEVAL
 	struct timeval start;
 	struct timeval end;
+#else
+	unsigned long long start;
+	unsigned long long end;
+#endif
 };
 
 /**
@@ -420,40 +436,30 @@ struct fimg2d_context {
 };
 
 /**
- * @seq_no: used for debugging
+ * @op: blit operation mode
+ * @sync: sync/async blit mode (currently support sync mode only)
+ * @image: array of image object.
+ *         [0] is for src image
+ *         [1] is for mask image
+ *         [2] is for temporary buffer
+ *             set when using 2-step blit at a single command
+ *         [3] is for dst, dst must not be null
+ *         * tmp image must be the same to dst except memory address
+ * @seq_no: user debugging info.
+ *          for example, user can set sequence number or pid.
+ * @dma_all: total dma size of src, msk, dst
+ * @dma: array of dma info for each src, msk, tmp and dst
+ * @ctx: context is created when user open fimg2d device.
  * @node: list head of blit command queue
  */
 struct fimg2d_bltcmd {
 	enum blit_op op;
-
-	enum premultiplied premult;
-	unsigned char g_alpha;
-	bool dither;
-	enum rotation rotate;
-	struct fimg2d_scale scaling;
-	struct fimg2d_repeat repeat;
-	struct fimg2d_bluscr bluscr;
-	struct fimg2d_clip clipping;
-
-	bool srcen;
-	bool dsten;
-	bool msken;
-
-	unsigned long solid_color;
-	struct fimg2d_image src;
-	struct fimg2d_image dst;
-	struct fimg2d_image msk;
-
-	struct fimg2d_rect src_rect;
-	struct fimg2d_rect dst_rect;
-	struct fimg2d_rect msk_rect;
-
-	size_t size_all;
-	struct fimg2d_cache src_cache;
-	struct fimg2d_cache dst_cache;
-	struct fimg2d_cache msk_cache;
-
+	enum blit_sync sync;
 	unsigned int seq_no;
+	size_t dma_all;
+	struct fimg2d_param param;
+	struct fimg2d_image image[MAX_IMAGES];
+	struct fimg2d_dma_group dma[MAX_IMAGES];
 	struct fimg2d_context *ctx;
 	struct list_head node;
 };
@@ -493,7 +499,8 @@ struct fimg2d_control {
 	struct workqueue_struct *work_q;
 
 	void (*blit)(struct fimg2d_control *info);
-	void (*configure)(struct fimg2d_control *info, struct fimg2d_bltcmd *cmd);
+	int (*configure)(struct fimg2d_control *info,
+			struct fimg2d_bltcmd *cmd);
 	void (*run)(struct fimg2d_control *info);
 	void (*stop)(struct fimg2d_control *info);
 	void (*dump)(struct fimg2d_control *info);

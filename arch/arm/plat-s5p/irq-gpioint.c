@@ -106,8 +106,9 @@ static void s5p_gpioint_handler(unsigned int irq, struct irq_desc *desc)
 		struct s3c_gpio_chip *chip = bank->chips[group];
 		if (!chip)
 			continue;
-		if (soc_is_exynos4210() || soc_is_exynos4212() || soc_is_exynos4412()
-			|| soc_is_exynos5250())
+		if (soc_is_exynos4210() || soc_is_exynos4212()
+		    || soc_is_exynos4412()
+		    || soc_is_exynos5250())
 			eint_offset = chip->eint_offset;
 		else
 			eint_offset = REG_OFFSET(group);
@@ -115,9 +116,6 @@ static void s5p_gpioint_handler(unsigned int irq, struct irq_desc *desc)
 		if (!pend)
 			continue;
 		mask = __raw_readl(GPIO_BASE(chip) + MASK_OFFSET + eint_offset);
-		if (!(pend & ~mask))
-			pr_err("%s: irq:%d group:%d pend:%x while mask:%x\n",
-			       __func__, irq, group, pend, mask);
 		pend &= ~mask;
 
 		while (pend) {

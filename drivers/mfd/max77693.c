@@ -172,6 +172,8 @@ static int max77693_i2c_probe(struct i2c_client *i2c,
 	if (ret < 0)
 		goto err_mfd;
 
+	device_init_wakeup(max77693->dev, pdata->wakeup);
+
 	return ret;
 
 err_mfd:
@@ -207,7 +209,7 @@ static int max77693_suspend(struct device *dev)
 	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
 	struct max77693_dev *max77693 = i2c_get_clientdata(i2c);
 
-	if (max77693->wakeup)
+	if (device_may_wakeup(dev))
 		enable_irq_wake(max77693->irq);
 
 	disable_irq(max77693->irq);
@@ -220,21 +222,143 @@ static int max77693_resume(struct device *dev)
 	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
 	struct max77693_dev *max77693 = i2c_get_clientdata(i2c);
 
-	if (max77693->wakeup)
+	if (device_may_wakeup(dev))
 		disable_irq_wake(max77693->irq);
 
 	enable_irq(max77693->irq);
 
-	return 0;
+	return max77693_irq_resume(max77693);
 }
 #else
 #define max77693_suspend	NULL
 #define max77693_resume		NULL
 #endif /* CONFIG_PM */
 
+#ifdef CONFIG_HIBERNATION
+
+u8 max77693_dumpaddr_pmic[] = {
+	MAX77693_LED_REG_IFLASH1,
+	MAX77693_LED_REG_IFLASH2,
+	MAX77693_LED_REG_ITORCH,
+	MAX77693_LED_REG_ITORCHTORCHTIMER,
+	MAX77693_LED_REG_FLASH_TIMER,
+	MAX77693_LED_REG_FLASH_EN,
+	MAX77693_LED_REG_MAX_FLASH1,
+	MAX77693_LED_REG_MAX_FLASH2,
+	MAX77693_LED_REG_VOUT_CNTL,
+	MAX77693_LED_REG_VOUT_FLASH1,
+	MAX77693_LED_REG_FLASH_INT_STATUS,
+
+	MAX77693_PMIC_REG_TOPSYS_INT_MASK,
+	MAX77693_PMIC_REG_MAINCTRL1,
+	MAX77693_PMIC_REG_LSCNFG,
+	MAX77693_CHG_REG_CHG_INT_MASK,
+	MAX77693_CHG_REG_CHG_CNFG_00,
+	MAX77693_CHG_REG_CHG_CNFG_01,
+	MAX77693_CHG_REG_CHG_CNFG_02,
+	MAX77693_CHG_REG_CHG_CNFG_03,
+	MAX77693_CHG_REG_CHG_CNFG_04,
+	MAX77693_CHG_REG_CHG_CNFG_05,
+	MAX77693_CHG_REG_CHG_CNFG_06,
+	MAX77693_CHG_REG_CHG_CNFG_07,
+	MAX77693_CHG_REG_CHG_CNFG_08,
+	MAX77693_CHG_REG_CHG_CNFG_09,
+	MAX77693_CHG_REG_CHG_CNFG_10,
+	MAX77693_CHG_REG_CHG_CNFG_11,
+	MAX77693_CHG_REG_CHG_CNFG_12,
+	MAX77693_CHG_REG_CHG_CNFG_13,
+	MAX77693_CHG_REG_CHG_CNFG_14,
+	MAX77693_CHG_REG_SAFEOUT_CTRL,
+};
+
+u8 max77693_dumpaddr_muic[] = {
+	MAX77693_MUIC_REG_INTMASK1,
+	MAX77693_MUIC_REG_INTMASK2,
+	MAX77693_MUIC_REG_INTMASK3,
+	MAX77693_MUIC_REG_CDETCTRL1,
+	MAX77693_MUIC_REG_CDETCTRL2,
+	MAX77693_MUIC_REG_CTRL1,
+	MAX77693_MUIC_REG_CTRL2,
+	MAX77693_MUIC_REG_CTRL3,
+};
+
+
+u8 max77693_dumpaddr_haptic[] = {
+	MAX77693_HAPTIC_REG_CONFIG1,
+	MAX77693_HAPTIC_REG_CONFIG2,
+	MAX77693_HAPTIC_REG_CONFIG_CHNL,
+	MAX77693_HAPTIC_REG_CONFG_CYC1,
+	MAX77693_HAPTIC_REG_CONFG_CYC2,
+	MAX77693_HAPTIC_REG_CONFIG_PER1,
+	MAX77693_HAPTIC_REG_CONFIG_PER2,
+	MAX77693_HAPTIC_REG_CONFIG_PER3,
+	MAX77693_HAPTIC_REG_CONFIG_PER4,
+	MAX77693_HAPTIC_REG_CONFIG_DUTY1,
+	MAX77693_HAPTIC_REG_CONFIG_DUTY2,
+	MAX77693_HAPTIC_REG_CONFIG_PWM1,
+	MAX77693_HAPTIC_REG_CONFIG_PWM2,
+	MAX77693_HAPTIC_REG_CONFIG_PWM3,
+	MAX77693_HAPTIC_REG_CONFIG_PWM4,
+};
+
+
+static int max77693_freeze(struct device *dev)
+{
+	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
+	struct max77693_dev *max77693 = i2c_get_clientdata(i2c);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(max77693_dumpaddr_pmic); i++)
+		max77693_read_reg(i2c, max77693_dumpaddr_pmic[i],
+				&max77693->reg_pmic_dump[i]);
+
+	for (i = 0; i < ARRAY_SIZE(max77693_dumpaddr_muic); i++)
+		max77693_read_reg(i2c, max77693_dumpaddr_muic[i],
+				&max77693->reg_muic_dump[i]);
+
+	for (i = 0; i < ARRAY_SIZE(max77693_dumpaddr_haptic); i++)
+		max77693_read_reg(i2c, max77693_dumpaddr_haptic[i],
+				&max77693->reg_haptic_dump[i]);
+
+	disable_irq(max77693->irq);
+
+	return 0;
+}
+
+static int max77693_restore(struct device *dev)
+{
+	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
+	struct max77693_dev *max77693 = i2c_get_clientdata(i2c);
+	int i;
+
+	enable_irq(max77693->irq);
+
+	for (i = 0; i < ARRAY_SIZE(max77693_dumpaddr_pmic); i++)
+		max77693_write_reg(i2c, max77693_dumpaddr_pmic[i],
+				max77693->reg_pmic_dump[i]);
+
+	for (i = 0; i < ARRAY_SIZE(max77693_dumpaddr_muic); i++)
+		max77693_write_reg(i2c, max77693_dumpaddr_muic[i],
+				max77693->reg_muic_dump[i]);
+
+	for (i = 0; i < ARRAY_SIZE(max77693_dumpaddr_haptic); i++)
+		max77693_write_reg(i2c, max77693_dumpaddr_haptic[i],
+				max77693->reg_haptic_dump[i]);
+
+
+	return 0;
+}
+#endif
+
+
 const struct dev_pm_ops max77693_pm = {
 	.suspend = max77693_suspend,
 	.resume = max77693_resume,
+#ifdef CONFIG_HIBERNATION
+	.freeze =  max77693_freeze,
+	.thaw = max77693_restore,
+	.restore = max77693_restore,
+#endif
 };
 
 static struct i2c_driver max77693_i2c_driver = {

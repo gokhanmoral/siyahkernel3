@@ -20,6 +20,7 @@
 #include <linux/gfp.h>
 #include <linux/memblock.h>
 #include <linux/sort.h>
+#include <linux/suspend.h>
 
 #include <asm/mach-types.h>
 #include <asm/prom.h>
@@ -567,6 +568,12 @@ void __init mem_init(void)
 	/* These pointers are filled in on TCM detection */
 	extern u32 dtcm_end;
 	extern u32 itcm_end;
+#endif
+
+#ifdef CONFIG_HIBERNATION
+	/* kernel code is nosave region */
+	register_nosave_region(__pa(_text) >> PAGE_SHIFT,
+				(__pa(_text) + _etext - _text) >> PAGE_SHIFT);
 #endif
 
 	max_mapnr   = pfn_to_page(max_pfn + PHYS_PFN_OFFSET) - mem_map;

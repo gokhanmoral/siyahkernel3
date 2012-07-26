@@ -386,17 +386,11 @@ static void sdhci_s3c_notify_change(struct platform_device *dev, int state)
 			pr_info("%s: card inserted.\n",
 					mmc_hostname(host->mmc));
 			host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
-#ifdef CONFIG_MACH_MIDAS_01_BD
-			sdhci_s3c_vtf_on_off(1);
-#endif
 		} else {
 			dev_dbg(&dev->dev, "card removed.\n");
 			pr_info("%s: card removed.\n",
 					mmc_hostname(host->mmc));
 			host->quirks &= ~SDHCI_QUIRK_BROKEN_CARD_DETECTION;
-#ifdef CONFIG_MACH_MIDAS_01_BD
-			sdhci_s3c_vtf_on_off(0);
-#endif
 		}
 		tasklet_schedule(&host->card_tasklet);
 		spin_unlock_irqrestore(&host->lock, flags);
@@ -652,11 +646,6 @@ static int __devinit sdhci_s3c_probe(struct platform_device *pdev)
 	if (pdata->pm_flags)
 		host->mmc->pm_flags |= pdata->pm_flags;
 
-#ifdef CONFIG_MACH_MIDAS_01_BD
-	/* before calling shhci_add_host, you should turn vdd_tflash on */
-	sdhci_s3c_vtf_on_off(1);
-#endif
-
 	/* To turn on vmmc regulator only if sd card exists,
 	   GPIO pin for card detection should be initialized.
 	   Moved from sdhci_s3c_setup_card_detect_gpio() function */
@@ -720,15 +709,6 @@ static int __devinit sdhci_s3c_probe(struct platform_device *pdev)
 	if (pdata->cd_type == S3C_SDHCI_CD_GPIO &&
 	    gpio_is_valid(pdata->ext_cd_gpio))
 		sdhci_s3c_setup_card_detect_gpio(sc);
-
-#ifdef CONFIG_MACH_MIDAS_01_BD
-	/* if card dose not exist, it should turn vtf off */
-	if (pdata->cd_type == S3C_SDHCI_CD_GPIO &&
-			sdhci_s3c_get_card_exist(host))
-		sdhci_s3c_vtf_on_off(1);
-	else
-		sdhci_s3c_vtf_on_off(0);
-#endif
 
 	return 0;
 
@@ -798,10 +778,6 @@ static int sdhci_s3c_suspend(struct platform_device *dev, pm_message_t pm)
 
 	ret = sdhci_suspend_host(host, pm);
 
-#ifdef CONFIG_MACH_MIDAS_01_BD
-	/* turn vdd_tflash off */
-	sdhci_s3c_vtf_on_off(0);
-#endif
 	return ret;
 }
 
@@ -810,14 +786,6 @@ static int sdhci_s3c_resume(struct platform_device *dev)
 	struct sdhci_host *host = platform_get_drvdata(dev);
 	int ret = 0;
 
-#ifdef CONFIG_MACH_MIDAS_01_BD
-	/* turn vdd_tflash off if a card exists*/
-	if (sdhci_s3c_get_card_exist(host))
-		sdhci_s3c_vtf_on_off(1);
-	else
-		sdhci_s3c_vtf_on_off(0);
-
-#endif
 	ret = sdhci_resume_host(host);
 	return ret;
 }
@@ -848,7 +816,11 @@ static void __exit sdhci_s3c_exit(void)
 	platform_driver_unregister(&sdhci_s3c_driver);
 }
 
+#ifdef CONFIG_FAST_RESUME
+beforeresume_initcall(sdhci_s3c_init);
+#else
 module_init(sdhci_s3c_init);
+#endif
 module_exit(sdhci_s3c_exit);
 
 MODULE_DESCRIPTION("Samsung SDHCI (HSMMC) glue");

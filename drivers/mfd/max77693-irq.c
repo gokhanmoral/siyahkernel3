@@ -134,6 +134,9 @@ static void max77693_irq_mask(struct irq_data *data)
 	const struct max77693_irq_data *irq_data =
 	    irq_to_max77693_irq(max77693, data->irq);
 
+	if (irq_data->group >= MAX77693_IRQ_GROUP_NR)
+		return;
+
 	if (irq_data->group >= MUIC_INT1 && irq_data->group <= MUIC_INT3)
 		max77693->irq_masks_cur[irq_data->group] &= ~irq_data->mask;
 	else
@@ -145,6 +148,9 @@ static void max77693_irq_unmask(struct irq_data *data)
 	struct max77693_dev *max77693 = irq_get_chip_data(data->irq);
 	const struct max77693_irq_data *irq_data =
 	    irq_to_max77693_irq(max77693, data->irq);
+
+	if (irq_data->group >= MAX77693_IRQ_GROUP_NR)
+		return;
 
 	if (irq_data->group >= MUIC_INT1 && irq_data->group <= MUIC_INT3)
 		max77693->irq_masks_cur[irq_data->group] |= irq_data->mask;
@@ -239,7 +245,7 @@ int max77693_irq_resume(struct max77693_dev *max77693)
 
 	dev_info(max77693->dev, "%s: irq_resume ret=%d", __func__, ret);
 
-	return ret;
+	return ret >= 0 ? 0 : ret;
 }
 
 int max77693_irq_init(struct max77693_dev *max77693)

@@ -366,11 +366,13 @@
 #define FM_SEEK_TUNE_SNR_THRESHOLD      0x1403
 #define FM_SEEK_TUNE_SNR_THRESHOLD_MASK 0x007F
 #define FM_SEEK_TUNE_SNR_THRESHOLD_SHFT 0
+#define FM_SEEK_TUNE_SNR_THRESHOLD_DEFAULT 0xa
 
 /* FM_SEEK_TUNE_RSSI_THRESHOLD */
 #define FM_SEEK_TUNE_RSSI_THRESHOLD      0x1404
 #define FM_SEEK_TUNE_RSSI_THRESHOLD_MASK 0x007F
 #define FM_SEEK_TUNE_RSSI_THRESHOLD_SHFT 0
+#define FM_SEEK_TUNE_RSSI_THRESHOLD_DEFAULT 0x14
 
 /* RDS_INT_SOURCE */
 #define RDS_INT_SOURCE                0x1500
@@ -406,6 +408,7 @@
 /* RX_VOLUME */
 #define RX_VOLUME      0x4000
 #define RX_VOLUME_MASK 0x003F
+#define RX_VOLUME_MAX  0x003F
 #define RX_VOLUME_SHFT 0
 
 /* RX_HARD_MUTE */
@@ -444,6 +447,13 @@
 /**************************************************************************
  * General Driver Definitions
  **************************************************************************/
+enum {
+	RADIO_OP_LP_MODE	= 0,
+	/* radio playback routed directly codec. default */
+	RADIO_OP_RICH_MODE,
+	/* radio playback routed via AP */
+	RADIO_OP_DEFAULT = RADIO_OP_LP_MODE
+};
 
 /*
  * si4705_device - private data
@@ -453,6 +463,9 @@ struct si4705_device {
 
 	/* driver management */
 	unsigned int users;
+	unsigned char op_mode;
+	unsigned char power_state;
+	unsigned char power_state_at_suspend;
 
 	/* si4705 int_status (0..7) */
 	unsigned char int_status;
@@ -528,3 +541,7 @@ int si4705_gpio_ctl(struct si4705_device *radio, u8 gpio1,
 int si4705_gpio_set(struct si4705_device *radio, u8 gpio1,
 		u8 gpio2, u8 gpio3);
 int si4705_disconnect_check(struct si4705_device *radio);
+u16 si4705_vol_conv_index_to_value(struct si4705_device *radio, s32 index);
+s32 si4705_vol_conv_value_to_index(struct si4705_device *radio, u16 value);
+u16 si4705_get_seek_tune_rssi_threshold_value(struct si4705_device *radio);
+u16 si4705_get_seek_tune_snr_threshold_value(struct si4705_device *radio);

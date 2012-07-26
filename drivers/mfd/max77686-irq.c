@@ -89,7 +89,7 @@ static void max77686_irq_lock(struct irq_data *data)
 	struct max77686_dev *max77686 = irq_get_chip_data(data->irq);
 
 	if (debug_mask & MAX77686_DEBUG_IRQ_MASK)
-		pr_info("%s\n", __func__);
+		pr_debug("%s\n", __func__);
 
 	mutex_lock(&max77686->irqlock);
 }
@@ -104,7 +104,7 @@ static void max77686_irq_sync_unlock(struct irq_data *data)
 		struct i2c_client *i2c = max77686_get_i2c(max77686, i);
 
 		if (debug_mask & MAX77686_DEBUG_IRQ_MASK)
-			pr_info("%s: mask_reg[%d]=0x%x, cur=0x%x\n",
+			pr_debug("%s: mask_reg[%d]=0x%x, cur=0x%x\n",
 				__func__, i, mask_reg, max77686->irq_masks_cur[i]);
 
 		if (mask_reg == MAX77686_REG_INVALID ||

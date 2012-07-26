@@ -70,7 +70,7 @@
 
 enum s5p_cpu_type {
 	TYPE_S5PV210,
-	TYPE_EXYNOS4,
+	TYPE_EXYNOS,
 };
 
 enum {
@@ -91,6 +91,8 @@ static void s5p_ace_bc_task(unsigned long data);
 
 static int count_clk;
 static int count_clk_delta;
+
+static int count_use_sw;
 
 #if defined(ACE_DEBUG_HEARTBEAT) || defined(ACE_DEBUG_WATCHDOG)
 #define ACE_HEARTBEAT_MS		10000
@@ -312,6 +314,7 @@ static void s5p_ace_resume_device(struct s5p_ace_device *dev)
 	}
 }
 
+#if defined(CONFIG_ACE_BC)
 static int s5p_ace_aes_set_cipher(struct s5p_ace_aes_ctx *sctx,
 				u32 alg_id, u32 key_size)
 {
@@ -327,9 +330,10 @@ static int s5p_ace_aes_set_cipher(struct s5p_ace_aes_ctx *sctx,
 	new_status |= ACE_AES_SWAPCNT_ON;
 	new_status |= ACE_AES_SWAPIV_ON;
 
-	if (s5p_ace_dev.cputype == TYPE_EXYNOS4) {
+	if (s5p_ace_dev.cputype == TYPE_EXYNOS) {
 		new_status |= ACE_AES_SWAPDO_ON;
 		new_status |= ACE_AES_SWAPDI_ON;
+		new_status |= ACE_AES_COUNTERSIZE_128;
 	}
 
 	switch (MI_GET_MODE(alg_id)) {
@@ -621,7 +625,7 @@ void s5p_ace_sg_update(struct scatterlist **sg, size_t *offset,
 	*offset += count;
 	if (*offset >= sg_dma_len(*sg)) {
 		*offset -= sg_dma_len(*sg);
-		*sg = sg_next(*sg);
+		*sg = scatterwalk_sg_next(*sg);
 	}
 }
 
@@ -632,9 +636,9 @@ int s5p_ace_sg_set_from_sg(struct scatterlist *dst, struct scatterlist *src,
 	while (num--) {
 		sg_set_page(dst, sg_page(src), sg_dma_len(src), src->offset);
 
-		src = sg_next(src);
-		dst = sg_next(dst);
-		if (!src || !dst)
+		dst++;
+		src = scatterwalk_sg_next(src);
+		if (!src)
 			return -ENOMEM;
 	}
 	return 0;
@@ -912,15 +916,9 @@ static int s5p_ace_handle_lock_req(struct s5p_ace_device *dev,
 	else
 		ret = crypto_ablkcipher_decrypt(req);
 
-	if (!test_and_set_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags)) {
-		sctx->req = req;
-		dev->ctx_bc = sctx;
-		tasklet_schedule(&dev->task_bc);
-	} else {
-		req->base.tfm = sctx->origin_tfm;
-		req->base.complete(&req->base, ret);
-		s5p_ace_clock_gating(ACE_CLOCK_OFF);
-	}
+	sctx->req = req;
+	dev->ctx_bc = sctx;
+	tasklet_schedule(&dev->task_bc);
 
 	return ret;
 }
@@ -968,10 +966,8 @@ static int s5p_ace_aes_handle_req(struct s5p_ace_device *dev)
 #endif
 	rctx = ablkcipher_request_ctx(req);
 
-	if (s5p_ace_dev.flags & BIT_MASK(FLAGS_USE_SW)) {
-		clear_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags);
+	if (s5p_ace_dev.flags & BIT_MASK(FLAGS_USE_SW))
 		return s5p_ace_handle_lock_req(dev, sctx, req, rctx->mode);
-	}
 
 	/* assign new request to device */
 	sctx->req = req;
@@ -1445,6 +1441,7 @@ static struct crypto_alg algs_bc[] = {
 		}
 	}
 };
+#endif
 
 #define TYPE_HASH_SHA1			0
 #define TYPE_HASH_SHA256		1
@@ -1540,7 +1537,7 @@ static int s5p_ace_sha_engine(struct s5p_ace_hash_ctx *sctx,
 	s5p_ace_write_sfr(ACE_FC_HRDMAC, reg);
 
 	/* Set byte swap of data in */
-	if (s5p_ace_dev.cputype == TYPE_EXYNOS4)
+	if (s5p_ace_dev.cputype == TYPE_EXYNOS)
 		s5p_ace_write_sfr(ACE_HASH_BYTESWAP, ACE_HASH_SWAPDI_ON |
 				ACE_HASH_SWAPDO_ON | ACE_HASH_SWAPIV_ON);
 	else
@@ -1723,11 +1720,16 @@ static void sha1_export_ctx_to_sw(struct shash_desc *desc)
 	struct sha1_state *sw_ctx = shash_desc_ctx(&sctx->sw_desc);
 	int i;
 
+	if (sctx->prelen_low == 0 && sctx->prelen_high == 0)
+		crypto_shash_alg(&sw_tfm[sctx->type])
+				->init(&sctx->sw_desc);
+	else {
+		for (i = 0; i < SHA1_DIGEST_SIZE/4; i++)
+			sw_ctx->state[i] = be32_to_cpu(sctx->state[i]);
+	}
+
 	sw_ctx->count = (((u64)sctx->prelen_high << 29) |
 			(sctx->prelen_low >> 3)) + sctx->buflen;
-
-	for (i = 0; i < SHA1_DIGEST_SIZE/4; i++)
-		sw_ctx->state[i] = be32_to_cpu(sctx->state[i]);
 
 	if (sctx->buflen)
 		memcpy(sw_ctx->buffer, sctx->buffer, sctx->buflen);
@@ -1739,11 +1741,16 @@ static void sha256_export_ctx_to_sw(struct shash_desc *desc)
 	struct sha256_state *sw_ctx = shash_desc_ctx(&sctx->sw_desc);
 	int i;
 
+	if (sctx->prelen_low == 0 && sctx->prelen_high == 0)
+		crypto_shash_alg(&sw_tfm[sctx->type])
+				->init(&sctx->sw_desc);
+	else {
+		for (i = 0; i < SHA256_DIGEST_SIZE/4; i++)
+			sw_ctx->state[i] = be32_to_cpu(sctx->state[i]);
+	}
+
 	sw_ctx->count = (((u64)sctx->prelen_high << 29) |
 			(sctx->prelen_low >> 3)) + sctx->buflen;
-
-	for (i = 0; i < SHA256_DIGEST_SIZE/4; i++)
-		sw_ctx->state[i] = be32_to_cpu(sctx->state[i]);
 
 	if (sctx->buflen)
 		memcpy(sw_ctx->buf, sctx->buffer, sctx->buflen);
@@ -1786,10 +1793,8 @@ static void sha256_import_ctx_from_sw(struct shash_desc *desc)
 static void hash_export_ctx_to_sw(struct shash_desc *desc)
 {
 	struct s5p_ace_hash_ctx *sctx = shash_desc_ctx(desc);
-	struct sha256_state *sw_ctx = shash_desc_ctx(&sctx->sw_desc);
 
 	if (!sctx->sw_init) {
-		sw_ctx = &sctx->dummy;
 		sctx->sw_init = 1;
 		if (sctx->prelen_low == 0 && sctx->prelen_high == 0 &&
 			sctx->buflen == 0) {
@@ -1854,6 +1859,7 @@ static int sha_sw_finup(struct shash_desc *desc, const u8 *data, unsigned int
 	return 0;
 }
 
+#if defined(CONFIG_ACE_HASH_SHA1)
 static int s5p_ace_sha1_init(struct shash_desc *desc)
 {
 	struct s5p_ace_hash_ctx *sctx = shash_desc_ctx(desc);
@@ -1865,7 +1871,9 @@ static int s5p_ace_sha1_init(struct shash_desc *desc)
 
 	return 0;
 }
+#endif
 
+#if defined(CONFIG_ACE_HASH_SHA256)
 static int s5p_ace_sha256_init(struct shash_desc *desc)
 {
 	struct s5p_ace_hash_ctx *sctx = shash_desc_ctx(desc);
@@ -1877,6 +1885,7 @@ static int s5p_ace_sha256_init(struct shash_desc *desc)
 
 	return 0;
 }
+#endif
 
 static int s5p_ace_sha_update(struct shash_desc *desc,
 			      const u8 *data, unsigned int len)
@@ -2035,6 +2044,7 @@ out:
 	return ret;
 }
 
+#if defined(CONFIG_ACE_HASH_SHA1)
 static int s5p_ace_sha1_digest(struct shash_desc *desc, const u8 *data,
 		      unsigned int len, u8 *out)
 {
@@ -2046,7 +2056,9 @@ static int s5p_ace_sha1_digest(struct shash_desc *desc, const u8 *data,
 
 	return s5p_ace_sha_finup(desc, data, len, out);
 }
+#endif
 
+#if defined(CONFIG_ACE_HASH_SHA256)
 static int s5p_ace_sha256_digest(struct shash_desc *desc, const u8 *data,
 		      unsigned int len, u8 *out)
 {
@@ -2058,6 +2070,7 @@ static int s5p_ace_sha256_digest(struct shash_desc *desc, const u8 *data,
 
 	return s5p_ace_sha_finup(desc, data, len, out);
 }
+#endif
 
 static int s5p_ace_hash_export(struct shash_desc *desc, void *out)
 {
@@ -2094,6 +2107,7 @@ static void s5p_ace_hash_cra_exit(struct crypto_tfm *tfm)
 
 #ifdef CONFIG_ACE_HASH_ASYNC
 static struct ahash_alg algs_hash[] = {
+#if defined(CONFIG_ACE_HASH_SHA1)
 	{
 		.init		= s5p_ace_sha1_init,
 		.update		= s5p_ace_sha_update,
@@ -2115,9 +2129,11 @@ static struct ahash_alg algs_hash[] = {
 			.cra_exit		= s5p_ace_hash_cra_exit,
 		}
 	}
+#endif
 };
 #else
 static struct shash_alg algs_hash[] = {
+#if defined(CONFIG_ACE_HASH_SHA1)
 	{
 		.digestsize	= SHA1_DIGEST_SIZE,
 		.init		= s5p_ace_sha1_init,
@@ -2140,6 +2156,8 @@ static struct shash_alg algs_hash[] = {
 			.cra_exit		= s5p_ace_hash_cra_exit,
 		}
 	},
+#endif
+#if defined(CONFIG_ACE_HASH_SHA256)
 	{
 		.digestsize	= SHA256_DIGEST_SIZE,
 		.init		= s5p_ace_sha256_init,
@@ -2162,6 +2180,7 @@ static struct shash_alg algs_hash[] = {
 			.cra_exit		= s5p_ace_hash_cra_exit,
 		}
 	}
+#endif
 };
 #endif		/* CONFIG_ACE_HASH_ASYNC */
 #endif		/* CONFIG_ACE_HASH_SHA1 or CONFIG_ACE_HASH_SHA256 */
@@ -2192,6 +2211,7 @@ int ace_s5p_get_sync_lock(void)
 {
 	unsigned long timeout;
 	int get_lock_bc = 0, get_lock_hash = 0;
+	unsigned long flags;
 
 	timeout = jiffies + msecs_to_jiffies(10);
 	while (time_before(jiffies, timeout)) {
@@ -2212,11 +2232,27 @@ int ace_s5p_get_sync_lock(void)
 	}
 
 	/* set lock flag */
-	if (get_lock_bc && get_lock_hash)
+	if (get_lock_bc && get_lock_hash) {
+		spin_lock_irqsave(&s5p_ace_dev.lock, flags);
+		count_use_sw++;
+		spin_unlock_irqrestore(&s5p_ace_dev.lock, flags);
 		set_bit(FLAGS_USE_SW, &s5p_ace_dev.flags);
+	}
 
-	if (get_lock_bc)
+	if (get_lock_bc) {
+#ifdef CONFIG_ACE_BC_ASYNC
+		if (s5p_ace_dev.queue_bc.qlen > 0) {
+			s5p_ace_clock_gating(ACE_CLOCK_ON);
+			s5p_ace_dev.rc_depth_bc = 0;
+			s5p_ace_aes_handle_req(&s5p_ace_dev);
+		} else {
+			clear_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags);
+		}
+#else
 		clear_bit(FLAGS_BC_BUSY, &s5p_ace_dev.flags);
+#endif
+	}
+
 	if (get_lock_hash)
 		clear_bit(FLAGS_HASH_BUSY, &s5p_ace_dev.flags);
 
@@ -2230,17 +2266,22 @@ int ace_s5p_get_sync_lock(void)
 
 int ace_s5p_release_sync_lock(void)
 {
-	/* clear lock flag */
-	if (!test_and_clear_bit(FLAGS_USE_SW, &s5p_ace_dev.flags))
-		return -ENOLCK;
+	unsigned long flags;
 
-	clear_bit(FLAGS_USE_SW, &s5p_ace_dev.flags);
+	spin_lock_irqsave(&s5p_ace_dev.lock, flags);
+	count_use_sw--;
+	spin_unlock_irqrestore(&s5p_ace_dev.lock, flags);
+
+	/* clear lock flag */
+	if (!count_use_sw)
+		clear_bit(FLAGS_USE_SW, &s5p_ace_dev.flags);
+
 	s5p_ace_clock_gating(ACE_CLOCK_OFF);
 
 	return 0;
 }
 
-static int __init s5p_ace_probe(struct platform_device *pdev)
+static int __devinit s5p_ace_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct s5p_ace_device *s5p_adt = &s5p_ace_dev;
@@ -2338,6 +2379,7 @@ static int __init s5p_ace_probe(struct platform_device *pdev)
 			(unsigned long)s5p_adt);
 #endif
 
+#if defined(CONFIG_ACE_BC)
 	for (i = 0; i < ARRAY_SIZE(algs_bc); i++) {
 		INIT_LIST_HEAD(&algs_bc[i].cra_list);
 		algs_bc[i].cra_flags |= CRYPTO_ALG_NEED_FALLBACK;
@@ -2346,6 +2388,7 @@ static int __init s5p_ace_probe(struct platform_device *pdev)
 			goto err_reg_bc;
 		printk(KERN_INFO "ACE: %s\n", algs_bc[i].cra_driver_name);
 	}
+#endif
 
 #if defined(CONFIG_ACE_HASH_SHA1) || defined(CONFIG_ACE_HASH_SHA256)
 	fallback_hash = (struct crypto_hash **)
@@ -2392,6 +2435,8 @@ static int __init s5p_ace_probe(struct platform_device *pdev)
 	secmem_ftn.release = &ace_s5p_release_sync_lock;
 	secmem_crypto_register(&secmem_ftn);
 
+	count_use_sw = 0;
+
 	printk(KERN_NOTICE "ACE driver is initialized\n");
 
 	return 0;
@@ -2410,11 +2455,13 @@ err_fallback_hash:
 		crypto_free_hash(fallback_hash[k]);
 	kfree(fallback_hash);
 #endif
+#if defined(CONFIG_ACE_BC)
 err_reg_bc:
 	for (k = 0; k < i; k++)
 		crypto_unregister_alg(&algs_bc[k]);
 #ifdef CONFIG_ACE_BC_ASYNC
 	tasklet_kill(&s5p_adt->task_bc);
+#endif
 #endif
 #ifdef CONFIG_ACE_HASH_ASYNC
 	tasklet_kill(&s5p_adt->task_hash);
@@ -2488,11 +2535,13 @@ static int s5p_ace_remove(struct platform_device *dev)
 #endif
 #endif
 
+#if defined(CONFIG_ACE_BC)
 	for (i = 0; i < ARRAY_SIZE(algs_bc); i++)
 		crypto_unregister_alg(&algs_bc[i]);
 
 #ifdef CONFIG_ACE_BC_ASYNC
 	tasklet_kill(&s5p_adt->task_bc);
+#endif
 #endif
 #ifdef CONFIG_ACE_HASH_ASYNC
 	tasklet_kill(&s5p_adt->task_hash);
@@ -2562,8 +2611,8 @@ static struct platform_device_id s5p_ace_driver_ids[] = {
 		.name		= "s5pv210-ace",
 		.driver_data	= TYPE_S5PV210,
 	}, {
-		.name		= "exynos4-ace",
-		.driver_data	= TYPE_EXYNOS4,
+		.name		= "exynos-ace",
+		.driver_data	= TYPE_EXYNOS,
 	},
 	{}
 };

@@ -15,11 +15,12 @@
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 
+#include <linux/platform_data/exynos_usb3_drd.h>
+
 #include <mach/irqs.h>
 #include <mach/map.h>
 
 #include <plat/devs.h>
-#include <plat/udc-ss.h>
 #include <plat/usb-phy.h>
 
 static struct resource exynos_ss_udc_resources[] = {
@@ -73,26 +74,28 @@ struct platform_device exynos_device_xhci = {
 	},
 };
 
-void __init exynos_ss_udc_set_platdata(struct exynos_ss_udc_plat *pd)
+void __init exynos_ss_udc_set_platdata(struct exynos_usb3_drd_pdata *pd)
 {
-	struct exynos_ss_udc_plat *npd;
+	struct exynos_usb3_drd_pdata *npd;
 
-	npd = s3c_set_platdata(pd, sizeof(struct exynos_ss_udc_plat),
+	npd = s3c_set_platdata(pd, sizeof(struct exynos_usb3_drd_pdata),
 			&exynos_device_ss_udc);
 
+	npd->phy_type = S5P_USB_PHY_DRD;
 	if (!npd->phy_init)
 		npd->phy_init = s5p_usb_phy_init;
 	if (!npd->phy_exit)
 		npd->phy_exit = s5p_usb_phy_exit;
 }
 
-void __init exynos_xhci_set_platdata(struct exynos_xhci_plat *pd)
+void __init exynos_xhci_set_platdata(struct exynos_usb3_drd_pdata *pd)
 {
-	struct exynos_xhci_plat *npd;
+	struct exynos_usb3_drd_pdata *npd;
 
-	npd = s3c_set_platdata(pd, sizeof(struct exynos_xhci_plat),
+	npd = s3c_set_platdata(pd, sizeof(struct exynos_usb3_drd_pdata),
 			&exynos_device_xhci);
 
+	npd->phy_type = S5P_USB_PHY_DRD;
 	if (!npd->phy_init)
 		npd->phy_init = s5p_usb_phy_init;
 	if (!npd->phy_exit)

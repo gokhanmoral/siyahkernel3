@@ -48,6 +48,9 @@ typedef enum
 #ifdef CONFIG_ION_EXYNOS
 	_UMP_IOC_ION_IMPORT,
 #endif
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	_UMP_IOC_DMABUF_IMPORT,
+#endif
 }_ump_uk_functions;
 
 typedef enum
@@ -94,6 +97,15 @@ typedef struct _ump_uk_ion_import_s
 	u32 size;                               /**< Input and output. Requested size; input. Returned size; output */
 	ump_uk_alloc_constraints constraints;   /**< Only input to Devicedriver */
 } _ump_uk_ion_import_s;
+#endif
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+struct ump_uk_dmabuf {
+	void		*ctx;
+	int		fd;
+	size_t		size;
+	uint32_t	secure_id;
+};
 #endif
 
 /**

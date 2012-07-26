@@ -8,6 +8,10 @@
  * published by the Free Software Foundation.
  */
 
+#ifdef CONFIG_S5P_SYSTEM_MMU_DEBUG
+#define DEBUG
+#endif
+
 #include <linux/io.h>
 #include <linux/mm.h>
 #include <linux/platform_device.h>
@@ -18,7 +22,7 @@
 
 #include <asm/cacheflush.h>
 
-#include <plat/sysmmu.h>
+#include <plat/s5p-sysmmu.h>
 
 #ifdef CONFIG_S5P_SYSTEM_MMU_DEBUG
 #define DEBUG /* for dev_dbg() */
@@ -72,7 +76,7 @@
 struct s5p_iommu_domain {
 	struct device *dev;
 	unsigned long *pgtable;
-	spinlock_t lock;
+	struct mutex lock;
 };
 
 /* slab cache for level 2 page tables */
@@ -103,9 +107,11 @@ static int s5p_iommu_domain_init(struct iommu_domain *domain)
 	memset(priv->pgtable, 0, S5P_LV1TABLE_ENTRIES * sizeof(unsigned long));
 	pgtable_flush(priv->pgtable, priv->pgtable + S5P_LV1TABLE_ENTRIES);
 
-	spin_lock_init(&priv->lock);
+	mutex_init(&priv->lock);
 
 	domain->priv = priv;
+	pr_debug("%s: Allocated IOMMU domain %p with pgtable @ %#lx\n",
+			__func__, domain, __pa(priv->pgtable));
 	return 0;
 }
 
@@ -122,16 +128,22 @@ static int s5p_iommu_attach_device(struct iommu_domain *domain,
 				   struct device *dev)
 {
 	int ret;
-	unsigned long flags;
 	struct s5p_iommu_domain *s5p_domain = domain->priv;
+
+	if (s5p_domain->dev) {
+		pr_debug("%s: %s is already attached to doamin %p\n", __func__,
+				dev_name(s5p_domain->dev), domain);
+		BUG_ON(s5p_domain->dev != dev);
+		return -EBUSY;
+	}
 
 	ret = s5p_sysmmu_enable(dev, virt_to_phys(s5p_domain->pgtable));
 	if (ret)
 		return ret;
 
-	spin_lock_irqsave(&s5p_domain->lock, flags);
+	mutex_lock(&s5p_domain->lock);
 	s5p_domain->dev = dev;
-	spin_unlock_irqrestore(&s5p_domain->lock, flags);
+	mutex_unlock(&s5p_domain->lock);
 
 	return 0;
 }
@@ -140,18 +152,19 @@ static void s5p_iommu_detach_device(struct iommu_domain *domain,
 				    struct device *dev)
 {
 	struct s5p_iommu_domain *s5p_domain = domain->priv;
-	unsigned long flags;
 
-	spin_lock_irqsave(&s5p_domain->lock, flags);
+	mutex_lock(&s5p_domain->lock);
 
 	if (s5p_domain->dev == dev) {
-		spin_unlock_irqrestore(&s5p_domain->lock, flags);
+		mutex_unlock(&s5p_domain->lock);
 
 		s5p_sysmmu_disable(s5p_domain->dev);
 
 		s5p_domain->dev = NULL;
 	} else {
-		spin_unlock_irqrestore(&s5p_domain->lock, flags);
+		pr_debug("%s: %s is not attached to domain of pgtable @ %#lx\n",
+			__func__, dev_name(dev), __pa(s5p_domain->pgtable));
+		mutex_unlock(&s5p_domain->lock);
 	}
 
 }
@@ -162,9 +175,9 @@ static bool section_available(struct iommu_domain *domain,
 	struct s5p_iommu_domain *s5p_domain = domain->priv;
 
 	if (S5P_SECTION_LV1_ENTRY(*lv1entry)) {
-		dev_err(s5p_domain->dev,
-				"1MB entry alread exists at 0x%08x\n",
-				(lv1entry - s5p_domain->pgtable) * SZ_1M);
+		pr_err("1MB entry alread exists at %#x // pgtable %#lx\n",
+				(lv1entry - s5p_domain->pgtable) * SZ_1M,
+				__pa(s5p_domain->pgtable));
 		return false;
 	}
 
@@ -175,9 +188,9 @@ static bool section_available(struct iommu_domain *domain,
 		lv2end = lv2base + S5P_LV2TABLE_ENTRIES;
 		while (lv2base != lv2end) {
 			if (!S5P_FAULT_LV2_ENTRY(*lv2base)) {
-				dev_err(s5p_domain->dev,
-					"Failed to free L2 page table for"
-					"section mapping.\n");
+				pr_err("Failed to free L2 page table for"
+					"section mapping. // pgtalle %#lx\n",
+					__pa(s5p_domain->pgtable));
 				return false;
 			}
 			lv2base++;
@@ -224,13 +237,12 @@ static int s5p_iommu_map(struct iommu_domain *domain, unsigned long iova,
 {
 	struct s5p_iommu_domain *s5p_domain = domain->priv;
 	unsigned long *start_entry, *entry, *end_entry;
-	unsigned long flags;
 	int num_entry;
 	int ret = 0;
 
 	BUG_ON(s5p_domain->pgtable== NULL);
 
-	spin_lock_irqsave(&s5p_domain->lock, flags);
+	mutex_lock(&s5p_domain->lock);
 
 	start_entry = entry = s5p_domain->pgtable + (iova >> S5P_SECTION_SHIFT);
 
@@ -267,7 +279,7 @@ static int s5p_iommu_map(struct iommu_domain *domain, unsigned long iova,
 			goto nomem_error;
 		}
 
-		pgtable_flush(entry, entry + S5P_LV2TABLE_ENTRIES);
+		pgtable_flush(l2table, l2table + S5P_LV2TABLE_ENTRIES);
 
 		MAKE_LV2TABLE_ENTRY(*entry, virt_to_phys(l2table));
 		pgtable_flush(entry, entry + 1);
@@ -287,7 +299,9 @@ static int s5p_iommu_map(struct iommu_domain *domain, unsigned long iova,
 		while (entry != end_entry) {
 			if (!write_lpage(entry, paddr)) {
 				pr_err("%s: Failed to allocate large page"
-						" entry.\n", __func__);
+						"for IOVA %#lx entry.\n",
+						__func__, iova);
+				ret = -EADDRINUSE;
 				break;
 			}
 
@@ -310,8 +324,10 @@ static int s5p_iommu_map(struct iommu_domain *domain, unsigned long iova,
 		}
 
 		if (entry != end_entry) {
-			pr_err("%s: Failed to allocate small page entry.\n",
-								__func__);
+			pr_err("%s: Failed to allocate small page entry"
+					" for IOVA %#lx.\n", __func__, iova);
+			ret = -EADDRINUSE;
+
 			goto mapping_error;
 		}
 	}
@@ -328,9 +344,9 @@ mapping_error:
 
 nomem_error:
 mapping_done:
-	spin_unlock_irqrestore(&s5p_domain->lock, flags);
+	mutex_unlock(&s5p_domain->lock);
 
-	return 0;
+	return ret;
 }
 
 static int s5p_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
@@ -339,11 +355,10 @@ static int s5p_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 	struct s5p_iommu_domain *s5p_domain = domain->priv;
 	unsigned long *entry;
 	int num_entry;
-	unsigned long flags;
 
 	BUG_ON(s5p_domain->pgtable == NULL);
 
-	spin_lock_irqsave(&s5p_domain->lock, flags);
+	mutex_lock(&s5p_domain->lock);
 
 	entry = s5p_domain->pgtable + (iova >> S5P_SECTION_SHIFT);
 
@@ -378,7 +393,7 @@ static int s5p_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 		}
 	}
 
-	spin_unlock_irqrestore(&s5p_domain->lock, flags);
+	mutex_unlock(&s5p_domain->lock);
 
 	if (s5p_domain->dev)
 		s5p_sysmmu_tlb_invalidate(s5p_domain->dev);

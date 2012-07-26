@@ -100,19 +100,19 @@ int fimc_is_init_mem_mgr(struct fimc_is_dev *dev)
 	struct cma_info mem_info;
 	int err;
 
-	sprintf(dev->cma_name, "%s%d", "fimc_is", 0);
-	err = cma_info(&mem_info, &dev->pdev->dev, 0);
-	printk(KERN_INFO "%s : [cma_info] start_addr : 0x%x, end_addr : 0x%x, "
-			"total_size : 0x%x, free_size : 0x%x\n",
-			__func__, mem_info.lower_bound, mem_info.upper_bound,
-			mem_info.total_size, mem_info.free_size);
+	/* Alloc FW memory */
+	err = cma_info(&mem_info, &dev->pdev->dev, FIMC_IS_MEM_FW);
 	if (err) {
 		dev_err(&dev->pdev->dev, "%s: get cma info failed\n", __func__);
 		return -EINVAL;
 	}
+	printk(KERN_INFO "%s : [cma_info] start_addr : 0x%x, end_addr : 0x%x, "
+			"total_size : 0x%x, free_size : 0x%x\n",
+			__func__, mem_info.lower_bound, mem_info.upper_bound,
+			mem_info.total_size, mem_info.free_size);
 	dev->mem.size = mem_info.total_size;
 	dev->mem.base = (dma_addr_t)cma_alloc
-		(&dev->pdev->dev, dev->cma_name, (size_t)dev->mem.size, 0);
+		(&dev->pdev->dev, FIMC_IS_MEM_FW, (size_t)dev->mem.size, 0);
 	dev->is_p_region =
 		(struct is_region *)(phys_to_virt(dev->mem.base +
 				FIMC_IS_A5_MEM_SIZE - FIMC_IS_REGION_SIZE));
@@ -122,10 +122,37 @@ int fimc_is_init_mem_mgr(struct fimc_is_dev *dev)
 	memset((void *)dev->is_p_region, 0,
 		(unsigned long)sizeof(struct is_region));
 	fimc_is_mem_cache_clean((void *)dev->is_p_region, IS_PARAM_SIZE);
-
-	printk(KERN_INFO "ctrl->mem.size = 0x%x\n", dev->mem.size);
 	printk(KERN_INFO "ctrl->mem.base = 0x%x\n", dev->mem.base);
+	printk(KERN_INFO "ctrl->mem.size = 0x%x\n", dev->mem.size);
 
+	if (dev->mem.size >= (FIMC_IS_A5_MEM_SIZE + FIMC_IS_EXTRA_MEM_SIZE)) {
+		dev->mem.fw_ref_base =
+				dev->mem.base + FIMC_IS_A5_MEM_SIZE + 0x1000;
+		dev->mem.setfile_ref_base =
+				dev->mem.base + FIMC_IS_A5_MEM_SIZE + 0x1000
+						+ FIMC_IS_EXTRA_FW_SIZE;
+		printk(KERN_INFO "ctrl->mem.fw_ref_base = 0x%x\n",
+							dev->mem.fw_ref_base);
+		printk(KERN_INFO "ctrl->mem.setfile_ref_base = 0x%x\n",
+						dev->mem.setfile_ref_base);
+	} else {
+		dev->mem.fw_ref_base = 0;
+		dev->mem.setfile_ref_base = 0;
+	}
+#ifdef CONFIG_VIDEO_EXYNOS_FIMC_IS_BAYER
+	err = cma_info(&mem_info, &dev->pdev->dev, FIMC_IS_MEM_ISP_BUF);
+	printk(KERN_INFO "%s : [cma_info] start_addr : 0x%x, end_addr : 0x%x, "
+			"total_size : 0x%x, free_size : 0x%x\n",
+			__func__, mem_info.lower_bound, mem_info.upper_bound,
+			mem_info.total_size, mem_info.free_size);
+	if (err) {
+		dev_err(&dev->pdev->dev, "%s: get cma info failed\n", __func__);
+		return -EINVAL;
+	}
+	dev->alloc_ctx = dev->vb2->init(dev);
+	if (IS_ERR(dev->alloc_ctx))
+		return PTR_ERR(dev->alloc_ctx);
+#endif
 	return 0;
 }
 
@@ -186,7 +213,7 @@ int fimc_is_alloc_firmware(struct fimc_is_dev *dev)
 	void *fimc_is_bitproc_buf;
 	dbg("Allocating memory for FIMC-IS firmware.\n");
 	fimc_is_bitproc_buf =
-		vb2_ion_memops.alloc(dev->alloc_ctx, FIMC_IS_A5_MEM_SIZE);
+		vb2_ion_memops.alloc(dev->alloc_ctx_fw, FIMC_IS_A5_MEM_SIZE);
 	if (IS_ERR(fimc_is_bitproc_buf)) {
 		fimc_is_bitproc_buf = 0;
 		printk(KERN_ERR "Allocating bitprocessor buffer failed\n");
@@ -281,11 +308,11 @@ void fimc_is_mem_cache_inv(const void *start_addr, unsigned long size)
 int fimc_is_init_mem_mgr(struct fimc_is_dev *dev)
 {
 	int ret;
-	dev->alloc_ctx = (struct vb2_alloc_ctx *)
+	dev->alloc_ctx_fw = (struct vb2_alloc_ctx *)
 			fimc_is_mem_init(&dev->pdev->dev);
-	if (IS_ERR(dev->alloc_ctx)) {
-		err("Couldn't prepare allocator ctx.\n");
-		return PTR_ERR(dev->alloc_ctx);
+	if (IS_ERR(dev->alloc_ctx_fw)) {
+		err("Couldn't prepare allocator FW ctx.\n");
+		return PTR_ERR(dev->alloc_ctx_fw);
 	}
 	ret = fimc_is_alloc_firmware(dev);
 	if (ret) {

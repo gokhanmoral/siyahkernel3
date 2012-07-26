@@ -5734,21 +5734,28 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 	}
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)) && !CFG80211_STA_EVENT_AVAILABLE
-	body=kzalloc(len, GFP_KERNEL);
 	WL_DBG(("Enter \n"));
+	if (!len && (event == WLC_E_DEAUTH)) {
+		len = 2; /* reason code field */
+		data = &reason;
+	}
+	if (len) {
+	body=kzalloc(len, GFP_KERNEL);
+
 	if(body==NULL) {
 		WL_ERR(("wl_notify_connect_status: Failed to allocate body\n"));
 		return WL_INVALID;
 	}
-
+	}
 	memset(&bssid, 0, ETHER_ADDR_LEN);
 	WL_DBG(("Enter \n"));
 	if (wl_get_mode_by_netdev(wl, ndev) == WL_INVALID) {
 		kfree(body);
 		return WL_INVALID;
 	}
+	if (len)
+		memcpy(body, data, len);
 
-	memcpy(body, data, len);
 	wldev_iovar_getbuf_bsscfg(ndev, "cur_etheraddr",
 		NULL, 0, wl->ioctl_buf, WLC_IOCTL_MAXLEN, bsscfgidx, &wl->ioctl_buf_sync);
 	memcpy(da.octet, wl->ioctl_buf, ETHER_ADDR_LEN);
@@ -6834,7 +6841,7 @@ static s32 wl_create_event_handler(struct wl_priv *wl)
 		(unsigned int )wl, (unsigned int)&wl->event_tsk));
 	if (wl->event_tsk.thr_pid > 0)
 		WL_ERR(("wl->event_tsk already created ?\n"));
-		
+
 	/* Do not use DHD in cfg driver */
 	wl->event_tsk.thr_pid = -1;
 	PROC_START(wl_event_handler, wl, &wl->event_tsk, 0);
@@ -7276,42 +7283,44 @@ static s32 wl_escan_handler(struct wl_priv *wl,
 				if (!bcmp(&bi->BSSID, &bss->BSSID, ETHER_ADDR_LEN) &&
 					CHSPEC_BAND(bi->chanspec) == CHSPEC_BAND(bss->chanspec) &&
 					bi->SSID_len == bss->SSID_len &&
-					!bcmp(bi->SSID, bss->SSID, bi->SSID_len)
-					&& (bi->length == bss->length)) {
-					if (p2p_is_on(wl) && p2p_scan(wl)) {
-						if (bss->dtoh32(ie_length)< bi_length) {
-							int prev_len = dtoh32(bss->length);
-							WL_SCAN2(("bss info replacement is occured(bcast:%d->probresp%d)\n",
-								bss->ie_length, bi->ie_length));
-							/* prev : broadcast, cur : prob_resp */
-							if (list->count != 1 && i < list->count -1) {
-								/* memory copy required by this case only */
-								memcpy((u8 *)bss,
-									(u8 *)bss + prev_len, list->buflen - cur_len - prev_len);
+					!bcmp(bi->SSID, bss->SSID, bi->SSID_len)) {
+					/* Process different length */
+					if (bss->dtoh32(ie_length) != bi_length) {
+						if (p2p_is_on(wl) && p2p_scan(wl)) {
+							if (bss->dtoh32(ie_length)< bi_length) {
+								int prev_len = dtoh32(bss->length);
+								WL_SCAN2(("bss info replacement is occured(bcast:%d->probresp%d)\n",
+									bss->ie_length, bi->ie_length));
+								/* prev : broadcast, cur : prob_resp */
+								if (list->count != 1 && i < list->count -1) {
+									/* memory copy required by this case only */
+									memcpy((u8 *)bss,
+										(u8 *)bss + prev_len, list->buflen - cur_len - prev_len);
+								}
+								list->buflen -= prev_len;
+								memcpy(&(((u8 *)list)[list->buflen]), bi, bi_length);
+								list->version = dtoh32(bi->version);
+								list->buflen += bi_length;
+								goto exit;
 							}
-							list->buflen -= prev_len;
-							memcpy(&(((u8 *)list)[list->buflen]), bi, bi_length);
-							list->version = dtoh32(bi->version);
-							list->buflen += bi_length;
-							goto exit;
 						}
-					}
-					if ((bss->flags & WLC_BSS_RSSI_ON_CHANNEL) ==
-						(bi->flags & WLC_BSS_RSSI_ON_CHANNEL)) {
-						/* preserve max RSSI if the measurements are
-						* both on-channel or both off-channel
-						*/
-						bss->RSSI = MAX(bss->RSSI, bi->RSSI);
-					} else if ((bss->flags & WLC_BSS_RSSI_ON_CHANNEL) &&
-						(bi->flags & WLC_BSS_RSSI_ON_CHANNEL) == 0) {
-						/* preserve the on-channel rssi measurement
-						* if the new measurement is off channel
-						*/
-						bss->RSSI = bi->RSSI;
-						bss->flags |= WLC_BSS_RSSI_ON_CHANNEL;
-					}
+						if ((bss->flags & WLC_BSS_RSSI_ON_CHANNEL) ==
+							(bi->flags & WLC_BSS_RSSI_ON_CHANNEL)) {
+							/* preserve max RSSI if the measurements are
+							* both on-channel or both off-channel
+							*/
+							bss->RSSI = MAX(bss->RSSI, bi->RSSI);
+						} else if ((bss->flags & WLC_BSS_RSSI_ON_CHANNEL) &&
+							(bi->flags & WLC_BSS_RSSI_ON_CHANNEL) == 0) {
+							/* preserve the on-channel rssi measurement
+							* if the new measurement is off channel
+							*/
+							bss->RSSI = bi->RSSI;
+							bss->flags |= WLC_BSS_RSSI_ON_CHANNEL;
+						}
 
-					goto exit;
+						goto exit;
+					}
 				}
 				cur_len += dtoh32(bss->length);
 			}
@@ -7405,12 +7414,17 @@ static s32 wl_notifier_change_state(struct wl_priv *wl, struct net_info *_net_in
 {
 	s32 pm = PM_FAST;
 	s32 err = BCME_OK;
+	s32 glom = -1;
+	u32 chan = 0;
+	u32 chanspec = 0;
+	u32 prev_chan = 0;
+	u32 connected_cnt  = 0;
 	struct net_info *iter, *next;
+	struct net_device *primary_dev = wl_to_prmry_ndev(wl); 
 	if (set) { /* set */
 		switch (state) {
 			case WL_STATUS_CONNECTED: {
-				if (wl_get_drv_status_all(wl, CONNECTED) > 1) {
-					wl->vsdb_mode = true;
+				if ((connected_cnt = wl_get_drv_status_all(wl, CONNECTED)) > 1) {
 					pm = PM_OFF;
 					WL_INFO(("Do not enable the power save for VSDB mode\n"));
 				} else if (_net_info->pm_block) {
@@ -7419,10 +7433,22 @@ static s32 wl_notifier_change_state(struct wl_priv *wl, struct net_info *_net_in
 					pm = PM_FAST;
 				}
 				for_each_ndev(wl, iter, next) {
-					if (!wl->vsdb_mode && (iter->ndev != _net_info->ndev))
+					if ((connected_cnt == 1) && (iter->ndev != _net_info->ndev))
 						continue;
-					if (wl_get_drv_status(wl, CONNECTED, iter->ndev) &&
-						(wl_get_mode_by_netdev(wl, iter->ndev) == WL_MODE_BSS)) {
+					chanspec = 0;
+					chan = 0;
+					if (wl_get_drv_status(wl, CONNECTED, iter->ndev)) {
+						if (wldev_iovar_getint(iter->ndev, "chanspec", (s32 *)&chanspec) == BCME_OK) {
+							chan = CHSPEC_CHANNEL(chanspec);
+							if (CHSPEC_IS40(chanspec)) {
+								if (CHSPEC_SB_UPPER(chanspec))
+									chan += CH_10MHZ_APART;
+								else
+									chan -= CH_10MHZ_APART;	
+							}								
+							wl_update_prof(wl, iter->ndev, NULL, &chan, WL_PROF_CHAN);
+						}
+						if ((wl_get_mode_by_netdev(wl, iter->ndev) == WL_MODE_BSS)) {
 						pm = htod32(pm);
 						WL_DBG(("power save %s\n", (pm ? "enabled" : "disabled")));
 						err = wldev_ioctl(iter->ndev, WLC_SET_PM, &pm, sizeof(pm), true);
@@ -7434,6 +7460,20 @@ static s32 wl_notifier_change_state(struct wl_priv *wl, struct net_info *_net_in
 								break;
 						}
 					}
+						if (connected_cnt  > 1) {
+							if (!prev_chan && chan)
+								prev_chan = chan;
+							else if (prev_chan && (prev_chan != chan)){ 
+								wl->vsdb_mode = true;
+							}
+						}
+					}
+				}
+				if (!wl->vsdb_mode && (connected_cnt  > 1)) {
+					if (wldev_iovar_getint(primary_dev, "bus:txglom", (s32 *)&glom) == BCME_OK) {
+						wl->glom = glom;
+						wldev_iovar_setint(primary_dev, "bus:txglom", 0);
+					}
 				}
 				break;
 			}
@@ -7443,6 +7483,8 @@ static s32 wl_notifier_change_state(struct wl_priv *wl, struct net_info *_net_in
 	} else { /* clear */
 		switch (state) {
 			case WL_STATUS_CONNECTED: {
+				chan = 0;
+				wl_update_prof(wl, _net_info->ndev, NULL, &chan, WL_PROF_CHAN);
 				if (wl_get_drv_status_all(wl, CONNECTED) == 1) {
 					wl->vsdb_mode = false;
 					for_each_ndev(wl, iter, next) {
@@ -7465,6 +7507,9 @@ static s32 wl_notifier_change_state(struct wl_priv *wl, struct net_info *_net_in
 							}
 						}
 					}
+					if (wl->glom != -1)
+						wldev_iovar_setint(primary_dev, "bus:txglom", wl->glom);
+					wl->glom = -1;
 				}
 				break;
 			}
@@ -7524,6 +7569,7 @@ static s32 wl_init_priv(struct wl_priv *wl)
 	wl->rf_blocked = false;
 	wl->first_remain = true;
 	wl->wlfc_on = false;
+	wl->glom = -1;
 	set_bit(WL_STATUS_CONNECTED, &wl->interrested_state);
 	spin_lock_init(&wl->cfgdrv_lock);
 	mutex_init(&wl->ioctl_buf_sync);
@@ -7670,7 +7716,6 @@ s32 wl_cfg80211_attach(struct net_device *ndev, void *data)
 	wdev->iftype = wl_mode_to_nl80211_iftype(WL_MODE_BSS);
 	wl = (struct wl_priv *)wiphy_priv(wdev->wiphy);
 	WL_ERR(("%s: wl = 0x%08x\n", __FUNCTION__, (unsigned int)wl));
-	
 	wl->wdev = wdev;
 	wl->pub = data;
 	INIT_LIST_HEAD(&wl->net_list);
@@ -8377,6 +8422,8 @@ static void *wl_read_prof(struct wl_priv *wl, struct net_device *ndev, s32 item)
 		break;
 	case WL_PROF_SSID:
 		rptr = &profile->ssid;
+	case WL_PROF_CHAN:
+		rptr = &profile->channel;
 		break;
 	}
 	spin_unlock_irqrestore(&wl->cfgdrv_lock, flags);
@@ -8423,6 +8470,8 @@ wl_update_prof(struct wl_priv *wl, struct net_device *ndev,
 	case WL_PROF_DTIMPERIOD:
 		profile->dtim_period = *(u8 *)data;
 		break;
+	case WL_PROF_CHAN:
+		profile->channel = *(u32*)data;
 	default:
 		err = -EOPNOTSUPP;
 		break;

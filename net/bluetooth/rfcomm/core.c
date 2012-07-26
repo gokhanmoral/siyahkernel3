@@ -409,11 +409,19 @@ static int __rfcomm_dlc_open(struct rfcomm_dlc *d, bdaddr_t *src, bdaddr_t *dst,
 			return err;
 	}
 
+	/* After L2sock created, increase refcnt immediately
+	* It can make connection drop in rfcomm_security_cfm because of refcnt.
+	*/
+	rfcomm_session_hold(s);
+
 	dlci = __dlci(!s->initiator, channel);
 
 	/* Check if DLCI already exists */
-	if (rfcomm_dlc_get(s, dlci))
+	if (rfcomm_dlc_get(s, dlci)) {
+		/* decrement refcnt */
+		rfcomm_session_put(s);
 		return -EBUSY;
+	}
 
 	rfcomm_dlc_clear_state(d);
 
@@ -428,6 +436,9 @@ static int __rfcomm_dlc_open(struct rfcomm_dlc *d, bdaddr_t *src, bdaddr_t *dst,
 
 	d->mtu = s->mtu;
 	d->cfc = (s->cfc == RFCOMM_CFC_UNKNOWN) ? 0 : s->cfc;
+
+	/* decrement refcnt */
+	rfcomm_session_put(s);
 
 	if (s->state == BT_CONNECTED) {
 		if (rfcomm_check_security(d))
@@ -1145,6 +1156,7 @@ static int rfcomm_recv_ua(struct rfcomm_session *s, u8 dlci)
 			if (list_empty(&s->dlcs)) {
 				s->state = BT_DISCONN;
 				rfcomm_send_disc(s, 0);
+				rfcomm_session_clear_timer(s);
 			}
 
 			break;
@@ -1161,7 +1173,7 @@ static int rfcomm_recv_ua(struct rfcomm_session *s, u8 dlci)
 			/* When socket is closed and we are not RFCOMM
 			 * initiator rfcomm_process_rx already calls
 			 * rfcomm_session_put() */
-			if (s->sock->sk->sk_state != BT_CLOSED)
+			if (s->sock->sk->sk_state != BT_CLOSED && !s->initiator)
 				if (list_empty(&s->dlcs))
 					rfcomm_session_put(s);
 			break;
@@ -1852,7 +1864,10 @@ static inline void rfcomm_process_rx(struct rfcomm_session *s)
 	/* Get data directly from socket receive queue without copying it. */
 	while ((skb = skb_dequeue(&sk->sk_receive_queue))) {
 		skb_orphan(skb);
-		rfcomm_recv_frame(s, skb);
+		if (!skb_linearize(skb))
+			rfcomm_recv_frame(s, skb);
+		else
+			kfree_skb(skb);
 	}
 
 	if (sk->sk_state == BT_CLOSED) {

@@ -52,6 +52,8 @@
 #define CLK_DIV_STAT_G3D 	0x1003C62C
 #define CLK_DESC 			"clk-divider-status"
 
+#define MALI_BOTTOMLOCK_VOL	900000
+
 typedef struct mali_runtime_resumeTag{
 	int clk;
 	int vol;
@@ -80,6 +82,11 @@ int mali_gpu_vol = 900000;
 
 #if MALI_DVFS_ENABLED
 #define MALI_DVFS_DEFAULT_STEP 0
+#endif
+#if MALI_VOLTAGE_LOCK
+int mali_lock_vol = 0;
+static _mali_osk_atomic_t voltage_lock_status;
+static mali_bool mali_vol_lock_flag = 0;
 #endif
 
 int  gpu_power_state;
@@ -156,6 +163,28 @@ void mali_regulator_set_voltage(int min_uV, int max_uV)
 #if !MALI_DVFS_ENABLED
 	min_uV = mali_gpu_vol;
 	max_uV = mali_gpu_vol;
+#endif
+#if MALI_VOLTAGE_LOCK
+	if (mali_vol_lock_flag == MALI_FALSE) {
+		if (min_uV < MALI_BOTTOMLOCK_VOL || max_uV < MALI_BOTTOMLOCK_VOL) {
+			min_uV = MALI_BOTTOMLOCK_VOL;
+			max_uV = MALI_BOTTOMLOCK_VOL;
+		}
+	} else if (_mali_osk_atomic_read(&voltage_lock_status) > 0 ) {
+		if (min_uV < mali_lock_vol || max_uV < mali_lock_vol) {
+#if MALI_DVFS_ENABLED
+			int mali_vol_get;
+			mali_vol_get = mali_vol_get_from_table(mali_lock_vol);
+			if (mali_vol_get) {
+				min_uV = mali_vol_get;
+				max_uV = mali_vol_get;
+			}
+#else
+			min_uV = mali_lock_vol;
+			max_uV = mali_lock_vol;
+#endif
+		}
+	}
 #endif
 
 	_mali_osk_lock_wait(mali_dvfs_lock, _MALI_OSK_LOCKMODE_RW);
@@ -596,6 +625,9 @@ _mali_osk_errcode_t g3d_power_domain_control(int bpower_on)
 _mali_osk_errcode_t mali_platform_init()
 {
 	MALI_CHECK(init_mali_clock(), _MALI_OSK_ERR_FAULT);
+#if MALI_VOLTAGE_LOCK
+	_mali_osk_atomic_init(&voltage_lock_status, 0);
+#endif
 #if MALI_DVFS_ENABLED
 	if (!clk_register_map) clk_register_map = _mali_osk_mem_mapioregion( CLK_DIV_STAT_G3D, 0x20, CLK_DESC );
 	if(!init_mali_dvfs_status(MALI_DVFS_DEFAULT_STEP))
@@ -608,7 +640,9 @@ _mali_osk_errcode_t mali_platform_init()
 _mali_osk_errcode_t mali_platform_deinit()
 {
 	deinit_mali_clock();
-
+#if MALI_VOLTAGE_LOCK
+	_mali_osk_atomic_term(&voltage_lock_status);
+#endif
 #if MALI_DVFS_ENABLED
 	deinit_mali_dvfs_status();
 	if (clk_register_map )
@@ -687,3 +721,41 @@ _mali_osk_errcode_t mali_platform_power_mode_change(mali_power_mode power_mode)
 {
     MALI_SUCCESS;
 }
+
+#if MALI_VOLTAGE_LOCK
+int mali_voltage_lock_push(int lock_vol)
+{
+	int prev_status = _mali_osk_atomic_read(&voltage_lock_status);
+
+	if (prev_status < 0) {
+		MALI_PRINT(("gpu voltage lock status is not valid for push\n"));
+		return -1;
+	}
+	if (prev_status == 0) {
+		mali_lock_vol = lock_vol;
+		if (mali_gpu_vol < mali_lock_vol)
+			mali_regulator_set_voltage(mali_lock_vol, mali_lock_vol);
+	} else {
+		MALI_PRINT(("gpu voltage lock status is already pushed, current lock voltage : %d\n", mali_lock_vol));
+		return -1;
+	}
+
+	return _mali_osk_atomic_inc_return(&voltage_lock_status);
+}
+
+int mali_voltage_lock_pop(void)
+{
+	if (_mali_osk_atomic_read(&voltage_lock_status) <= 0) {
+		MALI_PRINT(("gpu voltage lock status is not valid for pop\n"));
+		return -1;
+	}
+	return _mali_osk_atomic_dec_return(&voltage_lock_status);
+}
+
+int mali_voltage_lock_init(void)
+{
+	mali_vol_lock_flag = MALI_TRUE;
+
+	MALI_SUCCESS;
+}
+#endif

@@ -12,10 +12,12 @@
 
 #include <asm/cacheflush.h>
 #include <linux/dma-mapping.h>
+#include <plat/cpu.h>
 #include "fimg2d.h"
 
-#define L1_CACHE_SIZE	SZ_64K
-#define L2_CACHE_SIZE	SZ_1M
+#define L1_CACHE_SIZE		SZ_64K
+#define L2_CACHE_SIZE		SZ_1M
+#define LINE_FLUSH_THRESHOLD	SZ_1K
 
 /**
  * cache_opr - [kernel] cache operation mode
@@ -42,7 +44,41 @@ enum pt_status {
 	PT_FAULT,
 };
 
-static inline void fimg2d_dma_sync_inner(unsigned long addr, size_t size, int dir)
+static inline bool is_inner_flushall(size_t size)
+{
+	if (soc_is_exynos5250())
+		return (size >= SZ_1M * 25) ? true : false;
+	else
+		return (size >= L1_CACHE_SIZE) ? true : false;
+}
+
+static inline bool is_outer_flushall(size_t size)
+{
+	return (size >= L2_CACHE_SIZE) ? true : false;
+}
+
+static inline bool is_inner_flushrange(size_t hole)
+{
+	if (!soc_is_exynos5250())
+		return true;
+	else {
+		if (hole < LINE_FLUSH_THRESHOLD)
+			return true;
+		else
+			return false;	/* line-by-line flush */
+	}
+}
+
+static inline bool is_outer_flushrange(size_t hole)
+{
+	if (hole < LINE_FLUSH_THRESHOLD)
+		return true;
+	else
+		return false;	/* line-by-line flush */
+}
+
+static inline void fimg2d_dma_sync_inner(unsigned long addr, size_t size,
+		int dir)
 {
 	if (dir == DMA_TO_DEVICE)
 		dmac_map_area((void *)addr, size, dir);
@@ -50,12 +86,16 @@ static inline void fimg2d_dma_sync_inner(unsigned long addr, size_t size, int di
 		dmac_flush_range((void *)addr, (void *)(addr + size));
 }
 
-static inline void fimg2d_dma_unsync_inner(unsigned long addr, size_t size, int dir)
+static inline void fimg2d_dma_unsync_inner(unsigned long addr, size_t size,
+		int dir)
 {
 	if (dir == DMA_TO_DEVICE)
 		dmac_unmap_area((void *)addr, size, dir);
 }
 
-void fimg2d_clean_outer_pagetable(struct mm_struct *mm, unsigned long addr, size_t size);
-void fimg2d_dma_sync_outer(struct mm_struct *mm, unsigned long addr, size_t size, enum cache_opr opr);
-enum pt_status fimg2d_check_pagetable(struct mm_struct *mm, unsigned long addr, size_t size);
+void fimg2d_clean_outer_pagetable(struct mm_struct *mm, unsigned long addr,
+		size_t size);
+void fimg2d_dma_sync_outer(struct mm_struct *mm, unsigned long addr,
+		size_t size, enum cache_opr opr);
+enum pt_status fimg2d_check_pagetable(struct mm_struct *mm, unsigned long addr,
+		size_t size);

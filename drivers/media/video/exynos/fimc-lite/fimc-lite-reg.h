@@ -22,6 +22,7 @@
 
 /* Global control */
 #define FLITE_REG_CIGCTRL				0x04
+#define FLITE_REG_CIGCTRL_OUT_GSCL_ENABLE		(1 << 30)
 #define FLITE_REG_CIGCTRL_YUV422_1P			(0x1E << 24)
 #define FLITE_REG_CIGCTRL_RAW8				(0x2A << 24)
 #define FLITE_REG_CIGCTRL_RAW10				(0x2B << 24)
@@ -29,6 +30,7 @@
 #define FLITE_REG_CIGCTRL_RAW14				(0x2D << 24)
 /* User defined formats. x = 0...0xF. */
 #define FLITE_REG_CIGCTRL_USER(x)			(0x30 + x - 1)
+#define FLITE_REG_CIGCTRL_OUT_LOCAL_ENABLE		(1 << 22)
 #define FLITE_REG_CIGCTRL_SHADOWMASK_DISABLE		(1 << 21)
 #define FLITE_REG_CIGCTRL_ODMA_DISABLE			(1 << 20)
 #define FLITE_REG_CIGCTRL_SWRST_REQ			(1 << 19)
@@ -98,10 +100,6 @@
 #define FLITE_REG_CIOOFF_OOFF_V(x)			((x) << 16)
 #define FLITE_REG_CIOOFF_OOFF_H(x)			((x) << 0)
 
-/* Camera Output DMA Address */
-#define FLITE_REG_CIOSA					0x30
-#define FLITE_REG_CIOSA_OSA(x)				((x) << 0)
-
 /* Camera Status */
 #define FLITE_REG_CISTATUS				0x40
 #define FLITE_REG_CISTATUS_MIPI_VVALID			(1 << 22)
@@ -118,11 +116,20 @@
 #define FLITE_REG_CISTATUS_IRQ_SRC_FRMEND		(1 << 4)
 #define FLITE_REG_CISTATUS_IRQ_CAM			(1 << 0)
 #define FLITE_REG_CISTATUS_IRQ_MASK			(0xf << 4)
+
 /* Camera Status2 */
 #define FLITE_REG_CISTATUS2				0x44
 #define FLITE_REG_CISTATUS2_LASTCAPEND			(1 << 1)
 #define FLITE_REG_CISTATUS2_FRMEND			(1 << 0)
 
+/* Camera Status3 */
+#define FLITE_REG_CISTATUS3				0x48
+#define FLITE_REG_CISTATUS3_FRAMECNT_BEFORE		(0x3F << 7)
+#define FLITE_REG_CISTATUS3_FRAMECNT_PRESENT		(0x3F << 0)
+
+/* Camera Status4 */
+#define FLITE_REG_CISTATUS4				0x4C
+#define FLITE_REG_CISTATUS4_VSYNC_CNT			0x0
 /* Qos Threshold */
 #define FLITE_REG_CITHOLD				0xF0
 #define FLITE_REG_CITHOLD_W_QOS_EN			(1 << 30)
@@ -130,7 +137,20 @@
 
 /* Camera General Purpose */
 #define FLITE_REG_CIGENERAL				0xFC
-#define FLITE_REG_CIGENERAL_CAM_A			(0 << 0)
-#define FLITE_REG_CIGENERAL_CAM_B			(1 << 0)
+#define FLITE_REG_CIGENERAL0_MASK			0x3
+#define FLITE_REG_CIGENERAL0_CAM_A			(0 << 0)
+#define FLITE_REG_CIGENERAL0_CAM_B			(1 << 0)
+#define FLITE_REG_CIGENERAL0_CAM_C			(2 << 0)
+
+/* Camera Frame Count Sequence */
+#define FLITE_REG_CIFCNTSEQ				0x100
+
+/* Version Info */
+#define FLITE_REG_CIVERINFO				0x104
+
+/* Camera Output DMA Address (0~31)*/
+#define FLITE_REG_CIOSA(n)				(n ? \
+							0x1FC + (n * 0x4) : \
+							0x30)
 
 #endif /* FIMC_LITE_REG_H */

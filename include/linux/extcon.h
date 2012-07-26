@@ -28,6 +28,12 @@
 #define SUPPORTED_CABLE_MAX	32
 #define CABLE_NAME_MAX		30
 
+/* Check cable state whether cable is attached/detached now */
+#define IS_ATTACH(cur, prev, mask)	\
+	(((cur & mask) != 0) && ((prev & mask) == 0))
+#define IS_DETACH(cur, prev, mask)	\
+	(((cur & mask) == 0) && ((prev & mask) != 0))
+
 /*
  * The standard cable name is to help support general notifier
  * and notifee device drivers to share the common names.
@@ -58,20 +64,23 @@ enum extcon_cable_name {
 	EXTCON_DVI,
 	EXTCON_VGA,
 	EXTCON_DOCK,
-	EXTCON_AUDIO_IN,
-	EXTCON_AUDIO_OUT,
+	EXTCON_LINE_IN,
+	EXTCON_LINE_OUT,
+	EXTCON_MIC_IN,
+	EXTCON_HEADPHONE_OUT,
+	EXTCON_SPDIF_IN,
+	EXTCON_SPDIF_OUT,
 	EXTCON_VIDEO_IN,
 	EXTCON_VIDEO_OUT,
 };
 extern const char *extcon_cable_name[];
 
+struct extcon_cable;
+
 /**
  * struct extcon_dev - An extcon device represents one external connector.
  * @name	The name of this extcon device. Parent device name is used
  *		if NULL.
- * @use_class_name_switch	set true in order to be compatible with
- *				Android platform, which uses "switch"
- *				for the class name.
  * @supported_cable	Array of supported cable name ending with NULL.
  *			If supported_cable is NULL, cable name related APIs
  *			are disabled.
@@ -95,6 +104,9 @@ extern const char *extcon_cable_name[];
  *		for extcon devices based on the extcon name.
  * @lock
  * @max_supported	Internal value to store the number of cables.
+ * @extcon_dev_type	Device_type struct to provide attribute_groups
+ *			customized for each extcon device.
+ * @cables	Sysfs subdirectories. Each represents one cable.
  *
  * In most cases, users only need to provide "User initializing data" of
  * this struct when registering an extcon. In some exceptional cases,
@@ -104,7 +116,6 @@ extern const char *extcon_cable_name[];
 struct extcon_dev {
 	/* --- Optional user initializing data --- */
 	const char	*name;
-	bool		use_class_name_switch;
 	const char **supported_cable;
 	const u32	*mutually_exclusive;
 
@@ -119,24 +130,34 @@ struct extcon_dev {
 	struct list_head entry;
 	spinlock_t lock; /* could be called by irq handler */
 	int max_supported;
+
+	/* /sys/class/extcon/.../cable.n/... */
+	struct device_type extcon_dev_type;
+	struct extcon_cable *cables;
+	/* /sys/class/extcon/.../mutually_exclusive/... */
+	struct attribute_group attr_g_muex;
+	struct attribute **attrs_muex;
+	struct device_attribute *d_attrs_muex;
 };
 
 /**
- * struct gpio_extcon_platform_data - A simple GPIO-controlled extcon device.
- * @name	The name of this GPIO extcon device.
- * @gpio	Corresponding GPIO.
- * @state_on	print_state is overriden with state_on if attached. If Null,
- *		default method of extcon class is used.
- * @state_off	print_state is overriden with state_on if dettached. If Null,
- *		default method of extcon class is used.
+ * struct extcon_cable	- An internal data for each cable of extcon device.
+ * @edev	The extcon device
+ * @cable_index	Index of this cable in the edev
+ * @attr_g	Attribute group for the cable
+ * @attr_name	"name" sysfs entry
+ * @attr_state	"state" sysfs entry
+ * @attrs	Array pointing to attr_name and attr_state for attr_g
  */
-struct gpio_extcon_platform_data {
-	const char *name;
-	unsigned gpio;
+struct extcon_cable {
+	struct extcon_dev *edev;
+	int cable_index;
 
-	/* if NULL, "0" or "1" will be printed */
-	const char *state_on;
-	const char *state_off;
+	struct attribute_group attr_g;
+	struct device_attribute attr_name;
+	struct device_attribute attr_state;
+
+	struct attribute *attrs[3]; /* to be fed to attr_g.attrs */
 };
 
 /**
@@ -299,8 +320,7 @@ static inline int extcon_register_interest(struct extcon_specific_cable_nb *obj,
 	return 0;
 }
 
-static inline int extcon_unregister_interest(
-				struct extcon_specific_cable_nb *obj)
+static inline int extcon_unregister_interest(struct extcon_specific_cable_nb *obj)
 {
 	return 0;
 }

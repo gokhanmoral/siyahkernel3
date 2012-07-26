@@ -24,7 +24,7 @@
 #include "idma.h"
 #include "dma.h"
 
-#define ENABLE_REG_LOG
+/*#define ENABLE_REG_LOG*/
 
 #define ST_RUNNING		(1<<0)
 #define ST_OPENED		(1<<1)
@@ -45,7 +45,7 @@ static const struct snd_pcm_hardware idma_hardware = {
 	.channels_min = 1,
 	.channels_max = 2,
 	.buffer_bytes_max = LP_TXBUFF_MAX,
-	.period_bytes_min = PAGE_SIZE,
+	.period_bytes_min = 1024,
 	.period_bytes_max = PAGE_SIZE * 2,
 	.periods_min = 2,
 	.periods_max = 128,

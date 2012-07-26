@@ -143,6 +143,9 @@ struct s3c_udc {
 	struct wake_lock	usbd_wake_lock;
 	struct wake_lock	usb_cb_wake_lock;
 	int udc_enabled;
+	int is_usb_ready;
+	struct delayed_work	usb_ready_work;
+	struct mutex		mutex;
 };
 
 extern struct s3c_udc *the_controller;

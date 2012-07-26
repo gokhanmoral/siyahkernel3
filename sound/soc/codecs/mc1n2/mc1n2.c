@@ -351,10 +351,10 @@ static int audio_ctrl_mic_bias_gpio(struct mc1n2_platform_data *pdata, int mic, 
 		return -EINVAL;
 	}
 
-	if (mic & MAIN_MIC)
+	if ((mic & MAIN_MIC) && (pdata->set_main_mic_bias != NULL))
 		pdata->set_main_mic_bias(on);
 
-	if (mic & SUB_MIC)
+	if ((mic & SUB_MIC) && (pdata->set_sub_mic_bias != NULL))
 		pdata->set_sub_mic_bias(on);
 
 	return 0;

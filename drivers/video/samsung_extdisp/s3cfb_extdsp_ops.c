@@ -25,6 +25,10 @@
 #include <linux/suspend.h>
 #endif
 
+#ifdef CONFIG_BUSFREQ_OPP
+#include <mach/dev.h>
+#endif
+
 #include "s3cfb_extdsp.h"
 #define NOT_DEFAULT_WINDOW 99
 
@@ -32,6 +36,9 @@ int s3cfb_extdsp_enable_window(struct s3cfb_extdsp_global *fbdev, int id)
 {
 	struct s3cfb_extdsp_window *win = fbdev->fb[id]->par;
 
+#ifdef CONFIG_BUSFREQ_OPP
+	dev_lock(fbdev->bus_dev, fbdev->dev, 133133);
+#endif
 	if (!win->enabled)
 		atomic_inc(&fbdev->enabled_win);
 
@@ -45,6 +52,10 @@ int s3cfb_extdsp_disable_window(struct s3cfb_extdsp_global *fbdev, int id)
 
 	if (win->enabled)
 		atomic_dec(&fbdev->enabled_win);
+
+#ifdef CONFIG_BUSFREQ_OPP
+	dev_unlock(fbdev->bus_dev, fbdev->dev);
+#endif
 
 	win->enabled = 0;
 	return 0;
@@ -482,11 +493,13 @@ int s3cfb_extdsp_ioctl(struct fb_info *fb, unsigned int cmd, unsigned long arg)
 	struct fb_fix_screeninfo *fix = &fb->fix;
 	struct s3cfb_extdsp_window *win = fb->par;
 	struct s3cfb_extdsp_lcd *lcd = fbdev->lcd;
+	struct s3cfb_extdsp_time_stamp time_stamp;
 	void *argp = (void *)arg;
 	int ret = 0;
 	dma_addr_t start_addr = 0;
 	dma_addr_t cur_nrbuffer = 0;
 	dma_addr_t next_nrbuffer = 0;
+	int i;
 
 	union {
 		struct s3cfb_extdsp_user_window user_window;
@@ -584,6 +597,55 @@ int s3cfb_extdsp_ioctl(struct fb_info *fb, unsigned int cmd, unsigned long arg)
 
 		break;
 
+	case S3CFB_EXTDSP_PUT_TIME_STAMP:
+		if (copy_from_user(&time_stamp,
+				   (struct s3cfb_extdsp_time_stamp __user *)arg,
+				   sizeof(time_stamp))) {
+			dev_err(fbdev->dev, "copy_from_user error\n");
+			return -EFAULT;
+		}
+		do_gettimeofday(&time_stamp.time_marker);
+		for(i = 0; i < CONFIG_FB_S5P_EXTDSP_NR_BUFFERS; i++) {
+			if (fbdev->time_stamp[i].phys_addr == time_stamp.phys_addr) {
+				fbdev->time_stamp[i].time_marker = time_stamp.time_marker;
+				break;
+			}
+			if (!fbdev->time_stamp[i].phys_addr) {
+				fbdev->time_stamp[i].phys_addr = time_stamp.phys_addr;
+				fbdev->time_stamp[i].time_marker = time_stamp.time_marker;
+				break;
+			}
+			if (i == (CONFIG_FB_S5P_EXTDSP_NR_BUFFERS -1)) {
+				fbdev->time_stamp[0].phys_addr = time_stamp.phys_addr;
+				fbdev->time_stamp[0].time_marker = time_stamp.time_marker;
+				for(i = 1; i < CONFIG_FB_S5P_EXTDSP_NR_BUFFERS; i++)
+					fbdev->time_stamp[i].phys_addr = 0;
+				break;
+			}
+		}
+		break;
+
+	case S3CFB_EXTDSP_GET_TIME_STAMP:
+		if (copy_from_user(&time_stamp,
+				(struct s3cfb_extdsp_time_stamp __user *)arg,
+				sizeof(time_stamp))) {
+			dev_err(fbdev->dev, "copy_from_user error\n");
+			return -EFAULT;
+		}
+		for(i = 0; i < CONFIG_FB_S5P_EXTDSP_NR_BUFFERS; i++) {
+			if (fbdev->time_stamp[i].phys_addr == time_stamp.phys_addr) {
+				time_stamp.time_marker = fbdev->time_stamp[i].time_marker;
+				break;
+			}
+		}
+		if (copy_to_user((void *)arg,
+				   &time_stamp,
+				   sizeof(time_stamp))) {
+			dev_err(fbdev->dev, "copy_to_user error\n");
+			return -EFAULT;
+		}
+		break;
+
 	case FBIOGET_FSCREENINFO:
 		ret = memcpy(argp, &fb->fix, sizeof(fb->fix)) ? 0 : -EFAULT;
 		break;
@@ -638,6 +700,26 @@ int s3cfb_extdsp_ioctl(struct fb_info *fb, unsigned int cmd, unsigned long arg)
 
 	case S3CFB_EXTDSP_SET_WIN_ADDR:
 		fix->smem_start = (unsigned long)argp;
+		break;
+
+	case S3CFB_EXTDSP_GET_TZ_MODE:
+		if (copy_to_user((unsigned int *)arg,
+				   &fbdev->enabled_tz,
+				   sizeof(unsigned int))) {
+			dev_err(fbdev->dev,
+				"failed to S3CFB_EXTDSP_GET_TZ_MODE: copy_to_user error\n");
+			return -EFAULT;
+		}
+		break;
+
+	case S3CFB_EXTDSP_SET_TZ_MODE:
+		if (copy_from_user(&fbdev->enabled_tz,
+				   (unsigned int *)arg,
+				   sizeof(unsigned int))) {
+			dev_err(fbdev->dev,
+				"failed to S3CFB_EXTDSP_SET_TZ_MODE: copy_from_user error\n");
+			return -EFAULT;
+		}
 		break;
 
 	default:

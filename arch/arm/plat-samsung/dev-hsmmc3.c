@@ -72,7 +72,7 @@ void s3c_sdhci3_set_platdata(struct s3c_sdhci_platdata *pd)
 	set->pm_flags = pd->pm_flags;
 
 	if (pd->vmmc_name)
-		strncpy(set->vmmc_name, pd->vmmc_name, MAX_VMMC_NAME);
+		set->vmmc_name = pd->vmmc_name;
 #ifdef CONFIG_MACH_PX
 	set->ext_pdev = pd->ext_pdev;
 #endif

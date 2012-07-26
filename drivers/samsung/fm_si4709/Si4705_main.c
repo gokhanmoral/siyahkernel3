@@ -1,4 +1,3 @@
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -176,6 +175,20 @@ static long Si4709_ioctl(struct file *filp, unsigned int ioctl_cmd,
 			ret = (long)Si4709_dev_chan_get(&frequency);
 			if (ret < 0)
 				debug("Si4709_IOC_CHAN_GET failed\n");
+			else if (copy_to_user
+				 (argp, (void *)&frequency, sizeof(u32)))
+				ret = -EFAULT;
+		}
+		break;
+
+	case Si4709_IOC_SEEK_FULL:
+		{
+			u32 frequency = 0;
+			debug("Si4709_IOC_SEEK_FULL called\n");
+
+			ret = (long)Si4709_dev_seek_full(&frequency);
+			if (ret < 0)
+				debug("Si4709_IOC_SEEK_FULL failed\n");
 			else if (copy_to_user
 				 (argp, (void *)&frequency, sizeof(u32)))
 				ret = -EFAULT;
@@ -394,7 +407,7 @@ static long Si4709_ioctl(struct file *filp, unsigned int ioctl_cmd,
 
 			ret = (long)Si4709_dev_RDS_data_get(&data);
 			if (ret < 0)
-				debug("Si4709_IOC_RDS_DATA_GET failed\n");
+				debug(" Si4709_IOC_RDS_DATA_GET failed\n");
 			else if (copy_to_user(argp, (void *)&data,
 					      sizeof(data)))
 				ret = -EFAULT;
@@ -595,7 +608,7 @@ chip-id,power configuration, system configuration2 registers */
 
 			n = copy_from_user((void *)&sys_conf3, argp,
 					   sizeof(sys_conf3));
-			if (n < 0) {
+			if (n) {
 				debug("Si4709_IOC_SYS_CONFIG3_SET() : "
 					"copy_from_user() has error!! "
 					"Failed to read [%lu] byes!", n);
@@ -620,7 +633,6 @@ chip-id,power configuration, system configuration2 registers */
 		}
 		break;
 /*VNVS:END*/
-
 	default:
 		debug("  ioctl default\n");
 		ret = -ENOTTY;
@@ -632,7 +644,7 @@ chip-id,power configuration, system configuration2 registers */
 
 static irqreturn_t Si4709_isr(int irq, void *unused)
 {
-	debug("Si4709_isr: FM device called IRQ: %d", irq);
+	debug("Si4709_isr: FM device called IRQ: %d\n", irq);
 #ifdef RDS_INTERRUPT_ON_ALWAYS
 	if ((Si4709_dev_wait_flag == SEEK_WAITING) ||
 	    (Si4709_dev_wait_flag == TUNE_WAITING)) {
@@ -643,15 +655,10 @@ static irqreturn_t Si4709_isr(int irq, void *unused)
 	} else if (Si4709_RDS_flag == RDS_WAITING) {	/* RDS Interrupt */
 		debug_rds("Si4709_isr: FM RDS Interrupt "
 			"called IRQ %d", irq);
-		RDS_Data_Available++;
-		RDS_Groups_Available_till_now++;
 
 		debug_rds("RDS_Groups_Available_till_now b/w "
 			"Power ON/OFF : %d",
 			  RDS_Groups_Available_till_now);
-
-		if (RDS_Data_Available > 1)
-			RDS_Data_Lost++;
 
 		if (!work_pending(&Si4709_work))
 			queue_work(Si4709_wq, &Si4709_work);
@@ -763,18 +770,19 @@ int __init Si4709_driver_init(void)
 		return ret;
 	}
 
-	if (system_rev >= 0x7) {
-		Si4709_int = GPIO_FM_INT_REV07;
-		Si4709_irq = gpio_to_irq(GPIO_FM_INT_REV07);
-	} else {
+#if defined(CONFIG_MACH_M0)
+	if (system_rev >= 15)
+		Si4709_int = GPIO_FM_INT_REV15;
+	else
+#endif
 		Si4709_int = GPIO_FM_INT;
-		Si4709_irq = gpio_to_irq(GPIO_FM_INT);
-	}
+
+	Si4709_irq = gpio_to_irq(Si4709_int);
 
 	irq_set_irq_type(Si4709_irq, IRQ_TYPE_EDGE_FALLING);
 	/*KGVS: Configuring the GPIO_FM_INT in mach-jupiter.c */
-	ret = request_irq(Si4709_irq, Si4709_isr, IRQF_DISABLED,
-			  "Si4709", NULL);
+	ret = request_irq(Si4709_irq, Si4709_isr,
+		IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING, "Si4709", NULL);
 	if (ret) {
 		error("Si4709_driver_init request_irq "
 			"failed %d", Si4709_int);
@@ -790,6 +798,15 @@ int __init Si4709_driver_init(void)
 		gpio_direction_output(GPIO_FM_RST, GPIO_LEVEL_LOW);
 	}
 
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M0_CTC)
+	if (gpio_is_valid(GPIO_FM_MIC_SW)) {
+		if (gpio_request(GPIO_FM_MIC_SW, "GPL0"))
+			debug(KERN_ERR "Failed to request "
+			"FM_MIC_SW!\n\n");
+		gpio_direction_output(GPIO_FM_RST, GPIO_LEVEL_LOW);
+	}
+#endif
+
 	/*VNVS: 13-OCT'09----
 	Initially Pulling the interrupt pin HIGH
 	as the FM Radio device gives 5ms low pulse*/
@@ -800,7 +817,7 @@ int __init Si4709_driver_init(void)
 	s3c_gpio_setpull(Si4709_int, S3C_GPIO_PULL_DOWN);
 	gpio_set_value(GPIO_FM_RST, GPIO_LEVEL_HIGH);
 	usleep_range(10, 15);
-	s3c_gpio_cfgpin(Si4709_int, S3C_GPIO_INPUT);
+	s3c_gpio_cfgpin(Si4709_int, S3C_GPIO_SFN(0xF));
 	s3c_gpio_setpull(Si4709_int, S3C_GPIO_PULL_UP);
 
 	gpio_free(FM_RESET);
@@ -827,6 +844,10 @@ MISC_DREG:
 void __exit Si4709_driver_exit(void)
 {
 	debug("Si4709_driver_exit called\n");
+
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M0_CTC)
+	gpio_free(GPIO_FM_MIC_SW);
+#endif
 
 	/*Delete the i2c driver */
 	Si4709_i2c_drv_exit();

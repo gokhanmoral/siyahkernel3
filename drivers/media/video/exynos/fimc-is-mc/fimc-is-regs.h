@@ -3,7 +3,6 @@
  *
  *
  * Copyright (c) 2011 Samsung Electronics Co., Ltd
- * Contact: Jiyoung Shin<idon.shin@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -347,6 +346,7 @@
 #define PMUREG_ISP_ARM_CONFIGURATION		(S5P_VA_PMU  + 0x2280)
 #define PMUREG_ISP_ARM_STATUS			(S5P_VA_PMU  + 0x2284)
 #define PMUREG_ISP_ARM_OPTION			(S5P_VA_PMU  + 0x2288)
+#define PMUREG_ISP_LOW_POWER_OFF		(S5P_VA_PMU  + 0x0004)
 #define PMUREG_ISP_CONFIGURATION		(S5P_VA_PMU  + 0x4020)
 #define PMUREG_ISP_STATUS				(S5P_VA_PMU  + 0x4024)
 

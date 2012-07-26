@@ -2213,6 +2213,10 @@ static int nl80211_send_station(struct sk_buff *msg, u32 pid, u32 seq,
 	}
 	nla_nest_end(msg, sinfoattr);
 
+	if (sinfo->assoc_req_ies)
+		NLA_PUT(msg, NL80211_ATTR_IE, sinfo->assoc_req_ies_len,
+			sinfo->assoc_req_ies);
+
 	return genlmsg_end(msg, hdr);
 
  nla_put_failure:
@@ -2240,6 +2244,7 @@ static int nl80211_dump_station(struct sk_buff *skb,
 	}
 
 	while (1) {
+		memset(&sinfo, 0, sizeof(sinfo));
 		err = dev->ops->dump_station(&dev->wiphy, netdev, sta_idx,
 					     mac_addr, &sinfo);
 		if (err == -ENOENT)
@@ -3875,6 +3880,9 @@ static bool nl80211_valid_wpa_versions(u32 wpa_versions)
 static bool nl80211_valid_akm_suite(u32 akm)
 {
 	return akm == WLAN_AKM_SUITE_8021X ||
+#if 1 /* AKM_SUITE for CCKM */
+		akm == WLAN_AKM_SUITE_CCKM ||
+#endif
 		akm == WLAN_AKM_SUITE_PSK ||
 /* WAPI */
 		akm == WLAN_AKM_SUITE_WAPI_PSK ||
@@ -4057,9 +4065,6 @@ static int nl80211_crypto_settings(struct cfg80211_registered_device *rdev,
 		settings->n_akm_suites = len / sizeof(u32);
 
 		if (len % sizeof(u32))
-			return -EINVAL;
-
-		if (settings->n_akm_suites > NL80211_MAX_NR_AKM_SUITES)
 			return -EINVAL;
 
 		memcpy(settings->akm_suites, data, len);

@@ -58,15 +58,8 @@ enum s5p_mixer_color_fmt {
 	MIXER_RGB8888 = 7
 };
 
-enum s5p_mixer_csc_type {
-	MIXER_CSC_601_LR,
-	MIXER_CSC_601_FR,
-	MIXER_CSC_709_LR,
-	MIXER_CSC_709_FR
-};
-
 enum s5p_mixer_rgb {
-	MIXER_RGB601_0_255,
+	MIXER_RGB601_0_255 = 0,
 	MIXER_RGB601_16_235,
 	MIXER_RGB709_0_255,
 	MIXER_RGB709_16_235
@@ -91,10 +84,13 @@ extern int s5p_mixer_set_grp_layer_src_pos(enum s5p_mixer_layer layer, u32 span,
 		u32 width, u32 height, u32 src_offs_x, u32 src_offs_y);
 extern void s5p_mixer_set_bg_color(enum s5p_mixer_bg_color_num colornum,
 		u32 color_y, u32 color_cb, u32 color_cr);
+extern void s5p_mixer_set_video_limiter(u32 upper_y, u32 lower_y,
+		u32 upper_c, u32 lower_c, bool enable);
 extern void s5p_mixer_init_status_reg(enum s5p_mixer_burst_mode burst,
 		enum s5p_tvout_endian endian);
 extern int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
-		enum s5p_tvout_o_mode output_mode);
+		enum s5p_tvout_o_mode output_mode, enum s5p_mixer_rgb
+		rgb_type);
 extern void s5p_mixer_scaling(enum s5p_mixer_layer layer,
 		struct s5ptvfb_user_scaling scaling);
 extern void s5p_mixer_set_color_format(enum s5p_mixer_layer layer,
@@ -103,7 +99,7 @@ extern void s5p_mixer_set_chroma_key(enum s5p_mixer_layer layer, bool enabled,
 		u32 key);
 extern void s5p_mixer_init_bg_dither_enable(bool cr_dither_enable,
 		bool cdither_enable, bool y_dither_enable);
-extern void s5p_mixer_init_csc_coef_default(enum s5p_mixer_csc_type csc_type);
+extern void s5p_mixer_init_csc_coef_default(enum s5p_mixer_rgb csc_type);
 extern void s5p_mixer_start(void);
 extern void s5p_mixer_stop(void);
 extern void s5p_mixer_set_underflow_int_enable(enum s5p_mixer_layer layer,
@@ -201,6 +197,18 @@ enum s5p_hdmi_color_depth {
 	HDMI_CD_36,
 	HDMI_CD_30,
 	HDMI_CD_24
+};
+
+enum s5p_hdmi_q_range {
+	HDMI_Q_DEFAULT = 0,
+	HDMI_Q_LIMITED_RANGE,
+	HDMI_Q_FULL_RANGE,
+	HDMI_Q_RESERVED,
+};
+
+enum s5p_hdmi_avi_yq {
+	HDMI_AVI_YQ_LIMITED_RANGE = 0,
+	HDMI_AVI_YQ_FULL_RANGE,
 };
 
 enum s5p_hdmi_interrrupt {
@@ -368,7 +376,8 @@ extern void s5p_hdmi_reg_acp(u8 *header, u8 *acp);
 extern void s5p_hdmi_reg_isrc(u8 *isrc1, u8 *isrc2);
 extern void s5p_hdmi_reg_gmp(u8 *gmp);
 #ifdef CONFIG_HDMI_14A_3D
-extern void s5p_hdmi_reg_infoframe(struct s5p_hdmi_infoframe *info, u8 *data, u8 type_3D);
+extern void s5p_hdmi_reg_infoframe(
+	struct s5p_hdmi_infoframe *info, u8 *data, u8 type_3D);
 extern void s5p_hdmi_reg_tg(struct s5p_hdmi_v_format *v);
 #else
 extern void s5p_hdmi_reg_infoframe(struct s5p_hdmi_infoframe *info, u8 *data);
@@ -402,7 +411,8 @@ extern int s5p_hdmi_audio_init(
 		u32 sample_rate, u32 bits, u32 frame_size_code,
 		struct s5p_hdmi_audio *audio);
 extern irqreturn_t s5p_hdmi_irq(int irq, void *dev_id);
-extern void s5p_hdmi_init(void __iomem *hdmi_addr, void __iomem *hdmi_phy_addr);
+extern void s5p_hdmi_init(void __iomem *hdmi_addr);
+extern void s5p_hdmi_phy_init(void __iomem *hdmi_phy_addr);
 extern void s5p_hdmi_reg_output(struct s5p_hdmi_o_reg *reg);
 extern void s5p_hdmi_reg_packet_trans(struct s5p_hdmi_o_trans *trans);
 extern void s5p_hdmi_reg_mute(bool en);
@@ -744,8 +754,9 @@ extern int s5p_hdcp_stop(void);
 /****************************************
  * Definitions for sdo ctrl class
  ***************************************/
-#if defined(CONFIG_BUSFREQ_OPP)
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 #define BUSFREQ_400MHZ	400200
+#define BUSFREQ_133MHZ	133133
 #endif
 
 #ifdef CONFIG_ANALOG_TVENC
@@ -792,145 +803,6 @@ struct s5p_sdo_ch_xtalk_cancellat_coeff {
 struct s5p_sdo_closed_caption {
 	u32 display_cc;
 	u32 nondisplay_cc;
-};
-
-struct s5p_sdo_ctrl_private_data {
-	struct s5p_sdo_vscale_cfg		video_scale_cfg;
-	struct s5p_sdo_vbi			vbi;
-	struct s5p_sdo_offset_gain		offset_gain;
-	struct s5p_sdo_delay			delay;
-	struct s5p_sdo_bright_hue_saturation	bri_hue_sat;
-	struct s5p_sdo_cvbs_compensation	cvbs_compen;
-	struct s5p_sdo_component_porch		compo_porch;
-	struct s5p_sdo_ch_xtalk_cancellat_coeff	xtalk_cc;
-	struct s5p_sdo_closed_caption		closed_cap;
-	struct s5p_sdo_525_data			wss_525;
-	struct s5p_sdo_625_data			wss_625;
-	struct s5p_sdo_525_data			cgms_525;
-	struct s5p_sdo_625_data			cgms_625;
-
-	bool			color_sub_carrier_phase_adj;
-
-	bool			running;
-
-	struct s5p_tvout_clk_info	clk[SDO_NO_OF_CLK];
-	char			*pow_name;
-	struct reg_mem_info	reg_mem;
-};
-
-static struct s5p_sdo_ctrl_private_data s5p_sdo_ctrl_private = {
-	.clk[SDO_PCLK] = {
-		.name			= "tvenc",
-		.ptr			= NULL
-	},
-	.clk[SDO_MUX] = {
-		.name			= "sclk_dac",
-		.ptr			= NULL
-	},
-		.pow_name		= "tv_enc_pd",
-	.reg_mem = {
-		.name			= "s5p-sdo",
-		.res			= NULL,
-		.base			= NULL
-	},
-
-	.running			= false,
-
-	.color_sub_carrier_phase_adj	= false,
-
-	.vbi = {
-		.wss_cvbs		= true,
-		.caption_cvbs		= SDO_INS_OTHERS
-	},
-
-	.offset_gain = {
-		.offset			= 0,
-		.gain			= 0x800
-	},
-
-	.delay = {
-		.delay_y		= 0x00,
-		.offset_video_start	= 0xfa,
-		.offset_video_end	= 0x00
-	},
-
-	.bri_hue_sat = {
-		.bright_hue_sat_adj	= false,
-		.gain_brightness	= 0x80,
-		.offset_brightness	= 0x00,
-		.gain0_cb_hue_sat	= 0x00,
-		.gain1_cb_hue_sat	= 0x00,
-		.gain0_cr_hue_sat	= 0x00,
-		.gain1_cr_hue_sat	= 0x00,
-		.offset_cb_hue_sat	= 0x00,
-		.offset_cr_hue_sat	= 0x00
-	},
-
-	.cvbs_compen = {
-		.cvbs_color_compen	= false,
-		.y_lower_mid		= 0x200,
-		.y_bottom		= 0x000,
-		.y_top			= 0x3ff,
-		.y_upper_mid		= 0x200,
-		.radius			= 0x1ff
-	},
-
-	.compo_porch = {
-		.back_525		= 0x8a,
-		.front_525		= 0x359,
-		.back_625		= 0x96,
-		.front_625		= 0x35c
-	},
-
-	.xtalk_cc = {
-		.coeff2			= 0,
-		.coeff1			= 0
-	},
-
-	.closed_cap = {
-		.display_cc		= 0,
-		.nondisplay_cc		= 0
-	},
-
-	.wss_525 = {
-		.copy_permit		= SDO_525_COPY_PERMIT,
-		.mv_psp			= SDO_525_MV_PSP_OFF,
-		.copy_info		= SDO_525_COPY_INFO,
-		.analog_on		= false,
-		.display_ratio		= SDO_525_4_3_NORMAL
-	},
-
-	.wss_625 = {
-		.surround_sound		= false,
-		.copyright		= false,
-		.copy_protection	= false,
-		.text_subtitles		= false,
-		.open_subtitles		= SDO_625_NO_OPEN_SUBTITLES,
-		.camera_film		= SDO_625_CAMERA,
-		.color_encoding		= SDO_625_NORMAL_PAL,
-		.helper_signal		= false,
-		.display_ratio		= SDO_625_4_3_FULL_576
-	},
-
-	.cgms_525 = {
-		.copy_permit		= SDO_525_COPY_PERMIT,
-		.mv_psp			= SDO_525_MV_PSP_OFF,
-		.copy_info		= SDO_525_COPY_INFO,
-		.analog_on		= false,
-		.display_ratio		= SDO_525_4_3_NORMAL
-	},
-
-	.cgms_625 = {
-		.surround_sound		= false,
-		.copyright		= false,
-		.copy_protection	= false,
-		.text_subtitles		= false,
-		.open_subtitles		= SDO_625_NO_OPEN_SUBTITLES,
-		.camera_film		= SDO_625_CAMERA,
-		.color_encoding		= SDO_625_NORMAL_PAL,
-		.helper_signal		= false,
-		.display_ratio		= SDO_625_4_3_FULL_576
-	},
 };
 
 #endif
@@ -1082,6 +954,7 @@ struct s5p_hdmi_video {
 	enum s5p_hdmi_pic_aspect	aspect;
 	enum s5p_hdmi_colorimetry	colorimetry;
 	enum s5p_hdmi_color_depth	depth;
+	enum s5p_hdmi_q_range		q_range;
 };
 
 struct s5p_hdmi_o_params {
@@ -1123,7 +996,7 @@ struct s5p_tvif_ctrl_private_data {
 
 	bool				running;
 
-#if defined(CONFIG_BUSFREQ_OPP)
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	struct device *bus_dev; /* for BusFreq with Opp */
 #endif
 	struct device *dev; /* hpd device pointer */

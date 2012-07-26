@@ -1608,7 +1608,7 @@ S32 Get_FIG1_EXT0(U8 fic_cmd, U8 Char_Set)
 {
 	U16 Eid;
 	U8 label[17];
-	U8 i = 0;
+	S8 i = 0;
 	U8 temp1, temp2;
 
 	while (fig_data.byte_cnt < fig_data.length) {
@@ -1644,7 +1644,7 @@ S32 Get_FIG1_EXT1(U8 fic_cmd, U8 Char_Set)
 U32 sid;
 U8 label[17];
 U8 cnt;
-U8 i;
+S8 i;
 U8 temp1, temp2;
 
 while (fig_data.byte_cnt < fig_data.length) {
@@ -1711,7 +1711,7 @@ S32 Get_FIG1_EXT4(U8 fic_cmd, U8 Char_Set)
 	U8 SCidS;
 	U32 sid;
 	U8 label[17];
-	U8 i = 0, k = 0;
+	S8 i = 0, k = 0;
 	U8 temp1, temp2, temp3, temp4;
 
 	while (fig_data.byte_cnt < fig_data.length) {
@@ -1766,7 +1766,7 @@ S32 Get_FIG1_EXT5(U8 fic_cmd, U8 Char_Set)
 U32 sid;
 U8 label[17];
 U8 cnt;
-U8 i;
+S8 i;
 U8 temp1, temp2, temp3, temp4;
 
 while (fig_data.byte_cnt < fig_data.length) {
@@ -2471,7 +2471,6 @@ S32 FIC_Init_Dec(U8 *fic, U8 fib_num, U8 CN)
 			fib_crc_pos += 32;
 			fib_crc_err_cnt++;
 			return FIC_CRC_ERR;
-			continue;
 		}
 
 		ret = FIB_INIT_DEC(fic+fib_crc_pos);
@@ -2522,19 +2521,13 @@ BOOL rtvFICDEC_Decode(U32 ch_freq_khz)
 	UINT ret;
 	UINT cnt = 0;
 	U8 int_type_val1;
-	U8 tr_mode;
 	U8 fic_buf[384+1];
 	/*UINT crc_err_cnt = 0; */
-	UINT frame_dur[4] = {(96)/2, (96/4)/2, (96/4)/2, (96/2)/2};
-
-
 	UINT read_cnt = 0;
 	unsigned long diff_jiffies = get_jiffies_64();
 	unsigned long diff_jiffies_1;
 
-
 	fic_decode_run = TRUE;
-
 	fib_crc_err_cnt = 0;
 
 	FIC_CONUT = 0;
@@ -2542,17 +2535,13 @@ BOOL rtvFICDEC_Decode(U32 ch_freq_khz)
 
 	RTV_GUARD_LOCK;
 
-	RTV_REG_MAP_SEL(0x06);
-	tr_mode = RTV_REG_GET(0x27);	/* DAB TX Mode monitoring */
-	tr_mode = (tr_mode & 0x30)>>4;
-
-
 	RTV_REG_MAP_SEL(DD_PAGE);
-	while (++cnt <= 104) {
+	RTV_REG_SET(INT_E_UCLRL, 0x01);
+
+	while (++cnt <= 408) {
 		if (fic_decode_run == FALSE)
 			break;
 
-		RTV_DELAY_MS(frame_dur[tr_mode]);
 		int_type_val1 = RTV_REG_GET(INT_E_STATL);
 
 	/* RTV_DBGMSG0("FIC_Check rootine!\n");*/
@@ -2560,23 +2549,13 @@ BOOL rtvFICDEC_Decode(U32 ch_freq_khz)
 			read_cnt++;
 
 			RTV_REG_MAP_SEL(FIC_PAGE);
-
-			/* Get the frame data using CPU or DMA. */
 			RTV_REG_BURST_GET(0x10, fic_buf, 384+1);
 
 			/* FIC interrupt status clear */
 			RTV_REG_MAP_SEL(DD_PAGE);
 			RTV_REG_SET(INT_E_UCLRL, 0x01);
 
-		{
-			/*unsigned long diff_jiffies = get_jiffies_64();*/
-
 			ret = FIC_Init_Dec(&fic_buf[1], 12, 0);
-
-			/*RTV_DBGMSG1("[mtv] FIC_Init_Dec(): %u\n",
-			jiffies_to_msecs(get_jiffies_64() - diff_jiffies));*/
-		}
-
 			if (ret == FIC_DONE) {
 				diff_jiffies_1 = get_jiffies_64();
 				RTV_DBGMSG2\
@@ -2598,6 +2577,8 @@ BOOL rtvFICDEC_Decode(U32 ch_freq_khz)
 				return FALSE;
 			}
 		}
+
+		RTV_DELAY_MS(12);
 	}
 
 	RTV_GUARD_FREE;
@@ -2726,3 +2707,4 @@ struct ensemble_info_type *rtvFICDEC_GetEnsembleInfo(unsigned long freq)
 
 	return &ensble;
 }
+

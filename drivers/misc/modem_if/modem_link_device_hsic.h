@@ -17,8 +17,6 @@
 #define __MODEM_LINK_DEVICE_USB_H__
 
 
-#define IF_USB_NOT_MAIN		1
-
 enum {
 	IF_USB_BOOT_EP = 0,
 	IF_USB_FMT_EP = 0,
@@ -96,8 +94,14 @@ struct link_pm_data {
 	struct wake_lock l2_wake;
 	struct wake_lock boot_wake;
 	struct wake_lock rpm_wake;
+	struct wake_lock tx_async_wake;
 	struct notifier_block pm_notifier;
 	bool dpm_suspending;
+
+	/* Host wakeup toggle debugging */
+	unsigned ipc_debug_cnt;
+	unsigned long tx_cnt;
+	unsigned long rx_cnt;
 };
 
 struct if_usb_devdata {
@@ -126,8 +130,15 @@ struct usb_link_device {
 	unsigned int		suspended;
 	int if_usb_connected;
 
+	bool if_usb_is_main; /* boot,down(false) or main(true) */
+
 	/* LINK PM DEVICE DATA */
 	struct link_pm_data *link_pm_data;
+
+	/*RX retry work by -ENOMEM*/
+	struct delayed_work rx_retry_work;
+	struct urb *retry_urb;
+	unsigned rx_retry_cnt;
 };
 /* converts from struct link_device* to struct xxx_link_device* */
 #define to_usb_link_device(linkdev) \

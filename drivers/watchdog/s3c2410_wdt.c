@@ -452,6 +452,13 @@ static int __devinit s3c2410wdt_probe(struct platform_device *pdev)
 
 	clk_enable(wdt_clock);
 
+	/*
+	* Watchdog timer should be stopped
+	* before set prescaler to prevent unexpected expired watchdog timer
+	*/
+	if (!tmr_atboot)
+		s3c2410wdt_stop();
+
 	ret = s3c2410wdt_cpufreq_register();
 	if (ret) {
 		printk(KERN_ERR PFX "failed to register cpufreq\n");

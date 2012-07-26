@@ -744,8 +744,11 @@ int sdio_set_host_pm_flags(struct sdio_func *func, mmc_pm_flag_t flags)
 
 	host = func->card->host;
 
+#ifdef CONFIG_MACH_PX
+#else
 	if (flags & ~host->pm_caps)
 		return -EINVAL;
+#endif
 
 	/* function suspend methods are serialized, hence no lock needed */
 	host->pm_flags |= flags;

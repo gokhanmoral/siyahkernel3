@@ -131,7 +131,7 @@ void __init s5pv210_map_io(void)
 	s5pv210_default_sdhci2();
 	s5pv210_default_sdhci3();
 
-	s3c_adc_setname("s5pv210-adc");
+	s3c_adc_setname("samsung-adc-v3");
 
 	s3c_cfcon_setname("s5pv210-pata");
 

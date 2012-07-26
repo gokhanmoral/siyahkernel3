@@ -40,8 +40,8 @@
 #include "mali_device_pause_resume.h"
 #include "mali_linux_pm.h"
 
-#define MALI_REBOOTNOTIFIER
 #ifdef MALI_REBOOTNOTIFIER
+_mali_osk_atomic_t mali_shutdown_state;
 #include <linux/reboot.h>
 #endif
 
@@ -616,6 +616,7 @@ static int mali_pm_probe(struct platform_device *pdev)
 static int mali_reboot_notify(struct notifier_block *this,
 	unsigned long code, void *unused)
 {
+	_mali_osk_atomic_inc_return(&mali_shutdown_state);
 	mali_dvfs_device_state = _MALI_DEVICE_SHUTDOWN;
 	MALI_PRINT(("REBOOT Notifier for mali\n"));
 	return NOTIFY_DONE;
@@ -650,6 +651,7 @@ int _mali_dev_platform_register(void)
 #endif /* CONFIG_PM_RUNTIME */
 
 #ifdef MALI_REBOOTNOTIFIER
+	_mali_osk_atomic_init(&mali_shutdown_state, 0);
 	err = register_reboot_notifier(&mali_reboot_notifier);
 	if (err) {
 		MALI_PRINT(("Failed to setup reboot notifier\n"));

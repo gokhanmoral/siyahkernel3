@@ -617,10 +617,14 @@ struct drm_get_cap {
 	__u64 value;
 };
 
+#define DRM_CLOEXEC O_CLOEXEC
 struct drm_prime_handle {
 	__u32 handle;
 
-	/* returned fd for prime */
+	/** Flags.. only applicable for handle->fd */
+	__u32 flags;
+
+	/** Returned dmabuf file descriptor */
 	__s32 fd;
 };
 
@@ -680,8 +684,8 @@ struct drm_prime_handle {
 #define DRM_IOCTL_UNLOCK		DRM_IOW( 0x2b, struct drm_lock)
 #define DRM_IOCTL_FINISH		DRM_IOW( 0x2c, struct drm_lock)
 
-#define DRM_IOCTL_PRIME_HANDLE_TO_FD	DRM_IOWR(0x2d, struct drm_prime_handle)
-#define DRM_IOCTL_PRIME_FD_TO_HANDLE	DRM_IOWR(0x2e, struct drm_prime_handle)
+#define DRM_IOCTL_PRIME_HANDLE_TO_FD    DRM_IOWR(0x2d, struct drm_prime_handle)
+#define DRM_IOCTL_PRIME_FD_TO_HANDLE    DRM_IOWR(0x2e, struct drm_prime_handle)
 
 #define DRM_IOCTL_AGP_ACQUIRE		DRM_IO(  0x30)
 #define DRM_IOCTL_AGP_RELEASE		DRM_IO(  0x31)
@@ -769,6 +773,8 @@ struct drm_event_vblank {
 
 #define DRM_CAP_DUMB_BUFFER 0x1
 #define DRM_CAP_VBLANK_HIGH_CRTC 0x2
+#define DRM_CAP_DUMB_PREFERRED_DEPTH 0x3
+#define DRM_CAP_DUMB_PREFER_SHADOW 0x4
 
 /* typedef area */
 #ifndef __KERNEL__

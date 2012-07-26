@@ -1,5 +1,6 @@
 #------------------------------------------------------------------------------
-# Copyright (c) 2004-2010 Atheros Communications Inc.
+# Copyright (c) 2004-2011 Atheros Communications Inc.
+# Copyright (c) 2011-2012 Qualcomm Atheros, Inc.
 # All rights reserved.
 #
 #
@@ -23,6 +24,7 @@
 
 obj-$(CONFIG_ATH6KL_SDIO) := ath6kl_sdio.o
 ath6kl_sdio-y += debug.o
+ath6kl_sdio-y += debugfs_pri.o
 ath6kl_sdio-y += hif.o
 ath6kl_sdio-y += htc.o
 ath6kl_sdio-y += bmi.o
@@ -40,8 +42,8 @@ ath6kl_sdio-y += c210.o
 else
 ath6kl_sdio-y += msm.o
 endif
-ath6kl_sdio-y += dbglog.o
-
+ath6kl_sdio-y += softmac.o
+ath6kl_sdio-y += wmiconfig.o
 ath6kl_sdio-$(CONFIG_NL80211_TESTMODE) += testmode.o
 
 obj-$(CONFIG_ATH6KL_USB) += ath6kl_usb.o
@@ -58,7 +60,7 @@ ath6kl_usb-y += txrx.o
 ath6kl_usb-y += wmi.o
 ath6kl_usb-y += wmi_btcoex.o
 ath6kl_usb-y += usb.o
-ath6kl_usb-y += dbglog.o
+ath6kl_usb-y += wmiconfig.o
 ath6kl_usb-$(CONFIG_NL80211_TESTMODE) += testmode.o
 
 ccflags-y += -D__CHECK_ENDIAN__

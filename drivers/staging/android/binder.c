@@ -1543,6 +1543,16 @@ static void binder_transaction(struct binder_proc *proc,
 		t->from = thread;
 	else
 		t->from = NULL;
+#ifdef CONFIG_MACH_P4NOTE
+	/* workaround code for invalid binder proc */
+	if (!proc->tsk) {
+		binder_debug(BINDER_DEBUG_FAILED_TRANSACTION,
+			     "binder: %d:%d invalid proc\n",
+			     proc->pid, thread->pid);
+		return_error = BR_FAILED_REPLY;
+		goto err_binder_alloc_buf_failed;
+	}
+#endif
 	t->sender_euid = proc->tsk->cred->euid;
 	t->to_proc = target_proc;
 	t->to_thread = target_thread;
@@ -3047,6 +3057,8 @@ static void binder_deferred_release(struct binder_proc *proc)
 		for (i = 0; i < proc->buffer_size / PAGE_SIZE; i++) {
 			if (proc->pages[i]) {
 				void *page_addr = proc->buffer + i * PAGE_SIZE;
+				unsigned long page_ptr =
+						(unsigned long)proc->pages[i];
 				binder_debug(BINDER_DEBUG_BUFFER_ALLOC,
 					     "binder_release: %d: "
 					     "page %d at %p not freed\n",
@@ -3054,8 +3066,16 @@ static void binder_deferred_release(struct binder_proc *proc)
 					     page_addr);
 				unmap_kernel_range((unsigned long)page_addr,
 					PAGE_SIZE);
-				__free_page(proc->pages[i]);
-				page_count++;
+				if (unlikely(!IS_ALIGNED(page_ptr, 4) ||
+					page_ptr < PAGE_OFFSET ||
+					page_ptr >= (unsigned long)high_memory))
+						printk(KERN_ERR "binder_release: %d: "
+						"page %d addr %p is invalid\n",
+						proc->pid, i, proc->pages[i]);
+				else {
+					__free_page(proc->pages[i]);
+					page_count++;
+				}
 			}
 		}
 		kfree(proc->pages);

@@ -29,7 +29,7 @@ extern struct clksrc_clk exynos4_clk_aclk_133;
 extern struct clksrc_clk exynos4_clk_aclk_200;
 #ifdef CONFIG_CPU_EXYNOS4212
 extern struct clksrc_clk exynos4212_clk_aclk_266;
-extern struct clksrc_clk exynos4212_clk_aclk_400;
+extern struct clksrc_clk exynos4212_clk_aclk_400_mcuisp;
 #endif
 extern struct clksrc_clk exynos4_clk_mout_epll;
 extern struct clksrc_clk exynos4_clk_sclk_vpll;

@@ -221,9 +221,6 @@ static int __add_ts_data(unsigned char *data, unsigned long data_size)
 		for (j = 0; j < data_size; j++) {
 			if (data[j] == 0x47) {
 				DPRINTK("!!!!! first sync j = %d !!!!!\n", j);
-				tdmb_make_result(DMB_TS_PACKET_RESYNC,
-							sizeof(int),
-							(unsigned char *)&j);
 				maxi = (data_size - j) / TS_PACKET_SIZE;
 				ts_buff_pos = (data_size - j) % TS_PACKET_SIZE;
 				__add_to_ringbuffer(&data[j],
@@ -457,6 +454,9 @@ bool tdmb_store_data(unsigned char *data, unsigned long len)
 				__add_msc_data(data, TS_PACKET_SIZE, subch_id);
 				data += TS_PACKET_SIZE;
 			}
+			if (len - maxi * TS_PACKET_SIZE)
+				__add_msc_data(data,\
+					 len - maxi * TS_PACKET_SIZE, subch_id);
 		}
 		return true;
 	}

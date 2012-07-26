@@ -31,6 +31,7 @@ int drm_bl_register(struct device *dev, int type)
 	switch (type) {
 	case BL_BACKLIGHT_CLASS:
 	case BL_LCD_CLASS:
+	case BL_TSP_CLASS:
 		break;
 	default:
 		return -EINVAL;
@@ -73,6 +74,7 @@ void drm_bl_dpms(int mode)
 	struct drm_bl_data *data;
 	struct backlight_device *bd;
 	struct lcd_device *ld;
+	struct drm_bl_notifier *bl_noti;
 	int blank;
 
 	switch (mode) {
@@ -102,6 +104,13 @@ void drm_bl_dpms(int mode)
 			if (!ld->ops->set_power)
 				break;
 			ld->ops->set_power(ld, blank);
+			break;
+		case BL_TSP_CLASS:
+			bl_noti = container_of(data->dev,
+					struct drm_bl_notifier, dev);
+			if (!bl_noti->set_power)
+				break;
+			bl_noti->set_power(bl_noti->priv, blank);
 			break;
 		}
 	}

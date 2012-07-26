@@ -1,9 +1,8 @@
-/* linux/drivers/media/video/exynos/rotator/rotator-vb2.c
+/*
+ * Copyright (c) 2012 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
  *
- * Copyright (c) 2011 Samsung Electronics Co., Ltd.
- *		http://www.samsung.com/
- *
- * Videobuf2 bridge driver file for Exynos Rotator driver
+ * Videobuf2 bridge driver file for EXYNOS Image Rotator driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -16,10 +15,13 @@
 #if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
 void *rot_cma_init(struct rot_dev *rot)
 {
-	return vb2_cma_phys_init(&rot->pdev->dev, NULL, 0, false);
+	return vb2_cma_phys_init(rot->dev, NULL, 0, false);
 }
 
-void rot_cma_resume(void *alloc_ctx) {}
+int rot_cma_resume(void *alloc_ctx)
+{
+	return 1;
+}
 void rot_cma_suspend(void *alloc_ctx) {}
 void rot_cma_set_cacheable(void *alloc_ctx, bool cacheable) {}
 int rot_cma_cache_flush(struct vb2_buffer *vb, u32 plane_no) { return 0; }
@@ -38,29 +40,28 @@ const struct rot_vb2 rot_vb2_cma = {
 #elif defined(CONFIG_VIDEOBUF2_ION)
 void *rot_ion_init(struct rot_dev *rot)
 {
-	struct vb2_ion vb2_ion;
-	struct vb2_drv vb2_drv = {0, };
+	return vb2_ion_create_context(rot->dev, SZ_1M,
+		VB2ION_CTX_PHCONTIG | VB2ION_CTX_IOMMU | VB2ION_CTX_UNCACHED);
+}
 
-	vb2_ion.dev = &rot->pdev->dev;
-	vb2_ion.name = "Rotator";
-	vb2_ion.contig = false;
-	vb2_ion.cacheable = false;
-	vb2_ion.align = SZ_4K;
+static unsigned long rot_vb2_plane_addr(struct vb2_buffer *vb, u32 plane_no)
+{
+	void *cookie = vb2_plane_cookie(vb, plane_no);
+	dma_addr_t dma_addr = 0;
 
-	vb2_drv.use_mmu = true;
+	WARN_ON(vb2_ion_dma_address(cookie, &dma_addr) != 0);
 
-	return vb2_ion_init(&vb2_ion, &vb2_drv);
+	return (unsigned long)dma_addr;
 }
 
 const struct rot_vb2 rot_vb2_ion = {
 	.ops		= &vb2_ion_memops,
 	.init		= rot_ion_init,
-	.cleanup	= vb2_ion_cleanup,
-	.plane_addr	= vb2_ion_plane_dvaddr,
-	.resume		= vb2_ion_resume,
-	.suspend	= vb2_ion_suspend,
+	.cleanup	= vb2_ion_destroy_context,
+	.plane_addr	= rot_vb2_plane_addr,
+	.resume		= vb2_ion_attach_iommu,
+	.suspend	= vb2_ion_detach_iommu,
 	.cache_flush	= vb2_ion_cache_flush,
-	.set_cacheable	= vb2_ion_set_cacheable,
-	.set_sharable	= vb2_ion_set_sharable,
+	.set_cacheable	= vb2_ion_set_cached,
 };
 #endif

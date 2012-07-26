@@ -45,10 +45,10 @@ static void bcm47511_enable(void *data)
 
 	gpio_set_value(pdata->regpu, 1);
 
-	if (pdata->nrst)
+	if (gpio_is_valid(pdata->nrst))
 		gpio_set_value(pdata->nrst, 1);
 
-	if (pdata->gps_cntl)
+	if (gpio_is_valid(pdata->gps_cntl))
 		gpio_set_value(pdata->gps_cntl, 1);
 
 	bd->in_use = true;
@@ -61,7 +61,7 @@ static void bcm47511_disable(void *data)
 
 	gpio_set_value(pdata->regpu, 0);
 
-	if (pdata->gps_cntl)
+	if (gpio_is_valid(pdata->gps_cntl))
 		gpio_set_value(pdata->gps_cntl, 0);
 
 	if (bd->regulator && bd->regulator_state) {
@@ -112,7 +112,7 @@ static int __devinit bcm47511_probe(struct platform_device *dev)
 
 	bd->pdata = pdata;
 
-	if (pdata->regpu) {
+	if (gpio_is_valid(pdata->regpu)) {
 		gpio = pdata->regpu;
 
 		/* GPS_EN is low */
@@ -120,7 +120,7 @@ static int __devinit bcm47511_probe(struct platform_device *dev)
 		gpio_direction_output(gpio, 0);
 	}
 
-	if (pdata->nrst) {
+	if (gpio_is_valid(pdata->nrst)) {
 		gpio = pdata->nrst;
 		/* GPS_nRST is high */
 		gpio_request(gpio, "GPS_nRST");
@@ -128,10 +128,10 @@ static int __devinit bcm47511_probe(struct platform_device *dev)
 	}
 
 	/* GPS_UART_RXD */
-	if (pdata->uart_rxd)
+	if (gpio_is_valid(pdata->uart_rxd))
 		s3c_gpio_setpull(pdata->uart_rxd, S3C_GPIO_PULL_UP);
 
-	if (pdata->gps_cntl) {
+	if (gpio_is_valid(pdata->gps_cntl)) {
 		gpio = pdata->gps_cntl;
 		gpio_request(gpio, "GPS_CNTL");
 		gpio_direction_output(gpio, 0);
@@ -204,11 +204,13 @@ static int bcm47511_suspend(struct platform_device *dev, pm_message_t stata)
 	if (bd->in_use) {
 		s5p_gpio_set_pd_cfg(pdata->regpu, S5P_GPIO_PD_OUTPUT1);
 		s5p_gpio_set_pd_cfg(pdata->nrst, S5P_GPIO_PD_OUTPUT1);
-		s5p_gpio_set_pd_cfg(pdata->gps_cntl, S5P_GPIO_PD_OUTPUT1);
+		if (gpio_is_valid(pdata->gps_cntl))
+			s5p_gpio_set_pd_cfg(pdata->gps_cntl, S5P_GPIO_PD_OUTPUT1);
 	} else {
 		s5p_gpio_set_pd_cfg(pdata->regpu, S5P_GPIO_PD_OUTPUT0);
 		s5p_gpio_set_pd_cfg(pdata->nrst, S5P_GPIO_PD_OUTPUT0);
-		s5p_gpio_set_pd_cfg(pdata->gps_cntl, S5P_GPIO_PD_OUTPUT0);
+		if (gpio_is_valid(pdata->gps_cntl))
+			s5p_gpio_set_pd_cfg(pdata->gps_cntl, S5P_GPIO_PD_OUTPUT0);
 	}
 
 	return 0;

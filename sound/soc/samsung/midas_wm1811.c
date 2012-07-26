@@ -16,6 +16,8 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/input.h>
+#include <linux/wakelock.h>
+#include <linux/suspend.h>
 
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
@@ -24,23 +26,26 @@
 #include <sound/jack.h>
 
 #include <mach/regs-clock.h>
+#include <mach/pmu.h>
+#include <mach/midas-sound.h>
 
+#include <linux/mfd/wm8994/core.h>
 #include <linux/mfd/wm8994/registers.h>
 #include <linux/mfd/wm8994/pdata.h>
+
+#if defined(CONFIG_SND_USE_MUIC_SWITCH)
+#include <linux/mfd/max77693-private.h>
+#endif
+
 
 #include "i2s.h"
 #include "s3c-i2s-v2.h"
 #include "../codecs/wm8994.h"
 
-/*
-#define MANAGE_MCLK1
-*/
 
-/* SMDK has a 16.934MHZ crystal attached to WM8994 */
-#define SMDK_WM8994_OSC_FREQ	16934400
-#define WM8994_DAI_AIF1		0
-#define WM8994_DAI_AIF2		1
-#define WM8994_DAI_AIF3		2
+#define MIDAS_DEFAULT_MCLK1	24000000
+#define MIDAS_DEFAULT_MCLK2	32768
+#define MIDAS_DEFAULT_SYNC_CLK	11289600
 
 #define WM1811_JACKDET_MODE_NONE  0x0000
 #define WM1811_JACKDET_MODE_JACK  0x0100
@@ -52,69 +57,65 @@
 #define WM1811_JACKDET_BTN2	0x08
 
 
-static const struct wm8958_micd_rate midas_det_rates[] = {
-	{ 32768,       true,  0, 1 },
-	{ 32768,       false, 0, 1 },
-	{ 44100 * 256, true,  8, 8 },
-	{ 44100 * 256, false, 8, 8 },
+static struct wm8958_micd_rate midas_det_rates[] = {
+	{ MIDAS_DEFAULT_MCLK2,     true,  0,  0 },
+	{ MIDAS_DEFAULT_MCLK2,    false,  0,  0 },
+	{ MIDAS_DEFAULT_SYNC_CLK,  true,  7,  7 },
+	{ MIDAS_DEFAULT_SYNC_CLK, false,  7,  7 },
 };
 
+static struct wm8958_micd_rate midas_jackdet_rates[] = {
+	{ MIDAS_DEFAULT_MCLK2,     true,  0,  0 },
+	{ MIDAS_DEFAULT_MCLK2,    false,  0,  0 },
+	{ MIDAS_DEFAULT_SYNC_CLK,  true, 12, 12 },
+	{ MIDAS_DEFAULT_SYNC_CLK, false,  7,  8 },
+};
+
+static int aif2_mode;
+const char *aif2_mode_text[] = {
+	"Slave", "Master"
+};
+
+static int kpcs_mode = 2;
+const char *kpcs_mode_text[] = {
+	"Off", "On"
+};
+
+static int input_clamp;
+const char *input_clamp_text[] = {
+	"Off", "On"
+};
+
+static int lineout_mode;
+const char *lineout_mode_text[] = {
+	"Off", "On"
+};
+
+#ifndef CONFIG_SEC_DEV_JACK
 /* To support PBA function test */
 static struct class *jack_class;
 static struct device *jack_dev;
+#endif
 
+#ifdef SND_USE_BIAS_LEVEL
 static bool midas_fll1_active;
-static enum snd_soc_bias_level midas_card_bias_level;
-struct mutex midas_lock;
+struct snd_soc_dai *midas_aif1_dai;
+#endif
 
-static void midas_set_mclk(int on)
-{
-	u32 val;
-	u32 __iomem *xusbxti_sys_pwr;
-	u32 __iomem *pmu_debug;
+struct wm1811_machine_priv {
+	struct snd_soc_jack jack;
+	struct snd_soc_codec *codec;
+	struct delayed_work mic_work;
+	struct wake_lock jackdet_wake_lock;
+};
 
-	static int ipwron = -1;
-
-	if (ipwron == on)
-		return;
-
-	ipwron = on;
-
-	xusbxti_sys_pwr = ioremap(0x10021280, 4);
-	pmu_debug = ioremap(0x10020A00, 4);
-
-	if (on) {
-		val = readl(xusbxti_sys_pwr);
-		val |= 0x0001;			/* SYS_PWR_CFG is enabled */
-		writel(val, xusbxti_sys_pwr);
-
-		val = readl(pmu_debug);
-		val &= ~(0x000F << 8);
-		val |= 0x0009 << 8;		/* Selected XUSBXTI */
-		val &= ~(0x0001);		/* CLKOUT is enabled */
-		writel(val, pmu_debug);
-	} else {
-		val = readl(xusbxti_sys_pwr);
-		val &= ~(0x0001);		/* SYS_PWR_CFG is disabled */
-		writel(val, xusbxti_sys_pwr);
-
-		val = readl(pmu_debug);
-		val |= 0x0001;			/* CLKOUT is disabled */
-		writel(val, pmu_debug);
-	}
-
-	iounmap(xusbxti_sys_pwr);
-	iounmap(pmu_debug);
-
-	mdelay(10);
-}
 
 static void midas_gpio_init(void)
 {
 	int err;
-
+#ifdef CONFIG_SND_SOC_USE_EXTERNAL_MIC_BIAS
 	/* Main Microphone BIAS */
-	err = gpio_request(GPIO_MIC_BIAS_EN, "GPF1");
+	err = gpio_request(GPIO_MIC_BIAS_EN, "MAIN MIC");
 	if (err) {
 		pr_err(KERN_ERR "MIC_BIAS_EN GPIO set error!\n");
 		return;
@@ -122,9 +123,11 @@ static void midas_gpio_init(void)
 	gpio_direction_output(GPIO_MIC_BIAS_EN, 1);
 	gpio_set_value(GPIO_MIC_BIAS_EN, 0);
 	gpio_free(GPIO_MIC_BIAS_EN);
+#endif
 
+#ifdef CONFIG_SND_USE_SUB_MIC
 	/* Sub Microphone BIAS */
-	err = gpio_request(GPIO_SUB_MIC_BIAS_EN, "GPF2");
+	err = gpio_request(GPIO_SUB_MIC_BIAS_EN, "SUB MIC");
 	if (err) {
 		pr_err(KERN_ERR "SUB_MIC_BIAS_EN GPIO set error!\n");
 		return;
@@ -132,7 +135,156 @@ static void midas_gpio_init(void)
 	gpio_direction_output(GPIO_SUB_MIC_BIAS_EN, 1);
 	gpio_set_value(GPIO_SUB_MIC_BIAS_EN, 0);
 	gpio_free(GPIO_SUB_MIC_BIAS_EN);
+#endif
+
+#ifdef CONFIG_SND_USE_THIRD_MIC
+	/* Third Microphone BIAS */
+	err = gpio_request(GPIO_THIRD_MIC_BIAS_EN, "THIRD MIC");
+	if (err) {
+		pr_err(KERN_ERR "THIRD_MIC_BIAS_EN GPIO set error!\n");
+		return;
+	}
+	gpio_direction_output(GPIO_THIRD_MIC_BIAS_EN, 1);
+	gpio_set_value(GPIO_THIRD_MIC_BIAS_EN, 0);
+	gpio_free(GPIO_THIRD_MIC_BIAS_EN);
+#endif
+
+#ifdef CONFIG_FM_RADIO
+#if !defined(CONFIG_MACH_T0)
+	/* FM/Third Mic GPIO */
+	err = gpio_request(GPIO_FM_MIC_SW, "GPL0");
+	if (err) {
+		pr_err(KERN_ERR "FM/THIRD_MIC Switch GPIO set error!\n");
+		return;
+	}
+	gpio_direction_output(GPIO_FM_MIC_SW, 1);
+	gpio_set_value(GPIO_FM_MIC_SW, 0);
+	gpio_free(GPIO_FM_MIC_SW);
+#endif
+#endif
+
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	err = gpio_request(GPIO_LINEOUT_EN, "LINEOUT_EN");
+	if (err) {
+		pr_err(KERN_ERR "LINEOUT_EN GPIO set error!\n");
+		return;
+	}
+	gpio_direction_output(GPIO_LINEOUT_EN, 1);
+	gpio_set_value(GPIO_LINEOUT_EN, 0);
+	gpio_free(GPIO_LINEOUT_EN);
+#endif
 }
+
+static const struct soc_enum lineout_mode_enum[] = {
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(lineout_mode_text), lineout_mode_text),
+};
+
+static int get_lineout_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = lineout_mode;
+	return 0;
+}
+
+static int set_lineout_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+
+	lineout_mode = ucontrol->value.integer.value[0];
+
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	if (lineout_mode) {
+		wm8994_vmid_mode(codec, WM8994_VMID_FORCE);
+		gpio_set_value(GPIO_LINEOUT_EN, 1);
+	} else {
+		gpio_set_value(GPIO_LINEOUT_EN, 0);
+		msleep(50);
+		wm8994_vmid_mode(codec, WM8994_VMID_NORMAL);
+	}
+#endif
+	dev_dbg(codec->dev, "set lineout mode : %s\n",
+		lineout_mode_text[lineout_mode]);
+	return 0;
+
+}
+static const struct soc_enum aif2_mode_enum[] = {
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(aif2_mode_text), aif2_mode_text),
+};
+
+static const struct soc_enum kpcs_mode_enum[] = {
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(kpcs_mode_text), kpcs_mode_text),
+};
+
+static const struct soc_enum input_clamp_enum[] = {
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(input_clamp_text), input_clamp_text),
+};
+
+static int get_aif2_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = aif2_mode;
+	return 0;
+}
+
+static int set_aif2_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	if (aif2_mode == ucontrol->value.integer.value[0])
+		return 0;
+
+	aif2_mode = ucontrol->value.integer.value[0];
+
+	pr_info("set aif2 mode : %s\n", aif2_mode_text[aif2_mode]);
+
+	return 0;
+}
+
+static int get_kpcs_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = kpcs_mode;
+	return 0;
+}
+
+static int set_kpcs_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+
+	kpcs_mode = ucontrol->value.integer.value[0];
+
+	pr_info("set kpcs mode : %d\n", kpcs_mode);
+
+	return 0;
+}
+
+static int get_input_clamp(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = input_clamp;
+	return 0;
+}
+
+static int set_input_clamp(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+
+	input_clamp = ucontrol->value.integer.value[0];
+
+	if (input_clamp) {
+		snd_soc_update_bits(codec, WM8994_INPUT_MIXER_1,
+				WM8994_INPUTS_CLAMP, WM8994_INPUTS_CLAMP);
+		msleep(100);
+	} else {
+		snd_soc_update_bits(codec, WM8994_INPUT_MIXER_1,
+				WM8994_INPUTS_CLAMP, 0);
+	}
+	pr_info("set fm input_clamp : %s\n", input_clamp_text[input_clamp]);
+
+	return 0;
+}
+
 
 static int midas_ext_micbias(struct snd_soc_dapm_widget *w,
 			     struct snd_kcontrol *kcontrol, int event)
@@ -141,19 +293,17 @@ static int midas_ext_micbias(struct snd_soc_dapm_widget *w,
 
 	dev_dbg(codec->dev, "%s event is %02X", w->name, event);
 
+#ifdef CONFIG_SND_SOC_USE_EXTERNAL_MIC_BIAS
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
 		gpio_set_value(GPIO_MIC_BIAS_EN, 1);
+		msleep(150);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		gpio_set_value(GPIO_MIC_BIAS_EN, 0);
 		break;
 	}
-
-#if 0
-	gpio_set_value(GPIO_MIC_BIAS_EN, SND_SOC_DAPM_EVENT_ON(event));
 #endif
-
 	return 0;
 }
 
@@ -164,33 +314,79 @@ static int midas_ext_submicbias(struct snd_soc_dapm_widget *w,
 
 	dev_dbg(codec->dev, "%s event is %02X", w->name, event);
 
+#ifdef CONFIG_SND_USE_SUB_MIC
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
 		gpio_set_value(GPIO_SUB_MIC_BIAS_EN, 1);
+		msleep(150);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		gpio_set_value(GPIO_SUB_MIC_BIAS_EN, 0);
 		break;
 	}
-
-#if 0
-	gpio_set_value(GPIO_SUB_MIC_BIAS_EN, SND_SOC_DAPM_EVENT_ON(event));
 #endif
-
 	return 0;
 }
 
+static int midas_ext_thirdmicbias(struct snd_soc_dapm_widget *w,
+				struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_codec *codec = w->codec;
+
+	dev_dbg(codec->dev, "%s event is %02X", w->name, event);
+
+#ifdef CONFIG_SND_USE_THIRD_MIC
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		gpio_set_value(GPIO_THIRD_MIC_BIAS_EN, 1);
+		break;
+	case SND_SOC_DAPM_POST_PMD:
+		gpio_set_value(GPIO_THIRD_MIC_BIAS_EN, 0);
+		break;
+	}
+#endif
+	return 0;
+}
+
+/*
+ * midas_ext_spkmode :
+ * For phone device have 1 external speaker
+ * should mix LR data in a speaker mixer (mono setting)
+ */
 static int midas_ext_spkmode(struct snd_soc_dapm_widget *w,
 			     struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
 	int ret = 0;
+#ifndef CONFIG_SND_USE_STEREO_SPEAKER
+	struct snd_soc_codec *codec = w->codec;
 
 	ret = snd_soc_update_bits(codec, WM8994_SPKOUT_MIXERS,
 				  WM8994_SPKMIXR_TO_SPKOUTL_MASK,
 				  WM8994_SPKMIXR_TO_SPKOUTL);
-
+#endif
 	return ret;
+}
+
+static int midas_lineout_switch(struct snd_soc_dapm_widget *w,
+			     struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_codec *codec = w->codec;
+
+	dev_dbg(codec->dev, "%s event is %02X", w->name, event);
+
+#if defined(CONFIG_SND_USE_MUIC_SWITCH)
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		msleep(150);
+		max77693_muic_set_audio_switch(1);
+		break;
+	case SND_SOC_DAPM_PRE_PMD:
+		max77693_muic_set_audio_switch(0);
+		break;
+	}
+#endif
+
+	return 0;
 }
 
 static void midas_micd_set_rate(struct snd_soc_codec *codec)
@@ -198,8 +394,8 @@ static void midas_micd_set_rate(struct snd_soc_codec *codec)
 	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 	int best, i, sysclk, val;
 	bool idle;
-	const struct wm8958_micd_rate *rates;
-	int num_rates;
+	const struct wm8958_micd_rate *rates = NULL;
+	int num_rates = 0;
 
 	idle = !wm8994->jack_mic;
 
@@ -210,8 +406,15 @@ static void midas_micd_set_rate(struct snd_soc_codec *codec)
 		sysclk = wm8994->aifclk[0];
 
 	if (wm8994->jackdet) {
+		rates = midas_jackdet_rates;
+		num_rates = ARRAY_SIZE(midas_jackdet_rates);
+		wm8994->pdata->micd_rates = midas_jackdet_rates;
+		wm8994->pdata->num_micd_rates = num_rates;
+	} else {
 		rates = midas_det_rates;
 		num_rates = ARRAY_SIZE(midas_det_rates);
+		wm8994->pdata->micd_rates = midas_det_rates;
+		wm8994->pdata->num_micd_rates = num_rates;
 	}
 
 	best = 0;
@@ -233,6 +436,7 @@ static void midas_micd_set_rate(struct snd_soc_codec *codec)
 			    WM8958_MICD_RATE_MASK, val);
 }
 
+#ifdef SND_USE_BIAS_LEVEL
 static void midas_start_fll1(struct snd_soc_dai *aif1_dai)
 {
 	int ret;
@@ -242,10 +446,8 @@ static void midas_start_fll1(struct snd_soc_dai *aif1_dai)
 	dev_info(aif1_dai->dev, "Moving to audio clocking settings\n");
 
 	/* Switch AIF1 to MCLK2 while we bring stuff up */
-	ret = snd_soc_dai_set_sysclk(aif1_dai,
-				     WM8994_SYSCLK_MCLK2,
-				     32768,
-				     SND_SOC_CLOCK_IN);
+	ret = snd_soc_dai_set_sysclk(aif1_dai, WM8994_SYSCLK_MCLK2,
+				     MIDAS_DEFAULT_MCLK2, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		dev_err(aif1_dai->dev, "Unable to switch to MCLK2: %d\n", ret);
 
@@ -253,95 +455,98 @@ static void midas_start_fll1(struct snd_soc_dai *aif1_dai)
 	 * provide a high frequency reference for the FLL, giving improved
 	 * performance.
 	 */
-	midas_set_mclk(3);	/* forced enable MCLK */
+	midas_snd_set_mclk(true, true);
 
 	/* Switch the FLL */
-	ret = snd_soc_dai_set_pll(aif1_dai, WM8994_FLL1, WM8994_FLL_SRC_MCLK1,
-					 24000000, 44100 * 256);
+	ret = snd_soc_dai_set_pll(aif1_dai, WM8994_FLL1,
+				  WM8994_FLL_SRC_MCLK1, MIDAS_DEFAULT_MCLK1,
+				  MIDAS_DEFAULT_SYNC_CLK);
 	if (ret < 0)
 		dev_err(aif1_dai->dev, "Unable to start FLL1: %d\n", ret);
 
-#ifdef MANAGE_MCLK1
-	/* Now the FLL is running we can stop the reference clock, the
-	 * FLL will maintain frequency with no reference so this saves
-	 * power from the reference clock.
-	 */
-	midas_set_mclk(0);
-#endif
-
 	/* Then switch AIF1CLK to it */
-	ret = snd_soc_dai_set_sysclk(aif1_dai,
-					WM8994_SYSCLK_FLL1,
-					44100 * 256,
-					SND_SOC_CLOCK_IN);
+	ret = snd_soc_dai_set_sysclk(aif1_dai, WM8994_SYSCLK_FLL1,
+				     MIDAS_DEFAULT_SYNC_CLK, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		dev_err(aif1_dai->dev, "Unable to switch to FLL1: %d\n", ret);
 
-	midas_micd_set_rate(aif1_dai->codec);
-
 	midas_fll1_active = true;
 }
+#endif
 
 static void midas_micdet(u16 status, void *data)
 {
-	struct snd_soc_codec *codec = data;
-	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
+	struct wm1811_machine_priv *wm1811 = data;
+	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(wm1811->codec);
 	int report;
+
+
+	wake_lock_timeout(&wm1811->jackdet_wake_lock, 5 * HZ);
 
 	/* Either nothing present or just starting detection */
 	if (!(status & WM8958_MICD_STS)) {
 		if (!wm8994->jackdet) {
 			/* If nothing present then clear our statuses */
-			dev_dbg(codec->dev, "Detected open circuit\n");
+			dev_dbg(wm1811->codec->dev, "Detected open circuit\n");
 			wm8994->jack_mic = false;
 			wm8994->mic_detecting = true;
 
-			midas_micd_set_rate(codec);
+			midas_micd_set_rate(wm1811->codec);
 
 			snd_soc_jack_report(wm8994->micdet[0].jack, 0,
 					    wm8994->btn_mask |
 					     SND_JACK_HEADSET);
 		}
-		return;
+		/*ToDo*/
+		/*return;*/
 	}
 
 	/* If the measurement is showing a high impedence we've got a
 	 * microphone.
 	 */
 	if (wm8994->mic_detecting && (status & 0x400)) {
-		dev_info(codec->dev, "Detected microphone\n");
+		dev_info(wm1811->codec->dev, "Detected microphone\n");
 
 		wm8994->mic_detecting = false;
 		wm8994->jack_mic = true;
 
-		midas_micd_set_rate(codec);
+		midas_micd_set_rate(wm1811->codec);
 
 		snd_soc_jack_report(wm8994->micdet[0].jack, SND_JACK_HEADSET,
 				    SND_JACK_HEADSET);
 	}
 
 	if (wm8994->mic_detecting && status & 0x4) {
-		dev_info(codec->dev, "Detected headphone\n");
+		dev_info(wm1811->codec->dev, "Detected headphone\n");
 		wm8994->mic_detecting = false;
 
-		midas_micd_set_rate(codec);
+		midas_micd_set_rate(wm1811->codec);
 
 		snd_soc_jack_report(wm8994->micdet[0].jack, SND_JACK_HEADPHONE,
 				    SND_JACK_HEADSET);
 
 		/* If we have jackdet that will detect removal */
 		if (wm8994->jackdet) {
-			snd_soc_update_bits(codec, WM8958_MIC_DETECT_1,
+			mutex_lock(&wm8994->accdet_lock);
+
+			snd_soc_update_bits(wm1811->codec, WM8958_MIC_DETECT_1,
 					    WM8958_MICD_ENA, 0);
 
 			if (wm8994->active_refcount) {
-				snd_soc_update_bits(codec, WM8994_ANTIPOP_2,
+				snd_soc_update_bits(wm1811->codec,
+					WM8994_ANTIPOP_2,
 					WM1811_JACKDET_MODE_MASK,
 					WM1811_JACKDET_MODE_AUDIO);
-			} else {
-				snd_soc_update_bits(codec, WM8994_ANTIPOP_2,
-						WM1811_JACKDET_MODE_MASK,
-						WM1811_JACKDET_MODE_JACK);
+			}
+
+			mutex_unlock(&wm8994->accdet_lock);
+
+			if (wm8994->pdata->jd_ext_cap) {
+				mutex_lock(&wm1811->codec->mutex);
+				snd_soc_dapm_disable_pin(&wm1811->codec->dapm,
+							 "MICBIAS2");
+				snd_soc_dapm_sync(&wm1811->codec->dapm);
+				mutex_unlock(&wm1811->codec->mutex);
 			}
 		}
 	}
@@ -358,7 +563,7 @@ static void midas_micdet(u16 status, void *data)
 		if (status & WM1811_JACKDET_BTN2)
 			report |= SND_JACK_BTN_2;
 
-		dev_dbg(codec->dev, "Detected Button: %08x (%08X)\n",
+		dev_dbg(wm1811->codec->dev, "Detected Button: %08x (%08X)\n",
 			report, status);
 
 		snd_soc_jack_report(wm8994->micdet[0].jack, report,
@@ -398,6 +603,7 @@ static int midas_wm1811_aif1_hw_params(struct snd_pcm_substream *substream,
 	unsigned int pll_out;
 	int ret;
 
+	dev_info(codec_dai->dev, "%s ++\n", __func__);
 	/* AIF1CLK should be >=3MHz for optimal performance */
 	if (params_rate(params) == 8000 || params_rate(params) == 11025)
 		pll_out = params_rate(params) * 512;
@@ -417,14 +623,23 @@ static int midas_wm1811_aif1_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
-#if 0
-	ret = snd_soc_dai_set_sysclk(codec_dai, WM8994_SYSCLK_FLL1,
-					pll_out, SND_SOC_CLOCK_IN);
+#ifndef SND_USE_BIAS_LEVEL
+	/* Switch the FLL */
+	ret = snd_soc_dai_set_pll(codec_dai, WM8994_FLL1,
+				  WM8994_FLL_SRC_MCLK1, MIDAS_DEFAULT_MCLK1,
+				  pll_out);
 	if (ret < 0)
+		dev_err(codec_dai->dev, "Unable to start FLL1: %d\n", ret);
+
+	ret = snd_soc_dai_set_sysclk(codec_dai, WM8994_SYSCLK_FLL1,
+				     pll_out, SND_SOC_CLOCK_IN);
+	if (ret < 0) {
+		dev_err(codec_dai->dev, "Unable to switch to FLL1: %d\n", ret);
 		return ret;
+	}
 
 	ret = snd_soc_dai_set_sysclk(cpu_dai, SAMSUNG_I2S_OPCLK,
-					0, MOD_OPCLK_PCLK);
+				     0, MOD_OPCLK_PCLK);
 	if (ret < 0)
 		return ret;
 #else
@@ -433,6 +648,8 @@ static int midas_wm1811_aif1_hw_params(struct snd_pcm_substream *substream,
 
 	if (ret < 0)
 		return ret;
+
+	dev_info(codec_dai->dev, "%s --\n", __func__);
 
 	return 0;
 }
@@ -535,12 +752,12 @@ static int midas_wm1811_aif1_hw_params(struct snd_pcm_substream *substream,
 		return ret;
 
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8994_SYSCLK_MCLK1,
-					rclk, SND_SOC_CLOCK_IN);
+				     rclk, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
 	ret = snd_soc_dai_set_sysclk(cpu_dai, SAMSUNG_I2S_CDCLK,
-					0, SND_SOC_CLOCK_OUT);
+				     0, SND_SOC_CLOCK_OUT);
 	if (ret < 0)
 		return ret;
 
@@ -568,6 +785,7 @@ static int midas_wm1811_aif2_hw_params(struct snd_pcm_substream *substream,
 	int prate;
 	int bclk;
 
+	dev_info(codec_dai->dev, "%s ++\n", __func__);
 	prate = params_rate(params);
 	switch (params_rate(params)) {
 	case 8000:
@@ -579,22 +797,65 @@ static int midas_wm1811_aif2_hw_params(struct snd_pcm_substream *substream,
 		prate = 8000;
 	}
 
-#ifdef CONFIG_LTE_MODEM_CMC221
+#if defined(CONFIG_LTE_MODEM_CMC221) || defined(CONFIG_MACH_M0_CTC)
+#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
 	/* Set the codec DAI configuration */
-	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_A
-					| SND_SOC_DAIFMT_IB_NF
-					| SND_SOC_DAIFMT_CBS_CFS);
+	if (aif2_mode == 0) {
+		if (kpcs_mode == 1)
+			ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
+				| SND_SOC_DAIFMT_NB_NF
+				| SND_SOC_DAIFMT_CBS_CFS);
+		else
+			ret = snd_soc_dai_set_fmt(codec_dai,
+				SND_SOC_DAIFMT_DSP_A
+				| SND_SOC_DAIFMT_IB_NF
+				| SND_SOC_DAIFMT_CBS_CFS);
+	} else
+		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
+				| SND_SOC_DAIFMT_NB_NF
+				| SND_SOC_DAIFMT_CBM_CFM);
 #else
-	/* Set the codec DAI configuration */
-	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
+	if (aif2_mode == 0)
+		/* Set the codec DAI configuration */
+		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_A
+				| SND_SOC_DAIFMT_IB_NF
+				| SND_SOC_DAIFMT_CBS_CFS);
+	else
+		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_A
+				| SND_SOC_DAIFMT_IB_NF
+				| SND_SOC_DAIFMT_CBM_CFM);
+#endif
+#else
+	/* Set the codec DAI configuration, aif2_mode:0 is slave */
+	if (aif2_mode == 0)
+		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
 					| SND_SOC_DAIFMT_NB_NF
 					| SND_SOC_DAIFMT_CBS_CFS);
+	else
+		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
+					| SND_SOC_DAIFMT_NB_NF
+					| SND_SOC_DAIFMT_CBM_CFM);
 #endif
 
 	if (ret < 0)
 		return ret;
 
-#ifdef CONFIG_LTE_MODEM_CMC221
+#if defined(CONFIG_LTE_MODEM_CMC221)
+	if (kpcs_mode == 1) {
+		switch (prate) {
+		case 8000:
+			bclk = 256000;
+			break;
+		case 16000:
+			bclk = 512000;
+			break;
+		default:
+			return -EINVAL;
+		}
+	} else {
+	bclk = 2048000;
+	}
+#elif defined(CONFIG_MACH_M0_CTC)
 	bclk = 2048000;
 #else
 	switch (prate) {
@@ -609,17 +870,30 @@ static int midas_wm1811_aif2_hw_params(struct snd_pcm_substream *substream,
 	}
 #endif
 
-	ret = snd_soc_dai_set_pll(codec_dai, WM8994_FLL2,
+#ifdef SND_USE_BIAS_LEVEL
+	if (!midas_fll1_active)
+		midas_start_fll1(midas_aif1_dai);
+#endif
+
+	if (aif2_mode == 0) {
+		ret = snd_soc_dai_set_pll(codec_dai, WM8994_FLL2,
 					WM8994_FLL_SRC_BCLK,
 					bclk, prate * 256);
+	} else {
+		ret = snd_soc_dai_set_pll(codec_dai, WM8994_FLL2,
+					  WM8994_FLL_SRC_MCLK1,
+					  MIDAS_DEFAULT_MCLK1, prate * 256);
+	}
+
 	if (ret < 0)
 		dev_err(codec_dai->dev, "Unable to configure FLL2: %d\n", ret);
 
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8994_SYSCLK_FLL2,
-					prate * 256, SND_SOC_CLOCK_IN);
+				     prate * 256, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		dev_err(codec_dai->dev, "Unable to switch to FLL2: %d\n", ret);
 
+	dev_info(codec_dai->dev, "%s --\n", __func__);
 	return 0;
 }
 
@@ -644,17 +918,37 @@ static const struct snd_kcontrol_new midas_controls[] = {
 	SOC_DAPM_PIN_SWITCH("RCV"),
 	SOC_DAPM_PIN_SWITCH("FM In"),
 	SOC_DAPM_PIN_SWITCH("LINE"),
+	SOC_DAPM_PIN_SWITCH("HDMI"),
+	SOC_DAPM_PIN_SWITCH("Main Mic"),
+	SOC_DAPM_PIN_SWITCH("Sub Mic"),
+	SOC_DAPM_PIN_SWITCH("Third Mic"),
+	SOC_DAPM_PIN_SWITCH("Headset Mic"),
+
+	SOC_ENUM_EXT("AIF2 Mode", aif2_mode_enum[0],
+		get_aif2_mode, set_aif2_mode),
+
+	SOC_ENUM_EXT("KPCS Mode", kpcs_mode_enum[0],
+		get_kpcs_mode, set_kpcs_mode),
+
+	SOC_ENUM_EXT("Input Clamp", input_clamp_enum[0],
+		get_input_clamp, set_input_clamp),
+
+	SOC_ENUM_EXT("LineoutSwitch Mode", lineout_mode_enum[0],
+		get_lineout_mode, set_lineout_mode),
+
 };
 
 const struct snd_soc_dapm_widget midas_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("HP", NULL),
 	SND_SOC_DAPM_SPK("SPK", midas_ext_spkmode),
 	SND_SOC_DAPM_SPK("RCV", NULL),
-	SND_SOC_DAPM_LINE("LINE", NULL),
+	SND_SOC_DAPM_LINE("LINE", midas_lineout_switch),
+	SND_SOC_DAPM_LINE("HDMI", NULL),
 
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("Main Mic", midas_ext_micbias),
 	SND_SOC_DAPM_MIC("Sub Mic", midas_ext_submicbias),
+	SND_SOC_DAPM_MIC("Third Mic", midas_ext_thirdmicbias),
 	SND_SOC_DAPM_LINE("FM In", NULL),
 
 	SND_SOC_DAPM_INPUT("S5P RP"),
@@ -675,8 +969,12 @@ const struct snd_soc_dapm_route midas_dapm_routes[] = {
 	{ "LINE", NULL, "LINEOUT2N" },
 	{ "LINE", NULL, "LINEOUT2P" },
 
-	{ "IN1LP", NULL, "Main Mic" },
-	{ "IN1LN", NULL, "Main Mic" },
+	{ "HDMI", NULL, "LINEOUT1N" },
+	{ "HDMI", NULL, "LINEOUT1P" },
+
+	{ "IN1LP", NULL, "MICBIAS1" },
+	{ "IN1LN", NULL, "MICBIAS1" },
+	{ "MICBIAS1", NULL, "Main Mic" },
 
 	{ "IN1RP", NULL, "Sub Mic" },
 	{ "IN1RN", NULL, "Sub Mic" },
@@ -689,65 +987,10 @@ const struct snd_soc_dapm_route midas_dapm_routes[] = {
 
 	{ "IN2RN", NULL, "FM In" },
 	{ "IN2RP:VXRP", NULL, "FM In" },
+
+	{ "IN2RN", NULL, "Third Mic" },
+	{ "IN2RP:VXRP", NULL, "Third Mic" },
 };
-
-struct wm1811_machine_priv {
-	struct snd_soc_jack jack;
-	struct snd_soc_codec *codec;
-	struct delayed_work mic_work;
-};
-
-static void wm1811_mic_work(struct work_struct *work)
-{
-	int report = 0;
-	struct wm1811_machine_priv *wm1811;
-	struct snd_soc_codec *codec;
-	int status;
-
-	wm1811 = container_of(work, struct wm1811_machine_priv,
-							mic_work.work);
-	codec = wm1811->codec;
-
-	status = snd_soc_read(codec, WM8958_MIC_DETECT_3);
-	if (status < 0) {
-		dev_err(codec->dev, "Failed to read mic detect status: %d\n",
-				status);
-		return;
-	}
-
-	/* If nothing present then clear our statuses */
-	if (!(status & WM8958_MICD_STS))
-		goto done;
-
-	report = SND_JACK_HEADSET;
-
-	/* Everything else is buttons; just assign slots */
-	if (status & WM1811_JACKDET_BTN0)
-		report |= SND_JACK_BTN_0;
-	if (status & WM1811_JACKDET_BTN1)
-		report |= SND_JACK_BTN_1;
-	if (status & WM1811_JACKDET_BTN2)
-		report |= SND_JACK_BTN_2;
-
-	if (report & SND_JACK_MICROPHONE)
-		dev_crit(codec->dev, "Reporting microphone\n");
-	if (report & SND_JACK_HEADPHONE)
-		dev_crit(codec->dev, "Reporting headphone\n");
-	if (report & SND_JACK_BTN_0)
-		dev_crit(codec->dev, "Reporting button 0\n");
-	if (report & SND_JACK_BTN_1)
-		dev_crit(codec->dev, "Reporting button 1\n");
-	if (report & SND_JACK_BTN_2)
-		dev_crit(codec->dev, "Reporting button 2\n");
-
-done:
-	if (!report)
-		dev_crit(codec->dev, "Reporting open circuit\n");
-
-	snd_soc_jack_report(&wm1811->jack, report,
-				SND_JACK_BTN_0 | SND_JACK_BTN_1 |
-				SND_JACK_BTN_2 | SND_JACK_HEADSET);
-}
 
 static struct snd_soc_dai_driver midas_ext_dai[] = {
 	{
@@ -790,29 +1033,20 @@ static struct snd_soc_dai_driver midas_ext_dai[] = {
 	},
 };
 
+#ifndef CONFIG_SEC_DEV_JACK
 static ssize_t earjack_state_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct snd_soc_codec *codec = dev_get_drvdata(dev);
+	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 
-	int status;
 	int report = 0;
 
-	status = snd_soc_read(codec, WM8958_MIC_DETECT_3);
-
-	if (status < 0) {
-		dev_err(codec->dev, "Failed to read mic detect status: %d\n",
-				status);
-		goto done;
+	if ((wm8994->micdet[0].jack->status & SND_JACK_HEADPHONE) ||
+		(wm8994->micdet[0].jack->status & SND_JACK_HEADSET)) {
+		report = 1;
 	}
 
-	/* If nothing present then clear our statuses */
-	if (!(status & WM8958_MICD_STS))
-		goto done;
-
-	report = 1;
-
-done:
 	return sprintf(buf, "%d\n", report);
 }
 
@@ -828,26 +1062,13 @@ static ssize_t earjack_key_state_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct snd_soc_codec *codec = dev_get_drvdata(dev);
+	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 
-	int status;
 	int report = 0;
 
-	status = snd_soc_read(codec, WM8958_MIC_DETECT_3);
-
-	if (status < 0) {
-		dev_err(codec->dev, "Failed to read mic detect status: %d\n",
-				status);
-		goto done;
-	}
-
-	/* If nothing present then clear our statuses */
-	if (!(status & WM8958_MICD_STS))
-		goto done;
-
-	if (status & WM1811_JACKDET_BTN0)
+	if (wm8994->micdet[0].jack->status & SND_JACK_BTN_0)
 		report = 1;
 
-done:
 	return sprintf(buf, "%d\n", report);
 }
 
@@ -873,23 +1094,75 @@ static ssize_t earjack_select_jack_store(struct device *dev,
 	struct snd_soc_codec *codec = dev_get_drvdata(dev);
 	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 
-	dev_info(codec->dev, "Forced detect microphone\n");
-
 	wm8994->mic_detecting = false;
 	wm8994->jack_mic = true;
 
 	midas_micd_set_rate(codec);
 
 	if ((!size) || (buf[0] != '1')) {
-		snd_soc_jack_report(wm8994->micdet[0].jack, 0,
-				SND_JACK_HEADSET);
-	}
+		snd_soc_jack_report(wm8994->micdet[0].jack,
+				    0, SND_JACK_HEADSET);
+		dev_info(codec->dev, "Forced remove microphone\n");
+	} else {
 
-	snd_soc_jack_report(wm8994->micdet[0].jack, SND_JACK_HEADSET,
-				SND_JACK_HEADSET);
+		snd_soc_jack_report(wm8994->micdet[0].jack,
+				    SND_JACK_HEADSET, SND_JACK_HEADSET);
+		dev_info(codec->dev, "Forced detect microphone\n");
+	}
 
 	return size;
 }
+
+static ssize_t reselect_jack_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	pr_info("%s : operate nothing\n", __func__);
+	return 0;
+}
+
+static ssize_t reselect_jack_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct snd_soc_codec *codec = dev_get_drvdata(dev);
+	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
+	int reg = 0;
+
+	reg = snd_soc_read(codec, WM8958_MIC_DETECT_3);
+	if (reg == 0x402) {
+		dev_info(codec->dev, "Detected open circuit\n");
+
+		snd_soc_update_bits(codec, WM8958_MICBIAS2,
+				    WM8958_MICB2_DISCH, WM8958_MICB2_DISCH);
+		/* Enable debounce while removed */
+		snd_soc_update_bits(codec, WM1811_JACKDET_CTRL,
+				    WM1811_JACKDET_DB, WM1811_JACKDET_DB);
+
+		wm8994->mic_detecting = false;
+		wm8994->jack_mic = false;
+		snd_soc_update_bits(codec, WM8958_MIC_DETECT_1,
+				    WM8958_MICD_ENA, 0);
+
+		if (wm8994->active_refcount) {
+			snd_soc_update_bits(codec,
+				WM8994_ANTIPOP_2,
+				WM1811_JACKDET_MODE_MASK,
+				WM1811_JACKDET_MODE_AUDIO);
+		} else {
+			snd_soc_update_bits(codec,
+				WM8994_ANTIPOP_2,
+				WM1811_JACKDET_MODE_MASK,
+				WM1811_JACKDET_MODE_JACK);
+		}
+
+		snd_soc_jack_report(wm8994->micdet[0].jack, 0,
+				    SND_JACK_MECHANICAL | SND_JACK_HEADSET |
+				    wm8994->btn_mask);
+	}
+	return size;
+}
+
+static DEVICE_ATTR(reselect_jack, S_IRUGO | S_IWUSR | S_IWGRP,
+		reselect_jack_show, reselect_jack_store);
 
 static DEVICE_ATTR(select_jack, S_IRUGO | S_IWUSR | S_IWGRP,
 		   earjack_select_jack_show, earjack_select_jack_store);
@@ -899,18 +1172,26 @@ static DEVICE_ATTR(key_state, S_IRUGO | S_IWUSR | S_IWGRP,
 
 static DEVICE_ATTR(state, S_IRUGO | S_IWUSR | S_IWGRP,
 		   earjack_state_show, earjack_state_store);
+#endif
 
 static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 {
-
-	struct wm1811_machine_priv *wm1811;
 	struct snd_soc_codec *codec = rtd->codec;
+	struct wm1811_machine_priv *wm1811
+		= snd_soc_card_get_drvdata(codec->card);
 	struct snd_soc_dai *aif1_dai = rtd->codec_dai;
+	struct wm8994 *control = codec->control_data;
+	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 	int ret;
 
-#ifndef MANAGE_MCLK1
-	midas_set_mclk(1);
+#ifdef SND_USE_BIAS_LEVEL
+	midas_aif1_dai = aif1_dai;
 #endif
+
+	midas_snd_set_mclk(true, false);
+
+	rtd->codec_dai->driver->playback.channels_max =
+				rtd->cpu_dai->driver->playback.channels_max;
 
 	ret = snd_soc_add_controls(codec, midas_controls,
 					ARRAY_SIZE(midas_controls));
@@ -926,24 +1207,21 @@ static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 		dev_err(codec->dev, "Failed to add DAPM routes: %d\n", ret);
 
 	ret = snd_soc_dai_set_sysclk(aif1_dai, WM8994_SYSCLK_MCLK2,
-				     32768, SND_SOC_CLOCK_IN);
+				     MIDAS_DEFAULT_MCLK2, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		dev_err(codec->dev, "Failed to boot clocking\n");
 
 	/* Force AIF1CLK on as it will be master for jack detection */
-	ret = snd_soc_dapm_force_enable_pin(&codec->dapm, "AIF1CLK");
-	if (ret < 0)
-		dev_err(codec->dev, "Failed to enable AIF1CLK: %d\n", ret);
+	if (wm8994->revision > 1) {
+		ret = snd_soc_dapm_force_enable_pin(&codec->dapm, "AIF1CLK");
+		if (ret < 0)
+			dev_err(codec->dev, "Failed to enable AIF1CLK: %d\n",
+					ret);
+	}
 
 	ret = snd_soc_dapm_disable_pin(&codec->dapm, "S5P RP");
 	if (ret < 0)
 		dev_err(codec->dev, "Failed to disable S5P RP: %d\n", ret);
-
-	wm1811 = kmalloc(sizeof *wm1811, GFP_KERNEL);
-	if (!wm1811) {
-		dev_err(codec->dev, "Failed to allocate memory!");
-		return -ENOMEM;
-	}
 
 	snd_soc_dapm_ignore_suspend(&codec->dapm, "RCV");
 	snd_soc_dapm_ignore_suspend(&codec->dapm, "SPK");
@@ -958,10 +1236,19 @@ static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_ignore_suspend(&codec->dapm, "AIF2ADCDAT");
 	snd_soc_dapm_ignore_suspend(&codec->dapm, "AIF3ADCDAT");
 	snd_soc_dapm_ignore_suspend(&codec->dapm, "FM In");
+	snd_soc_dapm_ignore_suspend(&codec->dapm, "LINE");
+	snd_soc_dapm_ignore_suspend(&codec->dapm, "HDMI");
+	snd_soc_dapm_ignore_suspend(&codec->dapm, "Third Mic");
 
 	wm1811->codec = codec;
 
-	INIT_DELAYED_WORK(&wm1811->mic_work, wm1811_mic_work);
+	midas_micd_set_rate(codec);
+
+#ifdef CONFIG_SEC_DEV_JACK
+	/* By default use idle_bias_off, will override for WM8994 */
+	codec->dapm.idle_bias_off = 0;
+#else /* CONFIG_SEC_DEV_JACK */
+	wm1811->jack.status = 0;
 
 	ret = snd_soc_jack_new(codec, "Midas Jack",
 				SND_JACK_HEADSET | SND_JACK_BTN_0 |
@@ -972,6 +1259,7 @@ static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 		dev_err(codec->dev, "Failed to create jack: %d\n", ret);
 
 	ret = snd_jack_set_key(wm1811->jack.jack, SND_JACK_BTN_0, KEY_MEDIA);
+
 	if (ret < 0)
 		dev_err(codec->dev, "Failed to set KEY_MEDIA: %d\n", ret);
 
@@ -982,13 +1270,29 @@ static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 
 	ret = snd_jack_set_key(wm1811->jack.jack, SND_JACK_BTN_2,
 							KEY_VOLUMEUP);
+
 	if (ret < 0)
 		dev_err(codec->dev, "Failed to set KEY_VOLUMEDOWN: %d\n", ret);
 
-	ret = wm8958_mic_detect(codec, &wm1811->jack, midas_micdet, codec);
-	if (ret < 0)
-		dev_err(codec->dev, "Failed start detection: %d\n", ret);
+	if (wm8994->revision > 1) {
+		dev_info(codec->dev, "wm1811: Rev %c support mic detection\n",
+			'A' + wm8994->revision);
+		ret = wm8958_mic_detect(codec, &wm1811->jack, midas_micdet,
+			wm1811);
 
+		if (ret < 0)
+			dev_err(codec->dev, "Failed start detection: %d\n",
+				ret);
+	} else {
+		dev_info(codec->dev, "wm1811: Rev %c doesn't support mic detection\n",
+			'A' + wm8994->revision);
+		codec->dapm.idle_bias_off = 0;
+	}
+	/* To wakeup for earjack event in suspend mode */
+	enable_irq_wake(control->irq);
+
+	wake_lock_init(&wm1811->jackdet_wake_lock,
+					WAKE_LOCK_SUSPEND, "midas_jackdet");
 
 	/* To support PBA function test */
 	jack_class = class_create(THIS_MODULE, "audio");
@@ -1010,10 +1314,12 @@ static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 		pr_err("Failed to create device file (%s)!\n",
 			dev_attr_state.attr.name);
 
-	mutex_init(&midas_lock);
+	if (device_create_file(jack_dev, &dev_attr_reselect_jack) < 0)
+		pr_err("Failed to create device file (%s)!\n",
+			dev_attr_reselect_jack.attr.name);
 
+#endif /* CONFIG_SEC_DEV_JACK */
 	return snd_soc_dapm_sync(&codec->dapm);
-
 }
 
 static struct snd_soc_dai_link midas_dai[] = {
@@ -1062,47 +1368,162 @@ static struct snd_soc_dai_link midas_dai[] = {
 	},
 };
 
-static int midas_card_suspend(struct snd_soc_card *card)
+static int midas_card_suspend_pre(struct snd_soc_card *card)
 {
-	midas_set_mclk(0);
+	struct snd_soc_codec *codec = card->rtd->codec;
+	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 
-	return 0;
-}
-
-static int midas_card_resume(struct snd_soc_card *card)
-{
-	midas_set_mclk(1);
-
-	return 0;
-}
-
-static int midas_set_bias_level(struct snd_soc_card *card,
-				enum snd_soc_bias_level level)
-{
-	mutex_lock(&midas_lock);
-	switch (level) {
-	case SND_SOC_BIAS_PREPARE:
-		if (midas_card_bias_level == SND_SOC_BIAS_STANDBY)
-			midas_start_fll1(card->rtd[0].codec_dai);
-		break;
-
-	default:
-		break;
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	if (lineout_mode == 1 &&
+		wm8994->vmid_mode == WM8994_VMID_FORCE) {
+		dev_dbg(codec->dev,
+			"%s: entering force vmid mode\n", __func__);
+		gpio_set_value(GPIO_LINEOUT_EN, 0);
+		msleep(50);
+		wm8994_vmid_mode(codec, WM8994_VMID_NORMAL);
 	}
-	mutex_unlock(&midas_lock);
+#endif
+#ifdef CONFIG_SEC_DEV_JACK
+	snd_soc_dapm_disable_pin(&codec->dapm, "AIF1CLK");
+#endif
 
 	return 0;
 }
 
-static int midas_set_bias_level_post(struct snd_soc_card *card,
-					 enum snd_soc_bias_level level)
+static int midas_card_suspend_post(struct snd_soc_card *card)
 {
 	struct snd_soc_codec *codec = card->rtd->codec;
 	struct snd_soc_dai *aif1_dai = card->rtd[0].codec_dai;
 	struct snd_soc_dai *aif2_dai = card->rtd[1].codec_dai;
 	int ret;
 
-	mutex_lock(&midas_lock);
+	if (!codec->active) {
+#ifndef SND_USE_BIAS_LEVEL
+		ret = snd_soc_dai_set_sysclk(aif2_dai,
+					     WM8994_SYSCLK_MCLK2,
+					     MIDAS_DEFAULT_MCLK2,
+					     SND_SOC_CLOCK_IN);
+
+		if (ret < 0)
+			dev_err(codec->dev, "Unable to switch to MCLK2: %d\n",
+				ret);
+
+		ret = snd_soc_dai_set_pll(aif2_dai, WM8994_FLL2, 0, 0, 0);
+
+		if (ret < 0)
+			dev_err(codec->dev, "Unable to stop FLL2\n");
+
+		ret = snd_soc_dai_set_sysclk(aif1_dai,
+					     WM8994_SYSCLK_MCLK2,
+					     MIDAS_DEFAULT_MCLK2,
+					     SND_SOC_CLOCK_IN);
+		if (ret < 0)
+			dev_err(codec->dev, "Unable to switch to MCLK2\n");
+
+		ret = snd_soc_dai_set_pll(aif1_dai, WM8994_FLL1, 0, 0, 0);
+
+		if (ret < 0)
+			dev_err(codec->dev, "Unable to stop FLL1\n");
+#endif
+
+		midas_snd_set_mclk(false, true);
+	}
+
+#ifdef CONFIG_ARCH_EXYNOS5
+	exynos5_sys_powerdown_xxti_control(midas_snd_get_mclk() ? 1 : 0);
+#else /* for CONFIG_ARCH_EXYNOS5 */
+	exynos4_sys_powerdown_xusbxti_control(midas_snd_get_mclk() ? 1 : 0);
+#endif
+
+	return 0;
+}
+
+static int midas_card_resume_pre(struct snd_soc_card *card)
+{
+	struct snd_soc_codec *codec = card->rtd->codec;
+	struct snd_soc_dai *aif1_dai = card->rtd[0].codec_dai;
+	int ret;
+
+	midas_snd_set_mclk(true, false);
+
+#ifndef SND_USE_BIAS_LEVEL
+	/* Switch the FLL */
+	ret = snd_soc_dai_set_pll(aif1_dai, WM8994_FLL1,
+				  WM8994_FLL_SRC_MCLK1,
+				  MIDAS_DEFAULT_MCLK1,
+				  MIDAS_DEFAULT_SYNC_CLK);
+
+	if (ret < 0)
+		dev_err(aif1_dai->dev, "Unable to start FLL1: %d\n", ret);
+
+	/* Then switch AIF1CLK to it */
+	ret = snd_soc_dai_set_sysclk(aif1_dai,
+				     WM8994_SYSCLK_FLL1,
+				     MIDAS_DEFAULT_SYNC_CLK,
+				     SND_SOC_CLOCK_IN);
+
+	if (ret < 0)
+		dev_err(aif1_dai->dev, "Unable to switch to FLL1: %d\n", ret);
+#endif
+
+	return 0;
+}
+
+static int midas_card_resume_post(struct snd_soc_card *card)
+{
+	struct snd_soc_codec *codec = card->rtd->codec;
+	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
+
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	if (lineout_mode == 1 &&
+		wm8994->vmid_mode == WM8994_VMID_NORMAL) {
+		dev_dbg(codec->dev,
+			"%s: entering normal vmid mode\n", __func__);
+		wm8994_vmid_mode(codec, WM8994_VMID_FORCE);
+		gpio_set_value(GPIO_LINEOUT_EN, 1);
+	}
+#endif
+#ifdef CONFIG_SEC_DEV_JACK
+	snd_soc_dapm_force_enable_pin(&codec->dapm, "AIF1CLK");
+#endif
+
+	return 0;
+}
+
+#ifdef SND_USE_BIAS_LEVEL
+static int midas_set_bias_level(struct snd_soc_card *card,
+				struct snd_soc_dapm_context *dapm,
+				enum snd_soc_bias_level level)
+{
+	struct snd_soc_dai *aif1_dai = card->rtd[0].codec_dai;
+
+	if (dapm->dev != aif1_dai->dev)
+		return 0;
+
+	switch (level) {
+	case SND_SOC_BIAS_PREPARE:
+		midas_start_fll1(card->rtd[0].codec_dai);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static int midas_set_bias_level_post(struct snd_soc_card *card,
+				     struct snd_soc_dapm_context *dapm,
+				     enum snd_soc_bias_level level)
+{
+	struct snd_soc_codec *codec = card->rtd->codec;
+	struct snd_soc_dai *aif1_dai = card->rtd[0].codec_dai;
+	struct snd_soc_dai *aif2_dai = card->rtd[1].codec_dai;
+	int ret;
+
+	if (dapm->dev != aif1_dai->dev)
+		return 0;
+
 	switch (level) {
 	case SND_SOC_BIAS_STANDBY:
 
@@ -1110,18 +1531,18 @@ static int midas_set_bias_level_post(struct snd_soc_card *card,
 		 * directly for minimum power consumptin for accessory
 		 * detection.
 		 */
-		if (midas_card_bias_level == SND_SOC_BIAS_PREPARE) {
+		if (card->dapm.bias_level == SND_SOC_BIAS_PREPARE) {
 			dev_info(aif1_dai->dev, "Moving to STANDBY\n");
 
 			ret = snd_soc_dai_set_sysclk(aif2_dai,
-							WM8994_SYSCLK_MCLK2,
-							32768,
-							SND_SOC_CLOCK_IN);
+						     WM8994_SYSCLK_MCLK2,
+						     MIDAS_DEFAULT_MCLK2,
+						     SND_SOC_CLOCK_IN);
 			if (ret < 0)
 				dev_err(codec->dev, "Failed to switch to MCLK2\n");
 
 			ret = snd_soc_dai_set_pll(aif2_dai, WM8994_FLL2,
-							0, 0, 0);
+						  0, 0, 0);
 
 			if (ret < 0)
 				dev_err(codec->dev,
@@ -1129,7 +1550,7 @@ static int midas_set_bias_level_post(struct snd_soc_card *card,
 
 			ret = snd_soc_dai_set_sysclk(aif1_dai,
 						     WM8994_SYSCLK_MCLK2,
-						     32768,
+						     MIDAS_DEFAULT_MCLK2,
 						     SND_SOC_CLOCK_IN);
 			if (ret < 0)
 				dev_err(codec->dev,
@@ -1143,9 +1564,7 @@ static int midas_set_bias_level_post(struct snd_soc_card *card,
 
 
 			midas_fll1_active = false;
-
-			midas_micd_set_rate(codec);
-			midas_set_mclk(0);
+			midas_snd_set_mclk(false, false);
 		}
 
 		break;
@@ -1153,15 +1572,11 @@ static int midas_set_bias_level_post(struct snd_soc_card *card,
 		break;
 	}
 
-#if 0 /* TODO */
-	codec->dapm.bias_level = level;
-#else
-	midas_card_bias_level = level;
-#endif
-	mutex_unlock(&midas_lock);
+	card->dapm.bias_level = level;
 
 	return 0;
 }
+#endif
 
 static struct snd_soc_card midas = {
 	.name = "Midas_WM1811",
@@ -1171,25 +1586,40 @@ static struct snd_soc_card midas = {
 	 * changes the num_link = 2 or ARRAY_SIZE(midas_dai). */
 	.num_links = ARRAY_SIZE(midas_dai),
 
+#ifdef SND_USE_BIAS_LEVEL
 	.set_bias_level = midas_set_bias_level,
 	.set_bias_level_post = midas_set_bias_level_post,
+#endif
 
-	.suspend_post = midas_card_suspend,
-	.resume_pre = midas_card_resume
+	.suspend_post = midas_card_suspend_post,
+	.resume_pre = midas_card_resume_pre,
+	.suspend_pre = midas_card_suspend_pre,
+	.resume_post = midas_card_resume_post
 };
 
 static struct platform_device *midas_snd_device;
 
 static int __init midas_audio_init(void)
 {
+	struct wm1811_machine_priv *wm1811;
 	int ret;
 
-	midas_snd_device = platform_device_alloc("soc-audio", -1);
-	if (!midas_snd_device)
-		return -ENOMEM;
+	wm1811 = kzalloc(sizeof *wm1811, GFP_KERNEL);
+	if (!wm1811) {
+		pr_err("Failed to allocate memory\n");
+		ret = -ENOMEM;
+		goto err_kzalloc;
+	}
+	snd_soc_card_set_drvdata(&midas, wm1811);
 
-	ret = snd_soc_register_dais(&midas_snd_device->dev,
-					midas_ext_dai, ARRAY_SIZE(midas_ext_dai));
+	midas_snd_device = platform_device_alloc("soc-audio", -1);
+	if (!midas_snd_device) {
+		ret = -ENOMEM;
+		goto err_device_alloc;
+	}
+
+	ret = snd_soc_register_dais(&midas_snd_device->dev, midas_ext_dai,
+						ARRAY_SIZE(midas_ext_dai));
 	if (ret != 0)
 		pr_err("Failed to register external DAIs: %d\n", ret);
 
@@ -1202,17 +1632,23 @@ static int __init midas_audio_init(void)
 	midas_gpio_init();
 
 	return ret;
+
+err_device_alloc:
+	kfree(wm1811);
+err_kzalloc:
+	return ret;
 }
 module_init(midas_audio_init);
 
 static void __exit midas_audio_exit(void)
 {
+	struct snd_soc_card *card = &midas;
+	struct wm1811_machine_priv *wm1811 = snd_soc_card_get_drvdata(card);
 	platform_device_unregister(midas_snd_device);
+	kfree(wm1811);
 }
 module_exit(midas_audio_exit);
 
 MODULE_AUTHOR("JS. Park <aitdark.park@samsung.com>");
 MODULE_DESCRIPTION("ALSA SoC Midas WM1811");
 MODULE_LICENSE("GPL");
-
-

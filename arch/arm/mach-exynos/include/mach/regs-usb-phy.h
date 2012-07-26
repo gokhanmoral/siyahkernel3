@@ -93,6 +93,10 @@
 #define EHCICTRL_ENAINCR16			(0x1 << 26)
 
 #define EXYNOS5_PHY_HOST_OHCICTRL		EXYNOS4_HSOTG_PHYREG(0x34)
+#define OHCICTRL_SUSPLGCY			(0x1 << 3)
+#define OHCICTRL_APPSTARTCLK			(0x1 << 2)
+#define OHCICTRL_CNTSEL				(0x1 << 1)
+#define OHCICTRL_CLKCKTRST			(0x1 << 0)
 
 #define EXYNOS5_PHY_OTG_SYS			EXYNOS4_HSOTG_PHYREG(0x38)
 #define OTG_SYS_PHYLINK_SW_RESET		(0x1 << 14)
@@ -109,6 +113,6 @@
 #define OTG_SYS_SIDDQ_UOTG			(0x1 <<1)
 #define OTG_SYS_FORCE_SUSPEND			(0x1 <<0)
 
-extern int exynos4_check_usb_op(void);
+extern int exynos_check_usb_op(void);
 
 #endif /* __ASM_ARCH_REGS_USB_PHY_H */

@@ -15,10 +15,22 @@
 #ifndef _LINUX_SI4705_PDATA_H
 #define _LINUX_SI4705_PDATA_H
 
+#include <linux/types.h>
+
 #ifdef __KERNEL__
+
+#define SI4705_PDATA_BIT_VOL_STEPS		(1 << 0)
+#define SI4705_PDATA_BIT_VOL_TABLE		(1 << 1)
+#define SI4705_PDATA_BIT_RSSI_THRESHOLD		(1 << 2)
+#define SI4705_PDATA_BIT_SNR_THRESHOLD		(1 << 3)
 
 struct si4705_pdata {
 	void (*reset)(int enable);
+	u16 pdata_values;
+	int rx_vol_steps;
+	u16 rx_vol_table[16];
+	u16 rx_seek_tune_rssi_threshold;
+	u16 rx_seek_tune_snr_threshold;
 };
 
 #endif

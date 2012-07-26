@@ -53,8 +53,6 @@ do {								\
 
 #define HDMI_START_NUM 0x1000
 
-#define	CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE
-
 enum s5p_tvout_disp_mode {
 	TVOUT_NTSC_M = 0,
 	TVOUT_PAL_BDGHI,
@@ -119,7 +117,7 @@ enum s5ptv_audio_channel {
 	TVOUT_AUDIO_2CH = 0,
 	TVOUT_AUDIO_5_1CH = 1,
 	TVOUT_AUDIO_2CH_VAL = 2,
-	TVOUT_AUDIO_5_1CH_VAL = 5,
+	TVOUT_AUDIO_5_1CH_VAL = 6,
 };
 
 enum s5ptvfb_data_path_t {

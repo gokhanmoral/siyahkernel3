@@ -84,6 +84,8 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 						S5P_FIMV_D_DISPLAY_FRAME_HEIGHT)
 #define s5p_mfc_get_dpb_count()		readl(dev->regs_base + \
 						S5P_FIMV_D_MIN_NUM_DPB)
+#define s5p_mfc_get_mv_count()		readl(dev->regs_base + \
+						S5P_FIMV_D_MIN_NUM_MV)
 #define s5p_mfc_get_inst_no()		readl(dev->regs_base + \
 						S5P_FIMV_RET_INSTANCE_ID)
 #define s5p_mfc_get_enc_dpb_count()	readl(dev->regs_base + \
@@ -96,6 +98,11 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 						S5P_FIMV_E_PICTURE_COUNT)
 #define s5p_mfc_get_sei_avail_status()	readl(dev->regs_base + \
 						S5P_FIMV_D_FRAME_PACK_SEI_AVAIL)
+#define s5p_mfc_get_mvc_num_views()	readl(dev->regs_base + \
+						S5P_FIMV_D_MVC_NUM_VIEWS)
+#define s5p_mfc_get_mvc_disp_view_id()	(readl(dev->regs_base + \
+						S5P_FIMV_D_MVC_VIEW_ID) \
+						& S5P_FIMV_D_MVC_VIEW_ID_DISP_MASK)
 
 #define mb_width(x_size)		((x_size + 15) / 16)
 #define mb_height(y_size)		((y_size + 15) / 16)
@@ -108,17 +115,18 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 	} while (0)
 
 /* Definition */
-#define ENC_MULTI_SLICE_MB_MAX		(1 << 30) - 1
+#define ENC_MULTI_SLICE_MB_MAX		((1 << 30) - 1)
 #define ENC_MULTI_SLICE_BIT_MIN		2800
-#define ENC_INTRA_REFRESH_MB_MAX	(1 << 18) - 1
-#define ENC_VBV_BUF_SIZE_MAX		(1 << 30) - 1
+#define ENC_MULTI_SLICE_BYTE_MIN	350
+#define ENC_INTRA_REFRESH_MB_MAX	((1 << 18) - 1)
+#define ENC_VBV_BUF_SIZE_MAX		((1 << 30) - 1)
 #define ENC_H264_LOOP_FILTER_AB_MIN	-12
 #define ENC_H264_LOOP_FILTER_AB_MAX	12
-#define ENC_H264_RC_FRAME_RATE_MAX	(1 << 16) - 1
-#define ENC_H263_RC_FRAME_RATE_MAX	(1 << 16) - 1
+#define ENC_H264_RC_FRAME_RATE_MAX	((1 << 16) - 1)
+#define ENC_H263_RC_FRAME_RATE_MAX	((1 << 16) - 1)
 #define ENC_H264_PROFILE_MAX		3
 #define ENC_H264_LEVEL_MAX		42
-#define ENC_MPEG4_VOP_TIME_RES_MAX	(1 << 16) - 1
+#define ENC_MPEG4_VOP_TIME_RES_MAX	((1 << 16) - 1)
 #define FRAME_DELTA_H264_H263		1
 #define TIGHT_CBR_MAX			10
 
@@ -128,6 +136,56 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 #define CROP_INFO_H		S5P_FIMV_D_DISPLAY_CROP_INFO1
 #define CROP_INFO_V		S5P_FIMV_D_DISPLAY_CROP_INFO2
 
+/* Scratch buffer size for MFC v6.1 */
+#define DEC_V61_H264_SCRATCH_SIZE(x, y)				\
+		((x * 128) + 65536)
+#define DEC_V61_MPEG4_SCRATCH_SIZE(x, y)			\
+		((x) * ((y) * 64 + 144) +			\
+		 ((2048 + 15) / 16 * (y) * 64) +		\
+		 ((2048 + 15) / 16 * 256 + 8320))
+#define DEC_V61_VC1_SCRATCH_SIZE(x, y)				\
+		(2096 * ((x) + (y) + 1))
+#define DEC_V61_MPEG2_SCRATCH_SIZE(x, y)	0
+#define DEC_V61_H263_SCRATCH_SIZE(x, y)				\
+		((x) * 400)
+#define DEC_V61_VP8_SCRATCH_SIZE(x, y)				\
+		((x) * 32 + (y) * 128 + 34816)
+#define ENC_V61_H264_SCRATCH_SIZE(x, y)				\
+		(((x) * 64) + (((x) + 1) * 16) + (4096 * 16))
+#define ENC_V61_MPEG4_SCRATCH_SIZE(x, y)			\
+		(((x) * 16) + (((x) + 1) * 16))
+
+/* Scratch buffer size for MFC v6.5 */
+#define DEC_V65_H264_SCRATCH_SIZE(x, y)				\
+		((x * 192) + 64)
+#define DEC_V65_MPEG4_SCRATCH_SIZE(x, y)			\
+		((x) * ((y) * 64 + 144) + 			\
+		 ((2048 + 15) / 16 * (y) * 64) +		\
+		 ((2048 + 15) / 16 * 256 + 8320))
+#define DEC_V65_VC1_SCRATCH_SIZE(x, y)				\
+		(2096 * ((x) + (y) + 1))
+#define DEC_V65_MPEG2_SCRATCH_SIZE(x, y)	0
+#define DEC_V65_H263_SCRATCH_SIZE(x, y)				\
+		((x) * 400)
+#define DEC_V65_VP8_SCRATCH_SIZE(x, y)				\
+		((x) * 32 + (y) * 128 +				\
+		 (((x) + 1) / 2) * 64 + 2112)
+#define ENC_V65_H264_SCRATCH_SIZE(x, y)				\
+		(((x) * 48) + (((x) + 1) / 2 * 128) + 144)
+#define ENC_V65_MPEG4_SCRATCH_SIZE(x, y)			\
+		(((x) * 32) + 16)
+
+/* Encoder buffer size for common */
+#define ENC_TMV_SIZE(x,y)					\
+		(((x) + 1) * ((y) + 3) * 8)
+#define ENC_ME_SIZE(f_x,f_y,mb_x,mb_y)				\
+		((((((f_x) + 63) / 64) * 16) *			\
+		((((f_y) + 63) / 64) * 16)) +			\
+		((((mb_x) * (mb_y) + 31) / 32) * 16))
+
+/* MV range is [16,256] for v6.1, [16,128] for v6.5 */
+#define ENC_V61_MV_RANGE		256
+#define ENC_V65_MV_RANGE		128
 /* FIXME: temporal definition to avoid compile error */
 enum MFC_SHM_OFS
 {

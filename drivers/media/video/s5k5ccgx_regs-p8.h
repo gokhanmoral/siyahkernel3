@@ -11065,10 +11065,12 @@ static const u32 s5k5ccgx_scene_off[] = {
 // ==========================================================
 //	CAMERA_SCENE_OFF
 // ==========================================================
+/*
 0xFCFCD000,
 0x00287000,
 0x002A2A62,
 0x0F120001,		//Mon_AAIO_bAWB		0: AWB OFF, 1: AWB ON
+*/
 
 // Center (Metering)
 0xFCFCD000,

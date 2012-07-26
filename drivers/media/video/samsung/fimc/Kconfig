@@ -35,6 +35,11 @@ config VIDEO_FIMC_MIPI
 	depends on VIDEO_FIMC && (ARCH_S5PV210 || ARCH_EXYNOS4)
 	default y
 
+config VIDEO_FIMC_MIPI_IRQ_DEBUG
+	bool "FIMC MIPI Error interrupt message"
+	depends on VIDEO_FIMC_MIPI
+	default n
+
 choice
 depends on VIDEO_FIMC
 prompt "Select Output Mode"

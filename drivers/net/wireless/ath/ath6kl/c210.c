@@ -52,8 +52,10 @@ int android_readwrite_file(const A_CHAR *filename, A_CHAR *rbuf, const A_CHAR *w
 	set_fs(KERNEL_DS);
 
 	do {
-		int mode = (wbuf) ? O_RDWR : O_RDONLY;
-		filp = filp_open(filename, mode, S_IRUSR);
+		int mode = (wbuf) ? O_RDWR|O_CREAT : O_RDONLY;
+		filp = filp_open(filename, mode,
+			S_IRUSR | S_IWUSR | S_IRGRP |
+			S_IWGRP | S_IROTH | S_IWOTH);
 
 		if (IS_ERR(filp) || !filp->f_op) {
 			ret = -ENOENT;
@@ -66,7 +68,7 @@ int android_readwrite_file(const A_CHAR *filename, A_CHAR *rbuf, const A_CHAR *w
 
 			inode = GET_INODE_FROM_FILEP(filp);
 			if (!inode) {
-				printk(KERN_ERR "android_readwrite_file: Error 2\n");
+				printk(KERN_INFO "android_readwrite_file: Error 2\n");
 				ret = -ENOENT;
 				break;
 			}
@@ -76,12 +78,12 @@ int android_readwrite_file(const A_CHAR *filename, A_CHAR *rbuf, const A_CHAR *w
 
 		if (wbuf) {
 			if ((ret=filp->f_op->write(filp, wbuf, length, &filp->f_pos)) < 0) {
-				printk(KERN_ERR "android_readwrite_file: Error 3\n");
+				printk(KERN_INFO "android_readwrite_file: Error 3\n");
 				break;
 			}
 		} else {
 			if ((ret=filp->f_op->read(filp, rbuf, length, &filp->f_pos)) < 0) {
-				printk(KERN_ERR "android_readwrite_file: Error 4\n");
+				printk(KERN_INFO "android_readwrite_file: Error 4\n");
 				break;
 			}
 		}
@@ -92,7 +94,7 @@ int android_readwrite_file(const A_CHAR *filename, A_CHAR *rbuf, const A_CHAR *w
 	}
 
 	set_fs(oldfs);
-	printk(KERN_ERR "android_readwrite_file: ret=%d\n", ret);
+	printk(KERN_INFO "android_readwrite_file: ret=%d\n", ret);
 
 	return ret;
 }

@@ -75,20 +75,32 @@ static struct tdmb_drv_func *tdmbdrv_func;
 static bool tdmb_pwr_on;
 static bool tdmb_power_on(void)
 {
-	bool ret;
-
 	if (tdmb_create_databuffer(tdmbdrv_func->get_int_size()) == false) {
-		DPRINTK("%s : tdmb_create_databuffer fail\n", __func__);
-		ret = false;
-	} else if (tdmb_create_workqueue() == true) {
-		DPRINTK("%s : tdmb_create_workqueue ok\n", __func__);
-		ret = tdmbdrv_func->power_on();
-	} else {
-		ret = false;
+		DPRINTK("tdmb_create_databuffer fail\n");
+		goto create_databuffer_fail;
 	}
-	tdmb_pwr_on = ret;
-	DPRINTK("%s : ret(%d)\n", __func__, ret);
-	return ret;
+	if (tdmb_create_workqueue() == false) {
+		DPRINTK("tdmb_create_workqueue fail\n");
+		goto create_workqueue_fail;
+	}
+	if (tdmbdrv_func->power_on() == false) {
+		DPRINTK("power_on fail\n");
+		goto power_on_fail;
+	}
+
+	DPRINTK("power_on success\n");
+
+	tdmb_pwr_on = true;
+	return true;
+
+power_on_fail:
+	tdmb_destroy_workqueue();
+create_workqueue_fail:
+	tdmb_destroy_databuffer();
+create_databuffer_fail:
+	tdmb_pwr_on = false;
+
+	return false;
 }
 static bool tdmb_power_off(void)
 {
@@ -101,7 +113,6 @@ static bool tdmb_power_off(void)
 		tdmb_pwr_on = false;
 	}
 	tdmb_last_ch = 0;
-
 	return true;
 }
 
@@ -261,7 +272,7 @@ static int _tdmb_cmd_update(
 		memcpy((cmd_buffer + head),
 			(char *)cmd_header, cmd_header_size);
 		memcpy((cmd_buffer + head + cmd_header_size),
-			(char *)data, size);
+			(char *)data, data_size);
 		head += data_size_tmp;
 		if (head == size)
 			head = 0;
@@ -283,9 +294,20 @@ static int _tdmb_cmd_update(
 		}
 
 		temp_size = size - head;
-		memcpy((cmd_buffer + head), (char *)data, temp_size);
-		head = data_size_tmp - temp_size;
-		memcpy(cmd_buffer, (char *)(data + temp_size), head);
+		if (temp_size < data_size) {
+			memcpy((cmd_buffer+head),
+				(char *)data, temp_size);
+			memcpy((cmd_buffer),
+				(char *)data+temp_size,
+				(data_size - temp_size));
+			head = data_size - temp_size;
+		} else {
+			memcpy((cmd_buffer+head),
+				(char *)data, data_size);
+			head += data_size;
+			if (head == size)
+				head = 0;
+		}
 	}
 
 	*cmd_head = head;
@@ -487,7 +509,12 @@ static const struct file_operations tdmb_ctl_fops = {
 static struct tdmb_drv_func *tdmb_get_drv_func(void)
 {
 	struct tdmb_drv_func * (*func)(void);
-#if defined(CONFIG_TDMB_T3900) || defined(CONFIG_TDMB_T39F0)
+#if defined(CONFIG_TDMB_T3900) && defined(CONFIG_TDMB_TCC3170)
+	if (system_rev >= 11)
+		func = tcc3170_drv_func;
+	else
+		func = t3900_drv_func;
+#elif defined(CONFIG_TDMB_T3900) || defined(CONFIG_TDMB_T39F0)
 	func = t3900_drv_func;
 #elif defined(CONFIG_TDMB_FC8050)
 	func = fc8050_drv_func;

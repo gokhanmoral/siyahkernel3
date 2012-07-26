@@ -428,6 +428,16 @@ static void dpm_show_time(ktime_t starttime, pm_message_t state, char *info)
 static int device_resume_noirq(struct device *dev, pm_message_t state)
 {
 	int error = 0;
+	struct timer_list timer;
+	struct dpm_drv_wd_data data;
+
+	data.dev = dev;
+	data.tsk = get_current();
+	init_timer_on_stack(&timer);
+	timer.expires = jiffies + HZ * 12;
+	timer.function = dpm_drv_timeout;
+	timer.data = (unsigned long)&data;
+	add_timer(&timer);
 
 	TRACE_DEVICE(dev);
 	TRACE_RESUME(0);
@@ -445,6 +455,9 @@ static int device_resume_noirq(struct device *dev, pm_message_t state)
 		pm_dev_dbg(dev, state, "EARLY ");
 		error = pm_noirq_op(dev, dev->bus->pm, state);
 	}
+
+	del_timer_sync(&timer);
+	destroy_timer_on_stack(&timer);
 
 	TRACE_RESUME(error);
 	return error;
@@ -788,31 +801,45 @@ static pm_message_t resume_event(pm_message_t sleep_state)
  */
 static int device_suspend_noirq(struct device *dev, pm_message_t state)
 {
-	int error;
+	int error = 0;
+	struct timer_list timer;
+	struct dpm_drv_wd_data data;
+
+	data.dev = dev;
+	data.tsk = get_current();
+	init_timer_on_stack(&timer);
+	timer.expires = jiffies + HZ * 12;
+	timer.function = dpm_drv_timeout;
+	timer.data = (unsigned long)&data;
+	add_timer(&timer);
 
 	if (dev->pwr_domain) {
 		pm_dev_dbg(dev, state, "LATE power domain ");
 		error = pm_noirq_op(dev, &dev->pwr_domain->ops, state);
 		if (error)
-			return error;
+			goto exit;
 	} else if (dev->type && dev->type->pm) {
 		pm_dev_dbg(dev, state, "LATE type ");
 		error = pm_noirq_op(dev, dev->type->pm, state);
 		if (error)
-			return error;
+			goto exit;
 	} else if (dev->class && dev->class->pm) {
 		pm_dev_dbg(dev, state, "LATE class ");
 		error = pm_noirq_op(dev, dev->class->pm, state);
 		if (error)
-			return error;
+			goto exit;
 	} else if (dev->bus && dev->bus->pm) {
 		pm_dev_dbg(dev, state, "LATE ");
 		error = pm_noirq_op(dev, dev->bus->pm, state);
 		if (error)
-			return error;
+			goto exit;
 	}
 
-	return 0;
+exit:
+	del_timer_sync(&timer);
+	destroy_timer_on_stack(&timer);
+
+	return error;
 }
 
 /**
@@ -905,10 +932,12 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	if (async_error)
 		goto Unlock;
 
+#ifndef CONFIG_SLP
 	if (pm_wakeup_pending()) {
 		async_error = -EBUSY;
 		goto Unlock;
 	}
+#endif
 
 	if (dev->pwr_domain) {
 		pm_dev_dbg(dev, state, "power domain ");

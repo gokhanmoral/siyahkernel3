@@ -16,7 +16,6 @@
 #define _SII9234_H_
 
 #ifdef __KERNEL__
-#define	CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE
 
 struct sii9234_platform_data {
 	void (*hw_reset)(void);

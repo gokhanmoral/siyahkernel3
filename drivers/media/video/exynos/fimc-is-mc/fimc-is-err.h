@@ -3,7 +3,6 @@
  *
  *
  * Copyright (c) 2011 Samsung Electronics Co., Ltd
- * Contact: Jiyoung Shin<idon.shin@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -83,25 +82,34 @@ enum error {
 	ERROR_COMMON_SETFILE_LOAD	= 3,
 	/* setfile is not Adjusted before runnng. */
 	ERROR_COMMON_SETFILE_ADJUST	= 4,
+	/* index of setfile is not valid. */
+	ERROR_COMMON_SETFILE_INDEX = 5,
 	/* Input path can be changed in ready state(stop) */
-	ERROR_COMMON_INPUT_PATH		= 5,
+	ERROR_COMMON_INPUT_PATH		= 6,
 	/* IP can not start if input path is not set */
-	ERROR_COMMON_INPUT_INIT		= 6,
+	ERROR_COMMON_INPUT_INIT		= 7,
+	/* Output path can be changed in ready state(stop) */
+	ERROR_COMMON_OUTPUT_PATH	= 8,
 	/* IP can not start if output path is not set */
-	ERROR_COMMON_OUTPUT_INIT	= 7,
+	ERROR_COMMON_OUTPUT_INIT	= 9,
 
 	ERROR_CONTROL_NO		= ERROR_COMMON_NO,
 	ERROR_CONTROL_BYPASS		= 11,	/* Enable or Disable */
+	ERROR_CONTROL_BUF		= 12,	/* invalid buffer info */
 
 	ERROR_OTF_INPUT_NO		= ERROR_COMMON_NO,
+	/* invalid command */
+	ERROR_OTF_INPUT_CMD		= 21,
 	/* invalid format  (DRC: YUV444, FD: YUV444, 422, 420) */
-	ERROR_OTF_INPUT_FORMAT		= 21,
+	ERROR_OTF_INPUT_FORMAT		= 22,
 	/* invalid width (DRC: 128~8192, FD: 32~8190) */
-	ERROR_OTF_INPUT_WIDTH		= 22,
+	ERROR_OTF_INPUT_WIDTH		= 23,
 	/* invalid height (DRC: 64~8192, FD: 16~8190) */
-	ERROR_OTF_INPUT_HEIGHT		= 23,
+	ERROR_OTF_INPUT_HEIGHT		= 24,
 	/* invalid bit-width (DRC: 8~12bits, FD: 8bit) */
-	ERROR_OTF_INPUT_BIT_WIDTH	= 24,
+	ERROR_OTF_INPUT_BIT_WIDTH	= 25,
+	/* invalid frame time for ISP */
+	ERROR_OTF_INPUT_USER_FRAMETILE = 26,
 
 	ERROR_DMA_INPUT_NO		= ERROR_COMMON_NO,
 	/* invalid width (DRC: 128~8192, FD: 32~8190) */
@@ -134,6 +142,7 @@ enum error {
 	ERROR_DMA_OUTPUT_BIT_WIDTH	= 54,	/* invalid bit-width */
 	ERROR_DMA_OUTPUT_PLANE		= 55,	/* invalid plane */
 	ERROR_DMA_OUTPUT_ORDER		= 56,	/* invalid order */
+	ERROR_DMA_OUTPUT_BUF		= 57,	/* invalid buffer info */
 
 	ERROR_GLOBAL_SHOTMODE_NO	= ERROR_COMMON_NO,
 
@@ -148,6 +157,7 @@ enum error {
 	ERROR_SENSOR_UNSUPPORT_FUNC,
 	ERROR_SENSOR_UNSUPPORT_PERI,
 	ERROR_SENSOR_UNSUPPORT_AF,
+	ERROR_SENSOR_STOP_FAIL,
 
 	/* ISP Error (200~299) */
 	ERROR_ISP_AF_NO			= ERROR_COMMON_NO,
@@ -180,12 +190,25 @@ enum error {
 	ERROR_FD_CONFIG_ORIENTATION_STATE		= 411,
 	ERROR_FD_CONFIG_ORIENTATION_INVALID		= 412,
 	ERROR_FD_CONFIG_ORIENTATION_VALUE_INVALID	= 413,
-	ERROR_FD_RESULT			= 414,	/* PARAM_FdResultStr can
-						be only applied in ready-state
-						or stream off */
-	ERROR_FD_MODE			= 415	/* PARAM_FdModeStr can be only
-						applied in ready-state or
-						stream off */
+	/* PARAM_FdResultStr can be only applied
+	 * in ready-state or stream off */
+	ERROR_FD_RESULT				= 414,
+	/* PARAM_FdModeStr can be only applied
+	 * in ready-state or stream off */
+	ERROR_FD_MODE					= 415,
+
+	/*SCALER ERR(500~599)*/
+	ERROR_SCALER_NO			= ERROR_COMMON_NO,
+	ERROR_SCALER_DMA_OUTSEL		= 501,
+	ERROR_SCALER_H_RATIO			= 502,
+	ERROR_SCALER_V_RATIO			= 503,
+	ERROR_SCALER_FRAME_BUFFER_SEQ		= 504,
+
+	ERROR_SCALER_IMAGE_EFFECT		= 510,
+
+	ERROR_SCALER_ROTATE			= 520,
+	ERROR_SCALER_FLIP			= 521,
+
 };
 
 #endif

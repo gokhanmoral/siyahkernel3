@@ -450,12 +450,11 @@ static void mxt224_ta_probe(bool ta_status)
 	}
 
 	if (ta_status) {
-		copy_data->threshold = copy_pdata->tchthr_charging;
-		calcfg_dis = copy_pdata->calcfg_charging_e;
-		calcfg_en = copy_pdata->calcfg_charging_e | 0x20;
-		noise_threshold = copy_pdata->noisethr_charging;
-		movfilter = copy_pdata->movfilter_charging;
-		charge_time = copy_pdata->chrgtime_charging_e;
+		copy_data->threshold = copy_data->tchthr_charging;
+		calcfg_dis = copy_data->calcfg_charging_e;
+		calcfg_en = copy_data->calcfg_charging_e | 0x20;
+		noise_threshold = copy_data->noisethr_charging;
+		charge_time = copy_data->chrgtime_charging_e;
 #ifdef CLEAR_MEDIAN_FILTER_ERROR
 		copy_data->gErrCondition = ERR_RTN_CONDITION_MAX;
 		copy_data->noise_median.mferr_setting = false;
@@ -464,13 +463,12 @@ static void mxt224_ta_probe(bool ta_status)
 		if (copy_data->boot_or_resume == 1)
 			copy_data->threshold = copy_pdata->tchthr_batt_init;
 		else
-			copy_data->threshold = copy_pdata->tchthr_batt;
-		copy_data->threshold_e = copy_pdata->tchthr_batt_e;
-		calcfg_dis = copy_pdata->calcfg_batt_e;
-		calcfg_en = copy_pdata->calcfg_batt_e | 0x20;
-		noise_threshold = copy_pdata->noisethr_batt;
-		movfilter = copy_pdata->movfilter_batt;
-		charge_time = copy_pdata->chrgtime_batt_e;
+			copy_data->threshold = copy_data->tchthr_batt;
+		copy_data->threshold_e = copy_data->tchthr_batt_e;
+		calcfg_dis = copy_data->calcfg_batt_e;
+		calcfg_en = copy_data->calcfg_batt_e | 0x20;
+		noise_threshold = copy_data->noisethr_batt;
+		charge_time = copy_data->chrgtime_batt_e;
 #ifdef CLEAR_MEDIAN_FILTER_ERROR
 		copy_data->gErrCondition = ERR_RTN_CONDITION_IDLE;
 		copy_data->noise_median.mferr_count = 0;
@@ -530,6 +528,7 @@ static void mxt224_ta_probe(bool ta_status)
 		ret =
 		    get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48,
 				    &size_one, &obj_address);
+#ifndef CONFIG_TARGET_LOCALE_NAATT_TEMP
 		value = calcfg_dis;
 		register_address = 2;
 		size_one = 1;
@@ -539,16 +538,16 @@ static void mxt224_ta_probe(bool ta_status)
 			 (u8) size_one, &val);
 		printk(KERN_ERR "[TSP]TA_probe MXT224E T%d Byte%d is %d\n", 48,
 		       register_address, val);
-
+#endif
 		if (ta_status)
 			write_config(copy_data, PROCG_NOISESUPPRESSION_T48,
 				     copy_data->noise_suppression_cfg_ta);
 		else
 			write_config(copy_data, PROCG_NOISESUPPRESSION_T48,
 				     copy_data->noise_suppression_cfg);
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 		if ((ta_status) && (copy_data->gain_change_flag == 1)) {
-			value = copy_data->gain_ta;
+			value = copy_data->blen_charging_e;
 			write_mem(copy_data, obj_address + 34, size_one,
 				  &value);
 			read_mem(copy_data, obj_address + 34, (u8) size_one,
@@ -591,6 +590,7 @@ static void mxt224_ta_probe(bool ta_status)
 				 &val);
 		}
 #endif
+#ifndef CONFIG_TARGET_LOCALE_NAATT_TEMP
 		value = calcfg_en;
 		write_mem(copy_data, obj_address + (u16) register_address,
 			  size_one, &value);
@@ -598,6 +598,7 @@ static void mxt224_ta_probe(bool ta_status)
 			 (u8) size_one, &val);
 		printk(KERN_ERR "[TSP]TA_probe MXT224E T%d Byte%d is %d\n", 48,
 		       register_address, val);
+#endif
 	} else {
 		if (copy_data->freq_table.fherr_setting >= 1) {
 			ret = get_object_info(copy_data, GEN_POWERCONFIG_T7,
@@ -1511,12 +1512,52 @@ static void median_err_setting(void)
 	bool ta_status_check;
 	int ret = 0;
 
+	if (cal_check_flag == 1) {
+		printk(KERN_ERR"[TSP] calibration was forcely good\n");
+		cal_check_flag = 0;
+		good_check_flag = 0;
+		qt_timer_state = 0;
+		qt_time_point = jiffies_to_msecs(jiffies);
+		copy_data->palm_chk_flag = 2;
+
+		ret = get_object_info(copy_data,
+			GEN_ACQUISITIONCONFIG_T8,
+			&size_one, &obj_address);
+		write_mem(copy_data,
+		  obj_address + 6, 1,
+		  &copy_data->atchcalst_e);
+		write_mem(copy_data,
+		  obj_address + 7, 1,
+		  &copy_data->atchcalsthr_e);
+		write_mem(copy_data,
+		  obj_address + 8, 1,
+		  &copy_data->atchfrccalthr_e);
+		write_mem(copy_data,
+		  obj_address + 9, 1,
+		  &copy_data->atchfrccalratio_e);
+	}
+
 	copy_data->read_ta_status(&ta_status_check);
 	if (!ta_status_check) {
 		copy_data->gErrCondition = Check_Err_Condition();
 		switch (copy_data->gErrCondition) {
 		case ERR_RTN_CONDITION_T9:
 			{
+#ifdef CONFIG_TARGET_LOCALE_NAATT_TEMP
+				ret =
+				get_object_info(copy_data,
+				PROCG_NOISESUPPRESSION_T48,
+				&size_one, &obj_address);
+				value = 100;
+				write_mem(copy_data, obj_address+22, 1,
+				&value);
+				value = 100;
+				write_mem(copy_data, obj_address+25, 1,
+				&value);
+				value = 81;
+				write_mem(copy_data, obj_address+39, 1,
+				&value);
+#else
 				ret =
 				    get_object_info(copy_data,
 						    TOUCH_MULTITOUCHSCREEN_T9,
@@ -1571,6 +1612,7 @@ static void median_err_setting(void)
 				value = 80;
 				write_mem(copy_data, obj_address + 39, 1,
 					  &value);
+#endif
 			}
 			break;
 
@@ -2469,7 +2511,7 @@ static void mxt224_optical_gain(uint16_t dbg_mode)
 			    ((uint16_t) data_buffer[1] << 8) +
 			    (uint16_t) data_buffer[0];
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 			if (copy_data->family_id == 0x81) {
 				if (qt_refrence != 0)
 					qt_refrence = qt_refrence - 16384;
@@ -2497,7 +2539,7 @@ static void mxt224_optical_gain(uint16_t dbg_mode)
 		msleep(20);
 	}
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	if (reference_over)
 		copy_data->gain_ta = 0;
 #else
@@ -3032,8 +3074,8 @@ static ssize_t tsp_threshold_store(struct device *dev,
 		printk(KERN_ERR "[TSP] threshold value %d\n",
 			threshold);
 		ret =
-			get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9,
-					&size_one, &address);
+		    get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9,
+				    &size_one, &address);
 		size_one = 1;
 		value = (u8) threshold;
 		write_mem(copy_data, address + (u16) object_register, size_one,
@@ -3042,7 +3084,7 @@ static ssize_t tsp_threshold_store(struct device *dev,
 			 (u8) size_one, &val);
 
 		printk(KERN_ERR "[TSP] T%d Byte%d is %d\n",
-			   TOUCH_MULTITOUCHSCREEN_T9, object_register, val);
+		       TOUCH_MULTITOUCHSCREEN_T9, object_register, val);
 	}
 
 	return size;
@@ -3343,7 +3385,7 @@ static int __devinit mxt224_probe(struct i2c_client *client,
 	u8 user_info_value;
 	u16 obj_address = 0;
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	int gain_ta_pre;
 #endif
 
@@ -3414,7 +3456,9 @@ static int __devinit mxt224_probe(struct i2c_client *client,
 	data->gpio_read_done = pdata->gpio_read_done;
 
 	data->power_on();
-
+#if defined(CONFIG_MACH_M0_GRANDECTC)
+	msleep(100);
+#endif
 	ret = mxt224_init_touch_driver(data);
 	if (ret) {
 		dev_err(&client->dev, "chip initialization failed\n");
@@ -3454,8 +3498,8 @@ static int __devinit mxt224_probe(struct i2c_client *client,
 		data->atchcalsthr_e = pdata->atchcalsthr_e;
 		data->noise_suppression_cfg = pdata->t48_config_batt_e + 1;
 		data->noise_suppression_cfg_ta = pdata->t48_config_chrg_e + 1;
-		data->tchthr_batt_e= pdata->tchthr_batt_e;
-		data->tchthr_charging_e= pdata->tchthr_charging_e;
+		data->tchthr_batt_e = pdata->tchthr_batt_e;
+		data->tchthr_charging_e = pdata->tchthr_charging_e;
 		data->calcfg_batt_e = pdata->calcfg_batt_e;
 		data->calcfg_charging_e = pdata->calcfg_charging_e;
 		data->atchfrccalthr_e = pdata->atchfrccalthr_e;
@@ -3546,25 +3590,6 @@ static int __devinit mxt224_probe(struct i2c_client *client,
 
 	msleep(60);
 	copy_data->mxt224_enabled = 1;
-
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
-	mxt224_ta_probe(1);
-	ret =
-	    get_object_info(data, PROCG_NOISESUPPRESSION_T48, &size_one,
-			    &obj_address);
-	read_mem(data, obj_address + 34, 1, &copy_data->gain_ta);
-	printk(KERN_DEBUG "[TSP]TA_probe MXT224E T%d Byte%d is %d\n", 48, 34,
-	       copy_data->gain_ta);
-	gain_ta_pre = copy_data->gain_ta;
-	mxt224_optical_gain(QT_REFERENCE_MODE);
-	if (gain_ta_pre != copy_data->gain_ta) {
-		printk(KERN_DEBUG
-			"[TSP] change gain value to %d for TA mode\n",
-		       copy_data->gain_ta);
-		copy_data->gain_change_flag = 1;
-	}
-	mxt224_ta_probe(0);
-#endif
 
 	if (data->read_ta_status) {
 		data->read_ta_status(&ta_status);
@@ -3773,8 +3798,10 @@ static int __devinit mxt224_probe(struct i2c_client *client,
 #endif
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
-#if defined(CONFIG_TARGET_LOCALE_NA) || defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NA) || defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	data->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB + 1;
+#elif defined(CONFIG_TARGET_LOCALE_KOR)
+	data->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB + 3;
 #else
 	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 #endif

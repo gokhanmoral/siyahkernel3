@@ -9,8 +9,17 @@
 #include <plat/gpio-cfg.h>
 #include <mach/regs-gpio.h>
 #include <mach/gpio.h>
+#include <linux/mfd/max77693.h>
+#include <linux/mfd/max77693-private.h>
+#include <linux/power_supply.h>
 #include "midas.h"
 
+/*Event of receiving*/
+#define PSY_BAT_NAME "battery"
+/*Event of sending*/
+#define PSY_CHG_NAME "max77693-charger"
+
+#ifdef CONFIG_SAMSUNG_MHL
 static void sii9234_cfg_gpio(void)
 {
 	printk(KERN_INFO "%s()\n", __func__);
@@ -42,9 +51,13 @@ static void sii9234_cfg_gpio(void)
 	s3c_gpio_setpull(GPIO_MHL_RST, S3C_GPIO_PULL_NONE);
 	gpio_set_value(GPIO_MHL_RST, GPIO_LEVEL_LOW);
 
+#if !defined(CONFIG_MACH_C1_KOR_LGT) && !defined(CONFIG_SAMSUNG_MHL_9290)
+#if !defined(CONFIG_MACH_P4NOTE) && !defined(CONFIG_MACH_T0)
 	s3c_gpio_cfgpin(GPIO_MHL_SEL, S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(GPIO_MHL_SEL, S3C_GPIO_PULL_NONE);
 	gpio_set_value(GPIO_MHL_SEL, GPIO_LEVEL_LOW);
+#endif
+#endif
 }
 
 static void sii9234_power_onoff(bool on)
@@ -76,6 +89,60 @@ static void sii9234_power_onoff(bool on)
 	}
 }
 
+#ifdef __MHL_NEW_CBUS_MSC_CMD__
+static void sii9234_vbus_present(bool on, int value)
+{
+	struct power_supply *psy = power_supply_get_by_name(PSY_CHG_NAME);
+	union power_supply_propval power_value;
+	u8 intval;
+	pr_info("%s: on(%d), vbus type(%d)\n", __func__, on, value);
+
+	if (!psy) {
+		pr_err("%s: fail to get %s psy\n", __func__, PSY_CHG_NAME);
+		return;
+	}
+
+	power_value.intval = ((POWER_SUPPLY_TYPE_MISC << 4) |
+			(on << 2) | (value << 0));
+
+	pr_info("%s: value.intval(0x%x)\n", __func__, power_value.intval);
+	psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE, &power_value);
+
+	return;
+}
+#endif
+
+#ifdef CONFIG_SAMSUNG_MHL_UNPOWERED
+static int sii9234_get_vbus_status(void)
+{
+	struct power_supply *psy = power_supply_get_by_name(PSY_BAT_NAME);
+	union power_supply_propval value;
+	u8 intval;
+
+	if (!psy) {
+		pr_err("%s: fail to get %s psy\n", __func__, PSY_BAT_NAME);
+		return -1;
+	}
+
+	psy->get_property(psy, POWER_SUPPLY_PROP_ONLINE, &value);
+	pr_info("%s: value.intval(0x%x)\n", __func__, value.intval);
+
+	return (int)value.intval;
+}
+
+static void sii9234_otg_control(bool onoff)
+{
+	otg_control(onoff);
+
+	gpio_request(GPIO_OTG_EN, "USB_OTG_EN");
+	gpio_direction_output(GPIO_OTG_EN, onoff);
+	gpio_free(GPIO_OTG_EN);
+
+	printk(KERN_INFO "[MHL] %s: onoff =%d\n", __func__, onoff);
+
+	return;
+}
+#endif
 static void sii9234_reset(void)
 {
 	printk(KERN_INFO "%s()\n", __func__);
@@ -90,6 +157,7 @@ static void sii9234_reset(void)
 }
 
 #ifndef CONFIG_SAMSUNG_USE_11PIN_CONNECTOR
+#ifndef CONFIG_MACH_P4NOTE
 static void mhl_usb_switch_control(bool on)
 {
 	printk(KERN_INFO "%s() [MHL] USB path change : %s\n",
@@ -107,18 +175,31 @@ static void mhl_usb_switch_control(bool on)
 	}
 }
 #endif
+#endif
 
 static struct sii9234_platform_data sii9234_pdata = {
 	.init = sii9234_cfg_gpio,
-#ifndef CONFIG_SAMSUNG_USE_11PIN_CONNECTOR
-	.mhl_sel = mhl_usb_switch_control,
-#else
+#if defined(CONFIG_SAMSUNG_USE_11PIN_CONNECTOR) || \
+		defined(CONFIG_MACH_P4NOTE)
 	.mhl_sel = NULL,
+#else
+	.mhl_sel = mhl_usb_switch_control,
 #endif
 	.hw_onoff = sii9234_power_onoff,
 	.hw_reset = sii9234_reset,
 	.enable_vbus = NULL,
+#if defined(__MHL_NEW_CBUS_MSC_CMD__)
+	.vbus_present = sii9234_vbus_present,
+#else
 	.vbus_present = NULL,
+#endif
+#ifdef CONFIG_SAMSUNG_MHL_UNPOWERED
+	.get_vbus_status = sii9234_get_vbus_status,
+	.sii9234_otg_control = sii9234_otg_control,
+#endif
+#ifdef CONFIG_EXTCON
+	.extcon_name = "max77693-muic",
+#endif
 };
 
 static struct i2c_board_info __initdata i2c_devs_sii9234[] = {
@@ -146,14 +227,31 @@ static struct i2c_board_info i2c_dev_hdmi_ddc __initdata = {
 
 static int __init midas_mhl_init(void)
 {
+	int ret;
 #define I2C_BUS_ID_MHL	15
-	i2c_add_devices(I2C_BUS_ID_MHL, i2c_devs_sii9234,
+	ret = i2c_add_devices(I2C_BUS_ID_MHL, i2c_devs_sii9234,
 			ARRAY_SIZE(i2c_devs_sii9234));
 
+	if (ret < 0) {
+		printk(KERN_ERR "[MHL] adding i2c fail - nodevice\n");
+		return -ENODEV;
+	}
+#if defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_T0)
+	sii9234_pdata.ddc_i2c_num = 5;
+#else
 	sii9234_pdata.ddc_i2c_num = (system_rev == 3 ? 16 : 5);
+#endif
 
-	i2c_add_devices(sii9234_pdata.ddc_i2c_num, &i2c_dev_hdmi_ddc, 1);
+#ifdef CONFIG_MACH_SLP_PQ_LTE
+	sii9234_pdata.ddc_i2c_num = 16;
+#endif
+	ret = i2c_add_devices(sii9234_pdata.ddc_i2c_num, &i2c_dev_hdmi_ddc, 1);
+	if (ret < 0) {
+		printk(KERN_ERR "[MHL] adding ddc fail - nodevice\n");
+		return -ENODEV;
+	}
 
 	return 0;
 }
 module_init(midas_mhl_init);
+#endif

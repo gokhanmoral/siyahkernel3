@@ -911,7 +911,7 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 			 */
 #ifdef CONFIG_LINK_DEVICE_HSIC
 			/* ensure suspend bit clear by adding 5 msec delay. */
-			ehci->reset_done[i] = jiffies + msecs_to_jiffies(30);
+			ehci->reset_done[i] = jiffies + msecs_to_jiffies(35);
 #else
 			ehci->reset_done[i] = jiffies + msecs_to_jiffies(25);
 #endif

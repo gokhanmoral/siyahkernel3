@@ -10,388 +10,348 @@
  * published by the Free Software Foundation.
 */
 
-#include <linux/err.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/file.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
-#include <linux/scatterlist.h>
-#include <linux/dma-mapping.h>
-#include <linux/ion.h>
-#include <linux/syscalls.h>
+#include <linux/highmem.h>
+
+#include <media/videobuf2-core.h>
+#include <media/videobuf2-memops.h>
+#include <media/videobuf2-ion.h>
 
 #include <asm/cacheflush.h>
 
-#include <media/videobuf2-ion.h>
 #include <plat/iovmm.h>
+#include <plat/cpu.h>
 
-static int vb2_ion_debug;
-module_param(vb2_ion_debug, int, 0644);
-#define dbg(level, fmt, arg...)						\
-	do {								\
-		if (vb2_ion_debug >= level)				\
-			printk(KERN_DEBUG "vb2_ion: " fmt, ## arg);	\
-	} while (0)
+extern struct ion_device *ion_exynos; /* drivers/gpu/ion/exynos/exynos-ion.c */
 
-#define SIZE_THRESHOLD SZ_1M
-
-struct vb2_ion_conf {
+struct vb2_ion_context {
 	struct device		*dev;
-	const char		*name;
-
 	struct ion_client	*client;
-
-	unsigned long		align;
-	bool			contig;
-	bool			sharable;
-	bool			cacheable;
-	bool			use_mmu;
-	atomic_t		mmu_enable;
-
-	spinlock_t		slock;
+	unsigned long		alignment;
+	long			flags;
 };
 
 struct vb2_ion_buf {
-	struct vm_area_struct		*vma;
-	struct vb2_ion_conf		*conf;
+	struct vm_area_struct		**vmas;
+	int				vma_count;
+	struct vb2_ion_context		*ctx;
 	struct vb2_vmarea_handler	handler;
-
-	struct ion_handle		*handle;	/* Kernel space */
-
-	dma_addr_t			kva;
-	dma_addr_t			dva;
-	size_t				offset;
+	struct ion_handle		*handle;
+	void				*kva;
 	unsigned long			size;
-
-	struct scatterlist		*sg;
-	int				nents;
-
 	atomic_t			ref;
-
-	bool				cacheable;
+	bool				cached;
+	struct vb2_ion_cookie		cookie;
 };
 
-static void vb2_ion_put(void *buf_priv);
+#define ctx_cached(ctx) (!(ctx->flags & VB2ION_CTX_UNCACHED))
+#define ctx_iommu(ctx) (!!(ctx->flags & VB2ION_CTX_IOMMU))
 
-static struct ion_client *vb2_ion_init_ion(struct vb2_ion *ion,
-					   struct vb2_drv *drv)
+void vb2_ion_set_cached(void *ctx, bool cached)
 {
-	struct ion_client *client;
+	struct vb2_ion_context *vb2ctx = ctx;
+
+	if (cached)
+		vb2ctx->flags &= ~VB2ION_CTX_UNCACHED;
+	else
+		vb2ctx->flags |= VB2ION_CTX_UNCACHED;
+}
+EXPORT_SYMBOL(vb2_ion_set_cached);
+
+int vb2_ion_set_alignment(void *ctx, size_t alignment)
+{
+	struct vb2_ion_context *vb2ctx = ctx;
+
+	if ((alignment != 0) && (alignment < PAGE_SIZE))
+		return -EINVAL;
+
+	if (alignment & ~alignment)
+		return -EINVAL;
+
+	if (alignment == 0)
+		vb2ctx->alignment = PAGE_SIZE;
+	else
+		vb2ctx->alignment = alignment;
+
+	return 0;
+}
+EXPORT_SYMBOL(vb2_ion_set_alignment);
+
+void *vb2_ion_create_context(struct device *dev, size_t alignment, long flags)
+{
+	struct vb2_ion_context *ctx;
 	int ret;
-	int mask = ION_HEAP_EXYNOS_MASK | ION_HEAP_EXYNOS_CONTIG_MASK |
-						ION_HEAP_EXYNOS_USER_MASK;
+	unsigned int heapmask = ION_HEAP_EXYNOS_USER_MASK;
 
-	client = ion_client_create(ion_exynos, mask, ion->name);
-	if (IS_ERR(client)) {
-		pr_err("ion_client_create: ion_name(%s)\n", ion->name);
+	/* ion_client_create() expects the current thread to be a kernel thread
+	 * to create a new ion_client
+	 */
+	WARN_ON(!(current->group_leader->flags & PF_KTHREAD));
+
+	if (flags & VB2ION_CTX_PHCONTIG)
+		heapmask |= ION_HEAP_EXYNOS_CONTIG_MASK;
+	if (flags & VB2ION_CTX_VMCONTIG)
+		heapmask |= ION_HEAP_EXYNOS_MASK;
+
+	 /* non-contigous memory without H/W virtualization is not supported */
+	if ((flags & VB2ION_CTX_VMCONTIG) && !(flags & VB2ION_CTX_IOMMU))
 		return ERR_PTR(-EINVAL);
-	}
 
-	if (!drv->use_mmu)
-		return client;
-
-	ret = iovmm_setup(ion->dev);
-	if (ret) {
-		pr_err("iovmm_setup: ion_name(%s)\n", ion->name);
-		ion_client_destroy(client);
-		return ERR_PTR(-EINVAL);
-	}
-
-	return client;
-}
-
-static void vb2_ion_init_conf(struct vb2_ion_conf *conf,
-			      struct ion_client *client,
-			      struct vb2_ion *ion,
-			      struct vb2_drv *drv)
-{
-	conf->dev		= ion->dev;
-	conf->name		= ion->name;
-	conf->client		= client;
-	conf->contig		= ion->contig;
-	conf->cacheable		= ion->cacheable;
-	conf->align		= ion->align;
-	conf->use_mmu		= drv->use_mmu;
-
-	spin_lock_init(&conf->slock);
-}
-
-void *vb2_ion_init(struct vb2_ion *ion,
-		   struct vb2_drv *drv)
-{
-	struct ion_client *client;
-	struct vb2_ion_conf *conf;
-
-	conf = kzalloc(sizeof *conf, GFP_KERNEL);
-	if (!conf)
+	ctx = kmalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
 		return ERR_PTR(-ENOMEM);
 
-	client = vb2_ion_init_ion(ion, drv);
-	if (IS_ERR(client)) {
-		kfree(conf);
-		return ERR_PTR(-EINVAL);
+	ctx->dev = dev;
+	ctx->client = ion_client_create(ion_exynos, heapmask, dev_name(dev));
+	if (IS_ERR(ctx->client)) {
+		ret = PTR_ERR(ctx->client);
+		goto err_ion;
 	}
 
-	vb2_ion_init_conf(conf, client, ion, drv);
+	if (flags & VB2ION_CTX_IOMMU) {
+		ret = iovmm_setup(dev);
+		if (ret)
+			goto err_iovmm;
+	}
 
-	return conf;
+	vb2_ion_set_alignment(ctx, alignment);
+	ctx->flags = flags;
+
+	return ctx;
+
+err_iovmm:
+	ion_client_destroy(ctx->client);
+err_ion:
+	kfree(ctx);
+
+	return ERR_PTR(ret);
 }
-EXPORT_SYMBOL_GPL(vb2_ion_init);
+EXPORT_SYMBOL(vb2_ion_create_context);
 
-void vb2_ion_cleanup(void *alloc_ctx)
+void vb2_ion_destroy_context(void *ctx)
 {
-	struct vb2_ion_conf *conf = alloc_ctx;
+	struct vb2_ion_context *vb2ctx = ctx;
 
-	BUG_ON(!conf);
-
-	if (conf->use_mmu) {
-		if (atomic_read(&conf->mmu_enable)) {
-			pr_warning("mmu_enable(%d)\n", atomic_read(&conf->mmu_enable));
-			iovmm_deactivate(conf->dev);
-		}
-
-		iovmm_cleanup(conf->dev);
-	}
-
-	ion_client_destroy(conf->client);
-
-	kfree(alloc_ctx);
+	ion_client_destroy(vb2ctx->client);
+	iovmm_cleanup(vb2ctx->dev);
+	kfree(vb2ctx);
 }
-EXPORT_SYMBOL_GPL(vb2_ion_cleanup);
+EXPORT_SYMBOL(vb2_ion_destroy_context);
 
-void **vb2_ion_init_multi(unsigned int num_planes,
-			  struct vb2_ion *ion,
-			  struct vb2_drv *drv)
+void *vb2_ion_private_alloc(void *alloc_ctx, size_t size)
 {
-	struct ion_client *client;
-	struct vb2_ion_conf *conf;
-	void **alloc_ctxes;
-	int i;
-
-	/* allocate structure of alloc_ctxes */
-	alloc_ctxes = kzalloc((sizeof *alloc_ctxes + sizeof *conf) * num_planes,
-			      GFP_KERNEL);
-
-	if (!alloc_ctxes)
-		return ERR_PTR(-ENOMEM);
-
-	client = vb2_ion_init_ion(ion, drv);
-	if (IS_ERR(client)) {
-		kfree(alloc_ctxes);
-		return ERR_PTR(-EINVAL);
-	}
-
-	conf = (void *)(alloc_ctxes + num_planes);
-	for (i = 0; i < num_planes; ++i, ++conf) {
-		alloc_ctxes[i] = conf;
-		vb2_ion_init_conf(conf, client, ion, drv);
-	}
-
-	return alloc_ctxes;
-}
-EXPORT_SYMBOL_GPL(vb2_ion_init_multi);
-
-void vb2_ion_cleanup_multi(void **alloc_ctxes)
-{
-	struct vb2_ion_conf *conf = alloc_ctxes[0];
-
-	BUG_ON(!conf);
-
-	if (conf->use_mmu) {
-		if (atomic_read(&conf->mmu_enable)) {
-			pr_warning("mmu_enable(%d)\n", atomic_read(&conf->mmu_enable));
-			iovmm_deactivate(conf->dev);
-		}
-
-		iovmm_cleanup(conf->dev);
-	}
-
-	ion_client_destroy(conf->client);
-
-	kfree(alloc_ctxes);
-}
-EXPORT_SYMBOL_GPL(vb2_ion_cleanup_multi);
-
-static void *vb2_ion_alloc(void *alloc_ctx, unsigned long size)
-{
-	struct vb2_ion_conf	*conf = alloc_ctx;
-	struct vb2_ion_buf	*buf;
-	struct scatterlist	*sg;
-	size_t	len;
-	u32 heap = 0;
+	struct vb2_ion_context *ctx = alloc_ctx;
+	struct vb2_ion_buf *buf;
+	struct scatterlist *sg;
 	int ret = 0;
 
-	buf = kzalloc(sizeof *buf, GFP_KERNEL);
-	if (!buf) {
-		pr_err("no memory for vb2_ion_conf\n");
+	buf = kzalloc(sizeof(*buf), GFP_KERNEL);
+	if (!buf)
 		return ERR_PTR(-ENOMEM);
-	}
 
-	/* Set vb2_ion_buf */
-	buf->conf = conf;
-	buf->size = size;
-	buf->cacheable = conf->cacheable;
+	size = PAGE_ALIGN(size);
 
-	/* Allocate: physical memory */
-	if (conf->contig)
-		heap = ION_HEAP_EXYNOS_CONTIG_MASK;
-	else
-		heap = ION_HEAP_EXYNOS_MASK;
-
-	buf->handle = ion_alloc(conf->client, size, conf->align, heap);
+	buf->handle = ion_alloc(ctx->client, size, ctx->alignment,
+				ion_heapflag(ctx->flags));
 	if (IS_ERR(buf->handle)) {
-		pr_err("ion_alloc of size %ld\n", size);
 		ret = -ENOMEM;
 		goto err_alloc;
 	}
 
-	/* Getting scatterlist */
-	buf->sg = ion_map_dma(conf->client, buf->handle);
-	if (IS_ERR(buf->sg)) {
-		pr_err("ion_map_dma conf->name(%s)\n", conf->name);
+	buf->cookie.sg = ion_map_dma(ctx->client, buf->handle);
+	if (IS_ERR(buf->cookie.sg)) {
 		ret = -ENOMEM;
 		goto err_map_dma;
 	}
-	dbg(6, "PA(0x%x), SIZE(%x)\n", buf->sg->dma_address, buf->sg->length);
 
-	sg = buf->sg;
+	buf->ctx = ctx;
+	buf->size = size;
+	buf->cached = ctx_cached(ctx);
+
+	sg = buf->cookie.sg;
 	do {
-		buf->nents++;
+		buf->cookie.nents++;
 	} while ((sg = sg_next(sg)));
-	dbg(6, "buf->nents(0x%x)\n", buf->nents);
 
-	/* Map DVA */
-	if (conf->use_mmu) {
-		buf->dva = iovmm_map(conf->dev, buf->sg);
-		if (!buf->dva) {
-			pr_err("iovmm_map: conf->name(%s)\n", conf->name);
-			goto err_ion_map_dva;
-		}
-		dbg(6, "DVA(0x%x)\n", buf->dva);
-	} else {
-		ret = ion_phys(conf->client, buf->handle,
-			       (unsigned long *)&buf->dva, &len);
-		if (ret) {
-			pr_err("ion_phys: conf->name(%s)\n", conf->name);
-			goto err_ion_map_dva;
+	buf->kva = ion_map_kernel(ctx->client, buf->handle);
+	if (IS_ERR(buf->kva)) {
+		ret = PTR_ERR(buf->kva);
+		buf->kva = NULL;
+		goto err_map_kernel;
+	}
+
+	if (ctx_iommu(ctx)) {
+		buf->cookie.ioaddr = iovmm_map(ctx->dev,
+						buf->cookie.sg, 0, size);
+		if (!buf->cookie.ioaddr) {
+			ret = -EFAULT;
+			goto err_ion_map_io;
 		}
 	}
 
-	/* Set struct vb2_vmarea_handler */
-	buf->handler.refcount = &buf->ref;
-	buf->handler.put = vb2_ion_put;
-	buf->handler.arg = buf;
+	return &buf->cookie;
 
-	atomic_inc(&buf->ref);
-
-	return buf;
-
-err_ion_map_dva:
-	ion_unmap_dma(conf->client, buf->handle);
-
+err_ion_map_io:
+	ion_unmap_kernel(ctx->client, buf->handle);
+err_map_kernel:
+	ion_unmap_dma(ctx->client, buf->handle);
 err_map_dma:
-	ion_free(conf->client, buf->handle);
-
+	ion_free(ctx->client, buf->handle);
 err_alloc:
 	kfree(buf);
 
 	return ERR_PTR(ret);
 }
 
+void vb2_ion_private_free(void *cookie)
+{
+	struct vb2_ion_buf *buf =
+			container_of(cookie, struct vb2_ion_buf, cookie);
+	struct vb2_ion_context *ctx;
+
+	if (WARN_ON(IS_ERR_OR_NULL(cookie)))
+		return;
+
+	ctx = buf->ctx;
+	if (ctx_iommu(ctx))
+		iovmm_unmap(ctx->dev, buf->cookie.ioaddr);
+
+	ion_unmap_kernel(ctx->client, buf->handle);
+	ion_unmap_dma(ctx->client, buf->handle);
+	ion_free(ctx->client, buf->handle);
+
+	kfree(buf);
+}
+
 static void vb2_ion_put(void *buf_priv)
 {
 	struct vb2_ion_buf *buf = buf_priv;
-	struct vb2_ion_conf *conf = buf->conf;
 
-	dbg(6, "released: buf_refcnt(%d)\n", atomic_read(&buf->ref) - 1);
+	if (atomic_dec_and_test(&buf->ref))
+		vb2_ion_private_free(&buf->cookie);
+}
 
-	if (atomic_dec_and_test(&buf->ref)) {
-		if (conf->use_mmu)
-			iovmm_unmap(conf->dev, buf->dva);
+static void *vb2_ion_alloc(void *alloc_ctx, unsigned long size)
+{
+	struct vb2_ion_buf *buf;
+	void *cookie;
 
-		ion_unmap_dma(conf->client, buf->handle);
+	cookie = vb2_ion_private_alloc(alloc_ctx, size);
+	if (IS_ERR(cookie))
+		return cookie;
 
-		if (buf->kva)
-			ion_unmap_kernel(conf->client, buf->handle);
+	buf = container_of(cookie, struct vb2_ion_buf, cookie);
 
-		ion_free(conf->client, buf->handle);
+	buf->handler.refcount = &buf->ref;
+	buf->handler.put = vb2_ion_put;
+	buf->handler.arg = buf;
+	atomic_set(&buf->ref, 1);
 
-		kfree(buf);
-	}
+	return buf;
+}
+
+void *vb2_ion_private_vaddr(void *cookie)
+{
+	if (WARN_ON(IS_ERR_OR_NULL(cookie)))
+		return NULL;
+
+	return container_of(cookie, struct vb2_ion_buf, cookie)->kva;
 }
 
 /**
  * _vb2_ion_get_vma() - lock userspace mapped memory
  * @vaddr:	starting virtual address of the area to be verified
  * @size:	size of the area
- * @res_vma:	will return locked copy of struct vm_area for the given area
+ * @vma_num:	number of returned vma copies
  *
  * This function will go through memory area of size @size mapped at @vaddr
- * If they are contiguous the virtual memory area is locked and a @res_vma is
- * filled with the copy and @res_pa set to the physical address of the buffer.
+ * If they are contiguous, the virtual memory area is locked, this function
+ * returns the array of vma copies of the given area and vma_num becomes
+ * the number of vmas returned.
  *
  * Returns 0 on success.
  */
-static int _vb2_ion_get_vma(unsigned long vaddr, unsigned long size,
-			    struct vm_area_struct **res_vma)
+static struct vm_area_struct **_vb2_ion_get_vma(unsigned long vaddr,
+					unsigned long size, int *vma_num)
 {
 	struct mm_struct *mm = current->mm;
-	struct vm_area_struct *vma;
-	unsigned long start, end;
-	int ret = -EFAULT;
+	struct vm_area_struct *vma, *vma0;
+	struct vm_area_struct **vmas;
+	unsigned long prev_end = 0;
+	unsigned long end;
+	int i;
 
-	start = vaddr;
-	end = start + size;
+	end = vaddr + size;
 
 	down_read(&mm->mmap_sem);
-	vma = find_vma(mm, start);
-
-	if (vma == NULL || vma->vm_end < end)
-		goto done;
-
-	/* Lock vma and return to the caller */
-	*res_vma = vb2_get_vma(vma);
-	if (*res_vma == NULL) {
-		ret = -ENOMEM;
+	vma0 = find_vma(mm, vaddr);
+	if (!vma0) {
+		vmas = ERR_PTR(-EINVAL);
 		goto done;
 	}
-	ret = 0;
+
+	for (*vma_num = 1, vma = vma0->vm_next, prev_end = vma0->vm_end;
+		vma && (end > vma->vm_start) && (prev_end == vma->vm_start);
+				prev_end = vma->vm_end, vma = vma->vm_next) {
+		*vma_num += 1;
+	}
+
+	if (prev_end < end) {
+		vmas = ERR_PTR(-EINVAL);
+		goto done;
+	}
+
+	vmas = kmalloc(sizeof(*vmas) * *vma_num, GFP_KERNEL);
+	if (!vmas) {
+		vmas = ERR_PTR(-ENOMEM);
+		goto done;
+	}
+
+	for (i = 0; i < *vma_num; i++, vma0 = vma0->vm_next) {
+		vmas[i] = vb2_get_vma(vma0);
+		if (!vmas[i])
+			break;
+	}
+
+	if (i < *vma_num) {
+		while (i-- > 0)
+			vb2_put_vma(vmas[i]);
+
+		kfree(vmas);
+		vmas = ERR_PTR(-ENOMEM);
+	}
 
 done:
 	up_read(&mm->mmap_sem);
-	return ret;
+	return vmas;
 }
 
 static void *vb2_ion_get_userptr(void *alloc_ctx, unsigned long vaddr,
 				 unsigned long size, int write)
 {
-	struct vb2_ion_conf *conf = alloc_ctx;
+	struct vb2_ion_context *ctx = alloc_ctx;
 	struct vb2_ion_buf *buf = NULL;
-	struct mm_struct *mm = current->mm;
-	struct vm_area_struct *vma = NULL;
-	size_t len;
 	int ret = 0;
-	bool malloced = false;
 	struct scatterlist *sg;
+	off_t offset;
 
-	/* Create vb2_ion_buf */
 	buf = kzalloc(sizeof *buf, GFP_KERNEL);
-	if (!buf) {
-		pr_err("kzalloc failed\n");
+	if (!buf)
 		return ERR_PTR(-ENOMEM);
-	}
 
-	/* Getting handle, client from DVA */
-	buf->handle = ion_import_uva(conf->client, vaddr);
+	buf->handle = ion_import_uva(ctx->client, vaddr, &offset);
 	if (IS_ERR(buf->handle)) {
-		if ((PTR_ERR(buf->handle) == -ENXIO) && conf->use_mmu) {
+		if (PTR_ERR(buf->handle) == -ENXIO) {
 			int flags = ION_HEAP_EXYNOS_USER_MASK;
 
 			if (write)
 				flags |= ION_EXYNOS_WRITE_MASK;
 
-			buf->handle = ion_exynos_get_user_pages(conf->client,
+			buf->handle = ion_exynos_get_user_pages(ctx->client,
 							vaddr, size, flags);
 			if (IS_ERR(buf->handle))
 				ret = PTR_ERR(buf->handle);
@@ -402,90 +362,72 @@ static void *vb2_ion_get_userptr(void *alloc_ctx, unsigned long vaddr,
 		if (ret) {
 			pr_err("%s: Failed to retrieving non-ion user buffer @ "
 				"0x%lx (size:0x%lx, dev:%s, errno %ld)\n",
-				__func__, vaddr, size, dev_name(conf->dev),
+				__func__, vaddr, size, dev_name(ctx->dev),
 					PTR_ERR(buf->handle));
 			goto err_import_uva;
 		}
 
-		malloced = true;
+		offset = 0;
 	}
 
-	/* TODO: Need to check whether already DVA is created or not */
-
-	buf->sg = ion_map_dma(conf->client, buf->handle);
-	if (IS_ERR(buf->sg)) {
+	buf->cookie.sg = ion_map_dma(ctx->client, buf->handle);
+	if (IS_ERR(buf->cookie.sg)) {
 		ret = -ENOMEM;
 		goto err_map_dma;
 	}
-	dbg(6, "PA(0x%x) size(%x)\n", buf->sg->dma_address, buf->sg->length);
 
-	sg = buf->sg;
+	sg = buf->cookie.sg;
 	do {
-		buf->nents++;
+		buf->cookie.nents++;
 	} while ((sg = sg_next(sg)));
 
-	/* Map DVA */
-	if (conf->use_mmu) {
-		buf->dva = iovmm_map(conf->dev, buf->sg);
-		if (!buf->dva) {
-			pr_err("iovmm_map: conf->name(%s)\n", conf->name);
-			goto err_ion_map_dva;
-		}
-		dbg(6, "DVA(0x%x)\n", buf->dva);
-	} else {
-		ret = ion_phys(conf->client, buf->handle,
-			       (unsigned long *)&buf->dva, &len);
-		if (ret) {
-			pr_err("ion_phys: conf->name(%s)\n", conf->name);
-			goto err_ion_map_dva;
+	if (ctx_iommu(ctx)) {
+		buf->cookie.ioaddr = iovmm_map(ctx->dev, buf->cookie.sg,
+						offset, size);
+		if (!buf->cookie.ioaddr) {
+			ret = -EFAULT;
+			goto err_ion_map_io;
 		}
 	}
 
-	if (!malloced) {
-		/* Get offset from the start */
-		down_read(&mm->mmap_sem);
-		vma = find_vma(mm, vaddr);
-		if (vma == NULL) {
-			pr_err("Failed acquiring VMA to get offset 0x%08lx\n",
-					vaddr);
-			up_read(&mm->mmap_sem);
-
-			if (conf->use_mmu)
-				iovmm_unmap(conf->dev, buf->dva);
-
-			goto err_get_vma;
-		}
-		buf->offset = vaddr - vma->vm_start;
-		up_read(&mm->mmap_sem);
-	}
-	dbg(6, "dva(0x%x), size(0x%x), offset(0x%x)\n",
-			(u32)buf->dva, (u32)size, (u32)buf->offset);
-
-	/* Set vb2_ion_buf */
-	ret = _vb2_ion_get_vma(vaddr, size, &vma);
-	if (ret) {
-		pr_err("Failed acquiring VMA 0x%08lx\n", vaddr);
-
-		if (conf->use_mmu)
-			iovmm_unmap(conf->dev, buf->dva);
-
+	buf->vmas = _vb2_ion_get_vma(vaddr, size, &buf->vma_count);
+	if (IS_ERR(buf->vmas)) {
+		ret = PTR_ERR(buf->vmas);
 		goto err_get_vma;
 	}
 
-	buf->vma = vma;
-	buf->conf = conf;
+	buf->kva = ion_map_kernel(ctx->client, buf->handle);
+	if (IS_ERR(buf->kva)) {
+		ret = PTR_ERR(buf->kva);
+		buf->kva = NULL;
+		goto err_map_kernel;
+	}
+
+	if ((pgprot_noncached(buf->vmas[0]->vm_page_prot)
+				== buf->vmas[0]->vm_page_prot)
+			|| (pgprot_writecombine(buf->vmas[0]->vm_page_prot)
+				== buf->vmas[0]->vm_page_prot))
+		buf->cached = false;
+	else
+		buf->cached = true;
+
+	buf->cookie.offset = offset;
+	buf->ctx = ctx;
 	buf->size = size;
-	buf->cacheable = conf->cacheable;
 
 	return buf;
 
-err_get_vma:	/* fall through */
-err_ion_map_dva:
-	ion_unmap_dma(conf->client, buf->handle);
-
+err_map_kernel:
+	while (buf->vma_count-- > 0)
+		vb2_put_vma(buf->vmas[buf->vma_count]);
+	kfree(buf->vmas);
+err_get_vma:
+	if (ctx_iommu(ctx))
+		iovmm_unmap(ctx->dev, buf->cookie.ioaddr);
+err_ion_map_io:
+	ion_unmap_dma(ctx->client, buf->handle);
 err_map_dma:
-	ion_free(conf->client, buf->handle);
-
+	ion_free(ctx->client, buf->handle);
 err_import_uva:
 	kfree(buf);
 
@@ -495,25 +437,22 @@ err_import_uva:
 static void vb2_ion_put_userptr(void *mem_priv)
 {
 	struct vb2_ion_buf *buf = mem_priv;
-	struct vb2_ion_conf *conf = buf->conf;
+	struct vb2_ion_context *ctx = buf->ctx;
+	int i;
 
-	if (!buf) {
-		pr_err("No buffer to put\n");
-		return;
-	}
+	if (ctx_iommu(ctx))
+		iovmm_unmap(ctx->dev, buf->cookie.ioaddr);
 
-	/* Unmap DVA, KVA */
-	if (conf->use_mmu)
-		iovmm_unmap(conf->dev, buf->dva);
-
-	ion_unmap_dma(conf->client, buf->handle);
+	ion_unmap_dma(ctx->client, buf->handle);
 	if (buf->kva)
-		ion_unmap_kernel(conf->client, buf->handle);
+		ion_unmap_kernel(ctx->client, buf->handle);
 
-	ion_free(conf->client, buf->handle);
+	ion_free(ctx->client, buf->handle);
 
-	vb2_put_vma(buf->vma);
+	for (i = 0; i < buf->vma_count; i++)
+		vb2_put_vma(buf->vmas[i]);
 
+	kfree(buf->vmas);
 	kfree(buf);
 }
 
@@ -521,125 +460,73 @@ static void *vb2_ion_cookie(void *buf_priv)
 {
 	struct vb2_ion_buf *buf = buf_priv;
 
-	if (!buf) {
-		pr_err("failed to get buffer\n");
+	if (WARN_ON(!buf))
 		return NULL;
-	}
 
-	return (void *)(buf->dva + buf->offset);
+	return (void *)&buf->cookie;
 }
 
 static void *vb2_ion_vaddr(void *buf_priv)
 {
 	struct vb2_ion_buf *buf = buf_priv;
-	struct vb2_ion_conf *conf = buf->conf;
 
-	if (!buf) {
-		pr_err("failed to get buffer\n");
+	if (WARN_ON(!buf))
 		return NULL;
-	}
 
-	if (!buf->kva) {
-		buf->kva = (dma_addr_t)ion_map_kernel(conf->client, buf->handle);
-		if (IS_ERR(ERR_PTR(buf->kva))) {
-			pr_err("ion_map_kernel handle(%x)\n",
-				(u32)buf->handle);
-			return NULL;
-		}
-	}
-
-	return (void *)buf->kva;
+	return buf->kva;
 }
 
 static unsigned int vb2_ion_num_users(void *buf_priv)
 {
 	struct vb2_ion_buf *buf = buf_priv;
 
+	if (WARN_ON(!buf))
+		return 0;
+
 	return atomic_read(&buf->ref);
-}
-
-/**
- * _vb2_ion_mmap_pfn_range() - map physical pages(vcm) to userspace
- * @vma:	virtual memory region for the mapping
- * @sg:		scatterlist to be mapped
- * @nents:	number of scatterlist to be mapped
- * @size:	size of the memory to be mapped
- * @vm_ops:	vm operations to be assigned to the created area
- * @priv:	private data to be associated with the area
- *
- * Returns 0 on success.
- */
-static int _vb2_ion_mmap_pfn_range(struct vm_area_struct *vma,
-				   struct scatterlist *sg,
-				   int nents,
-				   unsigned long size,
-				   const struct vm_operations_struct *vm_ops,
-				   void *priv)
-{
-	struct scatterlist *s;
-	dma_addr_t addr;
-	size_t len;
-	unsigned long org_vm_start = vma->vm_start;
-	int vma_size = vma->vm_end - vma->vm_start;
-	resource_size_t remap_size;
-	int mapped_size = 0;
-	int remap_break = 0;
-	int ret, i = 0;
-
-	for_each_sg(sg, s, nents, i) {
-		addr = sg_phys(s);
-		len = sg_dma_len(s);
-		if ((mapped_size + len) > vma_size) {
-			remap_size = vma_size - mapped_size;
-			remap_break = 1;
-		} else {
-			remap_size = len;
-		}
-
-		ret = remap_pfn_range(vma, vma->vm_start, addr >> PAGE_SHIFT,
-				      remap_size, vma->vm_page_prot);
-		if (ret) {
-			pr_err("Remapping failed, error: %d\n", ret);
-			return ret;
-		}
-
-		dbg(6, "%dth page vaddr(0x%08x), paddr(0x%08x),	size(0x%08x)\n",
-			i++, (u32)vma->vm_start, addr, len);
-
-		mapped_size += remap_size;
-		vma->vm_start += len;
-
-		if (remap_break)
-			break;
-	}
-
-	WARN_ON(size > mapped_size);
-
-	/* re-assign initial start address */
-	vma->vm_start		= org_vm_start;
-	vma->vm_flags		|= VM_DONTEXPAND | VM_RESERVED;
-	vma->vm_private_data	= priv;
-	vma->vm_ops		= vm_ops;
-
-	vma->vm_ops->open(vma);
-
-	return 0;
 }
 
 static int vb2_ion_mmap(void *buf_priv, struct vm_area_struct *vma)
 {
 	struct vb2_ion_buf *buf = buf_priv;
+	unsigned long vm_start = vma->vm_start;
+	unsigned long vm_end = vma->vm_end;
+	struct scatterlist *sg = buf->cookie.sg;
+	unsigned long size;
+	int ret = -EINVAL;
 
-	if (!buf) {
-		pr_err("No buffer to map\n");
-		return -EINVAL;
+	if (buf->size  < (vm_end - vm_start))
+		return ret;
+
+	if (!buf->cached)
+		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+
+	size = min_t(size_t, vm_end - vm_start, sg_dma_len(sg));
+
+	ret = remap_pfn_range(vma, vm_start, page_to_pfn(sg_page(sg)),
+				size, vma->vm_page_prot);
+
+	for (sg = sg_next(sg), vm_start += size;
+			!ret && sg && (vm_start < vm_end);
+			vm_start += size, sg = sg_next(sg)) {
+		size = min_t(size_t, vm_end - vm_start, sg_dma_len(sg));
+		ret = remap_pfn_range(vma, vm_start, page_to_pfn(sg_page(sg)),
+						size, vma->vm_page_prot);
 	}
 
-	if (!buf->cacheable)
-		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	if (ret)
+		return ret;
 
-	return _vb2_ion_mmap_pfn_range(vma, buf->sg, buf->nents, buf->size,
-				&vb2_common_vm_ops, &buf->handler);
+	if (vm_start < vm_end)
+		return -EINVAL;
+
+	vma->vm_flags		|= VM_DONTEXPAND;
+	vma->vm_private_data	= &buf->handler;
+	vma->vm_ops		= &vb2_common_vm_ops;
+
+	vma->vm_ops->open(vma);
+
+	return ret;
 }
 
 const struct vb2_mem_ops vb2_ion_memops = {
@@ -654,169 +541,214 @@ const struct vb2_mem_ops vb2_ion_memops = {
 };
 EXPORT_SYMBOL_GPL(vb2_ion_memops);
 
-
-void vb2_ion_set_sharable(void *alloc_ctx, bool sharable)
+void vb2_ion_sync_for_device(void *cookie, off_t offset, size_t size,
+						enum dma_data_direction dir)
 {
-	((struct vb2_ion_conf *)alloc_ctx)->sharable = sharable;
+	struct vb2_ion_cookie *vb2cookie = cookie;
+	struct vb2_ion_context *ctx =
+			container_of(cookie, struct vb2_ion_buf, cookie)->ctx;
+	struct scatterlist *sg;
+
+	for (sg = vb2cookie->sg; sg != NULL; sg = sg_next(sg)) {
+		if (sg_dma_len(sg) <= offset)
+			offset -= sg_dma_len(sg);
+		else
+			break;
+	}
+
+	if (WARN_ON(sg == NULL)) /* Too big offset */
+		return;
+
+	while ((size != 0) && (sg != NULL)) {
+		size_t sg_size;
+
+		sg_size = min_t(size_t, size, sg_dma_len(sg) - offset);
+		dma_map_page(ctx->dev, sg_page(sg) + PFN_DOWN(offset),
+				offset & ~PAGE_MASK, sg_size, dir);
+
+		offset = 0;
+		size -= sg_size;
+		sg = sg_next(sg);
+	}
+
+	WARN_ON(size != 0); /* Too big size */
+}
+EXPORT_SYMBOL_GPL(vb2_ion_sync_for_device);
+
+void vb2_ion_sync_for_cpu(void *cookie, off_t offset, size_t size,
+						enum dma_data_direction dir)
+{
+	struct vb2_ion_cookie *vb2cookie = cookie;
+	struct vb2_ion_context *ctx =
+			container_of(cookie, struct vb2_ion_buf, cookie)->ctx;
+	struct scatterlist *sg;
+
+	for (sg = vb2cookie->sg; sg != NULL; sg = sg_next(sg)) {
+		if (sg_dma_len(sg) <= offset)
+			offset -= sg_dma_len(sg);
+		else
+			break;
+	}
+
+	if (WARN_ON(sg == NULL)) /* Too big offset */
+		return;
+
+	while ((size != 0) && (sg != NULL)) {
+		size_t sg_size;
+
+		sg_size = min_t(size_t, size, sg_dma_len(sg) - offset);
+		dma_unmap_page(ctx->dev, sg_phys(sg) + offset, sg_size, dir);
+
+		offset = 0;
+		size -= sg_size;
+		sg = sg_next(sg);
+	}
+
+	WARN_ON(size != 0); /* Too big size */
+}
+EXPORT_SYMBOL_GPL(vb2_ion_sync_for_cpu);
+
+static void flush_entire_dcache(void *p)
+{
+	flush_cache_all();
 }
 
-void vb2_ion_set_cacheable(void *alloc_ctx, bool cacheable)
-{
-	((struct vb2_ion_conf *)alloc_ctx)->cacheable = cacheable;
-}
-
-bool vb2_ion_get_cacheable(void *alloc_ctx)
-{
-	return ((struct vb2_ion_conf *)alloc_ctx)->cacheable;
-}
-
-#if 0
 int vb2_ion_cache_flush(struct vb2_buffer *vb, u32 num_planes)
 {
-	struct vb2_ion_conf *conf;
+	int i;
+	size_t sz = 0;
 	struct vb2_ion_buf *buf;
-	int i, ret;
+	enum dma_data_direction dir;
 
 	for (i = 0; i < num_planes; i++) {
 		buf = vb->planes[i].mem_priv;
-		conf = buf->conf;
+		if (!buf->cached)
+			continue;
 
-		if (!buf->cacheable) {
-			pr_warning("This is non-cacheable buffer allocator\n");
-			return -EINVAL;
+		sz += buf->size;
+	}
+
+	if (sz >= SZ_2M) { /* performance tuning */
+		smp_call_function(&flush_entire_dcache, NULL, 1);
+		outer_flush_all();
+		return 0;
+	}
+
+	dir = V4L2_TYPE_IS_OUTPUT(vb->v4l2_buf.type) ?
+					DMA_TO_DEVICE : DMA_FROM_DEVICE;
+
+	while (num_planes-- > 0) {
+		struct scatterlist *sg;
+		off_t start_off;
+		int num_pages;
+		struct page *page;
+
+		buf = vb->planes[num_planes].mem_priv;
+		if (!buf->cached)
+			continue;
+
+		sg = buf->cookie.sg;
+		start_off = buf->cookie.offset;
+		sz = buf->size;
+
+		while (sg && (start_off >= sg_dma_len(sg))) {
+			start_off -= sg_dma_len(sg);
+			sg = sg_next(sg);
 		}
 
-		ret = dma_map_sg(conf->dev, buf->sg, buf->nents, DMA_TO_DEVICE);
-		if (ret) {
-			pr_err("flush sg cnt(%d)\n", ret);
-			return -EINVAL;
+		for (; (sg != NULL) && (sz > 0); sg = sg_next(sg)) {
+			int pages_to_pass;
+			void *addr;
+			bool kmapped = false;
+
+			start_off += sg->offset;
+
+			num_pages = PFN_DOWN(
+				PAGE_ALIGN(sg_dma_len(sg) + sg->offset));
+			pages_to_pass = PFN_DOWN(
+					round_down(start_off, PAGE_SIZE));
+			num_pages -= pages_to_pass;
+
+			page = sg_page(sg) + pages_to_pass;
+			start_off &= ~PAGE_MASK;
+
+			for (i = 0; (i < num_pages) && (sz > 0); i++, page++) {
+				size_t szflush;
+
+				szflush = min_t(size_t,
+						PAGE_SIZE - start_off, sz);
+
+				addr = page_address(page);
+				if (!addr) {
+					addr = kmap_atomic(page);
+					kmapped = true;
+				}
+
+				dmac_map_area(addr + start_off, szflush, dir);
+
+				if (dir == DMA_TO_DEVICE)
+					outer_clean_range(
+						page_to_phys(page) + start_off,
+						page_to_phys(page) + szflush);
+				else
+					outer_inv_range(
+						page_to_phys(page) + start_off,
+						page_to_phys(page) + szflush);
+
+				if (kmapped) {
+					kunmap_atomic(addr);
+					kmapped = false;
+				}
+
+				sz -= szflush;
+				start_off = 0;
+			}
 		}
+
+		WARN_ON(sz > 0);
 	}
 
 	return 0;
 }
-#else
-static void _vb2_ion_cache_flush_all(void)
-{
-	flush_cache_all();	/* L1 */
-	smp_call_function((void (*)(void *))__cpuc_flush_kern_all, NULL, 1);
-	outer_flush_all();	/* L2 */
-}
-
-static void _vb2_ion_cache_flush_range(struct vb2_ion_buf *buf,
-				       unsigned long size)
-{
-	struct scatterlist *s;
-	phys_addr_t start, end;
-	int i;
-
-	/* sequentially traversal phys */
-	if (size > SZ_64K ) {
-		flush_cache_all();	/* L1 */
-		smp_call_function((void (*)(void *))__cpuc_flush_kern_all, NULL, 1);
-
-		for_each_sg(buf->sg, s, buf->nents, i) {
-			start = sg_phys(s);
-			end = start + sg_dma_len(s) - 1;
-
-			outer_flush_range(start, end);	/* L2 */
-		}
-	} else {
-		dma_sync_sg_for_device(buf->conf->dev, buf->sg, buf->nents,
-							DMA_BIDIRECTIONAL);
-		dma_sync_sg_for_cpu(buf->conf->dev, buf->sg, buf->nents,
-							DMA_BIDIRECTIONAL);
-	}
-}
-
-
-int vb2_ion_cache_flush(struct vb2_buffer *vb, u32 num_planes)
-{
-	struct vb2_ion_conf *conf;
-	struct vb2_ion_buf *buf;
-	unsigned long size = 0;
-	int i;
-
-	for (i = 0; i < num_planes; i++) {
-		buf = vb->planes[i].mem_priv;
-		conf = buf->conf;
-
-		if (!buf->cacheable) {
-			pr_warning("This is non-cacheable buffer allocator\n");
-			return -EINVAL;
-		}
-
-		size += buf->size;
-	}
-
-	if (size > (unsigned long)SIZE_THRESHOLD) {
-		_vb2_ion_cache_flush_all();
-	} else {
-		for (i = 0; i < num_planes; i++) {
-			buf = vb->planes[i].mem_priv;
-			_vb2_ion_cache_flush_range(buf, size);
-		}
-	}
-
-	return 0;
-}
-#endif
 
 int vb2_ion_cache_inv(struct vb2_buffer *vb, u32 num_planes)
 {
-	struct vb2_ion_conf *conf;
 	struct vb2_ion_buf *buf;
 	int i;
 
 	for (i = 0; i < num_planes; i++) {
 		buf = vb->planes[i].mem_priv;
-		conf = buf->conf;
-		if (!buf->cacheable) {
-			pr_warning("This is non-cacheable buffer allocator\n");
-			return -EINVAL;
-		}
+		if (!buf->cached)
+			continue;
 
-		dma_unmap_sg(conf->dev, buf->sg, buf->nents, DMA_FROM_DEVICE);
+		vb2_ion_sync_for_device(&buf->cookie, buf->cookie.offset,
+						buf->size, DMA_FROM_DEVICE);
 	}
 
 	return 0;
 }
 
-void vb2_ion_suspend(void *alloc_ctx)
+void vb2_ion_detach_iommu(void *alloc_ctx)
 {
-	struct vb2_ion_conf *conf = alloc_ctx;
+	struct vb2_ion_context *ctx = alloc_ctx;
 
-	if (!conf->use_mmu)
+	if (!ctx_iommu(ctx))
 		return;
 
-	if (!atomic_read(&conf->mmu_enable)) {
-		pr_warning("Already suspend: device(%x)\n", (u32)conf->dev);
-		return;
-	}
-
-	atomic_dec(&conf->mmu_enable);
-	iovmm_deactivate(conf->dev);
-
+	iovmm_deactivate(ctx->dev);
 }
+EXPORT_SYMBOL_GPL(vb2_ion_detach_iommu);
 
-void vb2_ion_resume(void *alloc_ctx)
+int vb2_ion_attach_iommu(void *alloc_ctx)
 {
-	struct vb2_ion_conf *conf = alloc_ctx;
-	int ret;
+	struct vb2_ion_context *ctx = alloc_ctx;
 
-	if (!conf->use_mmu)
-		return;
+	if (!ctx_iommu(ctx))
+		return -ENOENT;
 
-	if (atomic_read(&conf->mmu_enable)) {
-		pr_warning("Already resume: device(%x)\n", (u32)conf->dev);
-		return;
-	}
-
-	atomic_inc(&conf->mmu_enable);
-	ret = iovmm_activate(conf->dev);
-	if (ret)
-		pr_err("iovmm_activate: dev(%x)\n", (u32)conf->dev);
+	return iovmm_activate(ctx->dev);
 }
+EXPORT_SYMBOL_GPL(vb2_ion_attach_iommu);
 
 MODULE_AUTHOR("Jonghun,	Han <jonghun.han@samsung.com>");
 MODULE_DESCRIPTION("Android ION allocator handling routines for videobuf2");

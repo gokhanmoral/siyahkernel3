@@ -30,6 +30,9 @@
 #undef FACTORY_TEST
 #undef MAGNETIC_LOGGING
 
+#define VENDOR		"AKM"
+#define CHIP_ID		"AK8975C"
+
 #define AK8975_REG_CNTL			0x0A
 #define REG_CNTL_MODE_SHIFT             0
 #define REG_CNTL_MODE_MASK              (0xF << REG_CNTL_MODE_SHIFT)
@@ -159,7 +162,7 @@ static int akm8975_wait_for_data_ready(struct akm8975_data *akm)
 
 	enable_irq(akm->irq);
 
-	err = wait_for_completion_timeout(&akm->data_ready, 5*HZ);
+	err = wait_for_completion_timeout(&akm->data_ready, 2*HZ);
 	if (err > 0)
 		return 0;
 
@@ -274,7 +277,6 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 			mutex_unlock(&akm->lock);
 			return ret;
 		}
-
 		ret = i2c_smbus_read_i2c_block_data(akm->this_client,
 						    AK8975_REG_ST1,
 						    sizeof(rwbuf.data),
@@ -285,8 +287,8 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 		y = (rwbuf.data[4] << 8) + rwbuf.data[3];
 		z = (rwbuf.data[6] << 8) + rwbuf.data[5];
 
-		printk(KERN_INFO "%s: raw x = %d, y = %d, z = %d\n",\
-			__func__, x, y, z);
+		printk(KERN_INFO "%s:ST1=%d, x=%d, y=%d, z=%d, ST2=%d\n",
+			__func__, rwbuf.data[0], x, y, z, rwbuf.data[7]);
 		#endif
 
 		mutex_unlock(&akm->lock);
@@ -341,8 +343,8 @@ static int akm8975_setup_irq(struct akm8975_data *akm)
 	/* trigger high so we don't miss initial interrupt if it
 	 * is already pending
 	 */
-	rc = request_irq(irq, akm8975_irq_handler, IRQF_TRIGGER_RISING,
-			 "akm_int", akm);
+	rc = request_irq(irq, akm8975_irq_handler,
+		IRQF_TRIGGER_RISING | IRQF_ONESHOT, "akm_int", akm);
 	if (rc < 0) {
 		pr_err("%s: request_irq(%d) failed for gpio %d (%d)\n",
 			__func__, irq,
@@ -599,8 +601,24 @@ done:
 	return sprintf(buf, "%d,%d,%d\n", x, y, z);
 }
 
+static ssize_t ak8975_show_vendor(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", VENDOR);
+}
+
+static ssize_t ak8975_show_name(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", CHIP_ID);
+}
+
 static DEVICE_ATTR(raw_data, 0664,
 		ak8975_show_raw_data, NULL);
+static DEVICE_ATTR(vendor, 0664,
+		ak8975_show_vendor, NULL);
+static DEVICE_ATTR(name, 0664,
+		ak8975_show_name, NULL);
 
 #ifdef FACTORY_TEST
 static DEVICE_ATTR(ak8975_asa, 0664,
@@ -652,8 +670,11 @@ int akm8975_probe(struct i2c_client *client,
 	akm->this_client = client;
 
 	err = akm8975_ecs_set_mode_power_down(akm);
-	if (err < 0)
+	if (err < 0) {
+		pr_err("%s: akm8975_ecs_set_mode_power_down fail(err=%d)\n",
+			__func__, err);
 		goto exit_set_mode_power_down_failed;
+	}
 
 	err = akm8975_setup_irq(akm);
 	if (err) {
@@ -710,6 +731,18 @@ int akm8975_probe(struct i2c_client *client,
 		goto exit_device_create_raw_data;
 	}
 
+	if (device_create_file(akm->dev, &dev_attr_vendor) < 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n",
+			dev_attr_name.attr.name);
+		goto exit_device_create_vendor;
+	}
+
+	if (device_create_file(akm->dev, &dev_attr_name) < 0) {
+		printk(KERN_ERR "Failed to create device file(%s)!\n",
+			dev_attr_raw_data.attr.name);
+		goto exit_device_create_name;
+	}
+
 #ifdef FACTORY_TEST
 	ak8975c_selftest(akm);
 
@@ -764,12 +797,17 @@ exit_device_create_file3:
 exit_device_create_file2:
 	device_remove_file(akm->dev, &dev_attr_adc);
 exit_device_create_file1:
-	device_remove_file(akm->dev, &dev_attr_raw_data);
+	device_remove_file(akm->dev, &dev_attr_name);
 #endif
+exit_device_create_name:
+	device_remove_file(akm->dev, &dev_attr_vendor);
+exit_device_create_vendor:
+	device_remove_file(akm->dev, &dev_attr_raw_data);
 exit_device_create_raw_data:
 	sensors_classdev_unregister(akm->dev);
 exit_class_create_failed:
 exit_i2c_failed:
+	misc_deregister(&akm->akmd_device);
 exit_akmd_device_register_failed:
 	free_irq(akm->irq, akm);
 	gpio_free(akm->pdata->gpio_data_ready_int);
@@ -794,6 +832,8 @@ static int __devexit akm8975_remove(struct i2c_client *client)
 	device_remove_file(akm->dev, &dev_attr_ak8975_selftest);
 	device_remove_file(akm->dev, &dev_attr_ak8975_chk_registers);
 	#endif
+	device_remove_file(akm->dev, &dev_attr_name);
+	device_remove_file(akm->dev, &dev_attr_vendor);
 	device_remove_file(akm->dev, &dev_attr_raw_data);
 	sensors_classdev_unregister(akm->dev);
 	misc_deregister(&akm->akmd_device);

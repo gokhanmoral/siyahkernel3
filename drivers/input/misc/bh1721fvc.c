@@ -24,6 +24,9 @@
 #include <linux/slab.h>
 #include <linux/bh1721fvc.h>
 
+#define VENDOR_NAME		"ROHM"
+#define CHIP_NAME		"BH1721"
+
 #define SENSOR_AL3201_ADDR		0x1c
 #define SENSOR_BH1721FVC_ADDR	0x23
 
@@ -66,6 +69,7 @@ struct bh1721fvc_data {
 	struct workqueue_struct *wq;
 	struct class *factory_class;
 	struct device *factory_dev;
+	struct device *light_dev;
 	ktime_t light_poll_delay;
 	enum BH1721FVC_STATE state;
 	u8 measure_mode;
@@ -73,6 +77,10 @@ struct bh1721fvc_data {
 	int als_value_buf[ALS_BUFFER_NUM];
 	int als_index_count;
 };
+
+extern int sensors_register(struct device *dev, void * drvdata,
+		struct device_attribute *attributes[], char *name);
+extern void sensors_unregister(struct device *dev);
 
 static int bh1721fvc_get_luxvalue(struct bh1721fvc_data *bh1721fvc, u16 *value);
 
@@ -353,6 +361,18 @@ err_exit:
 	return err;
 }
 
+static ssize_t get_vendor_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", VENDOR_NAME);
+}
+
+static ssize_t get_chip_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", CHIP_NAME);
+}
+
 static DEVICE_ATTR(lightsensor_file_cmd, S_IRUGO | S_IWUSR | S_IWGRP,
 		bh1721fvc_light_enable_show,
 		bh1721fvc_light_sensor_mode_store);
@@ -368,6 +388,32 @@ static ssize_t sensor_info_show(struct device *dev,
 
 static DEVICE_ATTR(sensor_info, S_IRUGO, sensor_info_show, NULL);
 
+
+static struct device_attribute dev_attr_light_raw_data =
+		__ATTR(raw_data, S_IRUGO, factory_file_illuminance_show, NULL);
+
+static struct device_attribute dev_attr_light_lux =
+		__ATTR(lux, S_IRUGO, factory_file_illuminance_show, NULL);
+
+static struct device_attribute dev_attr_light_adc =
+		__ATTR(adc, S_IRUGO, factory_file_illuminance_show, NULL);
+
+static struct device_attribute dev_attr_light_enable =
+		__ATTR(enable, S_IRUGO | S_IWUSR | S_IWGRP,
+		bh1721fvc_light_enable_show, bh1721fvc_light_enable_store);
+
+static DEVICE_ATTR(vendor, S_IRUGO, get_vendor_name, NULL);
+static DEVICE_ATTR(name, S_IRUGO, get_chip_name, NULL);
+
+static struct device_attribute *light_sensor_attrs[] = {
+	&dev_attr_light_raw_data,
+	&dev_attr_light_lux,
+	&dev_attr_light_adc,
+	&dev_attr_light_enable,
+	&dev_attr_vendor,
+	&dev_attr_name,
+	NULL
+};
 
 static int bh1721fvc_get_luxvalue(struct bh1721fvc_data *bh1721fvc, u16 *value)
 {
@@ -631,10 +677,22 @@ static int __devinit bh1721fvc_probe(struct i2c_client *client,
 		goto err_sensor_info_attr_create;
 	}
 
-	printk(KERN_INFO"%s: success!\n", __func__);
+/* new sysfs */
+	err = sensors_register(bh1721fvc->light_dev,
+		bh1721fvc, light_sensor_attrs, "light_sensor");
+	if (err) {
+		pr_err("%s: cound not register light sensor device(%d).\n",
+		__func__, err);
+		goto out_light_sensor_register_failed;
+	}
+
+	pr_info("%s: success!\n", __func__);
 
 
 	goto done;
+
+out_light_sensor_register_failed:
+	sensors_unregister(bh1721fvc->light_dev);
 
 err_sensor_info_attr_create:
 	device_remove_file(bh1721fvc->factory_dev,

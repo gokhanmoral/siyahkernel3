@@ -265,8 +265,8 @@ static int __init timerirq_init(void)
 	res = misc_register(data);
 	if (res < 0) {
 		dev_err(data->this_device,
-			"misc_register returned %d\n",
-			res);
+			"misc_register returned %d\n", res);
+		kfree(data);
 		return res;
 	}
 

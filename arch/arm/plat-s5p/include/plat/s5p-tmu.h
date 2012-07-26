@@ -28,11 +28,19 @@ struct temperature_params {
 	unsigned int start_emergency; /* To protect chip,forcely kernel panic */
 	unsigned int stop_mem_throttle;
 	unsigned int start_mem_throttle;
+	unsigned int stop_tc; /* temperature compensationfor sram */
+	unsigned int start_tc;
 };
 
 struct cpufreq_params {
 	unsigned int limit_1st_throttle;
 	unsigned int limit_2nd_throttle;
+};
+
+struct temp_compensate_params {
+	unsigned int arm_volt; /* temperature compensated voltage */
+	unsigned int bus_volt; /* temperature compensated voltage */
+	unsigned int g3d_volt; /* temperature compensated voltage */
 };
 
 struct memory_params {
@@ -50,12 +58,17 @@ struct tmu_config {
 struct s5p_platform_tmu {
 	struct temperature_params ts;
 	struct cpufreq_params cpufreq;
+	struct temp_compensate_params temp_compensate;
 	struct memory_params mp;
 	struct tmu_config cfg;
 };
 
 struct s5p_tmu_info {
 	struct device   *dev;
+#ifdef CONFIG_BUSFREQ_OPP
+	struct device   *bus_dev;
+#endif
+
 	int     id;
 	char *s5p_name;
 
@@ -75,6 +88,10 @@ struct s5p_tmu_info {
 	unsigned int cpufreq_level_2nd_throttle;
 	unsigned int auto_refresh_tq0;
 	unsigned int auto_refresh_normal;
+	/* temperature compensation */
+	unsigned int cpulevel_tc;
+	unsigned int busfreq_tc;
+	unsigned int g3dlevel_tc;
 
 	struct delayed_work monitor;
 	struct delayed_work polling;

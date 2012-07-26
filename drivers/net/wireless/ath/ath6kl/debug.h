@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2011 Atheros Communications Inc.
+ * Copyright (c) 2011-2012 Qualcomm Atheros, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -48,13 +49,14 @@ enum ATH6K_DEBUG_MASK {
 extern unsigned int debug_mask;
 extern __printf(2, 3)
 int ath6kl_printk(const char *level, const char *fmt, ...);
+char *sec_conv_mac(const u8 *mac);
 
 #define ath6kl_info(fmt, ...)				\
 	ath6kl_printk(KERN_INFO, fmt, ##__VA_ARGS__)
 #define ath6kl_err(fmt, ...)					\
-	ath6kl_printk(KERN_ERR, fmt, ##__VA_ARGS__)
+	ath6kl_printk(KERN_INFO, fmt, ##__VA_ARGS__)
 #define ath6kl_warn(fmt, ...)					\
-	ath6kl_printk(KERN_WARNING, fmt, ##__VA_ARGS__)
+	ath6kl_printk(KERN_INFO, fmt, ##__VA_ARGS__)
 
 #define AR_DBG_LVL_CHECK(mask)	(debug_mask & mask)
 

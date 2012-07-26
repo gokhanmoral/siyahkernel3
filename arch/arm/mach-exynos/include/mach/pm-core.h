@@ -39,7 +39,8 @@ static inline void s3c_pm_arch_stop_clocks(void)
 
 static inline void s3c_pm_arch_show_resume_irqs(void)
 {
-#if defined(CONFIG_CPU_EXYNOS4210) || defined(CONFIG_CPU_EXYNOS4412)
+#if defined(CONFIG_CPU_EXYNOS4210) || defined(CONFIG_CPU_EXYNOS4412)\
+	|| defined(CONFIG_CPU_EXYNOS5250)
 	pr_info("WAKEUP_STAT: 0x%x\n", __raw_readl(S5P_WAKEUP_STAT));
 	pr_info("WAKEUP_INTx_PEND: 0x%x, 0x%x, 0x%x, 0x%x\n",
 				__raw_readl(S5P_EINT_PEND(0)),

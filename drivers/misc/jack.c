@@ -43,6 +43,8 @@ static void jack_set_data(struct jack_platform_data *pdata,
 		pdata->jig_online = value;
 	else if (!strcmp(name, "host"))
 		pdata->host_online = value;
+	else if (!strcmp(name, "cradle"))
+		pdata->cradle_online = value;
 }
 
 int jack_get_data(const char *name)
@@ -67,6 +69,8 @@ int jack_get_data(const char *name)
 		return jack->pdata->jig_online;
 	else if (!strcmp(name, "host"))
 		return jack->pdata->host_online;
+	else if (!strcmp(name, "cradle"))
+		return jack->pdata->cradle_online;
 
 
 	return -EINVAL;
@@ -75,12 +79,17 @@ EXPORT_SYMBOL_GPL(jack_get_data);
 
 void jack_event_handler(const char *name, int value)
 {
-	struct jack_data *jack = platform_get_drvdata(jack_dev);
+	struct jack_data *jack;
 	char env_str[16];
 	char *envp[] = { env_str, NULL };
 
-	jack_set_data(jack->pdata, name, value);
+	if (!jack_dev) {
+		printk(KERN_ERR "jack device is not allocated\n");
+		return;
+	}
 
+	jack = platform_get_drvdata(jack_dev);
+	jack_set_data(jack->pdata, name, value);
 	sprintf(env_str, "CHGDET=%s", name);
 	dev_info(&jack_dev->dev, "jack event %s\n", env_str);
 	kobject_uevent_env(&jack_dev->dev.kobj, KOBJ_CHANGE, envp);
@@ -103,6 +112,7 @@ JACK_OUTPUT(earjack_online);
 JACK_OUTPUT(earkey_online);
 JACK_OUTPUT(jig_online);
 JACK_OUTPUT(host_online);
+JACK_OUTPUT(cradle_online);
 
 static int jack_device_init(struct jack_data *jack)
 {
@@ -130,6 +140,9 @@ static int jack_device_init(struct jack_data *jack)
 	if (pdata->host_online != -1)
 		ret = device_create_file(&jack_dev->dev,
 				&dev_attr_host_online);
+	if (pdata->cradle_online != -1)
+		ret = device_create_file(&jack_dev->dev,
+				&dev_attr_cradle_online);
 
 	return 0;
 }
@@ -172,6 +185,8 @@ static int __devexit jack_remove(struct platform_device *pdev)
 		device_remove_file(&jack_dev->dev, &dev_attr_jig_online);
 	if (pdata->host_online != -1)
 		device_remove_file(&jack_dev->dev, &dev_attr_host_online);
+	if (pdata->cradle_online != -1)
+		device_remove_file(&jack_dev->dev, &dev_attr_cradle_online);
 
 
 	platform_set_drvdata(pdev, NULL);

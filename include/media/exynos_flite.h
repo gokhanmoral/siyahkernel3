@@ -15,15 +15,10 @@
 #define MAX_CAMIF_CLIENTS	3
 #include <plat/fimc.h>
 #else
-#include <media/exynos_mc.h>
-
-enum flite_cam_type {
-	CAM_TYPE_ITU,
-	CAM_TYPE_MIPI,
-};
+#include <media/exynos_camera.h>
 
 struct s3c_platform_camera {
-	enum flite_cam_type type;
+	enum cam_bus_type type;
 	bool use_isp;
 	int inv_pclk;
 	int inv_vsync;
@@ -39,10 +34,12 @@ struct s3c_platform_camera {
  */
 struct exynos_platform_flite {
 	struct s3c_platform_camera *cam[MAX_CAMIF_CLIENTS];
+	struct exynos_isp_info *isp_info[MAX_CAMIF_CLIENTS];
 	u32 active_cam_index;
 	u32 num_clients;
 };
 
 extern struct exynos_platform_flite exynos_flite0_default_data;
 extern struct exynos_platform_flite exynos_flite1_default_data;
+extern struct exynos_platform_flite exynos_flite2_default_data;
 #endif /* EXYNOS_FLITE_H_*/

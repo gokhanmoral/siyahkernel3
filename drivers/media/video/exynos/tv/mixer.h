@@ -28,6 +28,8 @@
 
 #include "regs-mixer.h"
 
+#define INT_LOCK_TV 267200
+
 /** maximum number of output interfaces */
 #define MXR_MAX_OUTPUTS 2
 
@@ -132,21 +134,21 @@ struct mxr_buffer {
 };
 
 /** TV graphic layer pipeline state */
-enum tv_graph_pipeline_state {
+enum mxr_pipeline_state {
 	/** graphic layer is not shown */
-	TV_GRAPH_PIPELINE_IDLE = 0,
+	MXR_PIPELINE_IDLE = 0,
 	/** state between STREAMON and hardware start */
-	TV_GRAPH_PIPELINE_STREAMING_START,
+	MXR_PIPELINE_STREAMING_START,
 	/** graphic layer is shown */
-	TV_GRAPH_PIPELINE_STREAMING,
+	MXR_PIPELINE_STREAMING,
 	/** state before STREAMOFF is finished */
-	TV_GRAPH_PIPELINE_STREAMING_FINISH,
+	MXR_PIPELINE_STREAMING_FINISH,
 };
 
 /** TV graphic layer pipeline structure for streaming media data */
-struct tv_graph_pipeline {
+struct mxr_pipeline {
 	struct media_pipeline pipe;
-	enum tv_graph_pipeline_state state;
+	enum mxr_pipeline_state state;
 
 	/** starting point on pipeline */
 	struct mxr_layer *layer;
@@ -174,6 +176,13 @@ struct mxr_layer_ops {
 enum mxr_layer_type {
 	MXR_LAYER_TYPE_VIDEO = 0,
 	MXR_LAYER_TYPE_GRP = 1,
+};
+
+struct mxr_layer_en {
+	int graph0;
+	int graph1;
+	int graph2;
+	int graph3;
 };
 
 /** layer instance, a single window and content displayed on output */
@@ -218,7 +227,7 @@ struct mxr_layer {
 	/** source pad of mixer input */
 	struct media_pad pad;
 	/** pipeline structure for streaming TV graphic layer */
-	struct tv_graph_pipeline pipe;
+	struct mxr_pipeline pipe;
 
 	/** enable per layer blending for each layer */
 	int layer_blend_en;
@@ -230,6 +239,8 @@ struct mxr_layer {
 	int chroma_en;
 	/** value for chromakey */
 	u32 chroma_val;
+	/** priority for each layer */
+	u8 prio;
 };
 
 /** description of mixers output interface */
@@ -288,12 +299,11 @@ struct mxr_vb2 {
 
 	unsigned long (*plane_addr)(struct vb2_buffer *vb, u32 plane_no);
 
-	void (*resume)(void *alloc_ctx);
+	int (*resume)(void *alloc_ctx);
 	void (*suspend)(void *alloc_ctx);
 
 	int (*cache_flush)(struct vb2_buffer *vb, u32 num_planes);
 	void (*set_cacheable)(void *alloc_ctx, bool cacheable);
-	void (*set_sharable)(void *alloc_ctx, bool sharable);
 };
 
 /** sub-mixer 0,1 drivers instance */
@@ -319,6 +329,7 @@ struct sub_mxr_device {
 struct mxr_device {
 	/** master device */
 	struct device *dev;
+	struct device *bus_dev;
 	/** state of each output */
 	struct mxr_output *output[MXR_MAX_OUTPUTS];
 	/** number of registered outputs */
@@ -352,11 +363,23 @@ struct mxr_device {
 	/** auxiliary resources used my mixer */
 	struct mxr_resources res;
 
+	/** number of G-Scaler linked to mixer0 */
+	int mxr0_gsc;
+	/** number of G-Scaler linked to mixer1 */
+	int mxr1_gsc;
+	/** media entity link setup flags */
+	unsigned long flags;
+
 	/** entity info which transfers media data to mixer subdev */
 	enum mxr_data_from mxr_data_from;
 
 	/** count of sub-mixers */
 	struct sub_mxr_device sub_mxr[MXR_MAX_SUB_MIXERS];
+
+	/** enabled layer number **/
+	struct mxr_layer_en layer_en;
+	/** frame packing flag **/
+	int frame_packing;
 };
 
 #if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
@@ -479,8 +502,10 @@ void mxr_get_mbus_fmt(struct mxr_device *mdev,
 
 /* accessing Mixer's and Video Processor's registers */
 
+void mxr_layer_sync(struct mxr_device *mdev, int en);
 void mxr_vsync_set_update(struct mxr_device *mdev, int en);
 void mxr_reg_reset(struct mxr_device *mdev);
+void mxr_reg_set_layer_prio(struct mxr_device *mdev);
 void mxr_reg_set_layer_blend(struct mxr_device *mdev, int sub_mxr, int num,
 		int en);
 void mxr_reg_layer_alpha(struct mxr_device *mdev, int sub_mxr, int num, u32 a);
@@ -495,7 +520,8 @@ void mxr_reg_streamoff(struct mxr_device *mdev);
 int mxr_reg_wait4vsync(struct mxr_device *mdev);
 void mxr_reg_set_mbus_fmt(struct mxr_device *mdev,
 	struct v4l2_mbus_framefmt *fmt);
-void mxr_reg_local_path_set(struct mxr_device *mdev, int mxr_num, int gsc_num,
+void mxr_reg_local_path_clear(struct mxr_device *mdev);
+void mxr_reg_local_path_set(struct mxr_device *mdev, int mxr0_gsc, int mxr1_gsc,
 		u32 flags);
 void mxr_reg_graph_layer_stream(struct mxr_device *mdev, int idx, int en);
 void mxr_reg_graph_buffer(struct mxr_device *mdev, int idx, dma_addr_t addr);

@@ -22,9 +22,11 @@
 #include <linux/vmalloc.h>
 #include <linux/firmware.h>
 #include <linux/videodev2.h>
+#include <linux/slab.h>
+#include <linux/videodev2_exynos_media.h>
 
 #ifdef CONFIG_VIDEO_SAMSUNG_V4L2
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 #endif
 
 #include <linux/regulator/machine.h>
@@ -34,21 +36,18 @@
 
 #define M5MO_DRIVER_NAME	"M5MO"
 
-#ifdef CONFIG_MACH_S2PLUS
-extern struct class *camera_class;
-struct device *m5mo_dev;
-#endif
-
 #define M5MO_FW_PATH		"/sdcard/RS_M5LS.bin"
 #define M5MO_FW_DUMP_PATH	"/data/RS_M5LS_dump.bin"
 
 #define M5MOTB_FW_PATH "RS_M5LS_TB.bin" /* TECHWIN - SONY */
 /* #define M5MOON_FW_PATH "RS_M5LS_ON.bin" */ /* FIBEROPTICS - SONY */
 /* #define M5MOOM_FW_PATH "RS_M5LS_OM.bin" */ /* FIBEROPTICS - S.LSI */
-#if defined(CONFIG_MACH_U1_KOR_LGT)
+#if defined(CONFIG_MACH_U1_KOR_LGT) || defined(CONFIG_TARGET_LOCALE_NTT)
 #define M5MOSB_FW_PATH "RS_M5LS_SB.bin" /* ELECTRO-MECHANICS - SONY */
 #endif
-/* #define M5MOSC_FW_PATH "RS_M5LS_SC.bin" */ /* ELECTRO-MECHANICS - S.LSI */
+#if defined(CONFIG_TARGET_LOCALE_NTT)
+#define M5MOSC_FW_PATH "RS_M5LS_SC.bin" /* ELECTRO-MECHANICS - S.LSI*/
+#endif
 /* #define M5MOCB_FW_PATH "RS_M5LS_CB.bin" */ /* CAMSYS - SONY */
 #if defined(CONFIG_TARGET_LOCALE_NA)
 /* #define M5MOOE_FW_PATH "RS_M5LS_OE.bin" */ /* FIBEROPTICS - SONY */
@@ -174,9 +173,7 @@ static struct m5mo_control m5mo_ctrls[] = {
 	},
 };
 
-#ifndef CONFIG_MACH_S2PLUS
 struct class *camera_class;
-#endif
 
 static inline struct m5mo_state *to_state(struct v4l2_subdev *sd)
 {
@@ -806,9 +803,13 @@ request_fw:
 		} else if (sensor_ver[0] == 'O' && sensor_ver[1] == 'O') {
 			err = request_firmware(&fw, M5MOOO_FW_PATH, dev);
 #endif
-#if defined(CONFIG_MACH_U1_KOR_LGT)
+#if defined(CONFIG_MACH_U1_KOR_LGT) || defined(CONFIG_TARGET_LOCALE_NTT)
 		} else if (sensor_ver[0] == 'S' && sensor_ver[1] == 'B') {
 			err = request_firmware(&fw, M5MOSB_FW_PATH, dev);
+#endif
+#if defined(CONFIG_TARGET_LOCALE_NTT)
+		} else if (sensor_ver[0] == 'S' && sensor_ver[1] == 'C') {
+			err = request_firmware(&fw, M5MOSC_FW_PATH, dev);
 #endif
 		} else {
 			cam_warn("cannot find the matched F/W file\n");
@@ -1644,7 +1645,7 @@ retry:
 
 	if ((status & 0x01) != 0x00) {
 		cam_err("failed\n");
-		return -ETIMEDOUT;
+		/*return -ETIMEDOUT;*/ /*This return value cause camera lock-up.*/
 	}
 
 	cam_trace("X\n");
@@ -2312,9 +2313,13 @@ request_fw:
 	} else if (sensor_ver[0] == 'O' && sensor_ver[1] == 'O') {
 		err = request_firmware(&fw, M5MOOO_FW_PATH, dev);
 #endif
-#if defined(CONFIG_MACH_U1_KOR_LGT)
+#if defined(CONFIG_MACH_U1_KOR_LGT) || defined(CONFIG_TARGET_LOCALE_NTT)
 	} else if (sensor_ver[0] == 'S' && sensor_ver[1] == 'B') {
 		err = request_firmware(&fw, M5MOSB_FW_PATH, dev);
+#endif
+#if defined(CONFIG_TARGET_LOCALE_NTT)
+	} else if (sensor_ver[0] == 'S' && sensor_ver[1] == 'C') {
+		err = request_firmware(&fw, M5MOSC_FW_PATH, dev);
 #endif
 	} else {
 		cam_err("cannot find the matched F/W file\n");
@@ -2928,7 +2933,6 @@ static int __devinit m5mo_probe(struct i2c_client *client,
 #ifdef CAM_DEBUG
 	state->dbg_level = CAM_DEBUG;
 #endif
-#ifndef CONFIG_MACH_S2PLUS
 	if (state->m5mo_dev == NULL) {
 		state->m5mo_dev =
 		    device_create(camera_class, NULL, 0, NULL, "rear");
@@ -2948,7 +2952,6 @@ static int __devinit m5mo_probe(struct i2c_client *client,
 			}
 		}
 	}
-#endif
 	/* wait queue initialize */
 	init_waitqueue_head(&state->isp.wait);
 
@@ -3010,30 +3013,9 @@ static struct i2c_driver m5mo_i2c_driver = {
 
 static int __init m5mo_mod_init(void)
 {
-#ifdef CONFIG_MACH_S2PLUS
-	if (!m5mo_dev) {
-		m5mo_dev =
-		device_create(camera_class, NULL, 0, NULL, "rear");
-		if (IS_ERR(m5mo_dev)) {
-			cam_err("failed to create device m5mo_dev!\n");
-			return 0;
-		}
-		if (device_create_file
-		(m5mo_dev, &dev_attr_rear_camtype) < 0) {
-			cam_err("failed to create device file, %s\n",
-			dev_attr_rear_camtype.attr.name);
-		}
-		if (device_create_file
-		(m5mo_dev, &dev_attr_rear_camfw) < 0) {
-			cam_err("failed to create device file, %s\n",
-			dev_attr_rear_camfw.attr.name);
-		}
-	}
-#else
 	camera_class = class_create(THIS_MODULE, "camera");
 	if (IS_ERR(camera_class))
 		pr_err("Failed to create class(camera)!\n");
-#endif
 	return i2c_add_driver(&m5mo_i2c_driver);
 }
 

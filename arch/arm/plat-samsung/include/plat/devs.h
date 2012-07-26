@@ -17,6 +17,7 @@
 #define __PLAT_DEVS_H __FILE__
 
 #include <linux/platform_device.h>
+#include <linux/platform_data/exynos_usb3_drd.h>
 
 struct s3c24xx_uart_resources {
 	struct resource		*resources;
@@ -138,13 +139,18 @@ extern struct platform_device exynos_device_spdif;
 extern struct platform_device exynos_device_srp;
 extern struct platform_device exynos4_device_pd[];
 extern struct platform_device exynos4_device_ahci;
-extern struct platform_device exynos4_device_pdma0;
-extern struct platform_device exynos4_device_pdma1;
-extern struct platform_device exynos4_device_mdma;
+extern struct platform_device exynos_device_pdma0;
+extern struct platform_device exynos_device_pdma1;
+extern struct platform_device exynos_device_mdma;
 extern struct platform_device exynos_device_dwmci;
+extern struct platform_device exynos_device_dwmci0;
+extern struct platform_device exynos_device_dwmci1;
+extern struct platform_device exynos_device_dwmci2;
+extern struct platform_device exynos_device_dwmci3;
 extern struct platform_device exynos_device_flite0;
 extern struct platform_device exynos_device_flite1;
 extern struct platform_device exynos4_device_c2c;
+extern struct platform_device exynos_device_flite2;
 extern struct platform_device exynos4_device_fimc_is;
 extern struct platform_device exynos5_device_fimc_is;
 extern struct platform_device exynos5_device_pd[];
@@ -239,6 +245,8 @@ extern struct platform_device s3c_device_ac97;
 extern struct platform_device s3c_device_tsi;
 #endif
 
+extern void exynos_ss_udc_set_platdata(struct exynos_usb3_drd_pdata *pd);
+extern void exynos_xhci_set_platdata(struct exynos_usb3_drd_pdata *pd);
 
 /**
  * s3c_set_platdata() - helper for setting platform data

@@ -28,6 +28,8 @@
 #include <plat/tv-core.h>
 #include <plat/ace-core.h>
 #include <plat/reset.h>
+#include <plat/rtc-core.h>
+#include <plat/adc-core.h>
 
 #include <mach/regs-irq.h>
 #include <mach/regs-pmu.h>
@@ -71,16 +73,6 @@ static struct map_desc exynos5_iodesc[] __initdata = {
 		.virtual	= (unsigned long)S3C_VA_UART,
 		.pfn		= __phys_to_pfn(S3C_PA_UART),
 		.length		= SZ_512K,
-		.type		= MT_DEVICE,
-	}, {
-		.virtual	= (unsigned long)S5P_VA_GIC_CPU,
-		.pfn		= __phys_to_pfn(EXYNOS5_PA_GIC_CPU),
-		.length		= SZ_64K,
-		.type		= MT_DEVICE,
-	}, {
-		.virtual	= (unsigned long)S5P_VA_GIC_DIST,
-		.pfn		= __phys_to_pfn(EXYNOS5_PA_GIC_DIST),
-		.length		= SZ_64K,
 		.type		= MT_DEVICE,
 	}, {
 		.virtual	= (unsigned long)S5P_VA_GPIO1,
@@ -127,31 +119,84 @@ static struct map_desc exynos5_iodesc[] __initdata = {
 	}, {
 		.virtual        = (unsigned long)S5P_VA_PPMU_CPU,
 		.pfn            = __phys_to_pfn(EXYNOS5_PA_PPMU_CPU),
-		.length         = SZ_64K,
+		.length         = SZ_8K,
 		.type		= MT_DEVICE,
 	}, {
 		.virtual        = (unsigned long)S5P_VA_PPMU_DDR_C,
 		.pfn            = __phys_to_pfn(EXYNOS5_PA_PPMU_DDR_C),
-		.length         = SZ_64K,
+		.length         = SZ_8K,
 		.type           = MT_DEVICE,
 	}, {
 		.virtual        = (unsigned long)S5P_VA_PPMU_DDR_R1,
 		.pfn            = __phys_to_pfn(EXYNOS5_PA_PPMU_DDR_R1),
-		.length         = SZ_64K,
+		.length         = SZ_8K,
 		.type           = MT_DEVICE,
 	}, {
 		.virtual        = (unsigned long)S5P_VA_PPMU_DDR_L,
 		.pfn            = __phys_to_pfn(EXYNOS5_PA_PPMU_DDR_L),
-		.length         = SZ_64K,
+		.length         = SZ_8K,
 		.type           = MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_PPMU_RIGHT0_BUS,
+		.pfn		= __phys_to_pfn(EXYNOS5_PA_PPMU_RIGHT0_BUS),
+		.length		= SZ_8K,
+		.type		= MT_DEVICE,
 	}, {
 		.virtual	= (unsigned long)S5P_VA_FIMCLITE0,
 		.pfn		= __phys_to_pfn(EXYNOS5_PA_FIMC_LITE0),
 		.length		= SZ_4K,
 		.type		= MT_DEVICE,
 	}, {
+		.virtual	= (unsigned long)S5P_VA_FIMCLITE1,
+		.pfn		= __phys_to_pfn(EXYNOS5_PA_FIMC_LITE1),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_FIMCLITE2,
+		.pfn		= __phys_to_pfn(EXYNOS5_PA_FIMC_LITE2),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
 		.virtual	= (unsigned long)S5P_VA_MIPICSI0,
 		.pfn		= __phys_to_pfn(EXYNOS5_PA_MIPI_CSIS0),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_MIPICSI1,
+		.pfn		= __phys_to_pfn(EXYNOS5_PA_MIPI_CSIS1),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_DMC0,
+		.pfn		= __phys_to_pfn(EXYNOS5_PA_DMC),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	},
+};
+
+static struct map_desc exynos5250_rev_0_iodesc[] __initdata = {
+	{
+		.virtual	= (unsigned long)S5P_VA_GIC_CPU,
+		.pfn		= __phys_to_pfn(EXYNOS5250_REV0_PA_GIC_CPU),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_GIC_DIST,
+		.pfn		= __phys_to_pfn(EXYNOS5250_REV0_PA_GIC_DIST),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	},
+};
+
+static struct map_desc exynos5250_rev_1_iodesc[] __initdata = {
+	{
+		.virtual	= (unsigned long)S5P_VA_GIC_CPU,
+		.pfn		= __phys_to_pfn(EXYNOS5250_REV1_PA_GIC_CPU),
+		.length		= SZ_8K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_GIC_DIST,
+		.pfn		= __phys_to_pfn(EXYNOS5250_REV1_PA_GIC_DIST),
 		.length		= SZ_4K,
 		.type		= MT_DEVICE,
 	},
@@ -174,6 +219,15 @@ void __init exynos5_map_io(void)
 {
 	iotable_init(exynos5_iodesc, ARRAY_SIZE(exynos5_iodesc));
 
+	if (soc_is_exynos5250()) {
+		if (samsung_rev() >= EXYNOS5250_REV_1_0)
+			iotable_init(exynos5250_rev_1_iodesc,
+				ARRAY_SIZE(exynos5250_rev_1_iodesc));
+		else
+			iotable_init(exynos5250_rev_0_iodesc,
+				ARRAY_SIZE(exynos5250_rev_0_iodesc));
+	}
+
 #ifdef CONFIG_S3C_DEV_HSMMC
 	exynos5_default_sdhci0();
 #endif
@@ -186,8 +240,13 @@ void __init exynos5_map_io(void)
 #ifdef CONFIG_S3C_DEV_HSMMC3
 	exynos5_default_sdhci3();
 #endif
+#ifdef CONFIG_S3C_DEV_RTC
+	s3c_rtc_setname("exynos-rtc");
+#endif
 
 	s5p_fb_setname(1, "exynos5-fb");        /* FIMD1 */
+
+	s3c_adc_setname("samsung-adc-v4");
 
 	s5p_hdmi_setname("exynos5-hdmi");
 
@@ -197,7 +256,7 @@ void __init exynos5_map_io(void)
 	s3c_i2c2_setname("s3c2440-i2c");
 
 #ifdef CONFIG_S5P_DEV_ACE
-	s5p_ace_setname("exynos4-ace");
+	s5p_ace_setname("exynos-ace");
 #endif
 }
 
@@ -313,6 +372,10 @@ int __init exynos5_init(void)
 	value = __raw_readl(EXYNOS5_MASK_WDT_RESET_REQUEST);
 	value &= ~EXYNOS5_SYS_WDTRESET;
 	__raw_writel(value, EXYNOS5_MASK_WDT_RESET_REQUEST);
+
+	if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0) {
+		__raw_writel(0x1, EXYNOS5_ADC_PHY_CONTROL);
+	}
 
 	return sysdev_register(&exynos5_sysdev);
 }

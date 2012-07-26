@@ -214,7 +214,7 @@ static void vb2_dma_contig_unmap_dmabuf(void *mem_priv)
 	/*
 	 * Put the sg for this buffer:
 	 */
-	dma_buf_unmap_attachment(buf->db_attach, sg);
+	dma_buf_unmap_attachment(buf->db_attach, sg, DMA_FROM_DEVICE);
 
 	buf->dma_addr = 0;
 	buf->size = 0;

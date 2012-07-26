@@ -14,7 +14,7 @@
 #ifndef FIMC_IS_CMD_H_
 #define FIMC_IS_CMD_H_
 
-#define IS_COMMAND_VER 109 /* IS COMMAND VERSION 1.09 */
+#define IS_COMMAND_VER 110 /* IS COMMAND VERSION 1.10 */
 
 enum is_cmd {
 	/* HOST -> IS */
@@ -69,15 +69,13 @@ enum is_scenario_id {
 	ISS_END
 };
 
-struct is_setfile_header_element {
-	u32 binary_addr;
-	u32 binary_size;
-};
-
-struct is_setfile_header {
-	struct is_setfile_header_element isp[ISS_END];
-	struct is_setfile_header_element drc[ISS_END];
-	struct is_setfile_header_element fd[ISS_END];
+enum is_sub_scenario_id {
+	ISS_SUB_SCENARIO_DEFAULT = 0,
+	ISS_SUB_PS_VTCALL = 1,
+	ISS_SUB_CS_VTCALL = 2,
+	ISS_SUB_PV_VTCALL = 3,
+	ISS_SUB_CV_VTCALL = 4,
+	ISS_SUB_END
 };
 
 struct is_get_capability {
@@ -121,19 +119,23 @@ struct is_common_reg {
 
 	u32 isp_sensor_id;
 	u32 isp_param1;
-	u32 reserved3[2];
+	u32 isp_param2;
+	u32 reserved3[1];
 
 	u32 scc_sensor_id;
 	u32 scc_param1;
-	u32 reserved4[2];
+	u32 scc_param2;
+	u32 reserved4[1];
 
 	u32 dnr_sensor_id;
 	u32 dnr_param1;
-	u32 reserved5[2];
+	u32 dnr_param2;
+	u32 reserved5[1];
 
 	u32 scp_sensor_id;
 	u32 scp_param1;
-	u32 reserved6[30];
+	u32 scp_param2;
+	u32 reserved6[29];
 };
 
 struct is_mcuctl_reg {

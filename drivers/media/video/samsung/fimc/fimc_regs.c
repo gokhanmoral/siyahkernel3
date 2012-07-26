@@ -13,7 +13,8 @@
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <linux/videodev2.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_media.h>
+#include <linux/videodev2_exynos_camera.h>
 #include <linux/io.h>
 #include <mach/map.h>
 #include <plat/regs-fimc.h>
@@ -689,6 +690,7 @@ int fimc_hwset_output_colorspace(struct fimc_control *ctrl, u32 pixelformat)
 	case V4L2_PIX_FMT_YUV420:	/* fall through */
 	case V4L2_PIX_FMT_YVU420:	/* fall through */
 	case V4L2_PIX_FMT_NV12:		/* fall through */
+	case V4L2_PIX_FMT_NV12M:	/* fall through */
 	case V4L2_PIX_FMT_NV12T:	/* fall through */
 	case V4L2_PIX_FMT_NV21:
 		cfg |= S3C_CITRGFMT_OUTFORMAT_YCBCR420;
@@ -844,6 +846,7 @@ int fimc_hwset_output_yuv(struct fimc_control *ctrl, u32 pixelformat)
 
 	/* 2 plane formats */
 	case V4L2_PIX_FMT_NV12:		/* fall through */
+	case V4L2_PIX_FMT_NV12M:	/* fall through */
 	case V4L2_PIX_FMT_NV12T:	/* fall through */
 	case V4L2_PIX_FMT_NV16:
 		cfg |= S3C_CIOCTRL_ORDER2P_LSB_CBCR;
@@ -1628,6 +1631,7 @@ int fimc50_hwset_output_offset(struct fimc_control *ctrl, u32 pixelformat,
 
 	/* 2 planes, 12 bits per pixel */
 	case V4L2_PIX_FMT_NV12:		/* fall through */
+	case V4L2_PIX_FMT_NV12M:	/* fall through */
 	case V4L2_PIX_FMT_NV12T:	/* fall through */
 	case V4L2_PIX_FMT_NV21:
 		cfg_y |= S3C_CIOYOFF_HORIZONTAL(crop->left);

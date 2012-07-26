@@ -6988,31 +6988,31 @@ static const u32 s5k5ccgx_update_preview_reg[] = {
 };
 
 static const u32 s5k5ccgx_update_hd_preview_reg[] = {
-/* PREVIEW */
-0x002A0208,
-0x0F120000, /* REG_TC_GP_ActivePrevConfig */
-0x002A0210,
-0x0F120000, /* REG_TC_GP_ActiveCapConfig */
-0x002A020C,
-0x0F120001, /* REG_TC_GP_PrevOpenAfterChange */
-0x002A01F4,
-0x0F120001, /* REG_TC_GP_NewConfigSync */
-0x002A020A,
-0x0F120001, /* REG_TC_GP_PrevConfigChanged */
-0x002A0212,
-0x0F120001, /* REG_TC_GP_CapConfigChanged */
-0x002A01E8,
-0x0F120000, /* REG_TC_GP_EnableCapture */
-0x0F120001, /* REG_TC_GP_EnableCaptureChanged */
+	/* PREVIEW */
+	0x002A0208,
+	0x0F120000, /* REG_TC_GP_ActivePrevConfig */
+	0x002A0210,
+	0x0F120000, /* REG_TC_GP_ActiveCapConfig */
+	0x002A020C,
+	0x0F120001, /* REG_TC_GP_PrevOpenAfterChange */
+	0x002A01F4,
+	0x0F120001, /* REG_TC_GP_NewConfigSync */
+	0x002A020A,
+	0x0F120001, /* REG_TC_GP_PrevConfigChanged */
+	0x002A0212,
+	0x0F120001, /* REG_TC_GP_CapConfigChanged */
+	0x002A01E8,
+	0x0F120000, /* REG_TC_GP_EnableCapture */
+	0x0F120001, /* REG_TC_GP_EnableCaptureChanged */
 
-/* TNP_Regs_bUseAccurateFR */
-0x00287000,
-0x002A3FE4,
-0x0F120001, /* on/off TNP_Regs_bAccuDynamicFR */
-0x0F1234A2, /* on/off TNP_Regs_usMinAccuDynamicFrTme */
-0x0F1240FD, /* on/off TNP_Regs_usMaxAccuDynamicFrTme */
+	/* TNP_Regs_bUseAccurateFR */
+	0x00287000,
+	0x002A3FE4,
+	0x0F120001, /* on/off TNP_Regs_bAccuDynamicFR */
+	0x0F1234A2, /* on/off TNP_Regs_usMinAccuDynamicFrTme */
+	0x0F1240FD, /* on/off TNP_Regs_usMaxAccuDynamicFrTme */
 
-0xFFFF0064, /* Delay 100ms */
+	0xFFFF0064, /* Delay 100ms */
 };
 
 static const u32 s5k5ccgx_stream_stop_reg[] = {
@@ -7021,7 +7021,6 @@ static const u32 s5k5ccgx_stream_stop_reg[] = {
 	0x002A01E4,
 	0x0F120000,
 	0x0F120001,
-	0xFFFF0078, //Delay 120ms
 };
 
 static const u32 s5k5ccgx_176_144_Preview[] = {
@@ -12562,24 +12561,24 @@ static const u32 s5k5ccgx_hd_init_reg[] =
 
 
 
-	//PREVIEW
-	0x002A0208,
-	0x0F120000, //REG_TC_GP_ActivePrevConfig
-	0x002A0210,
-	0x0F120000, //REG_TC_GP_ActiveCapConfig
-	0x002A020C,
-	0x0F120001, //REG_TC_GP_PrevOpenAfterChange
-	0x002A01F4,
-	0x0F120001, //REG_TC_GP_NewConfigSync
-	0x002A020A,
-	0x0F120001, //REG_TC_GP_PrevConfigChanged
-	0x002A0212,
-	0x0F120001, //REG_TC_GP_CapConfigChanged
-	0x002A01E8,
-	0x0F120000, //REG_TC_GP_EnableCapture
-	0x0F120001, //REG_TC_GP_EnableCaptureChanged
+	/* PREVIEW */
+	/* 0x002A0208, */
+	/* 0x0F120000, */ /* REG_TC_GP_ActivePrevConfig */
+	/* 0x002A0210, */
+	/* 0x0F120000, */ /* REG_TC_GP_ActiveCapConfig */
+	/* 0x002A020C, */
+	/* 0x0F120001, */ /* REG_TC_GP_PrevOpenAfterChange */
+	/* 0x002A01F4, */
+	/* 0x0F120001, */ /* REG_TC_GP_NewConfigSync */
+	/* 0x002A020A, */
+	/* 0x0F120001, */ /* REG_TC_GP_PrevConfigChanged */
+	/* 0x002A0212 ,*/
+	/* 0x0F120001, */ /* REG_TC_GP_CapConfigChanged */
+	/* 0x002A01E8, */
+	/* 0x0F120000, */ /* REG_TC_GP_EnableCapture */
+	/* 0x0F120001, */ /* REG_TC_GP_EnableCaptureChanged */
 
-	0xFFFF0064, //Delay 100ms
+	/* 0xFFFF0064, */ /* Delay 100ms */
 
 	//===================================================================
 	// AFC
@@ -14234,12 +14233,12 @@ static const u32 s5k5ccgx_hd_init_reg[] =
 	0x0f120800, //analog filter update Green
 
 
-	// TNP_Regs_bUseAccurateFR
-	0x00287000,
-	0x002A3FE4,
-	0x0F120001,	                  // on/off TNP_Regs_bAccuDynamicFR
-	0x0F1234A2,	                  // on/off TNP_Regs_usMinAccuDynamicFrTme
-	0x0F1240FD,	                  // on/off TNP_Regs_usMaxAccuDynamicFrTme
+	/* TNP_Regs_bUseAccurateFR */
+	/* 0x00287000, */
+	/* 0x002A3FE4, */
+	/* 0x0F120001, */ /* on/off TNP_Regs_bAccuDynamicFR */
+	/* 0x0F1234A2, */ /* on/off TNP_Regs_usMinAccuDynamicFrTme */
+	/* 0x0F1240FD, */ /* on/off TNP_Regs_usMaxAccuDynamicFrTme */
 };
 
 /* Return preview mode */
@@ -14440,51 +14439,8 @@ static const u32 s5k5ccgx_flash_lowlight_snapshot[] = {
 0x0F120001,	//REG_TC_GP_EnableCaptureChanged
 };
 
-/* For 2048x1152 cap */
+/* Wide capture 2048x1104 for P2*/
 static const u32 s5k5ccgx_change_wide_cap[] = {
-//================================
-// 17.Input Size Setting
-//================================
-
-0x00287000,
-0x002A01F6,
-0x0F120800,	//REG_TC_GP_PrevReqInputWidth //800h=2048d
-0x0F120480,	//REG_TC_GP_PrevReqInputHeight //600h=1536d
-0x0F120000,	//REG_TC_GP_PrevInputWidthOfs
-0x0F1200C0,	//REG_TC_GP_PrevInputHeightOfs (600h-480h)/2
-0x0F120800,	//REG_TC_GP_CapReqInputWidth //800h=2048d
-0x0F120480,	//REG_TC_GP_CapReqInputHeight //600h=1536
-0x0F120000,	//REG_TC_GP_CapInputWidthOfs
-0x0F1200C0,	//REG_TC_GP_CapInputHeightOfs
-0x002A0216,
-0x0F120001,	//REG_TC_GP_bUseReqInputInPre
-0x0F120001,	//REG_TC_GP_bUseReqInputInCap
-0x002A043C,
-0x0F120800,	//REG_TC_PZOOM_ZoomInputWidth //800h=2048d
-0x0F120480,	//REG_TC_PZOOM_ZoomInputHeight //600h=1536
-0x0F120000,	//REG_TC_PZOOM_ZoomInputWidthOfs
-0x0F1200C0,	//REG_TC_PZOOM_ZoomInputHeightOfs
-
-//================================
-// 18.Preview & Capture Configration Setting
-//================================
-
-//Preview Config  10fps~30fps
-0x002A023E,
-0x0F120400,	//REG_0TC_PCFG_usWidth //280h=640d
-0x0F120240,	//REG_0TC_PCFG_usHeight //1E0h=480d
-
-
-//Capture Config 0  2048x1536 7.5~15fps
-0x002A032E,
-0x0F120000,	//REG_0TC_CCFG_uCaptureMode
-0x0F120800,	//REG_0TC_CCFG_usWidth //800h=2048d
-0x0F120480,	//REG_0TC_CCFG_usHeight //600h=1536d
-};
-
-#ifdef CONFIG_VIDEO_S5K5CCGX_P2
-/* Wide capture 2048x1104 */
-static const u32 s5k5ccgx_change_wide_cap_p2[] = {
 //================================
 // 17.Input Size Setting
 //================================
@@ -14524,7 +14480,6 @@ static const u32 s5k5ccgx_change_wide_cap_p2[] = {
 0x0F120800,	//REG_0TC_CCFG_usWidth //800h=2048d
 0x0F120450,	//REG_0TC_CCFG_usHeight //600h=1536d
 };
-#endif
 
 /* To change Wide Capture to Normal Capture,
 * We have to restore capture configuration before starting Normal Capture.
@@ -14877,10 +14832,12 @@ static const u32 s5k5ccgx_scene_off[] = {
 // ==========================================================
 // 	CAMERA_SCENE_OFF
 // ==========================================================
+/*
 0xFCFCD000,
 0x00287000,
 0x002A2A62,
 0x0F120001,		//Mon_AAIO_bAWB		0: AWB OFF, 1: AWB ON
+*/
 
 // Center (Metering)
 0xFCFCD000,

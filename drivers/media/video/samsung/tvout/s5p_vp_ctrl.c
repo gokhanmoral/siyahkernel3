@@ -379,12 +379,16 @@ static void s5p_vp_ctrl_clock(bool on)
 		s5p_tvout_pm_runtime_get();
 #endif
 		clk_enable(s5p_vp_ctrl_private.clk.ptr);
+		// Restore vp_base address
+		s5p_vp_init(s5p_vp_ctrl_private.reg_mem.base);
 
 	} else {
 		clk_disable(s5p_vp_ctrl_private.clk.ptr);
 #ifdef CONFIG_ARCH_EXYNOS4
 		s5p_tvout_pm_runtime_put();
 #endif
+		// Set vp_base to NULL
+		s5p_vp_init(NULL);
 	}
 }
 

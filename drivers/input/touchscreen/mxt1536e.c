@@ -2420,7 +2420,7 @@ static ssize_t find_channel_show(struct device *dev,
 
 #define READ_FW_FROM_HEADER	1
 u8 firmware_mXT1536e[] = {
-	#include "mxt1536e_v0.5a.h"
+/*	#include "mxt1536e_v0.5a.h"*/
 };
 
 static int mxt_check_bootloader(struct i2c_client *client,

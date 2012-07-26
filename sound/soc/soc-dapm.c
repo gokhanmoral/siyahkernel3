@@ -162,18 +162,23 @@ static int snd_soc_dapm_set_bias_level(struct snd_soc_dapm_context *dapm,
 	trace_snd_soc_bias_level_start(card, level);
 
 	if (card && card->set_bias_level)
-		ret = card->set_bias_level(card, level);
-	if (ret == 0) {
-		if (dapm->codec && dapm->codec->driver->set_bias_level)
-			ret = dapm->codec->driver->set_bias_level(dapm->codec, level);
+		ret = card->set_bias_level(card, dapm, level);
+	if (ret != 0)
+		goto out;
+
+	if (dapm->codec) {
+		if (dapm->codec->driver->set_bias_level)
+			ret = dapm->codec->driver->set_bias_level(dapm->codec,
+								  level);
 		else
 			dapm->bias_level = level;
 	}
-	if (ret == 0) {
-		if (card && card->set_bias_level_post)
-			ret = card->set_bias_level_post(card, level);
-	}
+	if (ret != 0)
+		goto out;
 
+	if (card && card->set_bias_level_post)
+		ret = card->set_bias_level_post(card, dapm, level);
+out:
 	trace_snd_soc_bias_level_done(card, level);
 
 	return ret;

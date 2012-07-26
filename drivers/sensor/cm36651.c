@@ -34,10 +34,13 @@
 #include <linux/sensor/sensors_core.h>
 
 /* For debugging */
-#undef CM36651_DEBUG
+#undef	CM36651_DEBUG
 
-#define I2C_M_WR 0		/* for i2c Write */
-#define I2c_M_RD 1		/* for i2c Read */
+#define	VENDOR		"CAPELLA"
+#define	CHIP_ID		"CM36651"
+
+#define I2C_M_WR	0 /* for i2c Write */
+#define I2c_M_RD	1 /* for i2c Read */
 
 #define REL_RED		REL_X
 #define REL_GREEN	REL_Y
@@ -45,7 +48,7 @@
 #define REL_WHITE	REL_MISC
 
 /* slave addresses */
-#define CM36651_ALS 0x30 /* 7bits : 0x18 */
+#define CM36651_ALS	0x30 /* 7bits : 0x18 */
 #define CM36651_PS	0x32 /* 7bits : 0x19 */
 
 /* register addresses */
@@ -58,7 +61,7 @@
 #define ALS_WL_L	0x05
 #define CS_CONF3	0x06
 
-#define RED			0x00
+#define RED		0x00
 #define GREEN		0x01
 #define BLUE		0x02
 #define WHITE		0x03
@@ -69,17 +72,19 @@
 #define PS_CANC		0x02
 #define PS_CONF2	0x03
 
-#define ALS_REG_NUM		3
-#define PS_REG_NUM		4
+#define ALS_REG_NUM	3
+#define PS_REG_NUM	4
 
 /* Intelligent Cancelation*/
 #define CM36651_CANCELATION
 #ifdef CM36651_CANCELATION
 #define CANCELATION_FILE_PATH	"/efs/prox_cal"
+#define CANCELATION_THRESHOLD	7
 #endif
 
 #define PROX_READ_NUM	40
-
+ /*lightsnesor log time 6SEC 200mec X 30*/
+#define LIGHT_LOG_TIME	30
 enum {
 	LIGHT_ENABLED = BIT(0),
 	PROXIMITY_ENABLED = BIT(1),
@@ -98,9 +103,10 @@ static u8 als_reg_setting[ALS_REG_NUM][2] = {
 	{0x06, 0x00}	/* CS_CONF3 */
 };
 
+/* Change threshold value on the midas-sensor.c */
 static u8 ps_reg_setting[PS_REG_NUM][2] = {
 	{0x00, 0x3C},	/* PS_CONF1 */
-	{0x01, 0x07},	/* PS_THD */
+	{0x01, 0x09},	/* PS_THD */
 	{0x02, 0x00},	/* PS_CANC */
 	{0x03, 0x13},	/* PS_CONF2 */
 };
@@ -126,10 +132,12 @@ struct cm36651_data {
 	ktime_t prox_poll_delay;
 	int irq;
 	u8 power_state;
-#ifdef CM36651_CANCELATION
-	u8 prox_cal;
-#endif
 	int avg[3];
+	u16 color[4];
+	int count_log_time;
+#ifdef CM36651_CANCELATION
+	u8 default_threshold;
+#endif
 };
 
 int cm36651_i2c_read_byte(struct cm36651_data *cm36651, u8 addr, u8 * val)
@@ -231,6 +239,8 @@ static void cm36651_light_enable(struct cm36651_data *cm36651)
 	/* enable setting */
 	cm36651_i2c_write_byte(cm36651, CM36651_ALS, CS_CONF1,
 		als_reg_setting[0][1]);
+	cm36651_i2c_write_byte(cm36651, CM36651_ALS, CS_CONF2,
+		als_reg_setting[1][1]);
 
 	hrtimer_start(&cm36651->light_timer, cm36651->light_poll_delay,
 		      HRTIMER_MODE_REL);
@@ -336,13 +346,16 @@ static int proximity_open_cancelation(struct cm36651_data *data)
 	}
 
 	err = cancel_filp->f_op->read(cancel_filp,
-		(char *)&data->prox_cal, sizeof(u8), &cancel_filp->f_pos);
+		(char *)&ps_reg_setting[2][1], sizeof(u8), &cancel_filp->f_pos);
 	if (err != sizeof(u8)) {
 		pr_err("%s: Can't read the cancel data from file\n", __func__);
 		err = -EIO;
 	}
 
-	pr_info("%s: proximity ps_data = %d\n", __func__, data->prox_cal);
+	if (ps_reg_setting[2][1] != 0) /*If there is an offset cal data. */
+		ps_reg_setting[1][1] = CANCELATION_THRESHOLD;
+	pr_info("%s: proximity ps_data = %d, ps_thresh = %d\n",
+		__func__, ps_reg_setting[2][1], ps_reg_setting[1][1]);
 
 	filp_close(cancel_filp, current->files);
 	set_fs(old_fs);
@@ -359,14 +372,21 @@ static int proximity_store_cancelation(struct device *dev, bool do_calib)
 
 	if (do_calib) {
 		mutex_lock(&cm36651->read_lock);
-		cm36651_i2c_read_byte(cm36651, CM36651_PS, &cm36651->prox_cal);
+		cm36651_i2c_read_byte(cm36651, CM36651_PS,
+			&ps_reg_setting[2][1]);
 		mutex_unlock(&cm36651->read_lock);
-	} else {
-		cm36651->prox_cal = 0;
+		ps_reg_setting[1][1] = CANCELATION_THRESHOLD;
+	} else { /* reset */
+		ps_reg_setting[2][1] = 0;
+		ps_reg_setting[1][1] = cm36651->default_threshold;
 	}
 
-	cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CANC, cm36651->prox_cal);
-	pr_info("%s: prox_cal = 0x%x\n", __func__, cm36651->prox_cal);
+	cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_THD,
+		ps_reg_setting[1][1]);
+	cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CANC,
+		ps_reg_setting[2][1]);
+	pr_info("%s: prox_cal = 0x%x, prox_thresh = %d\n",
+		__func__, ps_reg_setting[2][1], ps_reg_setting[1][1]);
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
@@ -381,7 +401,7 @@ static int proximity_store_cancelation(struct device *dev, bool do_calib)
 	}
 
 	err = cancel_filp->f_op->write(cancel_filp,
-		(char *)&cm36651->prox_cal, sizeof(u8), &cancel_filp->f_pos);
+		(char *)&ps_reg_setting[2][1], sizeof(u8), &cancel_filp->f_pos);
 	if (err != sizeof(u8)) {
 		pr_err("%s: Can't write the cancel data to file\n", __func__);
 		err = -EIO;
@@ -389,6 +409,9 @@ static int proximity_store_cancelation(struct device *dev, bool do_calib)
 
 	filp_close(cancel_filp, current->files);
 	set_fs(old_fs);
+
+	if (!do_calib) /* delay for clearing */
+		msleep(150);
 
 	return err;
 }
@@ -421,9 +444,8 @@ static ssize_t proximity_cancel_store(struct device *dev,
 static ssize_t proximity_cancel_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	struct cm36651_data *cm36651 = dev_get_drvdata(dev);
-
-	return sprintf(buf, "%d\n", cm36651->prox_cal);
+	return sprintf(buf, "%d,%d\n", ps_reg_setting[2][1],
+		ps_reg_setting[1][1]);
 }
 #endif
 
@@ -445,11 +467,15 @@ static ssize_t proximity_enable_store(struct device *dev,
 	}
 
 	mutex_lock(&cm36651->power_lock);
-	pr_info("%s,new_value=%d\n", __func__, new_value);
+	pr_info("%s, new_value = %d, threshold = %d\n", __func__, new_value,
+		ps_reg_setting[1][1]);
 	if (new_value && !(cm36651->power_state & PROXIMITY_ENABLED)) {
 		u8 val = 1;
-		cm36651->pdata->cm36651_led_on(true);
-		msleep(20);
+		int i;
+		if (cm36651->pdata->cm36651_led_on) {
+			cm36651->pdata->cm36651_led_on(true);
+			msleep(20);
+		}
 #ifdef CM36651_CANCELATION
 		/* open cancelation data */
 		err = proximity_open_cancelation(cm36651);
@@ -459,12 +485,10 @@ static ssize_t proximity_enable_store(struct device *dev,
 #endif
 		cm36651->power_state |= PROXIMITY_ENABLED;
 		/* enable settings */
-		cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CONF1,
-			ps_reg_setting[0][1]);
-#ifdef CM36651_CANCELATION
-		cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CANC,
-			cm36651->prox_cal);
-#endif
+		for (i = 0; i < 4; i++) {
+			cm36651_i2c_write_byte(cm36651, CM36651_PS,
+				ps_reg_setting[i][0], ps_reg_setting[i][1]);
+		}
 
 		val = gpio_get_value(cm36651->pdata->irq);
 		/* 0 is close, 1 is far */
@@ -481,7 +505,8 @@ static ssize_t proximity_enable_store(struct device *dev,
 		/* disable settings */
 		cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CONF1,
 				       0x01);
-		cm36651->pdata->cm36651_led_on(false);
+		if (cm36651->pdata->cm36651_led_on)
+			cm36651->pdata->cm36651_led_on(false);
 	}
 	mutex_unlock(&cm36651->power_lock);
 	return size;
@@ -526,6 +551,7 @@ static struct attribute_group proximity_attribute_group = {
 	.attrs = proximity_sysfs_attrs,
 };
 
+/* proximity sysfs */
 static ssize_t proximity_avg_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -554,8 +580,10 @@ static ssize_t proximity_avg_store(struct device *dev,
 	mutex_lock(&cm36651->power_lock);
 	if (new_value) {
 		if (!(cm36651->power_state & PROXIMITY_ENABLED)) {
-			cm36651->pdata->cm36651_led_on(true);
-			msleep(20);
+			if (cm36651->pdata->cm36651_led_on) {
+				cm36651->pdata->cm36651_led_on(true);
+				msleep(20);
+			}
 			cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CONF1,
 			ps_reg_setting[0][1]);
 		}
@@ -567,7 +595,8 @@ static ssize_t proximity_avg_store(struct device *dev,
 		if (!(cm36651->power_state & PROXIMITY_ENABLED)) {
 			cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CONF1,
 				0x01);
-			cm36651->pdata->cm36651_led_on(false);
+			if (cm36651->pdata->cm36651_led_on)
+				cm36651->pdata->cm36651_led_on(false);
 		}
 	}
 	mutex_unlock(&cm36651->power_lock);
@@ -583,10 +612,12 @@ static ssize_t proximity_state_show(struct device *dev,
 
 	mutex_lock(&cm36651->power_lock);
 	if (!(cm36651->power_state & PROXIMITY_ENABLED)) {
-		cm36651->pdata->cm36651_led_on(true);
+		if (cm36651->pdata->cm36651_led_on) {
+			cm36651->pdata->cm36651_led_on(true);
+			msleep(20);
+		}
 		cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CONF1,
 			ps_reg_setting[0][1]);
-		msleep(20);
 	}
 
 	mutex_lock(&cm36651->read_lock);
@@ -595,48 +626,96 @@ static ssize_t proximity_state_show(struct device *dev,
 
 	if (!(cm36651->power_state & PROXIMITY_ENABLED)) {
 		cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CONF1, 0x01);
-		cm36651->pdata->cm36651_led_on(false);
+		if (cm36651->pdata->cm36651_led_on)
+			cm36651->pdata->cm36651_led_on(false);
 	}
 	mutex_unlock(&cm36651->power_lock);
 
 	return sprintf(buf, "%d\n", proximity_value);
 }
 
-static ssize_t lightsensor_lux_show(struct device *dev,
+static ssize_t proximity_thresh_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	struct cm36651_data *cm36651 = dev_get_drvdata(dev);
-	u16 val_red = 0, val_green = 0, val_blue = 0, val_white = 0;
-
-	mutex_lock(&cm36651->power_lock);
-	if (!(cm36651->power_state & LIGHT_ENABLED))
-		cm36651_light_enable(cm36651);
-
-	mutex_lock(&cm36651->read_lock);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, RED, &val_red);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, GREEN, &val_green);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, BLUE, &val_blue);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, WHITE, &val_white);
-	mutex_unlock(&cm36651->read_lock);
-
-	if (!(cm36651->power_state & LIGHT_ENABLED))
-		cm36651_light_disable(cm36651);
-
-	mutex_unlock(&cm36651->power_lock);
-
-	return sprintf(buf, "%d,%d,%d,%d\n",
-		(int)val_red+1, (int)val_green+1, (int)val_blue+1,
-			(int)val_white+1);
+	return sprintf(buf, "prox_threshold = %d\n", ps_reg_setting[1][1]);
 }
 
-static DEVICE_ATTR(prox_avg, 0644, proximity_avg_show,
-	proximity_avg_store);
+static ssize_t proximity_thresh_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct cm36651_data *cm36651 = dev_get_drvdata(dev);
+	u8 thresh_value = 0x09;
+	int err = 0;
+
+	err = kstrtou8(buf, 10, &thresh_value);
+	if (err < 0)
+		pr_err("%s, kstrtoint failed.", __func__);
+
+	ps_reg_setting[1][1] = thresh_value;
+	err = cm36651_i2c_write_byte(cm36651, CM36651_PS,
+			PS_THD, ps_reg_setting[1][1]);
+	if (err < 0) {
+		pr_err("%s: cm36651_ps_reg is failed. %d\n", __func__,
+		       err);
+		return err;
+	}
+	pr_info("%s, new threshold = 0x%x\n",
+		__func__, ps_reg_setting[1][1]);
+	msleep(150);
+
+	return size;
+}
+
 #ifdef CM36651_CANCELATION
 static DEVICE_ATTR(prox_cal, 0644, proximity_cancel_show,
 	proximity_cancel_store);
 #endif
+static DEVICE_ATTR(prox_avg, 0644, proximity_avg_show,
+	proximity_avg_store);
 static DEVICE_ATTR(state, 0644, proximity_state_show, NULL);
-static DEVICE_ATTR(lux, 0644, lightsensor_lux_show, NULL);
+static struct device_attribute attr_prox_raw = __ATTR(raw_data, 0644,
+	proximity_state_show, NULL);
+static DEVICE_ATTR(prox_thresh, 0644, proximity_thresh_show,
+	proximity_thresh_store);
+
+/* light sysfs */
+static ssize_t light_lux_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct cm36651_data *cm36651 = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%u,%u,%u,%u\n",
+		cm36651->color[0]+1, cm36651->color[1]+1,
+		cm36651->color[2]+1, cm36651->color[3]+1);
+}
+
+static ssize_t light_data_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct cm36651_data *cm36651 = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%u,%u,%u,%u\n",
+		cm36651->color[0]+1, cm36651->color[1]+1,
+		cm36651->color[2]+1, cm36651->color[3]+1);
+}
+
+static DEVICE_ATTR(lux, 0644, light_lux_show, NULL);
+static DEVICE_ATTR(raw_data, 0644, light_data_show, NULL);
+
+/* sysfs for vendor & name */
+static ssize_t cm36651_vendor_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", VENDOR);
+}
+
+static ssize_t cm36651_name_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", CHIP_ID);
+}
+static DEVICE_ATTR(vendor, 0644, cm36651_vendor_show, NULL);
+static DEVICE_ATTR(name, 0644, cm36651_name_show, NULL);
 
 /* interrupt happened due to transition/change of near/far proximity state */
 irqreturn_t cm36651_irq_thread_fn(int irq, void *data)
@@ -645,21 +724,20 @@ irqreturn_t cm36651_irq_thread_fn(int irq, void *data)
 	u8 val = 1;
 #ifdef CM36651_DEBUG
 	static int count;
-	u8 ps_data = 0;
 #endif
+	u8 ps_data = 0;
 
 	val = gpio_get_value(cm36651->pdata->irq);
-
-#ifdef CM36651_DEBUG
-	count++;
 	cm36651_i2c_read_byte(cm36651, CM36651_PS, &ps_data);
-	pr_info("%s: ps_data = %d, count = %d\n", __func__, ps_data, count);
+#ifdef CM36651_DEBUG
+	pr_info("%s: count = %d\n", __func__, count++);
 #endif
 	/* 0 is close, 1 is far */
 	input_report_abs(cm36651->proximity_input_dev, ABS_DISTANCE, val);
 	input_sync(cm36651->proximity_input_dev);
 	wake_lock_timeout(&cm36651->prx_wake_lock, 3 * HZ);
-	pr_info("%s: val = %d (close:0, far:1)\n", __func__, val);
+	pr_info("%s: val = %d, ps_data = %d (close:0, far:1)\n",
+		__func__, val, ps_data);
 
 	return IRQ_HANDLED;
 }
@@ -770,25 +848,38 @@ static enum hrtimer_restart cm36651_light_timer_func(struct hrtimer *timer)
 
 static void cm36651_work_func_light(struct work_struct *work)
 {
-	u16 val_red = 0, val_green = 0, val_blue = 0, val_white = 0;
 	struct cm36651_data *cm36651 = container_of(work, struct cm36651_data,
 						    work_light);
 
 	mutex_lock(&cm36651->read_lock);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, RED, &val_red);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, GREEN, &val_green);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, BLUE, &val_blue);
-	cm36651_i2c_read_word(cm36651, CM36651_ALS, WHITE, &val_white);
+	cm36651_i2c_read_word(cm36651, CM36651_ALS, RED, &cm36651->color[0]);
+	cm36651_i2c_read_word(cm36651, CM36651_ALS, GREEN, &cm36651->color[1]);
+	cm36651_i2c_read_word(cm36651, CM36651_ALS, BLUE, &cm36651->color[2]);
+	cm36651_i2c_read_word(cm36651, CM36651_ALS, WHITE, &cm36651->color[3]);
 	mutex_unlock(&cm36651->read_lock);
 
-	input_report_rel(cm36651->light_input_dev, REL_RED, (int)val_red+1);
-	input_report_rel(cm36651->light_input_dev, REL_GREEN, (int)val_green+1);
-	input_report_rel(cm36651->light_input_dev, REL_BLUE, (int)val_blue+1);
-	input_report_rel(cm36651->light_input_dev, REL_WHITE, (int)val_white+1);
+	input_report_rel(cm36651->light_input_dev, REL_RED,
+		cm36651->color[0]+1);
+	input_report_rel(cm36651->light_input_dev, REL_GREEN,
+		cm36651->color[1]+1);
+	input_report_rel(cm36651->light_input_dev, REL_BLUE,
+		cm36651->color[2]+1);
+	input_report_rel(cm36651->light_input_dev, REL_WHITE,
+		cm36651->color[3]+1);
 	input_sync(cm36651->light_input_dev);
+
+	if (cm36651->count_log_time >= LIGHT_LOG_TIME) {
+		pr_info("%s, red = %u green = %u blue = %u white = %u\n",
+			__func__, cm36651->color[0]+1, cm36651->color[1]+1,
+			cm36651->color[2]+1, cm36651->color[3]+1);
+		cm36651->count_log_time = 0;
+	} else
+		cm36651->count_log_time++;
+
 #ifdef CM36651_DEBUG
-	pr_info("%s, red = %d, green = %d, blue = %d, white = %d\n",
-		__func__, val_red+1, val_green+1, val_blue+1, val_white+1);
+	pr_info("%s, red = %u green = %u blue = %u white = %u\n",
+		__func__, cm36651->color[0]+1, cm36651->color[1]+1,
+		cm36651->color[2]+1, val_whitecm36651->color[3]1);
 #endif
 }
 
@@ -863,8 +954,10 @@ static int cm36651_i2c_probe(struct i2c_client *client,
 	/* wake lock init for proximity sensor */
 	wake_lock_init(&cm36651->prx_wake_lock, WAKE_LOCK_SUSPEND,
 		       "prx_wake_lock");
-
-	cm36651->pdata->cm36651_led_on(true);
+	if (cm36651->pdata->cm36651_led_on) {
+		cm36651->pdata->cm36651_led_on(true);
+		msleep(20);
+	}
 	/* Check if the device is there or not. */
 	ret = cm36651_i2c_write_byte(cm36651, CM36651_PS, CS_CONF1, 0x01);
 	if (ret < 0) {
@@ -872,12 +965,18 @@ static int cm36651_i2c_probe(struct i2c_client *client,
 		goto err_setup_reg;
 	}
 	/* setup initial registers */
+	if (cm36651->pdata->cm36651_get_threshold)
+		ps_reg_setting[1][1] = cm36651->pdata->cm36651_get_threshold();
+#ifdef CM36651_CANCELATION
+	cm36651->default_threshold = ps_reg_setting[1][1];
+#endif
 	ret = cm36651_setup_reg(cm36651);
 	if (ret < 0) {
 		pr_err("%s: could not setup regs\n", __func__);
 		goto err_setup_reg;
 	}
-	cm36651->pdata->cm36651_led_on(false);
+	if (cm36651->pdata->cm36651_led_on)
+		cm36651->pdata->cm36651_led_on(false);
 
 	/* allocate proximity input_device */
 	cm36651->proximity_input_dev = input_allocate_device();
@@ -990,6 +1089,12 @@ static int cm36651_i2c_probe(struct i2c_client *client,
 		goto err_proximity_device_create_file1;
 	}
 
+	if (device_create_file(cm36651->proximity_dev, &attr_prox_raw) < 0) {
+		pr_err("%s: could not create device file(%s)!\n", __func__,
+		       attr_prox_raw.attr.name);
+		goto err_proximity_device_create_file7;
+	}
+
 #ifdef CM36651_CANCELATION
 	if (device_create_file(cm36651->proximity_dev,
 		&dev_attr_prox_cal) < 0) {
@@ -998,12 +1103,32 @@ static int cm36651_i2c_probe(struct i2c_client *client,
 		goto err_proximity_device_create_file2;
 	}
 #endif
-
 	if (device_create_file(cm36651->proximity_dev,
 		&dev_attr_prox_avg) < 0) {
 		pr_err("%s: could not create device file(%s)!\n", __func__,
 		       dev_attr_prox_avg.attr.name);
 		goto err_proximity_device_create_file3;
+	}
+
+	if (device_create_file(cm36651->proximity_dev,
+		&dev_attr_prox_thresh) < 0) {
+		pr_err("%s: could not create device file(%s)!\n", __func__,
+			   dev_attr_prox_thresh.attr.name);
+		goto err_proximity_device_create_file4;
+	}
+
+	if (device_create_file(cm36651->proximity_dev,
+		&dev_attr_vendor) < 0) {
+		pr_err("%s: could not create device file(%s)!\n", __func__,
+			   dev_attr_vendor.attr.name);
+		goto err_proximity_device_create_file5;
+	}
+
+	if (device_create_file(cm36651->proximity_dev,
+		&dev_attr_name) < 0) {
+		pr_err("%s: could not create device file(%s)!\n", __func__,
+			   dev_attr_name.attr.name);
+		goto err_proximity_device_create_file6;
 	}
 
 	dev_set_drvdata(cm36651->proximity_dev, cm36651);
@@ -1021,21 +1146,53 @@ static int cm36651_i2c_probe(struct i2c_client *client,
 		goto err_light_device_create_file1;
 	}
 
+	if (device_create_file(cm36651->light_dev, &dev_attr_raw_data) < 0) {
+		pr_err("%s: could not create device file(%s)!\n", __func__,
+		       dev_attr_raw_data.attr.name);
+		goto err_light_device_create_file2;
+	}
+
+	if (device_create_file(cm36651->light_dev, &dev_attr_vendor) < 0) {
+		pr_err("%s: could not create device file(%s)!\n", __func__,
+		       dev_attr_vendor.attr.name);
+		goto err_light_device_create_file3;
+	}
+
+	if (device_create_file(cm36651->light_dev, &dev_attr_name) < 0) {
+		pr_err("%s: could not create device file(%s)!\n", __func__,
+		       dev_attr_name.attr.name);
+		goto err_light_device_create_file4;
+	}
+
 	dev_set_drvdata(cm36651->light_dev, cm36651);
 
 	pr_info("%s is success.\n", __func__);
 	goto done;
 
 /* error, unwind it all */
+err_light_device_create_file4:
+	device_remove_file(cm36651->light_dev, &dev_attr_vendor);
+err_light_device_create_file3:
+	device_remove_file(cm36651->light_dev, &dev_attr_raw_data);
+err_light_device_create_file2:
+	device_remove_file(cm36651->light_dev, &dev_attr_lux);
 err_light_device_create_file1:
 	sensors_classdev_unregister(cm36651->light_dev);
 err_light_device_create:
+	device_remove_file(cm36651->proximity_dev, &dev_attr_name);
+err_proximity_device_create_file5:
+	device_remove_file(cm36651->proximity_dev, &dev_attr_vendor);
+err_proximity_device_create_file6:
+	device_remove_file(cm36651->proximity_dev, &dev_attr_prox_thresh);
+err_proximity_device_create_file4:
 	device_remove_file(cm36651->proximity_dev, &dev_attr_prox_avg);
 err_proximity_device_create_file3:
 #ifdef CM36651_CANCELATION
 	device_remove_file(cm36651->proximity_dev, &dev_attr_prox_cal);
 err_proximity_device_create_file2:
 #endif
+	device_remove_file(cm36651->proximity_dev, &attr_prox_raw);
+err_proximity_device_create_file7:
 	device_remove_file(cm36651->proximity_dev, &dev_attr_state);
 err_proximity_device_create_file1:
 	sensors_classdev_unregister(cm36651->proximity_dev);
@@ -1086,7 +1243,8 @@ static int cm36651_i2c_remove(struct i2c_client *client)
 	if (cm36651->power_state & PROXIMITY_ENABLED) {
 		cm36651_i2c_write_byte(cm36651, CM36651_PS, PS_CONF1,
 					   0x01);
-		cm36651->pdata->cm36651_led_on(false);
+		if (cm36651->pdata->cm36651_led_on)
+			cm36651->pdata->cm36651_led_on(false);
 	}
 
 	/* destroy workqueue */
@@ -1094,12 +1252,20 @@ static int cm36651_i2c_remove(struct i2c_client *client)
 	destroy_workqueue(cm36651->prox_wq);
 
 	/* sysfs destroy */
+	device_remove_file(cm36651->light_dev, &dev_attr_name);
+	device_remove_file(cm36651->light_dev, &dev_attr_vendor);
+	device_remove_file(cm36651->light_dev, &dev_attr_raw_data);
 	device_remove_file(cm36651->light_dev, &dev_attr_lux);
 	sensors_classdev_unregister(cm36651->light_dev);
+
+	device_remove_file(cm36651->proximity_dev, &dev_attr_name);
+	device_remove_file(cm36651->proximity_dev, &dev_attr_vendor);
+	device_remove_file(cm36651->proximity_dev, &dev_attr_prox_thresh);
 	device_remove_file(cm36651->proximity_dev, &dev_attr_prox_avg);
 #ifdef CM36651_CANCELATION
 	device_remove_file(cm36651->proximity_dev, &dev_attr_prox_cal);
 #endif
+	device_remove_file(cm36651->proximity_dev, &attr_prox_raw);
 	device_remove_file(cm36651->proximity_dev, &dev_attr_state);
 	sensors_classdev_unregister(cm36651->proximity_dev);
 

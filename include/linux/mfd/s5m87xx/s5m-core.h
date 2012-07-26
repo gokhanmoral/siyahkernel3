@@ -320,6 +320,7 @@ struct s5m87xx_dev {
 	u8 irq_masks_cache[NUM_IRQ_REGS];
 	int type;
 	bool wakeup;
+	bool wtsr_smpl;
 };
 
 int s5m_irq_init(struct s5m87xx_dev *s5m87xx);
@@ -333,42 +334,52 @@ extern int s5m_bulk_write(struct i2c_client *i2c, u8 reg, int count, u8 *buf);
 extern int s5m_reg_update(struct i2c_client *i2c, u8 reg, u8 val, u8 mask);
 
 struct s5m_platform_data {
+	struct s5m_regulator_data	*regulators;
+	struct s5m_opmode_data		*opmode_data;
+
 	int				device_type;
+	int				num_regulators;
+	int				(*cfg_pmic_irq)(void);
 
 	/* IRQ */
 	int				irq_gpio;
 	int				irq_base;
+
 	int				ono;
 	bool				wakeup;
-	int				(*cfg_pmic_irq)(void);
+	bool				buck_voltage_lock;
 
-	/* ---- PMIC ---- */
-	struct s5m_regulator_data	*regulators;
-	int				num_regulators;
-
-	struct s5m_opmode_data *opmode_data;
-
-	int            buck_ramp_delay;
-	bool           buck2_ramp_enable;
-	bool           buck3_ramp_enable;
-	bool           buck4_ramp_enable;
-
-#if 1
-	int            buck_default_idx;
 	int				buck_gpios[3];
+	int				buck_ds[3];
+
 	int				buck2_voltage[8];
 	bool				buck2_gpiodvs;
 	int				buck3_voltage[8];
 	bool				buck3_gpiodvs;
 	int				buck4_voltage[8];
 	bool				buck4_gpiodvs;
-#else
-	int buck234_gpio_dvs[3]; /* GPIO of [0]DVS1, [1]DVS2, [2]DVS3 */
-	int buck234_gpio_selb[3]; /* [0]SELB2, [1]SELB3, [2]SELB4 */
-	unsigned int buck2_voltage[8]; /* buckx_voltage in uV */
-	unsigned int buck3_voltage[8];
-	unsigned int buck4_voltage[8];
-#endif
+
+	int				buck_set1;
+	int				buck_set2;
+	int				buck_set3;
+	int				buck2_enable;
+	int				buck3_enable;
+	int				buck4_enable;
+	int				buck_default_idx;
+	int				buck2_default_idx;
+	int				buck3_default_idx;
+	int				buck4_default_idx;
+
+	int                             buck_ramp_delay;
+	bool                            buck2_ramp_enable;
+	bool                            buck3_ramp_enable;
+	bool                            buck4_ramp_enable;
+
+	bool				wtsr_smpl;
+
+	int				buck2_init;
+	int				buck3_init;
+	int				buck4_init;
 };
 
 #endif /*  __LINUX_MFD_S5M_CORE_H */

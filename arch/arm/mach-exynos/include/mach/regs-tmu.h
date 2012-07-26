@@ -19,6 +19,7 @@ enum tmu_state_t {
 	TMU_STATUS_WARNING,
 	TMU_STATUS_TRIPPED,
 	TMU_STATUS_INIT,
+	TMU_STATUS_TC,
 };
 
 #define FREQ_IN_PLL       24000000  /* 24MHZ in Hz */

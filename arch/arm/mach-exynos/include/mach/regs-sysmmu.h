@@ -24,5 +24,10 @@
 #define S5P_AW_FAULT_ADDR		0x028
 #define S5P_AR_FAULT_ADDR		0x02C
 #define S5P_DEFAULT_SLAVE_ADDR		0x030
+#define S5P_MMU_VERSION			0x034
+#define S5P_PB0_SADDR			0x04C
+#define S5P_PB0_EADDR			0x050
+#define S5P_PB1_SADDR			0x054
+#define S5P_PB1_EADDR			0x058
 
 #endif /* __ASM_ARCH_REGS_SYSMMU_H */

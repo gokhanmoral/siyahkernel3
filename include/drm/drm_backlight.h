@@ -12,6 +12,13 @@
 enum drm_bl_class_type {
 	BL_BACKLIGHT_CLASS,
 	BL_LCD_CLASS,
+	BL_TSP_CLASS
+};
+
+struct drm_bl_notifier {
+	struct device dev;
+	void (*set_power)(void *priv, int power);
+	void *priv;
 };
 
 extern int drm_bl_register(struct device *dev, int type);

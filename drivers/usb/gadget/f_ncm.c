@@ -1392,15 +1392,11 @@ int ncm_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN])
 			__func__, ethaddr[0], ethaddr[1],
 			ethaddr[2], ethaddr[3], ethaddr[4],
 			ethaddr[5]);
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-	memcpy(ncm->ethaddr, ethaddr, sizeof ethaddr);
-#else
 	/* export host's Ethernet address in CDC format */
 	snprintf(ncm->ethaddr, sizeof ncm->ethaddr,
 		"%02X%02X%02X%02X%02X%02X",
 		ethaddr[0], ethaddr[1], ethaddr[2],
 		ethaddr[3], ethaddr[4], ethaddr[5]);
-#endif
 	printk(KERN_DEBUG "usb: %s after MAC:%02X:%02X:%02X:%02X:%02X:%02X\n",
 			__func__, ncm->ethaddr[0], ncm->ethaddr[1],
 			ncm->ethaddr[2], ncm->ethaddr[3], ncm->ethaddr[4],

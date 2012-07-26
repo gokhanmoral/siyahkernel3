@@ -749,6 +749,9 @@ static long ipc_spi_ioctl(struct file *filp,
 	printk(KERN_ERR "[%s]\n", __func__);
 
 	switch (cmd) {
+	case ONEDRAM_CP_CRASH:
+		panic("CP Crash");
+		break;
 	case ONEDRAM_REL_SEM:
 		r = ipc_spi_thread_restart();
 		break;
@@ -2194,12 +2197,20 @@ static int ipc_spi_thread(void *data)
 	u8 rx_loopback_data;
 	int i, rx_loopback_count = 0;
 #endif
+
+#if defined(CONFIG_MACH_Q1_BD)
 	u32 val = __raw_readl(S5P_INFORM2);
 
 	if (val == 1) {
 		printk(KERN_ERR "[LPM mode] ipc_spi_thread exit!\n");
 		goto exit;
 	}
+#else
+	if (lpcharge == 1) {
+		printk(KERN_ERR "[LPM mode] ipc_spi_thread exit!\n");
+		goto exit;
+	}
+#endif
 
 	daemonize("ipc_spi_thread");
 

@@ -28,15 +28,19 @@ static inline int fimg2d_queue_is_empty(struct list_head *q)
 	return list_empty(q);
 }
 
-static inline struct fimg2d_bltcmd *fimg2d_get_first_command(struct fimg2d_control *info)
+static inline
+struct fimg2d_bltcmd *fimg2d_get_first_command(struct fimg2d_control *info)
 {
 	if (list_empty(&info->cmd_q))
 		return NULL;
-	else
-		return list_first_entry(&info->cmd_q, struct fimg2d_bltcmd, node);
+
+	return list_first_entry(&info->cmd_q, struct fimg2d_bltcmd, node);
 }
 
-void fimg2d_add_context(struct fimg2d_control *info, struct fimg2d_context *ctx);
-void fimg2d_del_context(struct fimg2d_control *info, struct fimg2d_context *ctx);
-int fimg2d_add_command(struct fimg2d_control *info, struct fimg2d_context *ctx,
-			struct fimg2d_blit __user *u);
+void fimg2d_add_context(struct fimg2d_control *info,
+		struct fimg2d_context *ctx);
+void fimg2d_del_context(struct fimg2d_control *info,
+		struct fimg2d_context *ctx);
+int fimg2d_add_command(struct fimg2d_control *info,
+		struct fimg2d_context *ctx, struct fimg2d_blit *blit);
+void fimg2d_del_command(struct fimg2d_control *info, struct fimg2d_bltcmd *cmd);

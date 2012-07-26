@@ -5,6 +5,13 @@ config LEDS_GPIO_REGISTER
 	  As this function is used by arch code it must not be compiled as a
 	  module.
 
+config LEDS_SPFCW043
+	bool "LED support for the SPFCW043"
+	default n
+	help
+	  This option enables support for the LEDs on the SPFCW043.
+
+
 menuconfig NEW_LEDS
 	bool "LED Support"
 	help

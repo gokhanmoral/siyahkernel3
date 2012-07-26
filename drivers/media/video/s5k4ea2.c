@@ -20,7 +20,7 @@
 #include <media/v4l2-subdev.h>
 #include <media/s5k4ea_platform.h>
 
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 
 #include "s5k4ea.h"
 

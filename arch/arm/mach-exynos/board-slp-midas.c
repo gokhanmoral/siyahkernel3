@@ -218,7 +218,7 @@ static int ext_cd_cleanup_hsmmc##num(void (*notify_func)( \
  * that can't be told by SDHCI regs
  */
 
-void sdhci_s3c_force_presence_change(struct platform_device *pdev)
+void mmc_force_presence_change(struct platform_device *pdev)
 {
 	void (*notify_func)(struct platform_device *, int state) = NULL;
 	mutex_lock(&notify_lock);
@@ -232,7 +232,7 @@ void sdhci_s3c_force_presence_change(struct platform_device *pdev)
 		pr_warn("%s: called for device with no notifier\n", __func__);
 	mutex_unlock(&notify_lock);
 }
-EXPORT_SYMBOL_GPL(sdhci_s3c_force_presence_change);
+EXPORT_SYMBOL_GPL(mmc_force_presence_change);
 
 #ifdef CONFIG_S3C_DEV_HSMMC3
 static struct s3c_sdhci_platdata slp_midas_hsmmc3_pdata __initdata = {
@@ -404,7 +404,7 @@ static struct melfas_tsi_platform_data melfas_tsp_pdata = {
 	.enable_btn_touch = true,
 	.set_touch_i2c = melfas_set_touch_i2c,
 	.set_touch_i2c_to_gpio = melfas_set_touch_i2c_to_gpio,
-	.input_event = flexrate_request,
+	.input_event = midas_tsp_request_qos,
 };
 
 static struct i2c_board_info i2c_devs0[] __initdata = {
@@ -617,16 +617,20 @@ static struct platform_device midas_slp_usb_multi = {
 
 #ifdef CONFIG_DRM_EXYNOS_FIMD
 static struct exynos_drm_fimd_pdata drm_fimd_pdata = {
-	.timing	= {
-		.xres		= 720,
-		.yres		= 1280,
-		.hsync_len	= 5,
-		.left_margin	= 10,
-		.right_margin	= 10,
-		.vsync_len	= 2,
-		.upper_margin	= 13,
-		.lower_margin	= 1,
-		.refresh	= 60,
+	.panel = {
+		.timing	= {
+			.xres		= 720,
+			.yres		= 1280,
+			.hsync_len	= 5,
+			.left_margin	= 10,
+			.right_margin	= 10,
+			.vsync_len	= 2,
+			.upper_margin	= 13,
+			.lower_margin	= 1,
+			.refresh	= 60,
+		},
+		.width_mm	= 58,
+		.height_mm	= 103,
 	},
 	.vidcon0	= VIDCON0_VIDOUT_RGB | VIDCON0_PNRMODE_RGB,
 	.vidcon1	= VIDCON1_INV_VCLK,
@@ -997,7 +1001,7 @@ static struct exynos4_bus_platdata devfreq_bus_pdata = {
 		.upthreshold = 90,
 		.downdifferential = 10,
 	},
-	.polling_ms = 5,
+	.polling_ms = 50,
 };
 static struct platform_device devfreq_busfreq __initdata = {
 	.name		= "exynos4412-busfreq",
@@ -1150,7 +1154,7 @@ static void __init exynos4_reserve_mem(void)
 			.start = 0
 		},
 #endif
-#if !defined(CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION) && \
+#if !defined(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION) && \
 	defined(CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1)
 		{
 			.name = "fimc1",
@@ -1249,7 +1253,7 @@ static void __init midas_map_io(void)
 #endif
 }
 
-static void __init madis_fb_init(void)
+static void __init midas_fb_init(void)
 {
 #ifdef CONFIG_S5P_MIPI_DSI2
 	struct s5p_platform_mipi_dsim *dsim_pd;
@@ -1258,7 +1262,7 @@ static void __init madis_fb_init(void)
 	dsim_pd = (struct s5p_platform_mipi_dsim *)&dsim_platform_data;
 
 	strcpy(dsim_pd->lcd_panel_name, "s6e8aa0");
-	dsim_pd->lcd_panel_info = (void *)&drm_fimd_pdata.timing;
+	dsim_pd->lcd_panel_info = (void *)&drm_fimd_pdata.panel.timing;
 
 	s5p_mipi_dsi_register_lcd_device(&mipi_lcd_device);
 	platform_device_register(&s5p_device_mipi_dsim0);
@@ -1411,7 +1415,7 @@ static void __init midas_machine_init(void)
 
 	platform_add_devices(slp_midas_devices, ARRAY_SIZE(slp_midas_devices));
 
-	madis_fb_init();
+	midas_fb_init();
 
 #ifdef CONFIG_VIDEO_MFC5X
 	s5p_device_mfc.dev.parent = &exynos4_device_pd[PD_MFC].dev;

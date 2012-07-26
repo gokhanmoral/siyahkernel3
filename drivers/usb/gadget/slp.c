@@ -26,6 +26,7 @@
 #include <linux/kernel.h>
 #include <linux/utsname.h>
 #include <linux/platform_device.h>
+#include <linux/mutex.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/composite.h>
@@ -64,6 +65,7 @@
 #include "f_sdb.c"
 #include "f_acm.c"
 #include "f_mtp_slp.c"
+#include "f_accessory.c"
 #define USB_ETH_RNDIS y
 #include "f_rndis.c"
 #include "rndis.c"
@@ -134,6 +136,8 @@ static int android_bind_config(struct usb_configuration *c);
 static void android_unbind_config(struct usb_configuration *c);
 static int android_setup(struct usb_configuration *c,
 			 const struct usb_ctrlrequest *ctrl);
+
+static DEFINE_MUTEX(enable_lock);
 
 /* string IDs are assigned dynamically */
 #define STRING_MANUFACTURER_IDX		0
@@ -439,6 +443,7 @@ struct rndis_function_config {
 	u32 vendorID;
 	char manufacturer[256];
 	bool wceis;
+	u8 rndis_string_defs0_id;
 };
 static char host_addr_string[18];
 
@@ -455,15 +460,11 @@ static int rndis_function_init(struct android_usb_function *f,
 	/* maybe allocate device-global string IDs */
 	if (rndis_string_defs[0].id == 0) {
 
-		/* ... and setup RNDIS itself */
-		status = rndis_init();
-		if (status < 0)
-			goto rndis_init_error;
-
 		/* control interface label */
 		status = usb_string_id(cdev);
 		if (status < 0)
 			goto rndis_init_error;
+		config->rndis_string_defs0_id = status;
 		rndis_string_defs[0].id = status;
 		rndis_control_intf.iInterface = status;
 
@@ -528,7 +529,7 @@ static int rndis_function_bind_config(struct android_usb_function *f,
 
 	ret = gether_setup(c->cdev->gadget, rndis->ethaddr);
 	if (ret) {
-		pr_err("%s: gether_setup failed\n", __func__);
+		pr_err("%s: gether_setup failed(ret:%d)\n", __func__, ret);
 		return ret;
 	}
 
@@ -544,8 +545,34 @@ static int rndis_function_bind_config(struct android_usb_function *f,
 		rndis_control_intf.bInterfaceProtocol = 0x03;
 	}
 
-	return rndis_bind_config(c, rndis->ethaddr, rndis->vendorID,
+	/* ... and setup RNDIS itself */
+	ret = rndis_init();
+	if (ret < 0) {
+		pr_err("%s: rndis_init failed(ret:%d)\n", __func__, ret);
+		gether_cleanup();
+		return ret;
+	}
+
+	/* Android team reset "rndis_string_defs[0].id" when RNDIS unbinded
+	 * in f_rndis.c but, that makes failure of rndis_bind_config() by
+	 * the overflow of "next_string_id" value in usb_string_id().
+	 * So, Android team also reset "next_string_id" value in android.c
+	 * but SLP does not reset "next_string_id" value. And we decided to
+	 * re-update "rndis_string_defs[0].id" by old value.
+	 * 20120224 yongsul96.oh@samsung.com
+	 */
+	if (rndis_string_defs[0].id == 0)
+		rndis_string_defs[0].id = rndis->rndis_string_defs0_id;
+
+	ret = rndis_bind_config(c, rndis->ethaddr, rndis->vendorID,
 				 rndis->manufacturer);
+	if (ret) {
+		rndis_exit();
+		gether_cleanup();
+		pr_err("%s: rndis_bind_config failed(ret:%d)\n", __func__, ret);
+	}
+
+	return ret;
 }
 
 static void rndis_function_unbind_config(struct android_usb_function *f,
@@ -791,12 +818,56 @@ static struct android_usb_function mass_storage_function = {
 	.attributes = mass_storage_function_attributes,
 };
 
+static int accessory_function_init(struct android_usb_function *f,
+					struct usb_composite_dev *cdev)
+{
+	int ret;
+
+	/* pre-allocate a string ID for f-accessory interface */
+	if (acc_string_defs[INTERFACE_STRING_INDEX].id == 0) {
+		ret = usb_string_id(cdev);
+		if (ret < 0)
+			return ret;
+		acc_string_defs[INTERFACE_STRING_INDEX].id = ret;
+		acc_interface_desc.iInterface = ret;
+	}
+
+	return acc_setup();
+}
+
+static void accessory_function_cleanup(struct android_usb_function *f)
+{
+	acc_cleanup();
+}
+
+static int accessory_function_bind_config(struct android_usb_function *f,
+						struct usb_configuration *c)
+{
+	return acc_bind_config(c);
+}
+
+static int accessory_function_ctrlrequest(struct android_usb_function *f,
+						struct usb_composite_dev *cdev,
+						const struct usb_ctrlrequest *c)
+{
+	return acc_ctrlrequest(cdev, c);
+}
+
+static struct android_usb_function accessory_function = {
+	.name		= "accessory",
+	.init		= accessory_function_init,
+	.cleanup	= accessory_function_cleanup,
+	.bind_config	= accessory_function_bind_config,
+	.ctrlrequest	= accessory_function_ctrlrequest,
+};
+
 static struct android_usb_function *supported_functions[] = {
 	&sdb_function,
 	&acm_function,
 	&mtp_function,
 	&rndis_function,
 	&mass_storage_function,
+	&accessory_function,
 	NULL
 };
 
@@ -993,14 +1064,17 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	struct android_dev *adev = dev_get_drvdata(pdev);
 	struct usb_composite_dev *cdev = adev->cdev;
 	int enabled = 0;
+	int err;
 
 	sscanf(buff, "%d", &enabled);
 	printk(KERN_DEBUG "usb: %s enabled=%d, !adev->enabled=%d\n",
 	       __func__, enabled, !adev->enabled);
+
+	mutex_lock(&enable_lock);
+
 	if (enabled && !adev->enabled) {
 		struct android_usb_function *f;
 
-		adev->enabled = true;
 		/* update values in composite driver's
 		 * copy of device descriptor
 		 */
@@ -1026,6 +1100,7 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		cdev->desc.bDeviceClass = device_desc.bDeviceClass;
 		cdev->desc.bDeviceSubClass = device_desc.bDeviceSubClass;
 		cdev->desc.bDeviceProtocol = device_desc.bDeviceProtocol;
+
 		printk(KERN_DEBUG "usb: %s vendor=%x,product=%x,bcdDevice=%x",
 		       __func__, cdev->desc.idVendor,
 		       cdev->desc.idProduct, cdev->desc.bcdDevice);
@@ -1034,11 +1109,28 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		       cdev->desc.bDeviceSubClass, cdev->desc.bDeviceProtocol);
 		printk(KERN_DEBUG "usb: %s next cmd : usb_add_config\n",
 		       __func__);
-		usb_add_config(cdev, &first_config_driver, android_bind_config);
-		if (adev->dual_config)
-			usb_add_config(cdev, &second_config_driver,
+
+		err = usb_add_config(cdev,
+				&first_config_driver, android_bind_config);
+		if (err) {
+			pr_err("usb_add_config fail-1st(%d)\n", err);
+			adev->dual_config = false;
+			goto done;
+		}
+
+		if (adev->dual_config) {
+			err = usb_add_config(cdev, &second_config_driver,
 				       android_bind_config);
+			if (err) {
+				pr_err("usb_add_config fail-2nd(%d)\n", err);
+				usb_remove_config(cdev, &first_config_driver);
+				adev->dual_config = false;
+				goto done;
+			}
+		}
+
 		usb_gadget_connect(cdev->gadget);
+		adev->enabled = true;
 	} else if (!enabled && adev->enabled) {
 		usb_gadget_disconnect(cdev->gadget);
 		/* Cancel pending control requests */
@@ -1055,6 +1147,9 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		pr_err("android_usb: already %s\n",
 		       adev->enabled ? "enabled" : "disabled");
 	}
+
+done:
+	mutex_unlock(&enable_lock);
 	return size;
 }
 
@@ -1234,10 +1329,9 @@ android_setup(struct usb_configuration *c, const struct usb_ctrlrequest *ctrl)
 	struct android_usb_function *f;
 	int value = -EOPNOTSUPP;
 
-	list_for_each_entry(f, &adev->enabled_functions, enabled_list) {
-		if (f->ctrlrequest
-		    && ((f->usb_config_id == c->bConfigurationValue)
-			|| (f->usb_config_id == USB_CONFIGURATION_DUAL))) {
+	/* To check & report it to platform , we check it all */
+	list_for_each_entry(f, &adev->available_functions, available_list) {
+		if (f->ctrlrequest) {
 			value = f->ctrlrequest(f, c->cdev, ctrl);
 			if (value >= 0)
 				break;

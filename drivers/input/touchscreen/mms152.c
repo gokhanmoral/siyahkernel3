@@ -106,31 +106,22 @@
 #define PRESS_KEY		1
 #define RELEASE_KEY		0
 
-#define SHOW_COORD		1
+#define SHOW_COORD		0
 #define DEBUG_PRINT		0
 #define DEBUG_MODE
 
-#define TOUCH_BOOSTER		0
-#define TOUCH_BOOSTER_TIME	3000
+#define TOUCH_BOOSTER		1
+#define SEC_DVFS_LOCK_TIMEOUT	3
 
 #define	X_LINE			20
 #define	Y_LINE			31
 #define	TSP_CHIP_VENDER_NAME	"MELFAS,MMS152"
 
-#define TSP_STATE_INACTIVE	-1
-#define TSP_STATE_RELEASE	0
-#define TSP_STATE_PRESS		1
-#define TSP_STATE_MOVE		2
-
-#define REPORT_MT(x, y, amplitude, width, strength) \
-do {     \
-	input_report_abs(ts->input_dev, ABS_MT_POSITION_X, x);	\
-	input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, y);	\
-	input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, amplitude);	\
-	input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, width);	\
-	input_report_key(ts->input_dev, BTN_TOUCH, !!strength);	\
-} while (0)
-
+enum {
+	TSP_STATE_RELEASE = 0,
+	TSP_STATE_PRESS,
+	TSP_STATE_MOVE,
+};
 
 #if SET_DOWNLOAD_BY_GPIO
 #include "mms152_download.h"
@@ -143,9 +134,13 @@ struct melfas_ts_data {
 	struct ts_platform_data *pdata;
 	struct work_struct  work;
 	struct tsp_callbacks cb;
+	struct mutex m_lock;
 #if TOUCH_BOOSTER
 	struct delayed_work  dvfs_work;
+	bool dvfs_lock_status;
+	int cpufreq_level;
 #endif
+	u8 finger_state[MELFAS_MAX_TOUCH];
 	uint32_t flags;
 	bool charging_status;
 	bool tsp_status;
@@ -169,12 +164,6 @@ static struct multi_touch_info g_Mtouch_info[MELFAS_MAX_TOUCH];
 
 static bool debug_print;
 static int firm_status_data;
-
-#if TOUCH_BOOSTER
-static bool dvfs_lock_status;
-static bool press_status;
-static int cpu_lv = -1;
-#endif
 
 #ifdef DEBUG_MODE
 static bool debug_on;
@@ -826,33 +815,68 @@ static int firmware_update(struct melfas_ts_data *ts)
 	return ret;
 }
 
+#if TOUCH_BOOSTER
+static void free_dvfs_lock(struct work_struct *work)
+{
+
+	struct melfas_ts_data *ts = container_of(work,
+			struct melfas_ts_data, dvfs_work.work);
+
+	mutex_lock(&ts->m_lock);
+	exynos4_busfreq_lock_free(DVFS_LOCK_ID_TSP);
+	exynos_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
+	ts->dvfs_lock_status = false;
+	pr_info("[TSP] DVFS Off!");
+	mutex_unlock(&ts->m_lock);
+}
+
+static void set_dvfs_lock(struct melfas_ts_data *ts, uint32_t on)
+{
+	mutex_lock(&ts->m_lock);
+	if (ts->cpufreq_level <= 0) {
+#ifdef CONFIG_TARGET_LOCALE_P2TMO_TEMP
+		/*dvfs freq is temp modified to resolve dvfs kernel panic*/
+		exynos_cpufreq_get_level(800000, &ts->cpufreq_level);
+#else
+		exynos_cpufreq_get_level(500000, &ts->cpufreq_level);
+#endif
+	}
+	if (on == 0) {
+		if (ts->dvfs_lock_status)
+			schedule_delayed_work(&ts->dvfs_work,
+						SEC_DVFS_LOCK_TIMEOUT * HZ);
+	} else if (on == 1) {
+		cancel_delayed_work(&ts->dvfs_work);
+		if (!ts->dvfs_lock_status) {
+			exynos4_busfreq_lock(DVFS_LOCK_ID_TSP, BUS_L1);
+			exynos_cpufreq_lock(DVFS_LOCK_ID_TSP,
+						ts->cpufreq_level);
+			ts->dvfs_lock_status = true;
+			pr_info("[TSP] DVFS On![%d]", ts->cpufreq_level);
+		}
+	} else if (on == 2) {
+		cancel_delayed_work(&ts->dvfs_work);
+		schedule_work(&ts->dvfs_work.work);
+	}
+	mutex_unlock(&ts->m_lock);
+}
+#endif
 
 static void release_all_fingers(struct melfas_ts_data *ts)
 {
 	int i;
 
 	for (i = 0; i < MELFAS_MAX_TOUCH; i++) {
-		g_Mtouch_info[i].status = TSP_STATE_INACTIVE;
-		g_Mtouch_info[i].posX = 0;
-		g_Mtouch_info[i].posY = 0;
-		g_Mtouch_info[i].strength = 0;
-		g_Mtouch_info[i].width = 0;
-
+		ts->finger_state[i] = TSP_STATE_RELEASE;
 		input_mt_slot(ts->input_dev, i);
-		input_mt_report_slot_state(ts->input_dev,
-			MT_TOOL_FINGER, 0);
+		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER,
+									false);
 	}
-
 	input_sync(ts->input_dev);
 
 #if TOUCH_BOOSTER
-	if (dvfs_lock_status) {
-		s5pv310_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
-		dvfs_lock_status = false;
-		press_status = false;
-		pr_info("[TSP] release_all_fingers : DVFS mode exit ");
-	} else
-		pr_info("[TSP] release_all_fingers ");
+	set_dvfs_lock(ts, 2);
+	pr_info("[TSP] release_all_fingers ");
 #endif
 }
 
@@ -907,9 +931,8 @@ static void melfas_ts_read_input(struct melfas_ts_data *ts)
 	int ret = 0, i;
 	uint8_t buf[TS_READ_REGS_LEN];
 	int touchStatus = 0;
-	int read_num, FingerID;
-	int press_count = 0;
-	int pre_str = 0;
+	int read_num, id, posX, posY, str, width;
+	int press_flag = 0;
 
 #if DEBUG_PRINT
 	pr_err("[TSP] melfas_ts_read_input\n");
@@ -947,144 +970,100 @@ static void melfas_ts_read_input(struct melfas_ts_data *ts)
 	pr_info("[TSP]touch count :[%d]", read_num/6);
 #endif
 
-	if (read_num > 0) {
-		ret = read_input_info(ts, buf, TS_READ_START_ADDR2, read_num);
-		if (ret < 0) {
-			pr_err("[TSP] Failed to read the touch info");
-			for (i = 0; i < P2_MAX_I2C_FAIL; i++) {
-				ret = read_input_info(ts, buf,
-					TS_READ_START_ADDR2, read_num);
-				if (ret >= 0)
-					break;
-			}
-			if (i == P2_MAX_I2C_FAIL) {
-				pr_err("[TSP] Melfas_ESD I2C FAIL\n");
-				reset_tsp(ts);
-				return ;
-			}
+	if (read_num <= 0) {
+		pr_err("[TSP] read_num error [%d]\n", read_num);
+		return;
+	}
+
+	ret = read_input_info(ts, buf, TS_READ_START_ADDR2, read_num);
+	if (ret < 0) {
+		pr_err("[TSP] Failed to read the touch info");
+		for (i = 0; i < P2_MAX_I2C_FAIL; i++) {
+			ret = read_input_info(ts, buf,
+				TS_READ_START_ADDR2, read_num);
+			if (ret >= 0)
+				break;
 		}
-
-		touchStatus = buf[0] & 0xFF;
-
-		if (touchStatus == 0x0F) {
-			pr_info("[TSP] TSP ESD Detection [%x]", buf[0]);
+		if (i == P2_MAX_I2C_FAIL) {
+			pr_err("[TSP] Melfas_ESD I2C FAIL\n");
 			reset_tsp(ts);
 			return ;
-		} else if (touchStatus == 0x1F) {
-			pr_info("[TSP] TSP RF Noise Detection [%x]", buf[0]);
-			return ;
 		}
+	}
 
-		for (i = 0; i < read_num; i = i+6) {
-			FingerID = (buf[i] & 0x0F)-1;
-			g_Mtouch_info[FingerID].posX =
-				(uint16_t)(buf[i+1] & 0x0F) << 8 | buf[i+2];
-			g_Mtouch_info[FingerID].posY =
-				(uint16_t)(buf[i+1] & 0xF0) << 4 | buf[i+3];
-			g_Mtouch_info[FingerID].width = buf[i+5];
+	touchStatus = buf[0] & 0xFF;
 
-			if ((buf[i] & 0x80) == 0) {
-				g_Mtouch_info[FingerID].strength = 0;
-				g_Mtouch_info[FingerID].status =
-							TSP_STATE_RELEASE;
-			} else {
-				pre_str = g_Mtouch_info[FingerID].strength;
-				g_Mtouch_info[FingerID].strength = buf[i + 4];
+	if (touchStatus == 0x0F) {
+		pr_info("[TSP] TSP ESD Detection [%x]", buf[0]);
+		reset_tsp(ts);
+		return ;
+	} else if (touchStatus == 0x1F) {
+		pr_info("[TSP] TSP RF Noise Detection [%x]", buf[0]);
+		return ;
+	}
 
-				if (TSP_STATE_PRESS ==
-					g_Mtouch_info[FingerID].status)
-					g_Mtouch_info[FingerID].status =
-							TSP_STATE_MOVE;
-				else
-					g_Mtouch_info[FingerID].status =
-							TSP_STATE_PRESS;
-			}
+	for (i = 0; i < read_num; i = i+6) {
+		id = (buf[i] & 0x0F)-1;
+		posX = (u16)(buf[i+1] & 0x0F) << 8 | buf[i+2];
+		posY = (u16)(buf[i+1] & 0xF0) << 4 | buf[i+3];
+		str = buf[i + 4];
+		width = buf[i+5];
 
-#if SHOW_COORD
-			if (g_Mtouch_info[FingerID].status
-						== TSP_STATE_RELEASE)
-				pr_err("[TSP] R[%2d],([%4d],[%3d]),S:%d W:%d",
-					FingerID,
-					g_Mtouch_info[FingerID].posX,
-					g_Mtouch_info[FingerID].posY,
-					g_Mtouch_info[FingerID].strength,
-					g_Mtouch_info[FingerID].width);
-			else if (g_Mtouch_info[FingerID].status
-						== TSP_STATE_PRESS
-						&& pre_str == 0)
-				pr_err("[TSP] P[%2d],([%4d],[%3d]),S:%d W:%d",
-					FingerID,
-					g_Mtouch_info[FingerID].posX,
-					g_Mtouch_info[FingerID].posY,
-					g_Mtouch_info[FingerID].strength,
-					g_Mtouch_info[FingerID].width);
-#else
-			if (g_Mtouch_info[FingerID].status
-						== TSP_STATE_RELEASE)
-				pr_info("[TSP] R[%1d]\n", FingerID);
-			else if (g_Mtouch_info[FingerID].status
-						== TSP_STATE_PRESS
-						&& pre_str == 0)
-				pr_info("[TSP] P[%1d]\n", FingerID);
-#endif
-		}
-
-		for (i = 0; i < MELFAS_MAX_TOUCH; i++) {
-			if (TSP_STATE_INACTIVE == g_Mtouch_info[i].status)
+		if ((buf[i] & 0x80) == TSP_STATE_RELEASE) {
+			if (ts->finger_state[id] == TSP_STATE_RELEASE) {
+				pr_err("[TSP] abnormal release");
 				continue;
-
-			input_mt_slot(ts->input_dev, i);
+			}
+			input_mt_slot(ts->input_dev, id);
 			input_mt_report_slot_state(ts->input_dev,
-				MT_TOOL_FINGER, !!g_Mtouch_info[i].strength);
+						MT_TOOL_FINGER, false);
+#if SHOW_COORD
+			pr_info("[TSP] R [%d],([%4d],[%3d]),S:%d W:%d (%d)",
+					id, posX, posY, str, width,
+					ts->finger_state[id]);
+#else
+			pr_info("[TSP] R [%d] (%d)", id, ts->finger_state[id]);
+#endif
+			ts->finger_state[id] = TSP_STATE_RELEASE;
+		} else {
+			input_mt_slot(ts->input_dev, id);
+			input_mt_report_slot_state(ts->input_dev,
+						MT_TOOL_FINGER, true);
+			input_report_abs(ts->input_dev,
+						ABS_MT_POSITION_X, posX);
+			input_report_abs(ts->input_dev,
+						ABS_MT_POSITION_Y, posY);
+			input_report_abs(ts->input_dev,
+						ABS_MT_TOUCH_MAJOR, str);
+			input_report_abs(ts->input_dev,
+						ABS_MT_WIDTH_MAJOR, width);
 
-			if (TSP_STATE_RELEASE == g_Mtouch_info[i].status) {
-				g_Mtouch_info[i].status = TSP_STATE_INACTIVE;
-				continue;
-			}
-
-			REPORT_MT(g_Mtouch_info[i].posX,
-				g_Mtouch_info[i].posY,
-				g_Mtouch_info[i].strength,
-				g_Mtouch_info[i].width,
-				g_Mtouch_info[i].strength);
-
-			press_count++;
-
+			if (ts->finger_state[id] == TSP_STATE_RELEASE) {
+#if SHOW_COORD
+				pr_info("[TSP] P [%d],([%4d],[%3d]),S:%d W:%d",
+						id, posX, posY, str, width);
+#else
+				pr_info("[TSP] P [%d]", id);
+#endif
+				ts->finger_state[id] = TSP_STATE_PRESS;
+			} else if (ts->finger_state[id] == TSP_STATE_PRESS)
+				ts->finger_state[id] = TSP_STATE_MOVE;
 		}
-		input_sync(ts->input_dev);
+	}
+	input_sync(ts->input_dev);
+
+	for (i = 0 ; i < MELFAS_MAX_TOUCH ; i++) {
+		if (ts->finger_state[i] == TSP_STATE_PRESS
+			|| ts->finger_state[i] == TSP_STATE_MOVE) {
+			press_flag = 1;
+			break;
+		}
+	}
 
 #if TOUCH_BOOSTER
-		if (press_count)
-			press_status = true;
-		else
-			press_status = false;
-
-		cancel_delayed_work(&ts->dvfs_work);
-		schedule_delayed_work(&ts->dvfs_work,
-			msecs_to_jiffies(TOUCH_BOOSTER_TIME));
-
-		if (!dvfs_lock_status && press_status) {
-			if (cpu_lv < 0)
-				cpu_lv =
-				s5pv310_cpufreq_round_idx(CPUFREQ_500MHZ);
-			s5pv310_cpufreq_lock(DVFS_LOCK_ID_TSP, cpu_lv);
-			dvfs_lock_status = true;
-			pr_info("[TSP] TSP DVFS mode enter");
-		}
+	set_dvfs_lock(ts, press_flag);
 #endif
-	}
 }
-
-#if TOUCH_BOOSTER
-static void set_dvfs_off(struct work_struct *work)
-{
-	if (dvfs_lock_status && !press_status) {
-		s5pv310_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
-		dvfs_lock_status = false;
-		pr_info("[TSP] TSP DVFS mode exit");
-	}
-}
-#endif
 
 static irqreturn_t melfas_ts_irq_handler(int irq, void *handle)
 {
@@ -2045,6 +2024,8 @@ static int melfas_ts_probe(struct i2c_client *client,
 	ts->touch_id = pdata->gpio_touch_id;
 	ts->tsp_status = true;
 
+	mutex_init(&ts->m_lock);
+
 	ts->cb.inform_charger = inform_charger_connection;
 	if (pdata->register_cb)
 		pdata->register_cb(&ts->cb);
@@ -2079,9 +2060,8 @@ static int melfas_ts_probe(struct i2c_client *client,
 
 	__set_bit(EV_ABS, ts->input_dev->evbit);
 	__set_bit(EV_KEY, ts->input_dev->evbit);
-	__set_bit(BTN_TOUCH, ts->input_dev->keybit);
 
-	input_mt_init_slots(ts->input_dev, MELFAS_MAX_TOUCH - 1);
+	input_mt_init_slots(ts->input_dev, MELFAS_MAX_TOUCH);
 	input_set_abs_params(ts->input_dev,
 				ABS_MT_POSITION_X, 0, TS_MAX_X_COORD, 0, 0);
 	input_set_abs_params(ts->input_dev,
@@ -2108,7 +2088,7 @@ static int melfas_ts_probe(struct i2c_client *client,
 		irq = ts->client->irq;
 
 		ret = request_threaded_irq(irq, NULL, melfas_ts_irq_handler,
-					IRQF_TRIGGER_FALLING,
+					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 					ts->client->name, ts);
 		if (ret) {
 			pr_err("[TSP] %s: Can't allocate irq %d, ret %d\n",
@@ -2119,11 +2099,13 @@ static int melfas_ts_probe(struct i2c_client *client,
 	}
 
 #if TOUCH_BOOSTER
-	INIT_DELAYED_WORK(&ts->dvfs_work, set_dvfs_off);
+	INIT_DELAYED_WORK(&ts->dvfs_work, free_dvfs_lock);
+	ts->cpufreq_level = -1;
+	ts->dvfs_lock_status = false;
 #endif
 
 	for (i = 0; i < MELFAS_MAX_TOUCH; i++)
-		g_Mtouch_info[i].status = TSP_STATE_INACTIVE;
+		ts->finger_state[i] = TSP_STATE_RELEASE;
 
 #if DEBUG_PRINT
 	pr_err("[TSP] melfas_ts_probe: succeed to register input device\n");
@@ -2211,8 +2193,8 @@ static int melfas_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	}
 #endif
 
-	release_all_fingers(ts);
 	disable_irq(ts->client->irq);
+	release_all_fingers(ts);
 
 	ts->power_off();
 

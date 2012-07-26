@@ -38,6 +38,7 @@
 #include <mach/map.h>
 #include <plat/regs-fb-v4.h>
 #include <plat/fb.h>
+#include <plat/cpu.h>
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
@@ -65,6 +66,8 @@
  * configuration data for the system.
 */
 
+#define VALID_MAX_WINDOW_NUM    2
+
 #ifdef CONFIG_FB_S3C_DEBUG_REGWRITE
 #undef writel
 #define writel(v, r) do { \
@@ -84,23 +87,13 @@ extern struct ion_device *ion_exynos;
 #endif
 
 #ifdef CONFIG_FB_EXYNOS_FIMD_MC
-#define SYSREG_MIXER0_VALID	(1 << 7)
-#define SYSREG_MIXER1_VALID	(1 << 4)
 #define FIMD_PAD_SINK_FROM_GSCALER_SRC		0
 #define FIMD_PADS_NUM				1
-
-/* SYSREG for local path between Gscaler and Mixer */
-#define SYSREG_DISP1BLK_CFG	(S3C_VA_SYS + 0x0214)
 #endif
 
 #ifdef CONFIG_FB_EXYNOS_FIMD_MC_WB
-#define SYSREG_DISP1WB_DEST(_x)			((_x) << 10)
-#define SYSREG_DISP1WB_DEST_MASK		(0x3 << 10)
 #define FIMD_WB_PAD_SRC_TO_GSCALER_SINK		0
 #define FIMD_WB_PADS_NUM			1
-
-/* SYSREG for local path between Gscaler and Mixer */
-#define SYSREG_GSCLBLK_CFG	(S3C_VA_SYS + 0x0224)
 #endif
 
 #define VALID_BPP(x) (1 << ((x) - 1))
@@ -1360,8 +1353,15 @@ static int s3c_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	int ret;
 	u32 crtc;
 
+#ifdef CONFIG_ION_EXYNOS
 	struct fb_var_screeninfo *var = &info->var;
 	int offset;
+
+	struct s3c_fb_pd_win *windata = win->windata;
+	void __iomem *buf = sfb->regs + win->index * 8;
+	u32 buf_index;
+	u32 size;
+#endif
 
 	union {
 		struct s3c_fb_user_window user_window;
@@ -1452,6 +1452,28 @@ static int s3c_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		}
 		ret = 0;
 		break;
+
+	case S3CFB_PAN_DISPLAY_INDEX:
+		if (get_user(buf_index, (u32 __user *)arg)) {
+			ret = -EFAULT;
+			break;
+		}
+		size = windata->win_mode.xres * windata->win_mode.yres
+			* var->bits_per_pixel/8;
+
+		shadow_protect_win(win, 1);
+
+		writel(info->fix.smem_start
+			+ (ALIGN(size, SZ_1M) * buf_index),
+			buf + sfb->variant.buf_start);
+		writel(info->fix.smem_start
+			+ (ALIGN(size, SZ_1M) * buf_index) + size,
+			buf + sfb->variant.buf_end);
+
+		shadow_protect_win(win, 0);
+		ret = 0;
+		break;
+
 #endif
 #ifdef CONFIG_VITHAR
 	case IOCTL_GET_FB_UMP_SECURE_ID:
@@ -1561,7 +1583,7 @@ static int __devinit s3c_fb_alloc_memory(struct s3c_fb *sfb,
 	map_dma = (dma_addr_t)cma_alloc(sfb->dev, "fimd", (size_t)size, 0);
 	fbi->screen_base = cma_get_virt(map_dma, size, 1);
 #elif defined(CONFIG_ION_EXYNOS)
-	win->fb_ion_handle = ion_alloc(sfb->fb_ion_client, (size_t)size, 0,
+	win->fb_ion_handle = ion_alloc(sfb->fb_ion_client, (size_t)size, SZ_1M,
 					ION_HEAP_EXYNOS_CONTIG_MASK);
 	if (IS_ERR(win->fb_ion_handle)) {
 		dev_err(sfb->dev, "failed to ion_alloc\n");
@@ -1699,11 +1721,15 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 	win->index = win_no;
 	win->palette_buffer = (u32 *)(win + 1);
 
+    if(win_no < (VALID_MAX_WINDOW_NUM + 1) ){
 	ret = s3c_fb_alloc_memory(sfb, win);
-	if (ret) {
-		dev_err(sfb->dev, "failed to allocate display memory\n");
-		return ret;
-	}
+		if (ret) {
+			dev_err(sfb->dev, "failed to allocate display memory\n");
+			return ret;
+		}
+    }
+	else
+		dev_info(sfb->dev,"Skip alloc memmory, This is dummy window: win: %d\n",win_no);
 
 	/* setup the r/b/g positions for the window's palette */
 	if (win->variant.palette_16bpp) {
@@ -1813,12 +1839,14 @@ static void s3c_fb_early_suspend(struct early_suspend *handler)
 	}
 
 	/* wait for next frame */
-	mdelay(20);
+	msleep(20);
 
 	if (!sfb->variant.has_clksel)
 		clk_disable(sfb->lcd_clk);
 
 	clk_disable(sfb->bus_clk);
+	if (!(soc_is_exynos5250() && samsung_rev() < EXYNOS5250_REV_1_0))
+		pm_runtime_put_sync(sfb->dev);
 
 	return;
 }
@@ -1836,6 +1864,8 @@ static void s3c_fb_late_resume(struct early_suspend *handler)
 	sfb = container_of(handler, struct s3c_fb, early_suspend);
 	pd = sfb->pdata;
 
+	if (!(soc_is_exynos5250() && samsung_rev() < EXYNOS5250_REV_1_0))
+		pm_runtime_get_sync(sfb->dev);
 	clk_enable(sfb->bus_clk);
 
 	if (!sfb->variant.has_clksel)
@@ -1852,6 +1882,11 @@ static void s3c_fb_late_resume(struct early_suspend *handler)
 		reg |= VIDCON1_VCLK_RUN;
 		writel(reg, sfb->regs + VIDCON1);
 	}
+
+	/* disable auto-clock gate mode */
+	if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+		writel(REG_CLKGATE_MODE_NON_CLOCK_GATE,
+			sfb->regs + REG_CLKGATE_MODE);
 
 	/* zero all windows before we do anything */
 	for (win_no = 0; win_no < sfb->variant.nr_windows; win_no++)
@@ -1914,6 +1949,10 @@ static int s3c_fb_sd_pad_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_fh *
 	u32 data;
 	struct s3c_fb_win *win = v4l2_subdev_to_s3c_fb_win(sd);
 	struct s3c_fb *sfb = win->parent;
+
+	/* Check the alignment of width */
+	if (format->format.width % 2)
+		format->format.width -= 1;
 
 	/* (width, height) : (xres, yres) */
 	win->fbinfo->var.xres = format->format.width;
@@ -2058,26 +2097,6 @@ static const struct v4l2_subdev_ops s3c_fb_sd_ops = {
 	.video = &s3c_fb_sd_video_ops,
 };
 
-static void s3c_fb_mc_local_path_setup(struct s3c_fb_win *win)
-{
-	u32 data = 0;
-	struct s3c_fb *sfb = win->parent;
-
-	if (win->local) {
-		/* Enable  the channel 1 to a local path for the window1
-		   in fimd1 */
-
-		/* MIXER0_VALID[7] & MIXER1_VALID[4] : should be 0
-		   (FIMD1 Data Valid) */
-		data = __raw_readl(SYSREG_DISP1BLK_CFG);
-		data &= ~(SYSREG_MIXER0_VALID | SYSREG_MIXER1_VALID);
-		writel(data, SYSREG_DISP1BLK_CFG);
-	}
-
-	dev_dbg(sfb->dev, "Local path set up in Winow[%d] : %d\n", win->index,
-		win->local);
-}
-
 static int s3c_fb_me_link_setup(struct media_entity *entity,
 			      const struct media_pad *local,
 			      const struct media_pad *remote, u32 flags)
@@ -2100,8 +2119,6 @@ static int s3c_fb_me_link_setup(struct media_entity *entity,
 			if (entity->links[i].flags & MEDIA_LNK_FL_ENABLED)
 				win->use = 1;
 	}
-
-	s3c_fb_mc_local_path_setup(win);
 
 	dev_dbg(sfb->dev, "MC link set up between Window[%d] and Gscaler: \
 			flag - %d\n", win->index, flags);
@@ -2264,29 +2281,57 @@ static int s3c_fb_sd_wb_s_stream(struct v4l2_subdev *sd_wb, int enable)
 {
 	struct s3c_fb *sfb = v4l2_subdev_to_s3c_fb(sd_wb);
 	u32 ret;
-	u32 vidcon0 = readl(sfb->regs + VIDCON0);
-	u32 vidcon2 = readl(sfb->regs + VIDCON2);
+	u32 vidout_con = 0;
+	u32 vidcon0 = 0;
+	u32 vidcon2 = 0;
 
-	vidcon0 &= ~VIDCON0_VIDOUT_MASK;
-	vidcon2 &= ~(VIDCON2_WB_MASK | VIDCON2_TVFORMATSEL_HW_SW_MASK | \
-					VIDCON2_TVFORMATSEL_MASK);
+	if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+		vidout_con = readl(sfb->regs + VIDOUT_CON);
+	else
+		vidcon0 = readl(sfb->regs + VIDCON0);
+
+	vidcon2 = readl(sfb->regs + VIDCON2);
+
+	if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+		vidout_con &= ~(VIDOUT_CON_VIDOUT_UP_MASK |
+				VIDOUT_CON_VIDOUT_F_MASK);
+	else
+		vidcon0 &= ~VIDCON0_VIDOUT_MASK;
+
+	vidcon2 &= ~(VIDCON2_WB_MASK | VIDCON2_TVFORMATSEL_HW_SW_MASK |
+		     VIDCON2_TVFORMATSEL_MASK);
 
 	if (enable) {
-		vidcon0 |= VIDCON0_VIDOUT_WB;
-		vidcon2 |= (VIDCON2_WB_ENABLE | VIDCON2_TVFORMATSEL_SW | \
-					VIDCON2_TVFORMATSEL_YUV444);
+		if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+			vidout_con |= (VIDOUT_CON_VIDOUT_UP_START_FRAME |
+				       VIDOUT_CON_VIDOUT_F_WB);
+		else
+			vidcon0 |= VIDCON0_VIDOUT_WB;
+
+		vidcon2 |= (VIDCON2_WB_ENABLE | VIDCON2_TVFORMATSEL_SW |
+			    VIDCON2_TVFORMATSEL_YUV444);
 	} else {
-		vidcon0 |= VIDCON0_VIDOUT_RGB;
+		if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+			vidout_con |= VIDOUT_CON_VIDOUT_F_RGB;
+		else
+			vidcon0 |= VIDCON0_VIDOUT_RGB;
+
 		vidcon2 |= VIDCON2_WB_DISABLE;
 	}
 
-	ret = s3c_fb_wait_for_vsync(sfb, 0);
-	if (ret) {
-		dev_err(sfb->dev, "wait timeout(writeback) : %s\n", __func__);
-		return ret;
+	if (soc_is_exynos5250() && samsung_rev() < EXYNOS5250_REV_1_0) {
+		ret = s3c_fb_wait_for_vsync(sfb, 0);
+		if (ret) {
+			dev_err(sfb->dev, "wait timeout(writeback) : %s\n",
+				__func__);
+			return ret;
+		}
 	}
+	if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+		writel(vidout_con, sfb->regs + VIDOUT_CON);
+	else
+		writel(vidcon0, sfb->regs + VIDCON0);
 
-	writel(vidcon0, sfb->regs + VIDCON0);
 	writel(vidcon2, sfb->regs + VIDCON2);
 
 	dev_dbg(sfb->dev, "Get the writeback started/stopped : %d\n", enable);
@@ -2626,14 +2671,16 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 		dev_err(dev, "irq request failed\n");
 		goto err_ioremap;
 	}
-
-	s3c_fb_enable_irq_fifo(sfb);
 #endif
 
 	dev_dbg(dev, "got resources (regs %p), probing windows\n", sfb->regs);
 
 	platform_set_drvdata(pdev, sfb);
 	pm_runtime_get_sync(sfb->dev);
+
+#ifdef CONFIG_FB_EYYNOS_TRACE_UNDERRUN
+	s3c_fb_enable_irq_fifo(sfb);
+#endif
 
 	/* setup gpio and output polarity controls */
 
@@ -2648,6 +2695,11 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 		reg |= VIDCON1_VCLK_RUN;
 		writel(reg, sfb->regs + VIDCON1);
 	}
+
+	/* disable auto-clock gate mode */
+	if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+		writel(REG_CLKGATE_MODE_NON_CLOCK_GATE,
+			sfb->regs + REG_CLKGATE_MODE);
 
 	/* zero all windows before we do anything */
 
@@ -2696,22 +2748,25 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 			goto err_irq;
 		}
 
+		if(win < (VALID_MAX_WINDOW_NUM + 1)){
 #ifdef CONFIG_FB_EXYNOS_FIMD_MC
-		/* register a window subdev as entity */
-		ret = s3c_fb_register_mc_components(sfb->windows[win]);
-		if (ret) {
-			dev_err(sfb->dev, "failed to register s3c_fb mc entities\n");
-			goto err_mc_entity_create_fail;
-		}
+			/* register a window subdev as entity */
+			ret = s3c_fb_register_mc_components(sfb->windows[win]);
+			if (ret) {
+				dev_err(sfb->dev, "failed to register s3c_fb mc entities\n");
+				goto err_mc_entity_create_fail;
+			}
 
-		/* create links connected between gscaler and fimd */
-		ret = s3c_fb_create_mc_links(sfb->windows[win]);
-		if (ret) {
-			dev_err(sfb->dev, "failed to create s3c_fb mc links\n");
-			goto err_mc_link_create_fail;
-		}
+			/* create links connected between gscaler and fimd */
+			ret = s3c_fb_create_mc_links(sfb->windows[win]);
+			if (ret) {
+				dev_err(sfb->dev, "failed to create s3c_fb mc links\n");
+				goto err_mc_link_create_fail;
+			}
 #endif
+		}
 	}
+
 
 #ifdef CONFIG_FB_EXYNOS_FIMD_MC
 	ret = s3c_fb_register_mc_subdev_nodes(sfb);
@@ -2831,6 +2886,7 @@ static int __devexit s3c_fb_remove(struct platform_device *pdev)
 
 	release_mem_region(sfb->regs_res->start, resource_size(sfb->regs_res));
 
+	pm_runtime_put_sync(sfb->dev);
 	pm_runtime_disable(sfb->dev);
 
 	kfree(sfb);
@@ -2856,13 +2912,14 @@ static int s3c_fb_suspend(struct device *dev)
 	}
 
 	/* wait for next frame */
-	mdelay(20);
+	msleep(20);
 
 	if (!sfb->variant.has_clksel)
 		clk_disable(sfb->lcd_clk);
 
 	clk_disable(sfb->bus_clk);
-	pm_runtime_put_sync(sfb->dev);
+	if (!(soc_is_exynos5250() && samsung_rev() < EXYNOS5250_REV_1_0))
+		pm_runtime_put_sync(sfb->dev);
 
 	return 0;
 }
@@ -2878,6 +2935,8 @@ static int s3c_fb_resume(struct device *dev)
 	int i;
 	u32 reg;
 
+	if (!(soc_is_exynos5250() && samsung_rev() < EXYNOS5250_REV_1_0))
+		pm_runtime_get_sync(sfb->dev);
 	clk_enable(sfb->bus_clk);
 
 	if (!sfb->variant.has_clksel)
@@ -2894,6 +2953,11 @@ static int s3c_fb_resume(struct device *dev)
 		reg |= VIDCON1_VCLK_RUN;
 		writel(reg, sfb->regs + VIDCON1);
 	}
+
+	/* disable auto-clock gate mode */
+	if (soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0)
+		writel(REG_CLKGATE_MODE_NON_CLOCK_GATE,
+			sfb->regs + REG_CLKGATE_MODE);
 
 	/* zero all windows before we do anything */
 	for (win_no = 0; win_no < sfb->variant.nr_windows; win_no++)

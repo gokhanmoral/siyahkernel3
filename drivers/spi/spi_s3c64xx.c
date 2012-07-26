@@ -172,6 +172,10 @@ struct s3c64xx_spi_driver_data {
 	unsigned                        state;
 	unsigned                        cur_mode, cur_bpw;
 	unsigned                        cur_speed;
+#if defined(CONFIG_MACH_M0_CMCC)
+	int			rx_cnt;
+	int			tx_cnt;
+#endif
 };
 
 static struct s3c2410_dma_client s3c64xx_spi_dma_client = {
@@ -269,6 +273,9 @@ static void enable_datapath(struct s3c64xx_spi_driver_data *sdd,
 			s3c2410_dma_config(sdd->tx_dmach, sdd->cur_bpw / 8);
 			s3c2410_dma_enqueue(sdd->tx_dmach, (void *)sdd,
 						xfer->tx_dma, xfer->len);
+#if defined(CONFIG_MACH_M0_CMCC)
+			sdd->tx_cnt++;
+#endif
 			s3c2410_dma_ctrl(sdd->tx_dmach, S3C2410_DMAOP_START);
 		} else {
 			switch (sdd->cur_bpw) {
@@ -304,6 +311,9 @@ static void enable_datapath(struct s3c64xx_spi_driver_data *sdd,
 			s3c2410_dma_config(sdd->rx_dmach, sdd->cur_bpw / 8);
 			s3c2410_dma_enqueue(sdd->rx_dmach, (void *)sdd,
 						xfer->rx_dma, xfer->len);
+#if defined(CONFIG_MACH_M0_CMCC)
+			sdd->rx_cnt++;
+#endif
 			s3c2410_dma_ctrl(sdd->rx_dmach, S3C2410_DMAOP_START);
 		}
 	}
@@ -508,6 +518,10 @@ static void s3c64xx_spi_dma_rxcb(struct s3c2410_dma_chan *chan, void *buf_id,
 		complete(&sdd->xfer_completion);
 
 	spin_unlock_irqrestore(&sdd->lock, flags);
+#if defined(CONFIG_MACH_M0_CMCC)
+	sdd->rx_cnt--;
+#endif
+
 }
 
 static void s3c64xx_spi_dma_txcb(struct s3c2410_dma_chan *chan, void *buf_id,
@@ -528,6 +542,10 @@ static void s3c64xx_spi_dma_txcb(struct s3c2410_dma_chan *chan, void *buf_id,
 		complete(&sdd->xfer_completion);
 
 	spin_unlock_irqrestore(&sdd->lock, flags);
+#if defined(CONFIG_MACH_M0_CMCC)
+	sdd->tx_cnt--;
+#endif
+
 }
 
 #define XFER_DMAADDR_INVALID DMA_BIT_MASK(32)
@@ -755,6 +773,9 @@ static int acquire_dma(struct s3c64xx_spi_driver_data *sdd)
 		return 0;
 	}
 	s3c2410_dma_set_buffdone_fn(sdd->rx_dmach, s3c64xx_spi_dma_rxcb);
+#if defined(CONFIG_MACH_M0_CMCC)
+	sdd->rx_cnt = 0;
+#endif
 	s3c2410_dma_devconfig(sdd->rx_dmach, S3C2410_DMASRC_HW,
 					sdd->sfr_start + S3C64XX_SPI_RX_DATA);
 
@@ -765,6 +786,9 @@ static int acquire_dma(struct s3c64xx_spi_driver_data *sdd)
 		return 0;
 	}
 	s3c2410_dma_set_buffdone_fn(sdd->tx_dmach, s3c64xx_spi_dma_txcb);
+#if defined(CONFIG_MACH_M0_CMCC)
+	sdd->tx_cnt = 0;
+#endif
 	s3c2410_dma_devconfig(sdd->tx_dmach, S3C2410_DMASRC_MEM,
 					sdd->sfr_start + S3C64XX_SPI_TX_DATA);
 
@@ -780,6 +804,10 @@ static void s3c64xx_spi_work(struct work_struct *work)
 	/* Acquire DMA channels */
 	while (!acquire_dma(sdd))
 		msleep(10);
+
+	/* Enable the clock */
+	clk_enable(sdd->src_clk);
+	clk_enable(sdd->clk);
 
 	spin_lock_irqsave(&sdd->lock, flags);
 
@@ -806,9 +834,29 @@ static void s3c64xx_spi_work(struct work_struct *work)
 
 	spin_unlock_irqrestore(&sdd->lock, flags);
 
+#if defined(CONFIG_MACH_M0_CMCC)
+	if ((sdd->rx_cnt == 0) && (sdd->tx_cnt == 0)) {
+		/* Disable the clock */
+		clk_disable(sdd->src_clk);
+		clk_disable(sdd->clk);
+
+		/* Free DMA channels */
+		s3c2410_dma_free(sdd->tx_dmach, &s3c64xx_spi_dma_client);
+		s3c2410_dma_free(sdd->rx_dmach, &s3c64xx_spi_dma_client);
+	} else {
+		printk(KERN_ERR "[andro.yoon] DMA is not free!!!!\n");
+		printk(KERN_ERR "[andro.yoon] tx_cnt = %d, rx_cnt = %d\n",
+			sdd->tx_cnt, sdd->rx_cnt);
+	}
+#else
+	/* Disable the clock */
+	clk_disable(sdd->src_clk);
+	clk_disable(sdd->clk);
+
 	/* Free DMA channels */
 	s3c2410_dma_free(sdd->tx_dmach, &s3c64xx_spi_dma_client);
 	s3c2410_dma_free(sdd->rx_dmach, &s3c64xx_spi_dma_client);
+#endif
 }
 
 static int s3c64xx_spi_transfer(struct spi_device *spi,
@@ -939,6 +987,10 @@ static void s3c64xx_spi_hwinit(struct s3c64xx_spi_driver_data *sdd, int channel)
 
 	sdd->cur_speed = 0;
 
+#if defined(CONFIG_MACH_M0_CMCC)
+	sdd->tx_cnt = 0;
+	sdd->rx_cnt = 0;
+#endif
 	S3C64XX_SPI_DEACT(sdd);
 
 	/* Disable Interrupts - we use Polling if not DMA mode */
@@ -1115,6 +1167,9 @@ static int __init s3c64xx_spi_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "\tIOmem=[0x%x-0x%x]\tDMA=[Rx-%d, Tx-%d]\n",
 					mem_res->end, mem_res->start,
 					sdd->rx_dmach, sdd->tx_dmach);
+	/* Disable the clock */
+	clk_disable(sdd->src_clk);
+	clk_disable(sdd->clk);
 
 	return 0;
 
@@ -1240,7 +1295,7 @@ static int __init s3c64xx_spi_init(void)
 {
 	return platform_driver_probe(&s3c64xx_spi_driver, s3c64xx_spi_probe);
 }
-subsys_initcall(s3c64xx_spi_init);
+module_init(s3c64xx_spi_init);
 
 static void __exit s3c64xx_spi_exit(void)
 {

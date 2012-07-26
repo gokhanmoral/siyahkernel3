@@ -50,11 +50,11 @@ static int Si4709_probe(struct i2c_client *client)
 
 	if (strcmp(client->name, "Si4709") != 0) {
 		ret = -1;
-		debug("Si4709_probe: device not supported");
+		error("Si4709_probe: device not supported");
 	} else {
 		ret = Si4709_dev_init(client);
 		if (ret < 0)
-			debug("Si4709_dev_init failed");
+			error("Si4709_dev_init failed");
 	}
 
 	return ret;
@@ -68,11 +68,11 @@ static int Si4709_remove(struct i2c_client *client)
 
 	if (strcmp(client->name, "Si4709") != 0) {
 		ret = -1;
-		debug("Si4709_remove: device not supported");
+		error("Si4709_remove: device not supported");
 	} else {
 		ret = Si4709_dev_exit();
 		if (ret < 0)
-			debug("Si4709_dev_exit failed");
+			error("Si4709_dev_exit failed");
 	}
 
 	return ret;
@@ -143,11 +143,11 @@ static int Si4709_suspend(struct i2c_client *client, pm_message_t mesg)
 
 	if (strcmp(client->name, "Si4709") != 0) {
 		ret = -1;
-		debug("Si4709_suspend: device not supported");
+		error("Si4709_suspend: device not supported");
 	} else {
 		ret = Si4709_dev_suspend();
 		if (ret < 0)
-			debug("Si4709_dev_disable failed");
+			error("Si4709_dev_disable failed");
 	}
 
 	return 0;
@@ -161,11 +161,11 @@ static int Si4709_resume(struct i2c_client *client)
 
 	if (strcmp(client->name, "Si4709") != 0) {
 		ret = -1;
-		debug("Si4709_resume: device not supported");
+		error("Si4709_resume: device not supported");
 	} else {
 		ret = Si4709_dev_resume();
 		if (ret < 0)
-			debug("Si4709_dev_enable failed");
+			error("Si4709_dev_enable failed");
 	}
 
 	return 0;

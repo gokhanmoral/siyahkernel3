@@ -47,6 +47,13 @@
  * of 4ms up to 7680ms
  */
 
+struct an30259_led_conf {
+	const char      *name;
+	int          brightness;
+	int          max_brightness;
+	int          flags;
+};
+
 struct an30259a_pr_control {
 	/* LED color in RGB format */
 	__u32			color;

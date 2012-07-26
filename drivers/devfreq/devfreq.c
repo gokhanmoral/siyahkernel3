@@ -84,6 +84,7 @@ int update_devfreq(struct devfreq *devfreq)
 {
 	unsigned long freq;
 	int err = 0;
+	u32 options = 0;
 
 	if (!mutex_is_locked(&devfreq->lock)) {
 		WARN(true, "devfreq->lock must be locked by the caller.\n");
@@ -104,18 +105,23 @@ int update_devfreq(struct devfreq *devfreq)
 	 * qos_min_freq
 	 */
 
-	if (devfreq->qos_min_freq && freq < devfreq->qos_min_freq)
+	if (devfreq->qos_min_freq && freq < devfreq->qos_min_freq) {
 		freq = devfreq->qos_min_freq;
-	if (devfreq->max_freq && freq > devfreq->max_freq)
+		options &= ~(1 << 0);
+		options |= DEVFREQ_OPTION_FREQ_LUB;
+	}
+	if (devfreq->max_freq && freq > devfreq->max_freq) {
 		freq = devfreq->max_freq;
-	if (devfreq->min_freq && freq < devfreq->min_freq)
+		options &= ~(1 << 0);
+		options |= DEVFREQ_OPTION_FREQ_GLB;
+	}
+	if (devfreq->min_freq && freq < devfreq->min_freq) {
 		freq = devfreq->min_freq;
+		options &= ~(1 << 0);
+		options |= DEVFREQ_OPTION_FREQ_LUB;
+	}
 
-	/*
-	 * TODO in the devfreq-next:
-	 * add relation or use rance (freq_min, freq_max)
-	 */
-	err = devfreq->profile->target(devfreq->dev.parent, &freq);
+	err = devfreq->profile->target(devfreq->dev.parent, &freq, options);
 	if (err)
 		return err;
 
@@ -158,10 +164,9 @@ static int devfreq_qos_notifier_call(struct notifier_block *nb,
 	struct devfreq_pm_qos_table *qos_list = devfreq->profile->qos_list;
 	bool qos_use_max = devfreq->profile->qos_use_max;
 
-	if (qos_list)
+	if (!qos_list)
 		return NOTIFY_DONE;
 
-	/* TODO: */
 	mutex_lock(&devfreq->lock);
 
 	switch (devfreq->profile->qos_type) {
@@ -177,6 +182,9 @@ static int devfreq_qos_notifier_call(struct notifier_block *nb,
 	case PM_QOS_BUS_DMA_THROUGHPUT:
 		default_value = PM_QOS_BUS_DMA_THROUGHPUT_DEFAULT_VALUE;
 		break;
+	case PM_QOS_DISPLAY_FREQUENCY:
+		default_value = PM_QOS_DISPLAY_FREQUENCY_DEFAULT_VALUE;
+		break;
 	default:
 		/* Won't do any check to detect "default" state */
 		break;
@@ -188,9 +196,9 @@ static int devfreq_qos_notifier_call(struct notifier_block *nb,
 	}
 
 	for (i = 0; qos_list[i].freq; i++) {
-		/* Qos Met */
-		if ((qos_use_max && qos_list[i].qos_value <= value) ||
-		    (!qos_use_max && qos_list[i].qos_value >= value)) {
+		/* QoS Met */
+		if ((qos_use_max && qos_list[i].qos_value >= value) ||
+		    (!qos_use_max && qos_list[i].qos_value <= value)) {
 			devfreq->qos_min_freq = qos_list[i].freq;
 			goto update;
 		}
@@ -243,6 +251,10 @@ static void _remove_devfreq(struct devfreq *devfreq, bool skip)
 		return;
 
 	devfreq->being_removed = true;
+
+	if (devfreq->profile->qos_type)
+		pm_qos_remove_notifier(devfreq->profile->qos_type,
+				       &devfreq->qos_nb);
 
 	if (devfreq->profile->exit)
 		devfreq->profile->exit(devfreq->dev.parent);
@@ -588,10 +600,6 @@ int devfreq_remove_device(struct devfreq *devfreq)
 
 	mutex_lock(&devfreq->lock);
 
-	if (devfreq->profile->qos_type)
-		pm_qos_remove_notifier(devfreq->profile->qos_type,
-				       &devfreq->qos_nb);
-
 	_remove_devfreq(devfreq, false); /* it unlocks devfreq->lock */
 
 	if (central_polling)
@@ -791,14 +799,30 @@ module_exit(devfreq_exit);
  *			     freq value given to target callback.
  * @dev		The devfreq user device. (parent of devfreq)
  * @freq	The frequency given to target function
+ * @floor	false: find LUB first and use GLB if LUB not available.
+ *		true:  find GLB first and use LUB if GLB not available.
+ *
+ * LUB: least upper bound (at least this freq or above, but the least)
+ * GLB: greatest lower bound (at most this freq or below, but the most)
  *
  */
-struct opp *devfreq_recommended_opp(struct device *dev, unsigned long *freq)
+struct opp *devfreq_recommended_opp(struct device *dev, unsigned long *freq,
+				    bool floor)
 {
-	struct opp *opp = opp_find_freq_ceil(dev, freq);
+	struct opp *opp;
 
-	if (opp == ERR_PTR(-ENODEV))
+	if (floor) {
 		opp = opp_find_freq_floor(dev, freq);
+
+		if (opp == ERR_PTR(-ENODEV))
+			opp = opp_find_freq_ceil(dev, freq);
+	} else {
+		opp = opp_find_freq_ceil(dev, freq);
+
+		if (opp == ERR_PTR(-ENODEV))
+			opp = opp_find_freq_floor(dev, freq);
+	}
+
 	return opp;
 }
 

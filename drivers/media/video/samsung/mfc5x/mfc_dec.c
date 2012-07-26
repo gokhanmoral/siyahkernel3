@@ -16,8 +16,13 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 
+#ifdef CONFIG_BUSFREQ_OPP
+#include <plat/cpu.h>
+#include <mach/busfreq_exynos4.h>
+#define HD_MOVIE_SIZE_MULTIPLY_WIDTH_HEIGHT (1281*721)
+#endif
 
-#if defined(CONFIG_BUSFREQ) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
+#if defined(CONFIG_BUSFREQ) || defined(CONFIG_EXYNOS4_CPUFREQ)
 #include <mach/cpufreq.h>
 #endif
 #include <mach/regs-mfc.h>
@@ -31,8 +36,7 @@
 #include "mfc_mem.h"
 #include "mfc_buf.h"
 
-/*#undef DUMP_STREAM*/
-/*#define DUMP_STREAM*/
+#undef DUMP_STREAM
 
 #ifdef DUMP_STREAM
 #include <linux/syscalls.h>
@@ -693,7 +697,12 @@ static int set_dpbs(struct mfc_inst_ctx *ctx)
 		/*
 		 * allocate chroma buffer
 		 */
+#ifdef CONFIG_VIDEO_MFC5X_DEC_CHROMA_LUMA_4K_ALIGN
+		alloc = _mfc_alloc_buf(ctx, dec_ctx->chromasize, \
+					ALIGN_4KB, MBT_DPB | PORT_A);
+#else
 		alloc = _mfc_alloc_buf(ctx, dec_ctx->chromasize, ALIGN_2KB, MBT_DPB | PORT_A);
+#endif
 		if (alloc == NULL) {
 			mfc_free_buf_type(ctx->id, MBT_DPB);
 			mfc_err("failed alloc chroma buffer\n");
@@ -703,7 +712,11 @@ static int set_dpbs(struct mfc_inst_ctx *ctx)
 
 		/* clear first DPB chroma buffer, referrence buffer for
 		   vectors starting with p-frame */
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+		if ((i == 0) && (!ctx->drm_flag)) {
+#else
 		if (i == 0) {
+#endif
 			memset((void *)alloc->addr, 0x80, alloc->size);
 			mfc_mem_cache_clean((void *)alloc->addr, alloc->size);
 		}
@@ -716,7 +729,12 @@ static int set_dpbs(struct mfc_inst_ctx *ctx)
 		/*
 		 * allocate luma buffer
 		 */
+#ifdef CONFIG_VIDEO_MFC5X_DEC_CHROMA_LUMA_4K_ALIGN
+		alloc = _mfc_alloc_buf(ctx, dec_ctx->lumasize, \
+					ALIGN_4KB, MBT_DPB | PORT_B);
+#else
 		alloc = _mfc_alloc_buf(ctx, dec_ctx->lumasize, ALIGN_2KB, MBT_DPB | PORT_B);
+#endif
 		if (alloc == NULL) {
 			mfc_free_buf_type(ctx->id, MBT_DPB);
 			mfc_err("failed alloc luma buffer\n");
@@ -726,7 +744,11 @@ static int set_dpbs(struct mfc_inst_ctx *ctx)
 
 		/* clear first DPB luma buffer, referrence buffer for
 		   vectors starting with p-frame */
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+		if ((i == 0) && (!ctx->drm_flag)) {
+#else
 		if (i == 0) {
+#endif
 			memset((void *)alloc->addr, 0x0, alloc->size);
 			mfc_mem_cache_clean((void *)alloc->addr, alloc->size);
 		}
@@ -771,7 +793,14 @@ static int h264_set_dpbs(struct mfc_inst_ctx *ctx)
 		/*
 		 * allocate chroma buffer
 		 */
+#ifdef CONFIG_VIDEO_MFC5X_DEC_CHROMA_LUMA_4K_ALIGN
+		alloc = _mfc_alloc_buf(ctx, dec_ctx->chromasize, \
+					ALIGN_4KB, MBT_DPB | PORT_A);
+#else
 		alloc = _mfc_alloc_buf(ctx, dec_ctx->chromasize, ALIGN_2KB, MBT_DPB | PORT_A);
+#endif
+
+
 		if (alloc == NULL) {
 			mfc_free_buf_type(ctx->id, MBT_DPB);
 			mfc_err("failed alloc chroma buffer\n");
@@ -781,8 +810,8 @@ static int h264_set_dpbs(struct mfc_inst_ctx *ctx)
 
 		/* clear last DPB chroma buffer, referrence buffer for
 		   vectors starting with p-frame */
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
-		if ((i == (dec_ctx->numtotaldpb - 1)) && (!ctx->dev->drm_playback)) {
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+		if ((i == (dec_ctx->numtotaldpb - 1)) && (!ctx->drm_flag)) {
 #else
 		if (i == (dec_ctx->numtotaldpb - 1)) {
 #endif
@@ -798,7 +827,12 @@ static int h264_set_dpbs(struct mfc_inst_ctx *ctx)
 		/*
 		 * allocate luma buffer
 		 */
+#ifdef CONFIG_VIDEO_MFC5X_DEC_CHROMA_LUMA_4K_ALIGN
+		alloc = _mfc_alloc_buf(ctx, dec_ctx->lumasize, \
+					ALIGN_4KB, MBT_DPB | PORT_B);
+#else
 		alloc = _mfc_alloc_buf(ctx, dec_ctx->lumasize, ALIGN_2KB, MBT_DPB | PORT_B);
+#endif
 		if (alloc == NULL) {
 			mfc_free_buf_type(ctx->id, MBT_DPB);
 			mfc_err("failed alloc luma buffer\n");
@@ -808,8 +842,8 @@ static int h264_set_dpbs(struct mfc_inst_ctx *ctx)
 
 		/* clear last DPB luma buffer, referrence buffer for
 		   vectors starting with p-frame */
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
-		if ((i == (dec_ctx->numtotaldpb - 1)) && (!ctx->dev->drm_playback)) {
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+		if ((i == (dec_ctx->numtotaldpb - 1)) && (!ctx->drm_flag)) {
 #else
 		if (i == (dec_ctx->numtotaldpb - 1)) {
 #endif
@@ -943,7 +977,7 @@ static int set_exe_arg(struct mfc_inst_ctx *ctx, void *arg)
  */
 static int get_codec_cfg(struct mfc_inst_ctx *ctx, int type, void *arg)
 {
-	//struct mfc_dec_ctx *dec_ctx = (struct mfc_dec_ctx *)ctx->c_priv;
+	/*struct mfc_dec_ctx *dec_ctx = (struct mfc_dec_ctx *)ctx->c_priv;*/
 	union _mfc_config_arg *usercfg = (union _mfc_config_arg *)arg;
 
 	int ret = 0;
@@ -1087,7 +1121,7 @@ static int set_codec_cfg(struct mfc_inst_ctx *ctx, int type, void *arg)
 			return MFC_STATE_INVALID;
 		}
 
-		if (usercfg->basic.values[0] > 0){
+		if (usercfg->basic.values[0] > 0) {
 			dec_ctx->dpbflush = 1;
 		}
 		break;
@@ -1706,6 +1740,7 @@ int mfc_init_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 	struct mfc_pre_cfg *precfg;
 	struct list_head *pos, *nxt;
 	int ret;
+	long mem_ofs;
 
 	ret = mfc_set_decoder(ctx, init_arg->in_codec_type);
 	if (ret < 0) {
@@ -1748,8 +1783,8 @@ int mfc_init_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 	/*
 	 * allocate context buffer
 	 */
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
-	if ((!ctx->dev->drm_playback) && (ctx->c_ops->alloc_ctx_buf)) {
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+	if ((!ctx->drm_flag) && (ctx->c_ops->alloc_ctx_buf)) {
 #else
 	if (ctx->c_ops->alloc_ctx_buf) {
 #endif
@@ -1792,9 +1827,14 @@ int mfc_init_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 		}
 	}
 
-	/* FIXME: postion */
-	mfc_set_stream_info(ctx, mfc_mem_base_ofs(dec_ctx->streamaddr) >> 11,
-		dec_ctx->streamsize, 0);
+	/* FIXME: move to pre_seq_start */
+	mem_ofs = mfc_mem_ext_ofs(dec_ctx->streamaddr, dec_ctx->streamsize, PORT_A);
+	if (mem_ofs < 0) {
+		ret = MFC_DEC_INIT_FAIL;
+		goto err_mem_ofs;
+	} else  {
+		mfc_set_stream_info(ctx, mem_ofs >> 11, dec_ctx->streamsize, 0);
+	}
 
 	ret = mfc_cmd_seq_start(ctx);
 	if (ret < 0)
@@ -1841,7 +1881,7 @@ int mfc_init_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 	mfc_dbg("H: %d, W: %d, DPB_Count: %d", ctx->width, ctx->height,
 		dec_ctx->numtotaldpb);
 
-#if defined(CONFIG_BUSFREQ) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
+#if defined(CONFIG_BUSFREQ)
 	/* Lock MFC & Bus FREQ for high resolution */
 	if (ctx->width >= MAX_HOR_RES || ctx->height >= MAX_VER_RES) {
 		if (atomic_read(&ctx->dev->busfreq_lock_cnt) == 0) {
@@ -1851,9 +1891,52 @@ int mfc_init_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 
 		atomic_inc(&ctx->dev->busfreq_lock_cnt);
 		ctx->busfreq_flag = true;
+	} else {
+#if defined(CONFIG_CPU_EXYNOS4210)
+		/* Fix MFC & Bus Frequency for better performance */
+		if (atomic_read(&ctx->dev->busfreq_lock_cnt) == 0) {
+			exynos4_busfreq_lock(DVFS_LOCK_ID_MFC, BUS_L1);
+			mfc_dbg("Bus FREQ locked to L1\n");
+		}
+		atomic_inc(&ctx->dev->busfreq_lock_cnt);
+		ctx->busfreq_flag = true;
+#endif
 	}
 #endif
 
+#if defined(CONFIG_CPU_EXYNOS4210) && defined(CONFIG_EXYNOS4_CPUFREQ)
+	if ((ctx->width >= 1280 && ctx->height >= 720)
+		|| (ctx->width >= 720 && ctx->height >= 1280)) {
+		if (atomic_read(&ctx->dev->cpufreq_lock_cnt) == 0) {
+			if (0 == ctx->dev->cpufreq_level) /* 500MHz */
+				exynos_cpufreq_get_level(500000, &ctx->dev->cpufreq_level);
+			exynos_cpufreq_lock(DVFS_LOCK_ID_MFC, ctx->dev->cpufreq_level);
+			mfc_dbg("[%s] CPU Freq Locked 500MHz!\n", __func__);
+		}
+		atomic_inc(&ctx->dev->cpufreq_lock_cnt);
+		ctx->cpufreq_flag = true;
+	}
+#endif
+
+#ifdef CONFIG_BUSFREQ_OPP
+	if (HD_MOVIE_SIZE_MULTIPLY_WIDTH_HEIGHT > (ctx->width * ctx->height)) {
+		if (atomic_read(&ctx->dev->dmcthreshold_lock_cnt) == 0) {
+			mfc_info("Implement set dmc_max_threshold\n");
+			if (soc_is_exynos4212()) {
+				dmc_max_threshold =
+					EXYNOS4212_DMC_MAX_THRESHOLD + 5;
+			} else if (soc_is_exynos4412()) {
+				dmc_max_threshold =
+					EXYNOS4412_DMC_MAX_THRESHOLD + 5;
+			} else {
+				pr_err("Unsupported model.\n");
+				return -EINVAL;
+			}
+		}
+		atomic_inc(&ctx->dev->dmcthreshold_lock_cnt);
+		ctx->dmcthreshold_flag = true;
+	}
+#endif
 	/*
 	 * allocate & set codec buffers
 	 */
@@ -1903,7 +1986,7 @@ err_dpbs_set:
 	mfc_free_buf_type(ctx->id, MBT_CODEC);
 
 err_codec_bufs:
-#if defined(CONFIG_BUSFREQ) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
+#if defined(CONFIG_BUSFREQ)
 	/* Release MFC & Bus Frequency lock for High resolution */
 	if (ctx->busfreq_flag == true) {
 		atomic_dec(&ctx->dev->busfreq_lock_cnt);
@@ -1925,6 +2008,7 @@ err_seq_start:
 	dump_stream(dec_ctx->streamaddr, dec_ctx->streamsize);
 #endif
 
+err_mem_ofs:
 err_pre_seq:
 	mfc_free_buf_type(ctx->id, MBT_DESC);
 
@@ -2042,12 +2126,13 @@ static int mfc_decoding_frame(struct mfc_inst_ctx *ctx, struct mfc_dec_exe_arg *
 	unsigned char *stream_vir;
 	int ret;
 	struct mfc_dec_ctx *dec_ctx = (struct mfc_dec_ctx *)ctx->c_priv;
+	long mem_ofs;
 #ifdef CONFIG_VIDEO_MFC_VCM_UMP
 	void *ump_handle;
 #endif
 
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
-	if (!ctx->dev->drm_playback) {
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+	if (!ctx->drm_flag) {
 #endif
 		/* Check Frame Start code */
 		stream_vir = phys_to_virt(exe_arg->in_strm_buf + start_ofs);
@@ -2058,7 +2143,7 @@ static int mfc_decoding_frame(struct mfc_inst_ctx *ctx, struct mfc_dec_exe_arg *
 			/* FIXME: Need to define proper error */
 			return MFC_FRM_BUF_SIZE_FAIL;
 		}
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 	}
 #endif
 
@@ -2067,7 +2152,7 @@ static int mfc_decoding_frame(struct mfc_inst_ctx *ctx, struct mfc_dec_exe_arg *
 
 	/* FIXME: */
 	write_reg(0xFFFFFFFF, MFC_SI_CH1_RELEASE_BUF);
-	if (dec_ctx->dpbflush){
+	if (dec_ctx->dpbflush) {
 		unsigned int reg;
 		reg = read_reg(MFC_SI_CH1_DPB_CONF_CTRL);
 		reg &= ~(1<<14);
@@ -2077,9 +2162,13 @@ static int mfc_decoding_frame(struct mfc_inst_ctx *ctx, struct mfc_dec_exe_arg *
 		dec_ctx->dpbflush = 0;
 	}
 
-	/* FIXME: postion */
-	mfc_set_stream_info(ctx, mfc_mem_base_ofs(exe_arg->in_strm_buf) >> 11,
-		exe_arg->in_strm_size, start_ofs);
+	mem_ofs = mfc_mem_ext_ofs(exe_arg->in_strm_buf, exe_arg->in_strm_size,
+			PORT_A);
+	if (mem_ofs < 0)
+		return MFC_DEC_EXE_ERR;
+	else
+		mfc_set_stream_info(ctx, mem_ofs >> 11, exe_arg->in_strm_size,
+			start_ofs);
 
 	/* lastframe: mfc_dec_cfg */
 	ret = mfc_cmd_frame_start(ctx);
@@ -2291,12 +2380,20 @@ int mfc_exec_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 					exe_arg->in_strm_size, consumed);
 
 			stream_vir = phys_to_virt(exe_arg->in_strm_buf);
-
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+			if (!ctx->drm_flag)
+#endif
 			mfc_mem_cache_inv((void *)stream_vir,
 					exe_arg->in_strm_size);
 
 			offset = CheckMPEG4StartCode(stream_vir+consumed,
 					dec_ctx->streamsize - consumed);
+
+			if (offset == -1) {
+				mfc_warn("No start code in remained bitstream: %d\n", offset);
+				return ret;
+			}
+
 			if (offset > 4)
 				consumed += offset;
 
@@ -2323,4 +2420,3 @@ int mfc_exec_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 
 	return ret;
 }
-

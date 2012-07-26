@@ -17,6 +17,21 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+ #ifndef _LINUX_WACOM_I2C_FUNC_H
+#define _LINUX_WACOM_I2C_FUNC_H
+
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
+#include <mach/cpufreq.h>
+#define SEC_DVFS_LOCK_TIMEOUT 3
+#endif
+
+#ifdef SEC_BUS_LOCK
+#include <mach/dev.h>
+#define SEC_DVFS_LOCK_TIMEOUT_MS	200
+#define SEC_BUS_LOCK_FREQ		267160
+#define SEC_BUS_LOCK_FREQ2	400200
+#endif
+
 #ifdef COOR_WORK_AROUND
 extern unsigned char screen_rotate;
 extern unsigned char user_hand;
@@ -29,5 +44,18 @@ extern int wacom_i2c_master_recv(struct i2c_client *client, char *buf,
 extern int wacom_i2c_test(struct wacom_i2c *wac_i2c);
 extern int wacom_i2c_coord(struct wacom_i2c *wac_i2c);
 extern int wacom_i2c_query(struct wacom_i2c *wac_i2c);
-extern void check_emr_device(bool bOn);
+extern int wacom_checksum(struct wacom_i2c *wac_i2c);
 extern void forced_release(struct wacom_i2c *wac_i2c);
+#ifdef WACOM_PDCT_WORK_AROUND
+extern void forced_hover(struct wacom_i2c *wac_i2c);
+#endif
+
+#ifdef WACOM_IRQ_WORK_AROUND
+extern void wacom_i2c_pendct_work(struct work_struct *work);
+#endif
+
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
+extern void free_dvfs_lock(struct work_struct *work);
+#endif
+
+#endif	/* _LINUX_WACOM_I2C_FUNC_H */

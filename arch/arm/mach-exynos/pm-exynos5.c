@@ -24,6 +24,7 @@
 
 #include <plat/cpu.h>
 #include <plat/pm.h>
+#include <plat/bts.h>
 
 #include <mach/regs-irq.h>
 #include <mach/regs-gpio.h>
@@ -44,6 +45,17 @@ void (*exynos5_sleep_gpio_table_set)(void);
 #define REG_INFORM0            (EXYNOS5_INFORM0)
 #define REG_INFORM1            (EXYNOS5_INFORM1)
 #endif
+
+static struct sleep_save exynos5_set_clksrc[] = {
+	{ .reg = EXYNOS5_CLKSRC_MASK_TOP		, .val = 0xffffffff, },
+	{ .reg = EXYNOS5_CLKSRC_MASK_GSCL		, .val = 0xffffffff, },
+	{ .reg = EXYNOS5_CLKSRC_MASK_DISP1_0		, .val = 0xffffffff, },
+	{ .reg = EXYNOS5_CLKSRC_MASK_MAUDIO		, .val = 0xffffffff, },
+	{ .reg = EXYNOS5_CLKSRC_MASK_FSYS		, .val = 0xffffffff, },
+	{ .reg = EXYNOS5_CLKSRC_MASK_PERIC0		, .val = 0xffffffff, },
+	{ .reg = EXYNOS5_CLKSRC_MASK_PERIC1		, .val = 0xffffffff, },
+	{ .reg = EXYNOS5_CLKSRC_MASK_ISP		, .val = 0xffffffff, },
+};
 
 static struct sleep_save exynos5_core_save[] = {
 	/* GIC side */
@@ -164,16 +176,62 @@ static struct sleep_save exynos5_core_save[] = {
 	SAVE_ITEM(S5P_VA_COMBINER_BASE + 0x050),
 	SAVE_ITEM(S5P_VA_COMBINER_BASE + 0x060),
 	SAVE_ITEM(S5P_VA_COMBINER_BASE + 0x070),
+
+	SAVE_ITEM(S3C_VA_SYS + 0x234),
+};
+
+static struct sleep_save exynos5_regs_save[] = {
+	/* Common GPIO Part1 */
+        SAVE_ITEM(S5P_VA_GPIO + 0x700),
+        SAVE_ITEM(S5P_VA_GPIO + 0x704),
+        SAVE_ITEM(S5P_VA_GPIO + 0x708),
+        SAVE_ITEM(S5P_VA_GPIO + 0x70C),
+        SAVE_ITEM(S5P_VA_GPIO + 0x710),
+        SAVE_ITEM(S5P_VA_GPIO + 0x714),
+        SAVE_ITEM(S5P_VA_GPIO + 0x718),
+        SAVE_ITEM(S5P_VA_GPIO + 0x71C),
+        SAVE_ITEM(S5P_VA_GPIO + 0x720),
+        SAVE_ITEM(S5P_VA_GPIO + 0x724),
+        SAVE_ITEM(S5P_VA_GPIO + 0x728),
+        SAVE_ITEM(S5P_VA_GPIO + 0x72C),
+        SAVE_ITEM(S5P_VA_GPIO + 0x730),
+        SAVE_ITEM(S5P_VA_GPIO + 0x900),
+        SAVE_ITEM(S5P_VA_GPIO + 0x904),
+        SAVE_ITEM(S5P_VA_GPIO + 0x908),
+        SAVE_ITEM(S5P_VA_GPIO + 0x90C),
+        SAVE_ITEM(S5P_VA_GPIO + 0x910),
+        SAVE_ITEM(S5P_VA_GPIO + 0x914),
+        SAVE_ITEM(S5P_VA_GPIO + 0x918),
+        SAVE_ITEM(S5P_VA_GPIO + 0x91C),
+        SAVE_ITEM(S5P_VA_GPIO + 0x920),
+        SAVE_ITEM(S5P_VA_GPIO + 0x924),
+        SAVE_ITEM(S5P_VA_GPIO + 0x928),
+        SAVE_ITEM(S5P_VA_GPIO + 0x92C),
+        SAVE_ITEM(S5P_VA_GPIO + 0x930),
+	/* Common GPIO Part2 */
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x700),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x704),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x708),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x70C),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x710),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x714),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x718),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x71C),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x720),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x900),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x904),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x908),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x90C),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x910),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x914),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x918),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x91C),
+        SAVE_ITEM(S5P_VA_GPIO2 + 0x920),
 };
 
 void exynos5_cpu_suspend(void)
 {
 	unsigned int tmp;
-
-	/* Disable wakeup by EXT_GIC */
-	tmp = __raw_readl(EXYNOS5_WAKEUP_MASK);
-	tmp |= EXYNOS5_DEFAULT_WAKEUP_MASK;
-	__raw_writel(tmp, EXYNOS5_WAKEUP_MASK);
 
 	/* Disable wakeup by EXT_GIC */
 	tmp = __raw_readl(EXYNOS5_WAKEUP_MASK);
@@ -183,7 +241,11 @@ void exynos5_cpu_suspend(void)
 	/*
 	 * GPS LPI mask.
 	 */
-	__raw_writel(0x10000, EXYNOS5_GPS_LPI);
+	if (samsung_rev() < EXYNOS5250_REV_1_0)
+		__raw_writel(0x10000, EXYNOS5_GPS_LPI);
+
+	if (samsung_rev() >= EXYNOS5250_REV_1_0)
+		exynos4_reset_assert_ctrl(0);
 
 #ifdef CONFIG_ARM_TRUSTZONE
 	exynos_smc(SMC_CMD_SLEEP, 0, 0, 0);
@@ -200,10 +262,18 @@ static void exynos5_pm_prepare(void)
 	if (exynos5_sleep_gpio_table_set)
 		exynos5_sleep_gpio_table_set();
 
-	/* Disable USE_RETENTION of JPEG_MEM_OPTION */
-	tmp = __raw_readl(EXYNOS5_JPEG_MEM_OPTION);
-	tmp &= ~EXYNOS5_OPTION_USE_RETENTION;
-	__raw_writel(tmp, EXYNOS5_JPEG_MEM_OPTION);
+	if (samsung_rev() < EXYNOS5250_REV_1_0) {
+		/* Disable USE_RETENTION of JPEG_MEM_OPTION */
+		tmp = __raw_readl(EXYNOS5_JPEG_MEM_OPTION);
+		tmp &= ~EXYNOS5_OPTION_USE_RETENTION;
+		__raw_writel(tmp, EXYNOS5_JPEG_MEM_OPTION);
+	}
+
+	if (samsung_rev() >= EXYNOS5250_REV_1_0) {
+		tmp = __raw_readl(EXYNOS5_ARM_L2_OPTION);
+		tmp &= ~(1 << 4);
+		__raw_writel(tmp, EXYNOS5_ARM_L2_OPTION);
+	}
 
 	/* Set value of power down register for sleep mode */
 	exynos5_sys_powerdown_conf(SYS_SLEEP);
@@ -217,6 +287,8 @@ static void exynos5_pm_prepare(void)
 		tmp &= ~EXYNOS5_OPTION_USE_RETENTION;
 		__raw_writel(tmp, EXYNOS5_INTRAM_MEM_OPTION);
 	}
+
+	s3c_pm_do_restore_core(exynos5_set_clksrc, ARRAY_SIZE(exynos5_set_clksrc));
 }
 
 static int exynos5_pm_add(struct sys_device *sysdev)
@@ -244,15 +316,30 @@ bool isp_pwr_off;
 static int exynos5_pm_suspend(void)
 {
 	unsigned long tmp;
+	u32 timeout;
 
 	s3c_pm_do_save(exynos5_core_save, ARRAY_SIZE(exynos5_core_save));
 
-	if (!(__raw_readl(EXYNOS5_ISP_STATUS) & S5P_INT_LOCAL_PWR_EN)) {
-		isp_pwr_off = true;
-		/*
-		 * Before enter suspend, ISP power domain should be on
-		 */
-		__raw_writel(S5P_INT_LOCAL_PWR_EN, EXYNOS5_ISP_CONFIGURATION);
+	s3c_pm_do_save(exynos5_regs_save, ARRAY_SIZE(exynos5_regs_save));
+
+	if (samsung_rev() < EXYNOS5250_REV_1_0) {
+		if (!(__raw_readl(EXYNOS5_ISP_STATUS) & S5P_INT_LOCAL_PWR_EN)) {
+			isp_pwr_off = true;
+			/*
+			 * Before enter suspend, ISP power domain should be on
+			 */
+			__raw_writel(S5P_INT_LOCAL_PWR_EN,
+					EXYNOS5_ISP_CONFIGURATION);
+			timeout = 1000;
+
+			while (!(__raw_readl(EXYNOS5_ISP_STATUS) & S5P_INT_LOCAL_PWR_EN)) {
+				if (timeout == 0) {
+					printk(KERN_ERR "ISP power domain can not on\n");
+				}
+				timeout--;
+				udelay(1);
+			}
+		}
 	}
 
 	tmp = __raw_readl(EXYNOS5_CENTRAL_SEQ_CONFIGURATION);
@@ -274,6 +361,9 @@ static void exynos5_pm_resume(void)
 	unsigned long tmp, srctmp;
 	u32 timeout;
 
+	if (samsung_rev() >= EXYNOS5250_REV_1_0)
+		exynos4_reset_assert_ctrl(1);
+
 	/* If PMU failed while entering sleep mode, WFI will be
 	 * ignored by PMU and then exiting cpu_do_idle().
 	 * EXYNOS5_CENTRAL_SEQ_CONFIGURATION bit will not be set
@@ -288,13 +378,13 @@ static void exynos5_pm_resume(void)
 		goto early_wakeup;
 	}
 
-	if (isp_pwr_off) {
+	if ((samsung_rev() < EXYNOS5250_REV_1_0) && isp_pwr_off) {
 		srctmp = __raw_readl(EXYNOS5_CLKSRC_TOP3);
 		/*
 		 * To ISP power domain off,
 		 * first, ISP_ARM power domain be off.
 		 */
-		if (!(__raw_readl(EXYNOS5_ISP_ARM_STATUS) & 0x1)) {
+		if ((__raw_readl(EXYNOS5_ISP_ARM_STATUS) & 0x1)) {
 			/* Disable ISP_ARM */
 			timeout = __raw_readl(EXYNOS5_ISP_ARM_OPTION);
 			timeout &= ~EXYNOS5_ISP_ARM_ENABLE;
@@ -321,7 +411,7 @@ static void exynos5_pm_resume(void)
 
 		/* Wait max 1ms */
 		timeout = 1000;
-		while (__raw_readl(EXYNOS5_ISP_CONFIGURATION + 0x4) & S5P_INT_LOCAL_PWR_EN) {
+		while (__raw_readl(EXYNOS5_ISP_STATUS) & S5P_INT_LOCAL_PWR_EN) {
 			if (timeout == 0) {
 				printk(KERN_ERR "Power domain ISP disable failed.\n");
 				return;
@@ -344,6 +434,17 @@ static void exynos5_pm_resume(void)
 	__raw_writel((1 << 28), EXYNOS5_PAD_RETENTION_EBIA_OPTION);
 	__raw_writel((1 << 28), EXYNOS5_PAD_RETENTION_EBIB_OPTION);
 	__raw_writel((1 << 28), EXYNOS5_PAD_RETENTION_SPI_OPTION);
+	
+	/* For Retention release on GPV block */
+	__raw_writel((1 << 28), EXYNOS5_PAD_RETENTION_GPIO_SYSMEM_OPTION);
+
+	/* Disable CPU_nIRQ[0:1] */
+	tmp = ((0x1 << 8) | (0x1 << 0));
+	__raw_writel(tmp, S5P_VA_COMBINER_BASE + 0x54);
+
+	bts_enable(PD_TOP);
+
+	s3c_pm_do_restore(exynos5_regs_save, ARRAY_SIZE(exynos5_regs_save));
 
 	s3c_pm_do_restore_core(exynos5_core_save, ARRAY_SIZE(exynos5_core_save));
 

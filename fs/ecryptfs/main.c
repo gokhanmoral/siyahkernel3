@@ -41,7 +41,6 @@
 
 
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
-/* change@wtl.fzhang encryption filter, could add more file types later */
 #include <linux/ctype.h>
 #endif
 
@@ -183,7 +182,6 @@ enum { ecryptfs_opt_sig, ecryptfs_opt_ecryptfs_sig,
        ecryptfs_opt_fn_cipher, ecryptfs_opt_fn_cipher_key_bytes,
        ecryptfs_opt_unlink_sigs, ecryptfs_opt_mount_auth_tok_only,
        ecryptfs_opt_check_dev_ruid,
-/* change@wtl.fzhang encryption filter */
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	ecryptfs_opt_enable_filtering,
 #endif
@@ -252,16 +250,16 @@ static void ecryptfs_init_mount_crypt_stat(
 static int parse_enc_file_filter_parms(
 	struct ecryptfs_mount_crypt_stat *mcs, char *str)
 {
-	char *this_perm;
+	char *token = NULL;
 	int count = 0;
 	mcs->max_name_filter_len = 0;
-	while ((this_perm = strsep(&str, "|")) != NULL) {
+	while ((token = strsep(&str, "|")) != NULL) {
 		if (count >= ENC_NAME_FILTER_MAX_INSTANCE)
 			return -1;
 		strncpy(mcs->enc_filter_name[count++],
-			this_perm, ENC_NAME_FILTER_MAX_LEN);
-		if (mcs->max_name_filter_len < strlen(this_perm))
-			mcs->max_name_filter_len = strlen(this_perm);
+			token, ENC_NAME_FILTER_MAX_LEN);
+		if (mcs->max_name_filter_len < strlen(token))
+			mcs->max_name_filter_len = strlen(token);
 	}
 	return 0;
 }
@@ -270,13 +268,13 @@ static int parse_enc_file_filter_parms(
 static int parse_enc_ext_filter_parms(
 	struct ecryptfs_mount_crypt_stat *mcs, char *str)
 {
-	char *this_perm;
+	char *token = NULL;
 	int count = 0;
-	while ((this_perm = strsep(&str, "|")) != NULL) {
+	while ((token = strsep(&str, "|")) != NULL) {
 		if (count >= ENC_EXT_FILTER_MAX_INSTANCE)
 			return -1;
 		strncpy(mcs->enc_filter_ext[count++],
-			this_perm, ENC_EXT_FILTER_MAX_LEN);
+			token, ENC_EXT_FILTER_MAX_LEN);
 	}
 	return 0;
 }
@@ -284,20 +282,17 @@ static int parse_enc_ext_filter_parms(
 static int parse_enc_filter_parms(
 	struct ecryptfs_mount_crypt_stat *mcs, char *str)
 {
-	char *this_perm;
-	int count = 0;
+	char *token = NULL;
 	if (!strcmp("*", str)) {
-		/*printk(KERN_ERR "fzhang need global filtering %s.\n",
-							this_perm); */
 		mcs->flags |= ECRYPTFS_ENABLE_NEW_PASSTHROUGH;
 		return 0;
 	}
-	this_perm = strsep(&str, ":");
-	if (this_perm != NULL)
-		parse_enc_file_filter_parms(mcs, this_perm);
-	this_perm = strsep(&str, ":");
-	if (this_perm != NULL)
-		parse_enc_ext_filter_parms(mcs, this_perm);
+	token = strsep(&str, ":");
+	if (token != NULL)
+		parse_enc_file_filter_parms(mcs, token);
+	token = strsep(&str, ":");
+	if (token != NULL)
+		parse_enc_ext_filter_parms(mcs, token);
 	return 0;
 }
 #endif
@@ -455,13 +450,14 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 			break;
 		case ecryptfs_opt_check_dev_ruid:
 			*check_ruid = 1;
-/* change@wtl.fzhang encryption filter */
+			break;
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 		case ecryptfs_opt_enable_filtering:
 			rc = parse_enc_filter_parms(mount_crypt_stat,
 							 args[0].from);
 			if (rc) {
-				printk(KERN_ERR "Error attempting to parse encryption filtering parameters.\n");
+				printk(KERN_ERR "Error attempting to parse encryption "
+							"filtering parameters.\n");
 				rc = -EINVAL;
 				goto out;
 			}
@@ -936,106 +932,6 @@ static void __exit ecryptfs_exit(void)
 	unregister_filesystem(&ecryptfs_fs_type);
 	ecryptfs_free_kmem_caches();
 }
-#ifdef CONFIG_WTL_ENCRYPTION_FILTER
-/* change@wtl.fzhang encryption filter */
-static void convert_lower(char *ext_str, char *str)
-{
-	int i, length = strlen(str);
-	for (i = 0; i < length; i++) {
-		*ext_str = tolower(*str);
-		ext_str++;
-		str++;
-	}
-	*ext_str = '\0';
-}
-
-int is_file_name_match(struct ecryptfs_mount_crypt_stat *mcs,
-					struct dentry *fp_dentry)
-{
-	int i;
-	char *str = NULL;
-	if (!(strcmp("/", fp_dentry->d_name.name))
-		|| !(strcmp("", fp_dentry->d_name.name)))
-		return 0;
-	str = kzalloc(mcs->max_name_filter_len + 1, GFP_KERNEL);
-	if (!str) {
-		printk(KERN_ERR "%s: Out of memory whilst attempting "
-			       "to kzalloc [%zd] bytes\n", __func__,
-			       (mcs->max_name_filter_len + 1));
-		return 0;
-	}
-
-	/*printk(KERN_ERR "fzhang is_file_name_match, str = %s.\n", str); */
-	for (i = 0; i < ENC_NAME_FILTER_MAX_INSTANCE; i++) {
-		int len = 0;
-		struct dentry *p = fp_dentry;
-		if (!mcs->enc_filter_name[i] ||
-			 !strlen(mcs->enc_filter_name[i]))
-			break;
-
-		while (1) {
-			if (len == 0) {
-				len = strlen(p->d_name.name);
-				if (len > mcs->max_name_filter_len)
-					break;
-				strcpy(str, p->d_name.name);
-			} else {
-				len = len + 1 + strlen(p->d_name.name) ;
-				if (len > mcs->max_name_filter_len)
-					break;
-				strcat(str, "/");
-				strcat(str, p->d_name.name);
-			}
-
-			if (strnicmp(str, mcs->enc_filter_name[i], len))
-				break;
-			p = p->d_parent;
-
-			if (!(strcmp("/", p->d_name.name))
-				|| !(strcmp("", p->d_name.name))) {
-				if (len == strlen(mcs->enc_filter_name[i])) {
-					kfree(str);
-					return 1;
-				} else
-					break;
-
-			}
-		}
-	}
-	kfree(str);
-	return 0;
-}
-
-int is_file_ext_match(struct ecryptfs_mount_crypt_stat *mcs, char *str)
-{
-	int i;
-	char low_ext[256];
-	char ext[256];
-
-	char *token;
-	int count = 0;
-	while ((token = strsep(&str, ".")) != NULL) {
-		strncpy(ext, token, 256);
-		count++;
-		/* printk(KERN_ERR "fzhang filter type = %s.\n", this_perm); */
-	}
-	if (count <= 1)
-		return 0;
-
-	convert_lower(low_ext, ext);
-	for (i = 0; i < ENC_EXT_FILTER_MAX_INSTANCE; i++) {
-		if (!mcs->enc_filter_ext[i] || !strlen(mcs->enc_filter_ext[i]))
-			return 0;
-		if (strlen(low_ext) != strlen(mcs->enc_filter_ext[i]))
-			continue;
-		if (!strcmp(low_ext, mcs->enc_filter_ext[i])) {
-			/* printk(KERN_ERR "fzhang ext matched i= %d.\n", i);*/
-			return 1;
-		}
-	}
-	return 0;
-}
-#endif
 
 
 MODULE_AUTHOR("Michael A. Halcrow <mhalcrow@us.ibm.com>");

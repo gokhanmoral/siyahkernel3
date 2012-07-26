@@ -55,9 +55,21 @@ struct sec_battery_platform_data {
 /* for test driver */
 #define __TEST_DEVICE_DRIVER__
 
+enum capacity_type {
+	CAPACITY_TYPE_FULL = 0,
+	CAPACITY_TYPE_MIX,
+	CAPACITY_TYPE_AV,
+	CAPACITY_TYPE_REP,
+};
+
 extern int low_batt_compensation(int fg_soc, int fg_vcell, int fg_current);
 extern void reset_low_batt_comp_cnt(void);
 extern int get_fuelgauge_value(int data);
 extern struct max17042_chip *max17042_chip_data;
+extern int get_fuelgauge_capacity(enum capacity_type type);
+
+#if defined(CONFIG_STMPE811_ADC)
+u16 stmpe811_get_adc_data(u8 channel);
+#endif
 
 #endif

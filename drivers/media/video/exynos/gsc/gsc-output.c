@@ -35,15 +35,16 @@ int gsc_out_hw_reset_off (struct gsc_dev *gsc)
 {
 	int ret;
 
-	mdelay(1);
-	gsc_hw_set_sw_reset(gsc);
-	ret = gsc_wait_reset(gsc);
-	if (ret < 0) {
-		gsc_err("gscaler s/w reset timeout");
-		return ret;
+	if (!soc_is_exynos5250_rev1) {
+		gsc_hw_set_sw_reset(gsc);
+		ret = gsc_wait_reset(gsc);
+		if (ret < 0) {
+			gsc_err("gscaler s/w reset timeout");
+			return ret;
+		}
+		gsc_disp_fifo_sw_reset(gsc);
+		gsc_pixelasync_sw_reset(gsc);
 	}
-	gsc_pixelasync_sw_reset(gsc);
-	gsc_disp_fifo_sw_reset(gsc);
 	gsc_hw_enable_control(gsc, false);
 	ret = gsc_wait_stop(gsc);
 	if (ret < 0) {
@@ -65,8 +66,24 @@ int gsc_out_hw_set(struct gsc_ctx *ctx)
 		return ret;
 	}
 
+	gsc_hw_set_mixer();
+	if (soc_is_exynos5250_rev1) {
+		gsc_hw_set_sw_reset(gsc);
+		ret = gsc_wait_reset(gsc);
+		if (ret < 0) {
+			gsc_err("gscaler s/w reset timeout");
+			return ret;
+		}
+	}
+
+	if (gsc_hw_get_mxr_path_status())
+		gsc_hw_set_fire_bit_sync_mode(gsc, true);
+	else
+		gsc_hw_set_fire_bit_sync_mode(gsc, false);
 	gsc_hw_set_frm_done_irq_mask(gsc, false);
 	gsc_hw_set_gsc_irq_enable(gsc, true);
+	gsc_hw_set_one_frm_mode(gsc, false);
+	gsc_hw_set_freerun_clock_mode(gsc, true);
 
 	gsc_hw_set_input_path(ctx);
 	gsc_hw_set_in_size(ctx);
@@ -78,6 +95,8 @@ int gsc_out_hw_set(struct gsc_ctx *ctx)
 
 	gsc_hw_set_prescaler(ctx);
 	gsc_hw_set_mainscaler(ctx);
+	gsc_hw_set_h_coef(ctx);
+	gsc_hw_set_v_coef(ctx);
 	gsc_hw_set_rotation(ctx);
 	gsc_hw_set_global_alpha(ctx);
 	gsc_hw_set_input_buf_mask_all(gsc);
@@ -92,16 +111,16 @@ static void gsc_subdev_try_crop(struct gsc_dev *gsc, struct v4l2_rect *cr)
 	u32 tmp_w, tmp_h;
 
 	if (gsc->out.ctx->gsc_ctrls.rotate->val == 90 ||
-            gsc->out.ctx->gsc_ctrls.rotate->val == 270) {
-		max_w= variant->pix_max->target_rot_en_w;
-		max_h= variant->pix_max->target_rot_en_h;
+		gsc->out.ctx->gsc_ctrls.rotate->val == 270) {
+		max_w = variant->pix_max->target_rot_en_w;
+		max_h = variant->pix_max->target_rot_en_h;
 		min_w = variant->pix_min->target_rot_en_w;
 		min_h = variant->pix_min->target_rot_en_h;
 		tmp_w = cr->height;
 		tmp_h = cr->width;
 	} else {
-		max_w= variant->pix_max->target_rot_dis_w;
-		max_h= variant->pix_max->target_rot_dis_h;
+		max_w = variant->pix_max->target_rot_dis_w;
+		max_h = variant->pix_max->target_rot_dis_h;
 		min_w = variant->pix_min->target_rot_dis_w;
 		min_h = variant->pix_min->target_rot_dis_h;
 		tmp_w = cr->width;
@@ -245,6 +264,8 @@ static int gsc_subdev_set_crop(struct v4l2_subdev *sd,
 		f->crop.top = crop->rect.top;
 		f->crop.width = crop->rect.width;
 		f->crop.height = crop->rect.height;
+		if (f->crop.width % 2)
+			f->crop.width -= 1;
 	}
 
 	gsc_dbg("pad%d: (%d,%d)/%dx%d", crop->pad, crop->rect.left, crop->rect.top,
@@ -281,7 +302,7 @@ static struct v4l2_subdev_pad_ops gsc_subdev_pad_ops = {
 	.set_crop = gsc_subdev_set_crop,
 };
 
-static struct v4l2_subdev_video_ops gsc_subdev_video_ops= {
+static struct v4l2_subdev_video_ops gsc_subdev_video_ops = {
 	.s_stream = gsc_subdev_s_stream,
 };
 
@@ -413,6 +434,7 @@ static int gsc_output_reqbufs(struct file *file, void *priv,
 					 out->ctx);
 
 	frame = ctx_get_frame(out->ctx, reqbufs->type);
+	update_use_sysmmu(gsc->vb2, out->ctx->gsc_ctrls.use_sysmmu);
 	frame->cacheable = out->ctx->gsc_ctrls.cacheable->val;
 	gsc->vb2->set_cacheable(gsc->alloc_ctx, frame->cacheable);
 	ret = vb2_reqbufs(&out->vbq, reqbufs);
@@ -656,6 +678,7 @@ static int gsc_out_queue_setup(struct vb2_queue *vq, unsigned int *num_buffers,
 		sizes[i] = get_plane_size(&ctx->s_frame, i);
 		allocators[i] = ctx->gsc_dev->alloc_ctx;
 	}
+	vb2_queue_init(vq);
 
 	return 0;
 }
@@ -702,23 +725,26 @@ static void gsc_out_buffer_queue(struct vb2_buffer *vb)
 	struct vb2_queue *q = vb->vb2_queue;
 	struct gsc_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 	struct gsc_dev *gsc = ctx->gsc_dev;
+	unsigned long flags;
 	int ret;
 
 	if (gsc->out.req_cnt >= atomic_read(&q->queued_count)) {
+		spin_lock_irqsave(&gsc->slock, flags);
 		ret = gsc_out_set_in_addr(gsc, ctx, buf, vb->v4l2_buf.index);
 		if (ret) {
 			gsc_err("Failed to prepare G-Scaler address");
+			spin_unlock_irqrestore(&gsc->slock, flags);
 			return;
 		}
 		gsc_hw_set_input_buf_masking(gsc, vb->v4l2_buf.index, false);
+		gsc_hw_set_in_pingpong_update(gsc);
+		spin_unlock_irqrestore(&gsc->slock, flags);
 	} else {
 		gsc_err("All requested buffers have been queued already");
 		return;
 	}
 
 	if (!test_and_set_bit(ST_OUTPUT_STREAMON, &gsc->state)) {
-		gsc_disp_fifo_sw_reset(gsc);
-		gsc_pixelasync_sw_reset(gsc);
 		gsc_hw_enable_control(gsc, true);
 		ret = gsc_wait_operating(gsc);
 		if (ret < 0) {
@@ -755,18 +781,26 @@ static int gsc_out_link_setup(struct media_entity *entity,
 				   Gscaler 2 --> Window 2, Gscaler 3 --> Window 2 */
 				char name[FIMD_NAME_SIZE];
 				sprintf(name, "%s%d", FIMD_ENTITY_NAME, get_win_num(gsc));
-				gsc_hw_set_local_dst(gsc->id, true);
 				sd = media_entity_to_v4l2_subdev(remote->entity);
 				gsc->pipeline.disp = sd;
-				if (!strcmp(sd->name, name))
+				if (!strcmp(sd->name, name)) {
 					gsc->out.ctx->out_path = GSC_FIMD;
-				else
+					gsc_hw_set_local_dst(gsc->id, GSC_FIMD, true);
+				} else {
 					gsc->out.ctx->out_path = GSC_MIXER;
+					gsc_hw_set_local_dst(gsc->id, GSC_MIXER, true);
+				}
 			} else
 				gsc_err("G-Scaler source pad was linked already");
 		} else if (!(flags & ~MEDIA_LNK_FL_ENABLED)) {
 			if (gsc->pipeline.disp != NULL) {
-				gsc_hw_set_local_dst(gsc->id, false);
+				if (gsc->out.ctx->out_path == GSC_FIMD) {
+					gsc_hw_set_local_dst(gsc->id,
+							     GSC_FIMD, false);
+				} else {
+					gsc_hw_set_local_dst(gsc->id,
+							     GSC_MIXER, false);
+				}
 				gsc->pipeline.disp = NULL;
 				gsc->out.ctx->out_path = 0;
 			} else
@@ -871,8 +905,8 @@ static int gsc_create_link(struct gsc_dev *gsc)
 	struct media_entity *source, *sink;
 	int ret;
 
-	source= &gsc->out.vfd->entity;
-	sink= &gsc->out.sd->entity;
+	source = &gsc->out.vfd->entity;
+	sink = &gsc->out.sd->entity;
 	ret = media_entity_create_link(source, 0, sink, GSC_PAD_SINK,
 				       MEDIA_LNK_FL_IMMUTABLE |
 				       MEDIA_LNK_FL_ENABLED);

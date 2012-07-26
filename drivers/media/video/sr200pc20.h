@@ -267,10 +267,8 @@ static s32 large_file;
 #ifdef CONFIG_VIDEO_SR200PC20_P2
 #include  "sr200pc20_regs-p4w.h"
 /* #include  "sr200pc20_regs-p2.h" */
-#elif defined(CONFIG_VIDEO_SR200PC20_P4W)
-#include  "sr200pc20_regs-p4w.h"
 #else
-#include  "sr200pc20_regs.h"
+#include  "sr200pc20_regs-p4w.h"
 #endif
 
 #endif /* __SR200PC20_H */

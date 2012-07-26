@@ -41,10 +41,10 @@ static const struct snd_pcm_hardware dma_hardware = {
 				    SNDRV_PCM_FMTBIT_U8 |
 				    SNDRV_PCM_FMTBIT_S8,
 	.channels_min		= 1,
-	.channels_max		= 2,
+	.channels_max		= 6,
 	.buffer_bytes_max	= 128*1024,
 	.period_bytes_min	= PAGE_SIZE,
-	.period_bytes_max	= PAGE_SIZE*2,
+	.period_bytes_max	= PAGE_SIZE*8,
 	.periods_min		= 2,
 	.periods_max		= 128,
 	.fifo_size		= 32,

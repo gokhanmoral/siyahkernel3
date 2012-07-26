@@ -84,7 +84,7 @@ void s5p_dsim_init_fifo_pointer(unsigned int dsim_base, unsigned char cfg)
 	reg = readl(dsim_base + S5P_DSIM_FIFOCTRL);
 
 	writel(reg & ~(cfg), dsim_base + S5P_DSIM_FIFOCTRL);
-	mdelay(10);
+	msleep(10);
 	reg |= cfg;
 
 	writel(reg, dsim_base + S5P_DSIM_FIFOCTRL);

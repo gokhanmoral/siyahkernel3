@@ -36,14 +36,11 @@
 #endif
 #include <plat/fimc.h>
 #include <linux/pm_runtime.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_media.h>
+#include <linux/videodev2_exynos_camera.h>
 
 #include <mach/regs-pmu.h>
 #include <linux/delay.h>
-
-#ifdef CONFIG_CPU_FREQ
-#include <mach/cpufreq.h>
-#endif
 
 #include "fimc.h"
 
@@ -511,7 +508,8 @@ static inline void fimc_irq_cap(struct fimc_control *ctrl)
 				ctrl->cap->lastirq = 0;
 				fimc_stop_capture(ctrl);
 				ctrl->status = FIMC_BUFFER_STOP;
-				printk(KERN_INFO "fimc_irq_cap available_bufnum = %d\n", available_bufnum);
+				printk(KERN_INFO "fimc_irq_cap[%d] available_bufnum = %d\n",
+					ctrl->id, available_bufnum);
 			}
 		} else {
 			fimc_info1("%s : Aleady fimc stop\n", __func__);
@@ -1127,19 +1125,6 @@ static int fimc_open(struct file *filp)
 		ctrl->mem.curr = ctrl->mem.base;
 		ctrl->status = FIMC_STREAMOFF;
 
-#if defined(CONFIG_MACH_Q1_BD) || defined(CONFIG_MACH_P4)
-#if defined(CONFIG_CPU_FREQ) && defined(CONFIG_BUSFREQ)
-		if ((ctrl->id == FIMC1) || (ctrl->id == FIMC3)) {
-			if (atomic_read(&ctrl->busfreq_lock_cnt) == 0) {
-				exynos4_busfreq_lock(DVFS_LOCK_ID_CAM, BUS_L1);
-				fimc_warn("[%s] Bus Freq Locked L0\n", __func__);
-			}
-			atomic_inc(&ctrl->busfreq_lock_cnt);
-			ctrl->busfreq_flag = true;
-		}
-#endif /* CONFIG_CPU_FREQ && CONFIG_S5PV310_BUSFREQ */
-#endif /* CONFIG_MACH_Q1_REV02 */
-
 	}
 
 	prv_data->ctrl = ctrl;
@@ -1213,22 +1198,6 @@ static int fimc_release(struct file *filp)
 /* #endif */
 #endif
 
-#if defined(CONFIG_MACH_Q1_BD) || defined(CONFIG_MACH_P4)
-#if defined(CONFIG_CPU_FREQ) && defined(CONFIG_BUSFREQ)
-		/* Release Bus Frequency lock for High resolution */
-		if (ctrl->id == FIMC1) {
-			if (ctrl->busfreq_flag == true) {
-				atomic_dec(&ctrl->busfreq_lock_cnt);
-				ctrl->busfreq_flag = false;
-				if (atomic_read(&ctrl->busfreq_lock_cnt) == 0) {
-					/* release Freq lock back to normal */
-					exynos4_busfreq_lock_free(DVFS_LOCK_ID_CAM);
-					fimc_warn("[%s] Bus Freq lock Released Normal !!\n", __func__);
-				}
-			}
-		}
-#endif /* CONFIG_CPU_FREQ && CONFIG_S5PV310_BUSFREQ */
-#endif /* CONFIG_MACH_Q1_BD */
 	}
 	if (ctrl->out) {
 		if (ctx->status != FIMC_STREAMOFF) {
@@ -1652,13 +1621,6 @@ static int __devinit fimc_probe(struct platform_device *pdev)
 		goto err_alloc;
 	}
 
-#if defined(CONFIG_MACH_Q1_BD) || defined(CONFIG_MACH_P4)
-#ifdef CONFIG_CPU_FREQ
-	if (ctrl->id == FIMC1)
-		atomic_set(&ctrl->busfreq_lock_cnt, 0);
-#endif
-#endif
-
 	pdata = to_fimc_plat(&pdev->dev);
 	if ((ctrl->id == FIMC0) && (pdata->cfg_gpio))
 		pdata->cfg_gpio(pdev);
@@ -1669,6 +1631,7 @@ static int __devinit fimc_probe(struct platform_device *pdev)
 		fimc_err("%s: v4l2 device register failed\n", __func__);
 		goto err_fimc;
 	}
+	ctrl->vd->v4l2_dev = &ctrl->v4l2_dev;
 
 	/* things to initialize once */
 	if (!fimc_dev->initialized) {
@@ -1710,8 +1673,10 @@ static int __devinit fimc_probe(struct platform_device *pdev)
 	sprintf(buf, "fimc%d_iqr_wq_name", ctrl->id);
 	ctrl->fimc_irq_wq = create_workqueue(buf);
 
-	if (ctrl->fimc_irq_wq == NULL)
-		printk(KERN_ERR "Cannot create workqueue for fimc driver\n");
+	if (ctrl->fimc_irq_wq == NULL) {
+		fimc_err("Cannot create workqueue for fimc driver\n");
+		goto err_global;
+	}
 
 	INIT_WORK(&ctrl->work_struct, s3c_fimc_irq_work);
 	atomic_set(&ctrl->irq_cnt, 0);

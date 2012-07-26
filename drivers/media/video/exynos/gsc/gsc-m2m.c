@@ -18,7 +18,6 @@
 #include <linux/errno.h>
 #include <linux/bug.h>
 #include <linux/interrupt.h>
-#include <linux/workqueue.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/list.h>
@@ -98,19 +97,40 @@ int gsc_fill_addr(struct gsc_ctx *ctx)
 	return ret;
 }
 
+void gsc_op_timer_handler(unsigned long arg)
+{
+	struct gsc_ctx *ctx = (struct gsc_ctx *)arg;
+	struct gsc_dev *gsc = ctx->gsc_dev;
+	struct vb2_buffer *src_vb, *dst_vb;
+
+	clear_bit(ST_M2M_RUN, &gsc->state);
+	gsc_clock_gating(gsc, GSC_CLK_OFF);
+	pm_runtime_put_sync(&gsc->pdev->dev);
+
+	src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
+	dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
+	if (src_vb && dst_vb) {
+		v4l2_m2m_buf_done(src_vb, VB2_BUF_STATE_ERROR);
+		v4l2_m2m_buf_done(dst_vb, VB2_BUF_STATE_ERROR);
+	}
+	gsc_err("GSCALER interrupt hasn't been triggered");
+	gsc_err("erro ctx: %p, ctx->state: 0x%x", ctx, ctx->state);
+}
 
 static void gsc_m2m_device_run(void *priv)
 {
 	struct gsc_ctx *ctx = priv;
 	struct gsc_dev *gsc;
 	unsigned long flags;
-	u32 ret;
+	int ret;
 	bool is_set = false;
 
 	if (WARN(!ctx, "null hardware context\n"))
 		return;
 
 	gsc = ctx->gsc_dev;
+	pm_runtime_get_sync(&gsc->pdev->dev);
+	gsc_clock_gating(gsc, GSC_CLK_ON);
 
 	spin_lock_irqsave(&ctx->slock, flags);
 	/* Reconfigure hardware if the context has changed. */
@@ -125,29 +145,37 @@ static void gsc_m2m_device_run(void *priv)
 	ctx->state &= ~GSC_CTX_STOP_REQ;
 	if (is_set) {
 		wake_up(&gsc->irq_queue);
-		goto dma_unlock;
+		goto put_device;
 	}
 
 	ret = gsc_fill_addr(ctx);
 	if (ret) {
 		gsc_err("Wrong address");
-		goto dma_unlock;
+		goto put_device;
 	}
 
-	pm_runtime_get_sync(&gsc->pdev->dev);
-
-	gsc_hw_set_input_addr(gsc, &ctx->s_frame.addr, GSC_M2M_BUF_NUM);
-	gsc_hw_set_output_addr(gsc, &ctx->d_frame.addr, GSC_M2M_BUF_NUM);
+	if (gsc->vb2->use_sysmmu)
+		gsc_set_prefbuf(gsc, ctx->s_frame);
 
 	if (ctx->state & GSC_PARAMS) {
+		if (soc_is_exynos5250_rev1) {
+			gsc_hw_set_sw_reset(gsc);
+			ret = gsc_wait_reset(gsc);
+			if (ret < 0) {
+				gsc_err("gscaler s/w reset timeout");
+				goto put_device;
+			}
+		}
 		gsc_hw_set_input_buf_masking(gsc, GSC_M2M_BUF_NUM, false);
 		gsc_hw_set_output_buf_masking(gsc, GSC_M2M_BUF_NUM, false);
 		gsc_hw_set_frm_done_irq_mask(gsc, false);
 		gsc_hw_set_gsc_irq_enable(gsc, true);
+		gsc_hw_set_one_frm_mode(gsc, true);
+		gsc_hw_set_freerun_clock_mode(gsc, false);
 
 		if (gsc_set_scaler_info(ctx)) {
 			gsc_err("Scaler setup error");
-			goto dma_unlock;
+			goto put_device;
 		}
 
 		gsc_hw_set_input_path(ctx);
@@ -160,12 +188,16 @@ static void gsc_m2m_device_run(void *priv)
 
 		gsc_hw_set_prescaler(ctx);
 		gsc_hw_set_mainscaler(ctx);
+		gsc_hw_set_h_coef(ctx);
+		gsc_hw_set_v_coef(ctx);
 		gsc_hw_set_rotation(ctx);
 		gsc_hw_set_global_alpha(ctx);
 	}
 	/* When you update SFRs in the middle of operating
 	gsc_hw_set_sfr_update(ctx);
 	*/
+	gsc_hw_set_input_addr(gsc, &ctx->s_frame.addr, GSC_M2M_BUF_NUM);
+	gsc_hw_set_output_addr(gsc, &ctx->d_frame.addr, GSC_M2M_BUF_NUM);
 
 	ctx->state &= ~GSC_PARAMS;
 
@@ -175,13 +207,24 @@ static void gsc_m2m_device_run(void *priv)
 		 GSCALER_ON off */
 		gsc_hw_enable_control(gsc, true);
 		ret = gsc_wait_operating(gsc);
-		if (ret < 0)
-			goto dma_unlock;
-		gsc_hw_enable_control(gsc, false);
+		if (ret < 0) {
+			gsc_err("gscaler wait operating timeout");
+			goto put_device;
+		}
+		if (!soc_is_exynos5250_rev1)
+			gsc_hw_enable_control(gsc, false);
 	}
 
-dma_unlock:
+	ctx->op_timer.expires = (jiffies + 2 * HZ);
+	add_timer(&ctx->op_timer);
+
 	spin_unlock_irqrestore(&ctx->slock, flags);
+	return;
+
+put_device:
+	ctx->state &= ~GSC_PARAMS;
+	spin_unlock_irqrestore(&ctx->slock, flags);
+	pm_runtime_put_sync(&gsc->pdev->dev);
 }
 
 static int gsc_m2m_queue_setup(struct vb2_queue *vq, unsigned int *num_buffers,
@@ -350,6 +393,7 @@ static int gsc_m2m_reqbufs(struct file *file, void *fh,
 
 	max_cnt = (reqbufs->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) ?
 		gsc->variant->in_buf_cnt : gsc->variant->out_buf_cnt;
+
 	if (reqbufs->count > max_cnt)
 		return -EINVAL;
 	else if (reqbufs->count == 0) {
@@ -359,6 +403,7 @@ static int gsc_m2m_reqbufs(struct file *file, void *fh,
 			gsc_ctx_state_lock_clear(GSC_DST_FMT, ctx);
 	}
 
+	update_use_sysmmu(gsc->vb2, ctx->gsc_ctrls.use_sysmmu);
 	frame = ctx_get_frame(ctx, reqbufs->type);
 	frame->cacheable = ctx->gsc_ctrls.cacheable->val;
 	gsc->vb2->set_cacheable(gsc->alloc_ctx, frame->cacheable);
@@ -573,6 +618,9 @@ static int gsc_m2m_open(struct file *file)
 	ctx->in_path = GSC_DMA;
 	ctx->out_path = GSC_DMA;
 	spin_lock_init(&ctx->slock);
+	init_timer(&ctx->op_timer);
+	ctx->op_timer.data = (unsigned long)ctx;
+	ctx->op_timer.function = gsc_op_timer_handler;
 
 	ctx->m2m_ctx = v4l2_m2m_ctx_init(gsc->m2m.m2m_dev, ctx, queue_init);
 	if (IS_ERR(ctx->m2m_ctx)) {

@@ -101,9 +101,9 @@ struct lcd_info {
 	struct str_elvss		elvss;
 #endif
 	unsigned int			connected;
-};
 
-static struct mipi_ddi_platform_data *ddi_pd;
+	struct dsim_global		*dsim;
+};
 
 static int s6e8ax0_write(struct lcd_info *lcd, const unsigned char *seq, int len)
 {
@@ -119,11 +119,11 @@ static int s6e8ax0_write(struct lcd_info *lcd, const unsigned char *seq, int len
 	wbuf = seq;
 
 	if (size == 1)
-		ddi_pd->cmd_write(ddi_pd->dsim_base, DCS_WR_NO_PARA, wbuf[0], 0);
+		lcd->dsim->ops->cmd_write(lcd->dsim, DCS_WR_NO_PARA, wbuf[0], 0);
 	else if (size == 2)
-		ddi_pd->cmd_write(ddi_pd->dsim_base, DCS_WR_1_PARA, wbuf[0], wbuf[1]);
+		lcd->dsim->ops->cmd_write(lcd->dsim, DCS_WR_1_PARA, wbuf[0], wbuf[1]);
 	else
-		ddi_pd->cmd_write(ddi_pd->dsim_base, DCS_LONG_WR, (unsigned int)wbuf, size);
+		lcd->dsim->ops->cmd_write(lcd->dsim, DCS_LONG_WR, (unsigned int)wbuf, size);
 
 	mutex_unlock(&lcd->lock);
 
@@ -139,42 +139,12 @@ static int _s6e8ax0_read(struct lcd_info *lcd, const u8 addr, u16 count, u8 *buf
 
 	mutex_lock(&lcd->lock);
 
-	if (ddi_pd->cmd_read)
-		ret = ddi_pd->cmd_read(ddi_pd->dsim_base, addr, count, buf);
+	if (lcd->dsim->ops->cmd_read)
+		ret = lcd->dsim->ops->cmd_read(lcd->dsim, addr, count, buf);
 
 	mutex_unlock(&lcd->lock);
 
 	return ret;
-}
-
-static int s6e8ax0_set_link(void *pd, unsigned int dsim_base,
-	unsigned char (*cmd_write) (unsigned int dsim_base, unsigned int data0,
-	    unsigned int data1, unsigned int data2),
-	int (*cmd_read) (u32 reg_base, u8 addr, u16 count, u8 *buf))
-{
-	struct mipi_ddi_platform_data *temp_pd = NULL;
-
-	temp_pd = (struct mipi_ddi_platform_data *) pd;
-	if (temp_pd == NULL) {
-		printk(KERN_ERR "mipi_ddi_platform_data is null.\n");
-		return -EPERM;
-	}
-
-	ddi_pd = temp_pd;
-
-	ddi_pd->dsim_base = dsim_base;
-
-	if (cmd_write)
-		ddi_pd->cmd_write = cmd_write;
-	else
-		printk(KERN_WARNING "cmd_write function is null.\n");
-
-	if (cmd_read)
-		ddi_pd->cmd_read = cmd_read;
-	else
-		printk(KERN_WARNING "cmd_read function is null.\n");
-
-	return 0;
 }
 
 static int s6e8ax0_read(struct lcd_info *lcd, const u8 addr, u16 count, u8 *buf, u8 retry_cnt)
@@ -195,6 +165,7 @@ read_retry:
 	return ret;
 }
 
+#if 0
 static int get_backlight_level_from_brightness(int brightness)
 {
 	int backlightlevel;
@@ -287,6 +258,7 @@ static int get_backlight_level_from_brightness(int brightness)
 	}
 	return backlightlevel;
 }
+#endif
 
 static int s6e8ax0_gamma_ctl(struct lcd_info *lcd)
 {
@@ -315,7 +287,7 @@ static int s6e8ax0_set_acl(struct lcd_info *lcd)
 				dev_dbg(&lcd->ld->dev, "%s : cur_acl=%d, acl_on\n", __func__, lcd->cur_acl);
 		}
 		switch (lcd->bl) {
-		case 0 ... 1: /* 30cd ~ 40cd */
+		case GAMMA_30CD ... GAMMA_40CD: /* 30cd ~ 40cd */
 			if (lcd->cur_acl != 0) {
 				s6e8ax0_write(lcd, SEQ_ACL_OFF, ARRAY_SIZE(SEQ_ACL_OFF));
 				lcd->cur_acl = 0;
@@ -464,9 +436,8 @@ err_alloc_elvss:
 		kfree(lcd->elvss_table[i-1]);
 		i--;
 	}
-err_alloc_elvss_table:
 	kfree(lcd->elvss_table);
-
+err_alloc_elvss_table:
 	return ret;
 }
 
@@ -505,9 +476,8 @@ err_alloc_gamma:
 		kfree(lcd->gamma_table[i-1]);
 		i--;
 	}
-err_alloc_gamma_table:
 	kfree(lcd->gamma_table);
-
+err_alloc_gamma_table:
 	return ret;
 }
 #endif
@@ -521,7 +491,9 @@ static int update_brightness(struct lcd_info *lcd, u8 force)
 
 	brightness = lcd->bd->props.brightness;
 
-	lcd->bl = get_backlight_level_from_brightness(brightness);
+	lcd->bl = (brightness - candela_table[0]) / 10;
+
+	lcd->bl = (lcd->bl >= ARRAY_SIZE(candela_table)) ? 0 : lcd->bl;
 
 	if ((force) || ((lcd->ldi_enable) && (lcd->current_bl != lcd->bl))) {
 
@@ -695,7 +667,9 @@ static int s6e8ax0_set_brightness(struct backlight_device *bd)
 
 static int s6e8ax0_get_brightness(struct backlight_device *bd)
 {
-	return bd->props.brightness;
+	struct lcd_info *lcd = bl_get_data(bd);
+
+	return candela_table[lcd->bl];
 }
 
 static struct lcd_ops s6e8ax0_lcd_ops = {
@@ -777,6 +751,8 @@ void s6e8ax0_early_suspend(void)
 {
 	struct lcd_info *lcd = g_lcd;
 
+	set_dsim_lcd_enabled(0);
+
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 	s6e8ax0_power(lcd, FB_BLANK_POWERDOWN);
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
@@ -792,9 +768,7 @@ void s6e8ax0_late_resume(void)
 	s6e8ax0_power(lcd, FB_BLANK_UNBLANK);
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
-	set_dsim_lcd_enabled();
-
-	s5p_dsim_frame_done_interrupt_enable(1);
+	set_dsim_lcd_enabled(1);
 
 	return ;
 }
@@ -882,6 +856,7 @@ static int s6e8ax0_probe(struct device *dev)
 	}
 
 	lcd->dev = dev;
+	lcd->dsim = (struct dsim_global *)dev_get_drvdata(dev->parent);
 	lcd->bd->props.max_brightness = MAX_BRIGHTNESS;
 	lcd->bd->props.brightness = DEFAULT_BRIGHTNESS;
 	lcd->bl = DEFAULT_GAMMA_LEVEL;
@@ -936,7 +911,8 @@ static int s6e8ax0_probe(struct device *dev)
 
 	if (lcd->connected) {
 		ret = init_gamma_table(lcd);
-		ret += init_elvss_table(lcd);
+		if (lcd->support_elvss)
+			ret += init_elvss_table(lcd);
 
 		if (ret) {
 			lcd->gamma_table = (unsigned char **)gamma22_table_sm2;
@@ -987,7 +963,6 @@ static void s6e8ax0_shutdown(struct device *dev)
 
 static struct mipi_lcd_driver s6e8ax0_mipi_driver = {
 	.name = "s6e8ab0",
-	.set_link		= s6e8ax0_set_link,
 	.probe			= s6e8ax0_probe,
 	.remove			= __devexit_p(s6e8ax0_remove),
 	.shutdown		= s6e8ax0_shutdown,

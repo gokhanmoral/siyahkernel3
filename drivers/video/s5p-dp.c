@@ -32,10 +32,14 @@
 
 static int s5p_dp_init_dp(struct s5p_dp_device *dp)
 {
+	int reg;
 	s5p_dp_reset(dp);
 
 	/* SW defined function Normal operation */
 	s5p_dp_enable_sw_function(dp);
+	/* Set AUX TX register to 51 */
+	reg = 0x75;
+	writel(reg, dp->reg_base + S5P_DP_PLL_FILTER_CTL_1);
 
 	if (!soc_is_exynos5250())
 		s5p_dp_config_interrupt(dp);
@@ -180,22 +184,26 @@ static int s5p_dp_read_edid(struct s5p_dp_device *dp)
 
 static int s5p_dp_handle_edid(struct s5p_dp_device *dp)
 {
-	u8 buf[12];
+	u8 buf[12] = {0,};
 	int i;
-	int retval;
+	int retval = 0;
 
 	/* Read DPCD 0x0000-0x000b */
 	s5p_dp_read_bytes_from_dpcd(dp,
 		DPCD_ADDR_DPCD_REV,
 		12, buf);
 
+	for (i = 0; i < 12; i++)
+		printk(KERN_INFO "data[%d] : %x\n", i, buf[i]);
+
+#if 0
 	/* Read EDID */
 	for (i = 0; i < 3; i++) {
 		retval = s5p_dp_read_edid(dp);
 		if (retval == 0)
 			break;
 	}
-
+#endif
 	return retval;
 }
 
@@ -2251,8 +2259,8 @@ static int __devinit s5p_dp_probe(struct platform_device *pdev)
 	}
 
 	pm_runtime_get_sync(dp->dev);
-
-#if 0 // to do check after wakeup
+/*
+	// to do check after wakeup
 	dp->irq = platform_get_irq(pdev, 0);
 	if (!dp->irq) {
 		dev_err(&pdev->dev, "failed to get irq\n");
@@ -2266,7 +2274,7 @@ static int __devinit s5p_dp_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to request irq\n");
 		goto err_ioremap;
 	}
-#endif
+*/
 	dp->video_info = pdata->video_info;
 	if (pdata->phy_init)
 		pdata->phy_init();
@@ -2275,6 +2283,7 @@ static int __devinit s5p_dp_probe(struct platform_device *pdev)
 
 	s5p_dp_init_dp(dp);
 
+#if 0
 	if (!soc_is_exynos5250()) {
 		ret = s5p_dp_detect_hpd(dp);
 		if (ret) {
@@ -2284,6 +2293,16 @@ static int __devinit s5p_dp_probe(struct platform_device *pdev)
 
 		s5p_dp_handle_edid(dp);
 	}
+
+#endif
+	ret = s5p_dp_detect_hpd(dp);
+	if (ret) {
+		dev_err(&pdev->dev, "unable to detect hpd\n");
+		goto err_irq;
+	}
+	dev_info(&pdev->dev, "hpd detect : success\n");
+
+	s5p_dp_handle_edid(dp);
 
 	ret = s5p_dp_set_link_train(dp, dp->video_info->lane_count,
 				dp->video_info->link_rate);

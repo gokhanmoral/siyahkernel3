@@ -319,7 +319,8 @@ config USB_GADGET_EXYNOS_SS_UDC
         depends on EXYNOS_DEV_SS_UDC
         select USB_GADGET_DUALSPEED
         help
-          DWC SuperSpeed USB 3.0 Device controller.
+	  The Samsung Exynos SuperSpeed USB 3.0 device controller
+	  integrated into the Exynos5 series SoC.
 
 config USB_EXYNOS_SS_UDC
         tristate
@@ -679,7 +680,7 @@ config USB_S3C_OTGD
 choice
 	prompt "EXYNOS SS UDC speed mode (temporarily)"
 	depends on USB_GADGET_EXYNOS_SS_UDC
-	default USB_GADGET_EXYNOS_SS_UDC_HSMODE
+	default USB_GADGET_EXYNOS_SS_UDC_SSMODE
 	help
 	   For the present moment gadget layer doesn't support SuperSpeed.
 	   This option allows to select speed mode for EXYNOS SS UDC driver.

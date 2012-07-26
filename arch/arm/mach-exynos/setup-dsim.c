@@ -28,8 +28,11 @@ static void s5p_dsim_enable_d_phy(unsigned char enable)
 {
 	unsigned int reg;
 
-	reg = (readl(S5P_MIPI_DPHY_CONTROL(0))) & ~(1 << 0);
-	reg |= (enable << 0);
+	reg = readl(S5P_MIPI_DPHY_CONTROL(0));
+	if (enable)
+		reg |= S5P_MIPI_DPHY_ENABLE;
+	else if (!(reg & S5P_MIPI_DPHY_SRESETN))
+		reg &= ~S5P_MIPI_DPHY_ENABLE;
 	writel(reg, S5P_MIPI_DPHY_CONTROL(0));
 }
 
@@ -69,40 +72,12 @@ void s5p_dsim_init_d_phy(unsigned int dsim_base)
 	s5p_dsim_enable_dsi_master(1);
 }
 
-static void exynos4_dsim_setup_24bpp(unsigned int start, unsigned int size,
-		unsigned int cfg, s5p_gpio_drvstr_t drvstr)
+void s5p_dsim_exit_d_phy(unsigned int dsim_base)
 {
-	s3c_gpio_cfgrange_nopull(start, size, cfg);
+	/* enable DSI master block */
+	s5p_dsim_enable_dsi_master(0);
 
-	for (; size > 0; size--, start++)
-		s5p_gpio_set_drvstr(start, drvstr);
+	/* enable D-PHY */
+	s5p_dsim_enable_d_phy(0);
 }
 
-void exynos4_dsim_gpio_setup_24bpp(void)
-{
-	unsigned int reg = 0;
-
-	/*
-	 * Set DISPLAY_CONTROL register for Display path selection.
-	 *
-	 * DISPLAY_CONTROL[1:0]
-	 * ---------------------
-	 *  00 | MIE
-	 *  01 | MDINE
-	 *  10 | FIMD : selected
-	 *  11 | FIMD
-	 */
-#ifdef CONFIG_FB_S5P_MDNIE
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-	reg &= ~(1<<13);
-	reg &= ~(1<<12);
-	reg &= ~(3<<10);
-	reg |= (1<<0);
-	reg &= ~(1<<1);
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
-#else
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-	reg |= (1 << 1);
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
-#endif
-}

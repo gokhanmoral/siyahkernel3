@@ -17,8 +17,9 @@
 #define S5P_MFC_COMMON_H_
 
 #include <linux/videodev2.h>
-#include <linux/workqueue.h>
+#include <linux/videodev2_exynos_media.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
 
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -57,6 +58,8 @@
 #define MFC_WORKQUEUE_LEN	32
 
 #define MFC_BASE_MASK		((1 << 17) - 1)
+#define MFC_VER_MAJOR(ver)	((ver >> 4) & 0xF)
+#define MFC_VER_MINOR(ver)	(ver & 0xF)
 
 /**
  * enum s5p_mfc_inst_type - The type of an MFC device node.
@@ -117,6 +120,14 @@ enum s5p_mfc_check_state {
 	MFCSTATE_ENC_NO_OUTPUT,
 };
 
+/**
+ * enum s5p_mfc_buf_cacheable_mask - The mask for cacheble setting
+ */
+enum s5p_mfc_buf_cacheable_mask {
+	MFCMASK_DST_CACHE = (1 << 0),
+	MFCMASK_SRC_CACHE = (1 << 1),
+};
+
 struct s5p_mfc_ctx;
 struct s5p_mfc_extra_buf;
 
@@ -143,15 +154,14 @@ struct s5p_mfc_buf {
 struct s5p_mfc_pm {
 	struct clk	*clock;
 	atomic_t	power;
-#ifdef CONFIG_PM_RUNTIME
 	struct device	*device;
-#endif
 };
 
 struct s5p_mfc_fw {
 	const struct firmware	*info;
 	int			state;
 	int			ver;
+	int			date;
 };
 
 struct s5p_mfc_buf_align {
@@ -218,6 +228,7 @@ struct s5p_mfc_dev {
 	struct s5p_mfc_pm	pm;
 	struct s5p_mfc_fw	fw;
 	struct s5p_mfc_variant	*variant;
+	struct s5p_mfc_platdata	*platdata;
 
 	int num_inst;
 	spinlock_t irqlock;
@@ -254,54 +265,63 @@ struct s5p_mfc_dev {
 
 	struct vb2_alloc_ctx **alloc_ctx;
 
-	unsigned long clk_state;
+#ifdef CONFIG_BUSFREQ_OPP
+#ifdef CONFIG_CPU_EXYNOS5250
+	struct device *bus_dev;
+	atomic_t busfreq_lock;
+#endif
+#endif
+
+    /* for DRM */
+	int curr_ctx_drm;
+	int fw_status;
+	int num_drm_inst;
+	struct s5p_mfc_extra_buf drm_info;
+	struct vb2_alloc_ctx *alloc_ctx_fw;
+	struct vb2_alloc_ctx *alloc_ctx_sh;
+	struct vb2_alloc_ctx *alloc_ctx_drm;
+
 	struct work_struct work_struct;
 	struct workqueue_struct *irq_workqueue;
-
-#ifdef CONFIG_EXYNOS5_CPUFREQ
-	atomic_t cpufreq_lock;
-#endif
 };
 
 /**
  *
  */
 struct s5p_mfc_h264_enc_params {
-	u8 num_b_frame;
-	enum v4l2_codec_mfc5x_enc_h264_profile profile;
+	enum v4l2_mpeg_video_h264_profile profile;
 	u8 level;
-	enum v4l2_codec_mfc5x_enc_switch interlace;
-	enum v4l2_codec_mfc5x_enc_h264_loop_filter loop_filter_mode;
+	u8 interlace;
+	enum v4l2_mpeg_video_h264_loop_filter_mode loop_filter_mode;
 	s8 loop_filter_alpha;
 	s8 loop_filter_beta;
-	enum v4l2_codec_mfc5x_enc_h264_entropy_mode entropy_mode;
-	u8 max_ref_pic;
+	enum v4l2_mpeg_video_h264_entropy_mode entropy_mode;
 	u8 num_ref_pic_4p;
-	enum v4l2_codec_mfc5x_enc_switch _8x8_transform;
-	enum v4l2_codec_mfc5x_enc_switch rc_mb;
+	u8 _8x8_transform;
 	u32 rc_framerate;
 	u8 rc_frame_qp;
 	u8 rc_min_qp;
 	u8 rc_max_qp;
-	enum v4l2_codec_mfc5x_enc_switch_inv rc_mb_dark;
-	enum v4l2_codec_mfc5x_enc_switch_inv rc_mb_smooth;
-	enum v4l2_codec_mfc5x_enc_switch_inv rc_mb_static;
-	enum v4l2_codec_mfc5x_enc_switch_inv rc_mb_activity;
+	u8 rc_mb_dark;
+	u8 rc_mb_smooth;
+	u8 rc_mb_static;
+	u8 rc_mb_activity;
 	u8 rc_p_frame_qp;
 	u8 rc_b_frame_qp;
-	enum v4l2_codec_mfc5x_enc_switch ar_vui;
-	u8 ar_vui_idc;
+	u8 ar_vui;
+	enum v4l2_mpeg_video_h264_vui_sar_idc ar_vui_idc;
 	u16 ext_sar_width;
 	u16 ext_sar_height;
-	enum v4l2_codec_mfc5x_enc_switch open_gop;
+	u8 open_gop;
 	u16 open_gop_size;
-	enum v4l2_codec_mfc5x_enc_switch hier_p_enable;
-	u32 hier_layer0_qp;
-	u32 hier_layer1_qp;
-	u32 hier_layer2_qp;
-	enum v4l2_codec_mfc5x_enc_switch sei_gen_enable;
-	u32 curr_frame_frm0_flag;
-	u32 frame_pack_arrgment_type;
+	u8 hier_qp;
+	enum v4l2_mpeg_video_h264_hierarchical_coding_type hier_qp_type;
+	u8 hier_qp_layer;
+	u8 hier_qp_layer_qp[7];
+	u8 sei_gen_enable;
+	u8 sei_fp_curr_frame_0;
+	enum v4l2_mpeg_video_h264_sei_fp_arrangement_type \
+					sei_fp_arrangement_type;
 	u32 fmo_enable;
 	u32 fmo_slice_map_type;
 	u32 fmo_slice_num_grp;
@@ -317,16 +337,14 @@ struct s5p_mfc_h264_enc_params {
  */
 struct s5p_mfc_mpeg4_enc_params {
 	/* MPEG4 Only */
-	u8 num_b_frame;
-	enum v4l2_codec_mfc5x_enc_mpeg4_profile profile;
+	enum v4l2_mpeg_video_mpeg4_profile profile;
 	u8 level;
-	enum v4l2_codec_mfc5x_enc_switch quarter_pixel; /* MFC5.x */
+	u8 quarter_pixel; /* MFC5.x */
 	u16 vop_time_res;
 	u16 vop_frm_delta;
 	u8 rc_b_frame_qp;
 	/* Common for MPEG4, H263 */
 	u32 rc_framerate;
-	enum v4l2_codec_mfc5x_enc_switch rc_mb; /* MFC6.1 Only */
 	u8 rc_frame_qp;
 	u8 rc_min_qp;
 	u8 rc_max_qp;
@@ -341,23 +359,25 @@ struct s5p_mfc_enc_params {
 	u16 height;
 
 	u16 gop_size;
-	enum v4l2_codec_mfc5x_enc_multi_slice_mode slice_mode;
+	enum v4l2_mpeg_video_multi_slice_mode slice_mode;
 	u16 slice_mb;
 	u32 slice_bit;
 	u16 intra_refresh_mb;
-	enum v4l2_codec_mfc5x_enc_switch pad;
+	u8 pad;
 	u8 pad_luma;
 	u8 pad_cb;
 	u8 pad_cr;
-	enum v4l2_codec_mfc5x_enc_switch rc_frame;
+	u8 rc_frame;
 	u32 rc_bitrate;
 	u16 rc_reaction_coeff;
 	u8 frame_tag;
 
+	u8 num_b_frame;		/* H.264/MPEG4 */
+	u8 rc_mb;		/* H.264: MFCv5, MPEG4/H.263: MFCv6 */
 	u16 vbv_buf_size;
-	enum v4l2_codec_mfc5x_enc_seq_hdr_mode seq_hdr_mode;
-	enum v4l2_codec_mfc5x_enc_frame_skip_mode frame_skip_mode;
-	enum v4l2_codec_mfc5x_enc_switch fixed_target_bit;
+	enum v4l2_mpeg_video_header_mode seq_hdr_mode;
+	enum v4l2_mpeg_mfc51_video_frame_skip_mode frame_skip_mode;
+	u8 fixed_target_bit;
 
 	u16 rc_frame_delta;   /* MFC6.1 Only */
 
@@ -477,6 +497,7 @@ struct s5p_mfc_dec {
 	int display_delay;
 	int is_packedpb;
 	int slice_enable;
+	int mv_count;
 
 	int crc_enable;
 	int crc_luma0;
@@ -489,6 +510,7 @@ struct s5p_mfc_dec {
 	unsigned long dpb_status;
 	unsigned int dpb_flush;
 
+	enum v4l2_memory dst_memtype;
 	int sei_parse;
 
 	/* For 6.x */
@@ -501,8 +523,8 @@ struct s5p_mfc_enc {
 	size_t dst_buf_size;
 
 	int frame_count;
-	enum v4l2_codec_mfc5x_enc_frame_type frame_type;
-	enum v4l2_codec_mfc5x_enc_force_frame_type force_frame_type;
+	enum v4l2_mpeg_mfc51_video_frame_type frame_type;
+	enum v4l2_mpeg_mfc51_video_force_frame_type force_frame_type;
 
 	struct list_head ref_queue;
 	unsigned int ref_queue_cnt;
@@ -599,8 +621,8 @@ struct s5p_mfc_ctx {
 	/* For 6.x */
 	size_t scratch_buf_size;
 
-	/* ION file descriptor */
-	int fd_ion;
+	/* for DRM */
+	int is_drm;
 };
 
 #define fh_to_mfc_ctx(x)	\

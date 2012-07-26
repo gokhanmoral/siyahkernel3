@@ -113,6 +113,9 @@ _IOW(Si4709_IOC_MAGIC, 36, struct sys_config3)
 
 #define Si4709_IOC_RESET_RDS_DATA	_IO(Si4709_IOC_MAGIC, 39)
 
+#define Si4709_IOC_SEEK_FULL		_IOR(Si4709_IOC_MAGIC, 40, u32)
+
+
 /*****************************************/
 
 #endif

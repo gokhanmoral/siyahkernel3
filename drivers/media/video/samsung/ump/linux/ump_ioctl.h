@@ -44,6 +44,11 @@ extern "C"
 #define UMP_IOC_ION_IMPORT  _IOW(UMP_IOCTL_NR,  _UMP_IOC_ION_IMPORT, _ump_uk_ion_import_s)
 #endif
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+#define UMP_IOC_DMABUF_IMPORT  _IOW(UMP_IOCTL_NR,  _UMP_IOC_DMABUF_IMPORT,\
+					struct ump_uk_dmabuf)
+#endif
+
 #ifdef __cplusplus
 }
 #endif

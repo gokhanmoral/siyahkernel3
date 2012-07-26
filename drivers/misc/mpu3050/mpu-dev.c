@@ -60,6 +60,12 @@
 
 #include "mpu.h"
 
+#define ACCEL_VENDOR_NAME	"KIONIX"
+#define ACCEL_CHIP_NAME		"KXTF9"
+
+#define GYRO_VENDOR_NAME	"INVENSENSE"
+#define GYRO_CHIP_NAME		"MPU-3050"
+
 #define MPU3050_EARLY_SUSPEND_IN_DRIVER 1
 
 #define CALIBRATION_FILE_PATH	"/efs/calibration_data"
@@ -222,14 +228,15 @@ static int accel_do_calibrate(bool do_calib)
 			sum[2] += data.z;
 		}
 
-		cal_data.x = sum[0] / CALIBRATION_DATA_AMOUNT;
-		cal_data.y = sum[1] / CALIBRATION_DATA_AMOUNT;
-		cal_data.z = sum[2] / CALIBRATION_DATA_AMOUNT;
 
 		if (is_lis3dh) {
 			cal_data.x = IDEAL_X - cal_data.x;
 			cal_data.y = IDEAL_Y - cal_data.y;
 			cal_data.z = IDEAL_Z - cal_data.z;
+		} else {
+			cal_data.x = sum[0] / CALIBRATION_DATA_AMOUNT;
+			cal_data.y = sum[1] / CALIBRATION_DATA_AMOUNT;
+			cal_data.z = sum[2] / CALIBRATION_DATA_AMOUNT;
 		}
 	} else {
 		cal_data.x = 0;
@@ -1334,8 +1341,10 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 
 	/* sample rate = 8ms */
 	result = MLSLSerialWriteSingle(mlsl_handle, client->addr,
-				       MPUREG_SMPLRT_DIV, 0x07);
-	CHECK_TEST_ERROR(result);
+					MPUREG_SMPLRT_DIV, 0x07);
+
+	if (result)
+		goto out_i2c_faild;
 
 	regs[0] = 0x03;		/* filter = 42Hz, analog_sample rate = 1 KHz */
 	switch (DEF_GYRO_FULLSCALE) {
@@ -1355,7 +1364,9 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 	}
 	result = MLSLSerialWriteSingle(mlsl_handle, client->addr,
 				       MPUREG_DLPF_FS_SYNC, regs[0]);
-	CHECK_TEST_ERROR(result);
+	if (result)
+		goto out_i2c_faild;
+
 	result = MLSLSerialWriteSingle(mlsl_handle, client->addr,
 				       MPUREG_INT_CFG, 0x00);
 
@@ -1369,7 +1380,8 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 		   Set to Y and Z for 2nd and 3rd iteration */
 		result = MLSLSerialWriteSingle(mlsl_handle, client->addr,
 					       MPUREG_PWR_MGM, j + 1);
-		CHECK_TEST_ERROR(result);
+		if (result)
+			goto out_i2c_faild;
 
 		/* wait for 2 ms after switching clock source */
 		mpu3050_usleep(2000);
@@ -1377,7 +1389,8 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 		/* we will enable XYZ gyro in FIFO and nothing else */
 		result = MLSLSerialWriteSingle(mlsl_handle, client->addr,
 					       MPUREG_FIFO_EN2, 0x00);
-		CHECK_TEST_ERROR(result);
+		if (result)
+			goto out_i2c_faild;
 		/* enable/reset FIFO */
 		result = MLSLSerialWriteSingle(mlsl_handle, client->addr,
 					       MPUREG_USER_CTRL, 0x42);
@@ -1389,7 +1402,8 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 			result =
 			    MLSLSerialWriteSingle(mlsl_handle, client->addr,
 						  MPUREG_FIFO_EN1, 0x70);
-			CHECK_TEST_ERROR(result);
+			if (result)
+				goto out_i2c_faild;
 
 			/* wait for 600 ms for data */
 			mpu3050_usleep(600000);
@@ -1398,12 +1412,14 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 			result =
 			    MLSLSerialWriteSingle(mlsl_handle, client->addr,
 						  MPUREG_FIFO_EN1, 0x00);
-			CHECK_TEST_ERROR(result);
+			if (result)
+				goto out_i2c_faild;
 
 			/* Getting number of bytes in FIFO */
 			result = MLSLSerialRead(mlsl_handle, client->addr,
 						MPUREG_FIFO_COUNTH, 2, dataout);
-			CHECK_TEST_ERROR(result);
+			if (result)
+				goto out_i2c_faild;
 			/* number of 6 B packets in the FIFO */
 			packet_count = CHARS_TO_SHORT(dataout) / 6;
 			pr_info("%s :Packet Count: %d - ",
@@ -1418,7 +1434,9 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 					    MLSLSerialReadFifo(mlsl_handle,
 							client->addr, 6,
 							dataout);
-					CHECK_TEST_ERROR(result);
+					if (result)
+						goto out_i2c_faild;
+
 					x[total_count + i] =
 					    CHARS_TO_SHORT(&dataout[0]);
 					y[total_count + i] =
@@ -1447,7 +1465,8 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 		/* remove gyros from FIFO */
 		result = MLSLSerialWriteSingle(mlsl_handle, client->addr,
 					       MPUREG_FIFO_EN1, 0x00);
-		CHECK_TEST_ERROR(result);
+		if (result)
+			goto out_i2c_faild;
 
 		/* Read Temperature */
 		result = MLSLSerialRead(mlsl_handle, client->addr,
@@ -1532,6 +1551,10 @@ int mpu3050_test_gyro(struct i2c_client *client, short gyro_biases[3],
 	mpu3050_selftest_rms[X] = RMS[X] / total_count;
 	mpu3050_selftest_rms[Y] = RMS[Y] / total_count;
 	mpu3050_selftest_rms[Z] = RMS[Z] / total_count;
+
+out_i2c_faild:
+	if (result)
+		pr_info("%s : error %d", __func__, result);
 
 	kfree(x);
 	kfree(y);
@@ -1784,17 +1807,67 @@ static ssize_t accel_calibration_store(struct device *dev,
 	return count;
 }
 
+static ssize_t get_accel_vendor_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", ACCEL_VENDOR_NAME);
+}
+
+static ssize_t get_accel_chip_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", ACCEL_CHIP_NAME);
+}
+
+static ssize_t get_gyro_vendor_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", GYRO_VENDOR_NAME);
+}
+
+static ssize_t get_gyro_chip_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", GYRO_CHIP_NAME);
+}
+
+static struct device_attribute dev_attr_accel_vendor =
+		__ATTR(vendor, S_IRUGO, get_accel_vendor_name, NULL);
+static struct device_attribute dev_attr_accel_chip =
+		__ATTR(name, S_IRUGO, get_accel_chip_name, NULL);
+
+static struct device_attribute dev_attr_gyro_vendor =
+		__ATTR(vendor, S_IRUGO, get_gyro_vendor_name, NULL);
+static struct device_attribute dev_attr_gyro_chip =
+		__ATTR(name, S_IRUGO, get_gyro_chip_name, NULL);
+
 static DEVICE_ATTR(calibration, 0664,
-		   accel_calibration_show, accel_calibration_store);
+			accel_calibration_show, accel_calibration_store);
+static DEVICE_ATTR(raw_data, S_IRUGO, mpu3050_acc_read, NULL);
+
+static DEVICE_ATTR(power_on, S_IRUGO | S_IWUSR, mpu3050_power_on, NULL);
+static DEVICE_ATTR(temperature, S_IRUGO | S_IWUSR, mpu3050_get_temp, NULL);
+static DEVICE_ATTR(selftest, S_IRUGO | S_IWUSR, mpu3050_self_test, NULL);
 
 static DEVICE_ATTR(gyro_power_on, S_IRUGO | S_IWUSR, mpu3050_power_on, NULL);
 static DEVICE_ATTR(gyro_get_temp, S_IRUGO | S_IWUSR, mpu3050_get_temp, NULL);
 static DEVICE_ATTR(gyro_selftest, S_IRUGO | S_IWUSR, mpu3050_self_test, NULL);
-static DEVICE_ATTR(raw_data, S_IRUGO, mpu3050_acc_read, NULL);
+
 
 static struct device_attribute *accel_sensor_attrs[] = {
 	&dev_attr_raw_data,
 	&dev_attr_calibration,
+	&dev_attr_accel_vendor,
+	&dev_attr_accel_chip,
+	NULL,
+};
+
+static struct device_attribute *gyro_sensor_attrs[] = {
+	&dev_attr_power_on,
+	&dev_attr_temperature,
+	&dev_attr_selftest,
+	&dev_attr_gyro_vendor,
+	&dev_attr_gyro_chip,
 	NULL,
 };
 
@@ -1803,6 +1876,7 @@ extern struct class *sensors_class;
 
 static struct device *sec_mpu3050_dev;
 static struct device *accel_sensor_device;
+static struct device *gyro_sensor_device;
 
 extern int sensors_register(struct device *dev, void *drvdata,
 			    struct device_attribute *attributes[], char *name);
@@ -1863,11 +1937,17 @@ int mpu3050_probe(struct i2c_client *client, const struct i2c_device_id *devid)
 		goto out_check_functionality_failed;
 	}
 #ifdef FACTORY_TEST
-	res = sensors_register(accel_sensor_device, NULL, accel_sensor_attrs,
-			       "accelerometer_sensor");
+	res = sensors_register(accel_sensor_device, NULL,
+		accel_sensor_attrs, "accelerometer_sensor");
 	if (res)
-		pr_info("%s: cound not register"
-			"accelerometer sensor device(%d).\n", __func__, res);
+		pr_err("%s: cound not register accelerometer "\
+			"sensor device(%d).\n", __func__, res);
+
+	res = sensors_register(gyro_sensor_device, NULL,
+		gyro_sensor_attrs, "gyro_sensor");
+	if (res)
+		pr_err("%s: cound not register gyro "\
+			"sensor device(%d).\n", __func__, res);
 
 	sec_mpu3050_dev = device_create(sec_class, NULL, 0, NULL,
 					"sec_mpu3050");
@@ -1921,6 +2001,13 @@ int mpu3050_probe(struct i2c_client *client, const struct i2c_device_id *devid)
 			dev_info(&this_client->adapter->dev,
 				 "%s: +%s\n", MPU_NAME, mldl_cfg->accel->name);
 			accel_adapter = i2c_get_adapter(pdata->accel.adapt_num);
+
+			if (!accel_adapter) {
+				pr_info("%s : accel_adapter i2c get fail",
+					__func__);
+				goto out_accel_failed;
+			}
+
 			if (pdata->accel.irq > 0) {
 				dev_info(&this_client->adapter->dev,
 					 "Installing Accel irq using %d\n",
@@ -1940,6 +2027,13 @@ int mpu3050_probe(struct i2c_client *client, const struct i2c_device_id *devid)
 			dev_info(&this_client->adapter->dev,
 				 "%s: +%s\n", MPU_NAME, mldl_cfg->accel->name);
 			accel_adapter = i2c_get_adapter(pdata->accel.adapt_num);
+
+			if (!accel_adapter) {
+				pr_info("%s : accel_adapter i2c get fail",
+					__func__);
+				goto out_accel_failed;
+			}
+
 			if (pdata->accel.irq > 0) {
 				dev_info(&this_client->adapter->dev,
 					 "Installing Accel irq using %d\n",
@@ -1966,6 +2060,13 @@ int mpu3050_probe(struct i2c_client *client, const struct i2c_device_id *devid)
 				 mldl_cfg->compass->name);
 			compass_adapter =
 			    i2c_get_adapter(pdata->compass.adapt_num);
+
+			if (!compass_adapter) {
+				pr_info("%s : compass_adapter i2c get fail",
+					__func__);
+				goto out_compass_failed;
+			}
+
 			if (pdata->compass.irq > 0) {
 				dev_info(&this_client->adapter->dev,
 					 "Installing Compass irq using %d\n",
@@ -1991,6 +2092,12 @@ int mpu3050_probe(struct i2c_client *client, const struct i2c_device_id *devid)
 				 mldl_cfg->pressure->name);
 			pressure_adapter =
 			    i2c_get_adapter(pdata->pressure.adapt_num);
+
+			if (!pressure_adapter) {
+				pr_info("%s : pressure_adapter i2c get fail",
+					__func__);
+				goto out_pressure_failed;
+			}
 
 			if (pdata->pressure.irq > 0) {
 				dev_info(&this_client->adapter->dev,
@@ -2068,12 +2175,15 @@ out_whoami_failed:
 	if (pdata && pdata->pressure.get_slave_descr && pdata->pressure.irq)
 		slaveirq_exit(&pdata->pressure);
 out_pressureirq_failed:
+out_pressure_failed:
 	if (pdata && pdata->compass.get_slave_descr && pdata->compass.irq)
 		slaveirq_exit(&pdata->compass);
 out_compassirq_failed:
+out_compass_failed:
 	if (pdata && pdata->accel.get_slave_descr && pdata->accel.irq)
 		slaveirq_exit(&pdata->accel);
 out_accelirq_failed:
+out_accel_failed:
 	kfree(mpu);
 out_alloc_data_failed:
 out_check_functionality_failed:

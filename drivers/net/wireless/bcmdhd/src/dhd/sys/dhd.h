@@ -83,7 +83,11 @@ enum dhd_bus_state {
 #define CONCURRENT_MASK			(STA_MASK | WFD_MASK)
 
 /* max sequential rxcntl timeouts to set HANG event */
+#ifdef BCM4334_CHIP
+#define MAX_CNTL_TIMEOUT  1
+#else
 #define MAX_CNTL_TIMEOUT  2
+#endif
 
 #define DHD_SCAN_ACTIVE_TIME	 40 /* ms : Embedded default Active setting from DHD Driver */
 #define DHD_SCAN_PASSIVE_TIME	130 /* ms: Embedded default Passive setting from DHD Driver */
@@ -258,8 +262,8 @@ typedef struct dhd_pub {
 	int   hang_was_sent;
 	int   rxcnt_timeout;		/* counter rxcnt timeout to send HANG */
 	int   txcnt_timeout;		/* counter txcnt timeout to send HANG */
-#ifdef BCM4334_CHIP	
-	int tx_seq_badcnt;
+#ifdef BCM4334_CHIP
+	int tx_seqerr_cnt;
 #endif
 #ifdef WLMEDIA_HTSF
 	uint8 htsfdlystat_sz; /* Size of delay stats, max 255B */
@@ -284,7 +288,7 @@ typedef struct dhd_pub {
 #ifdef CUSTOMER_HW_SAMSUNG
 	#define DHD_PM_RESUME_WAIT(a)		_DHD_PM_RESUME_WAIT(a, 500)
 #else
-	#define DHD_PM_RESUME_WAIT(a) 		_DHD_PM_RESUME_WAIT(a, 200)
+	#define DHD_PM_RESUME_WAIT(a)		_DHD_PM_RESUME_WAIT(a, 200)
 #endif /* CUSTOMER_HW_SAMSUNG */
 	#define DHD_PM_RESUME_WAIT_FOREVER(a)	_DHD_PM_RESUME_WAIT(a, ~0)
 	#define DHD_PM_RESUME_RETURN_ERROR(a)	do { \

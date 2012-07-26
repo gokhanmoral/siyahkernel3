@@ -194,7 +194,7 @@ void s3c_pm_do_restore(struct sleep_save *ptr, int count)
 		S3C_PMDBG("restore %p (restore %08lx, was %08x)\n",
 			  ptr->reg, ptr->val, __raw_readl(ptr->reg));
 #else
-		printk(KERN_DEBUG "restore %p (restore %08lx, was %08x)\n",
+		S3C_PMDBG("restore %p (restore %08lx, was %08x)\n",
 		       ptr->reg, ptr->val, __raw_readl(ptr->reg));
 #endif
 
@@ -215,8 +215,13 @@ void s3c_pm_do_restore(struct sleep_save *ptr, int count)
 
 void s3c_pm_do_restore_core(struct sleep_save *ptr, int count)
 {
-	for (; count > 0; count--, ptr++)
+	for (; count > 0; count--, ptr++) {
+#if !defined(CONFIG_CPU_EXYNOS4210)
+		pr_debug("restore_core %p (restore %08lx, was %08x)\n",
+		       ptr->reg, ptr->val, __raw_readl(ptr->reg));
+#endif
 		__raw_writel(ptr->val, ptr->reg);
+	}
 }
 
 /* s3c2410_pm_show_resume_irqs
@@ -311,6 +316,11 @@ static int s3c_pm_enter(suspend_state_t state)
 	 * we resume as it saves its own register state and restores it
 	 * during the resume.  */
 
+	printk(KERN_ALERT "ARM_COREx_STATUS CORE1[0x%08x], CORE2[0x%08x], CORE3[0x%08x]\n",
+			__raw_readl(S5P_VA_PMU + 0x2084),
+			__raw_readl(S5P_VA_PMU + 0x2104),
+			__raw_readl(S5P_VA_PMU + 0x2184));
+
 	s3c_cpu_save(0, PLAT_PHYS_OFFSET - PAGE_OFFSET);
 
 	/* restore the cpu state using the kernel's cpu init code. */
@@ -349,7 +359,9 @@ static int s3c_pm_enter(suspend_state_t state)
 static int s3c_pm_prepare(void)
 {
 	/* prepare check area if configured */
-
+#if defined(CONFIG_MACH_P8LTE)
+	disable_hlt();
+#endif
 	s3c_pm_check_prepare();
 
 	if (pm_prepare)
@@ -364,6 +376,9 @@ static void s3c_pm_finish(void)
 		pm_finish();
 
 	s3c_pm_check_cleanup();
+#if defined(CONFIG_MACH_P8LTE)
+	enable_hlt();
+#endif
 }
 
 #if defined(CONFIG_CHARGER_MANAGER)

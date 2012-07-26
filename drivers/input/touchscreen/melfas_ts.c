@@ -143,6 +143,10 @@ struct melfas_ts_data {
 	struct notifier_block fb_notif;
 	bool was_enabled_at_suspend;
 #endif
+#if defined(CONFIG_MACH_M0_CHNOPEN) ||					\
+	defined(CONFIG_MACH_M0_CMCC) || defined(CONFIG_MACH_M0_CTC)
+	int (*lcd_type)(void);
+#endif
 };
 
 struct melfas_ts_data *ts_data;
@@ -289,11 +293,6 @@ static void release_all_fingers(struct melfas_ts_data *ts)
 #endif
 }
 
-#if defined(CONFIG_MACH_C1CTC) || defined(CONFIG_MACH_M0_CHNOPEN) ||\
-	defined(CONFIG_MACH_M0_CMCC)
-extern unsigned int lcdtype;
-#endif
-
 static void firmware_update(struct melfas_ts_data *ts)
 {
 	char buf[4] = { 0, };
@@ -315,8 +314,8 @@ static void firmware_update(struct melfas_ts_data *ts)
 	}
 	pr_info("[TSP] firmware_update");
 
-#if defined(CONFIG_MACH_C1CTC) || defined(CONFIG_MACH_M0_CHNOPEN)
-	if (lcdtype == 0x20) {
+#if defined(CONFIG_MACH_M0_CHNOPEN) || defined(CONFIG_MACH_M0_CTC)
+	if (ts->lcd_type() == 0x20) {
 		FW_VERSION = FW_VERSION_4_65;
 		pr_info("[TSP] lcd type is 4.8, FW_VER: 0x%x\n", buf[3]);
 	} else {
@@ -324,7 +323,7 @@ static void firmware_update(struct melfas_ts_data *ts)
 		pr_info("[TSP] lcd type is 4.65, FW_VER: 0x%x\n", buf[3]);
 	}
 #elif defined(CONFIG_MACH_M0_CMCC)
-	if (lcdtype == 0x20) {
+	if (ts->lcd_type() == 0x20) {
 		FW_VERSION = FW_VERSION_4_8;
 		pr_info("[TSP] lcd type is 4.8, FW_VER: 0x%x\n", buf[3]);
 	} else {
@@ -343,8 +342,8 @@ static void firmware_update(struct melfas_ts_data *ts)
 		FW_VERSION = FW_VERSION_4_65;
 #endif
 
-#if defined(CONFIG_MACH_C1CTC) || defined(CONFIG_MACH_M0_CHNOPEN) ||\
-	defined(CONFIG_MACH_M0_CMCC)
+#if defined(CONFIG_MACH_M0_CHNOPEN) ||					\
+	defined(CONFIG_MACH_M0_CMCC) || defined(CONFIG_MACH_M0_CTC)
 	if (buf[3] != FW_VERSION || buf[3] == 0xFF) {
 #else
 	if (buf[3] < FW_VERSION || buf[3] == 0xFF) {
@@ -376,12 +375,14 @@ show_firm_version_phone(struct device *dev,
 {
 	u8 FW_VERSION;
 
+	struct melfas_ts_data *ts = dev_get_drvdata(dev);
+
 	if (!tsp_enabled)
 		return 0;
 
-#if defined(CONFIG_MACH_C1CTC) || defined(CONFIG_MACH_M0_CHNOPEN) ||\
-	defined(CONFIG_MACH_M0_CMCC)
-	if (lcdtype == 0x20)
+#if defined(CONFIG_MACH_M0_CHNOPEN) ||					\
+	defined(CONFIG_MACH_M0_CMCC) || defined(CONFIG_MACH_M0_CTC)
+	if (ts->lcd_type() == 0x20)
 		FW_VERSION = FW_VERSION_4_65;
 	else
 		FW_VERSION = FW_VERSION_4_8;
@@ -1273,7 +1274,7 @@ static void melfas_ts_get_data(struct work_struct *work)
 			    (uint16_t) (buf[i + 1] & 0x0F) << 8 | buf[i + 2];
 			g_Mtouch_info[FingerID].posY =
 			    (uint16_t) (buf[i + 1] & 0xF0) << 4 | buf[i + 3];
-#if !defined(CONFIG_MACH_C1) && !defined(CONFIG_MACH_C1VZW) && \
+#if !defined(CONFIG_MACH_C1) && !defined(CONFIG_MACH_C1VZW) && !defined(CONFIG_MACH_C2) && \
 			!defined(CONFIG_MACH_M0) && \
 			!defined(CONFIG_MACH_SLP_PQ) && \
 			!defined(CONFIG_MACH_SLP_PQ_LTE) && \
@@ -1484,6 +1485,11 @@ melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	ts->set_touch_i2c = data->set_touch_i2c;
 	ts->set_touch_i2c_to_gpio = data->set_touch_i2c_to_gpio;
 	ts->input_event = data->input_event;
+
+#if defined(CONFIG_MACH_M0_CHNOPEN) ||					\
+	defined(CONFIG_MACH_M0_CMCC) || defined(CONFIG_MACH_M0_CTC)
+	ts->lcd_type = data->lcd_type;
+#endif
 
 	ts->power(0);
 	ts->power(true);

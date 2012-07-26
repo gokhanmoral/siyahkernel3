@@ -368,7 +368,7 @@ static int jpeg_probe(struct platform_device *pdev)
 	if (!res) {
 		jpeg_err("failed to request jpeg irq resource\n");
 		ret = -ENOENT;
-		goto err_map;
+		goto err_irq;
 	}
 
 	jpeg_ctrl->irq_no = res->start;

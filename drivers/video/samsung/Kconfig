@@ -142,7 +142,7 @@ config FB_S5P_AMS369FG06
 
 config FB_S5P_S6C1372
 	bool "S6C1372"
-	depends on MACH_P4
+	depends on MACH_MIDAS
 	help
 	  This enables support for Samsung S6C1372 10.1" WXGA TFT LCD panel
 
@@ -153,14 +153,24 @@ config FB_S5P_S6F1202A
 	  This enables support for Samsung S6F1202A 7.0"  TFT LCD panel
 
 config FB_S5P_LD9040
-        bool "LD9040"
-	depends on MACH_U1 || MACH_MIDAS
+	bool "LD9040"
+	depends on MACH_U1 || MACH_MIDAS || MACH_TRATS
 	select LCD_CLASS_DEVICE
 	select SPI
 	select SPI_GPIO
 	select SPI_BITBANG
 	help
 	  This enables support for Samsung LD9040 LCD panel
+
+config FB_S5P_NT35560
+	bool "Sony NT35560"
+	depends on (MACH_U1 || MACH_TRATS) && !FB_S5P_MIPI_DSIM
+	select LCD_CLASS_DEVICE
+	select SPI
+	select SPI_GPIO
+	select SPI_BITBANG
+	help
+	  This enables support for Sony NT35560 TFT LCD panel
 
 config FB_S5P_LMS501KF03
 	bool "LMS501KF03"
@@ -178,17 +188,58 @@ config FB_S5P_DUMMY_MIPI_LCD
 
 config FB_S5P_S6E8AA0
        bool "S6E8AA0 MIPI LCD"
-       depends on (MACH_U1 || MACH_MIDAS) && FB_S5P_MIPI_DSIM
+       depends on FB_S5P_MIPI_DSIM
        ---help---
          This enables support for Samsung S6E8AA0 MIPI LCD
 
 config FB_S5P_S6E8AB0
        bool "S6E8AB0 MIPI LCD"
-       depends on MACH_P8 && FB_S5P_MIPI_DSIM
+       depends on MACH_PX && FB_S5P_MIPI_DSIM
        ---help---
          This enables support for Samsung S6E8AB0 MIPI LCD
 
+config FB_S5P_S6D6AA1
+       bool "S6E8AB0 MIPI LCD"
+       depends on FB_S5P_MIPI_DSIM
+       ---help---
+         This enables support for Samsung S6D6AA1 MIPI LCD
+
+config FB_S5P_S6E63M0
+       bool "S6E63M0 MIPI LCD"
+       depends on (MACH_MIDAS) && FB_S5P_MIPI_DSIM
+       ---help---
+         This enables support for Samsung S6E63M0 MIPI LCD
+
 endchoice
+
+choice
+	prompt "Select PANEL Type"
+	depends on FB_S5P_S6E8AA0
+	default S6E8AA0_AMS480GYXX
+
+config S6E8AA0_AMS529HA01
+	bool "AMS529HA01(Q1)"
+	---help---
+	This enables support for Samsung S6E8AA0 AMS529HA01(Q1) PANEL
+
+config S6E8AA0_AMS480GYXX
+	bool "AMS480GYXX(M0)"
+	---help---
+	This enables support for Samsung S6E8AA0 AMS480GYXX(M0) PANEL
+
+endchoice
+
+config AID_DIMMING
+       bool "AID DIMMING"
+       depends on FB_S5P_S6E8AA0
+       default n
+       ---help---
+         This enables support for Samsung S6E8AA0 MIPI LCD AID DIMMING
+
+config LCD_FREQ_SWITCH
+       bool "support for LCD Frequency switch"
+       depends on MACH_MIDAS
+       default n
 
 config FB_S5P_V2
 	tristate "S5P Framebuffer version 2 support"

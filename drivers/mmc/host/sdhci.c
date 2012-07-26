@@ -36,9 +36,11 @@
 #define DBG(f, x...) \
 	pr_debug(DRIVER_NAME " [%s()]: " f,  __func__, ## x)
 
+#ifndef CONFIG_FAST_RESUME
 #if defined(CONFIG_LEDS_CLASS) || (defined(CONFIG_LEDS_CLASS_MODULE) && \
 	defined(CONFIG_MMC_SDHCI_MODULE))
 #define SDHCI_USE_LEDS_CLASS
+#endif
 #endif
 
 #define MAX_TUNING_LOOP 40
@@ -643,10 +645,19 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd)
 	/* timeout in us */
 	if (!data)
 		target_timeout = cmd->cmd_timeout_ms * 1000;
-	else
+	else {  
+	/* patch added for divide by zero once issue for P2_USA_TMO project. */
+		#ifndef CONFIG_TARGET_LOCALE_P2TMO_TEMP
 		target_timeout = data->timeout_ns / 1000 +
 			data->timeout_clks / host->clock;
-
+	        #else
+		if (host!=NULL)
+                target_timeout = data->timeout_ns / 1000 +
+                        data->timeout_clks / host->clock;
+		else
+			return 0;
+	        #endif
+             }
 	if (host->quirks & SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK)
 		host->timeout_clk = host->clock / 1000;
 
@@ -2319,6 +2330,11 @@ int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 		pr_info("%s : Enter WIFI suspend\n", __func__);
 	}
 
+	if (host->mmc->pm_flags & MMC_PM_IGNORE_SUSPEND_RESUME) {
+		host->mmc->pm_flags |= MMC_PM_KEEP_POWER;
+		pr_info("%s : Enter WIFI suspend\n", __func__);
+	}
+
 	ret = mmc_suspend_host(host->mmc);
 	if (ret)
 		return ret;
@@ -2384,11 +2400,6 @@ int sdhci_resume_host(struct sdhci_host *host)
 		/* enable sdio interrupt */
 		sdhci_enable_sdio_irq(host->mmc, 1);
 	}
-	/* if sdio intterrupt is already set then
-	 * call mmc_signal_sdio_irq to handle sdio irq
-	 */
-	if (sdhci_readl(host, SDHCI_INT_STATUS) & SDHCI_INT_CARD_INT)
-		mmc_signal_sdio_irq(host->mmc);
 #endif
 	return ret;
 }

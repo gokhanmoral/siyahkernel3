@@ -10,9 +10,9 @@
  * published by the Free Software Foundation.
 */
 
+#include <linux/dma-mapping.h>
 #include <asm/pgtable.h>
 #include <asm/cacheflush.h>
-#include <linux/dma-mapping.h>
 
 #include "fimg2d.h"
 #include "fimg2d_cache.h"
@@ -116,8 +116,8 @@ void fimg2d_clean_outer_pagetable(struct mm_struct *mm, unsigned long vaddr,
 }
 #endif /* CONFIG_OUTER_CACHE */
 
-enum pt_status fimg2d_check_pagetable(struct mm_struct *mm, unsigned long vaddr,
-					size_t size)
+enum pt_status fimg2d_check_pagetable(struct mm_struct *mm,
+		unsigned long vaddr, size_t size)
 {
 	unsigned long *pgd;
 	unsigned long *lv1d, *lv2d;

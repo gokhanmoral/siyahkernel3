@@ -37,7 +37,6 @@
 #include <linux/nsproxy.h>
 #include <linux/backing-dev.h>
 
-/* change@wtl.fzhang encryption filter */
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 #define ENC_NAME_FILTER_MAX_INSTANCE 5
 #define ENC_NAME_FILTER_MAX_LEN (256*5)
@@ -387,7 +386,6 @@ struct ecryptfs_mount_crypt_stat {
 #define ECRYPTFS_GLOBAL_ENCFN_USE_MOUNT_FNEK   0x00000020
 #define ECRYPTFS_GLOBAL_ENCFN_USE_FEK          0x00000040
 #define ECRYPTFS_GLOBAL_MOUNT_AUTH_TOK_ONLY    0x00000080
-/* change@wtl.fzhang encryption filter */
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 #define ECRYPTFS_ENABLE_FILTERING              0x00000100
 #define ECRYPTFS_ENABLE_NEW_PASSTHROUGH        0x00000200
@@ -789,7 +787,6 @@ ecryptfs_parse_tag_70_packet(char **filename, size_t *filename_size,
 int ecryptfs_derive_iv(char *iv, struct ecryptfs_crypt_stat *crypt_stat,
 		       loff_t offset);
 
-/* change@wtl.fzhang encryption filter */
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 extern int is_file_name_match(struct ecryptfs_mount_crypt_stat *mcs,
 	struct dentry *fp_dentry);

@@ -15,7 +15,21 @@
 #ifndef __MACH_SAMSUNG_BATTERY_H
 #define __MACH_SAMSUNG_BATTERY_H __FILE__
 
+#include <linux/gpio.h>
+#include <linux/delay.h>
+#include <linux/power_supply.h>
 #include <linux/android_alarm.h>
+
+/* macro */
+#define MAX(x, y)	((x) > (y) ? (x) : (y))
+#define MIN(x, y)	((x) < (y) ? (x) : (y))
+#define ABS(x)		((x) < 0 ? (-1 * (x)) : (x))
+
+/* common */
+enum {
+	DISABLE = 0,
+	ENABLE,
+};
 
 struct battery_info {
 	struct device				*dev;
@@ -39,48 +53,81 @@ struct battery_info {
 	struct power_supply *psy_fuelgauge;
 	struct power_supply *psy_sub_charger;
 
+	/* workqueue */
 	struct work_struct monitor_work;
-	unsigned int monitor_mode;
-	unsigned int monitor_interval;
+	unsigned int	monitor_mode;
+	unsigned int	monitor_interval;
+	int				monitor_weight;
+	unsigned int	monitor_count;
 	struct work_struct error_work;
 
+	/* mutex */
+	struct mutex mon_lock;
+	struct mutex ops_lock;
+	struct mutex err_lock;
+
+	/* wakelock */
 	struct wake_lock charge_wake_lock;
 	struct wake_lock monitor_wake_lock;
 	struct wake_lock emer_wake_lock;
 
+	/* is_suspended */
+	bool	is_suspended;
+
+	/* charge state */
 	unsigned int charge_real_state;
 	unsigned int charge_virt_state;
 	unsigned int charge_type;
 	unsigned int charge_current;
+	unsigned int input_current;
 
+	/* battery state */
 	unsigned int battery_health;
 	unsigned int battery_present;
 	unsigned int battery_vcell;
 	unsigned int battery_vfocv;
+	int battery_v_diff;
 	unsigned int battery_soc;
 	unsigned int battery_raw_soc;
-	int battery_temp;
-	int battery_temp_adc;
+	int battery_r_s_delta;
 
+	/* temperature */
+	int battery_temper;
+	int battery_temper_adc;
+	int battery_t_delta;
+	int battery_temper_avg;
+	int battery_temper_adc_avg;
+
+	/* cable type */
 	unsigned int cable_type;
 
 	/* For SAMSUNG charge spec */
 	unsigned int vf_state;
-	unsigned int temperature_state;
+	unsigned int temper_state;
 	unsigned int overheated_state;
 	unsigned int freezed_state;
 	unsigned int full_charged_state;
 	unsigned int abstimer_state;
 	unsigned int recharge_phase;
 	unsigned int recharge_start;
+	unsigned int health_state;
+
 	unsigned int lpm_state;
 	unsigned int siop_state;
 	unsigned int siop_charge_current;
-	unsigned int health_state;
 	unsigned int led_state;
 
+	/* ambiguous state */
+	unsigned int ambiguous_state;
+
+	/* event sceanario */
+	unsigned int event_state;
+	unsigned int event_type;
+
+	/* time management */
 	unsigned int charge_start_time;
-	struct alarm	alarm;
+	struct alarm	monitor_alarm;
+	struct alarm	event_alarm;
 	bool		slow_poll;
 	ktime_t		last_poll;
 
@@ -89,6 +136,20 @@ struct battery_info {
 	/* For debugging */
 	unsigned int battery_test_mode;
 	unsigned int battery_error_test;
+
+	/* factory mode */
+	bool factory_mode;
+
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+	bool is_unspec_phase;
+	bool is_unspec_recovery;
+	int battery_full_soc;
+	unsigned int prev_cable_type;
+	unsigned int prev_battery_health;
+	unsigned int prev_charge_virt_state;
+	unsigned int prev_battery_soc;
+	struct wake_lock update_wake_lock;
+#endif
 };
 
 /* jig state */
@@ -102,6 +163,11 @@ enum charger_state {
 	CHARGER_STATE_DISABLE	= 1
 };
 
+enum current_type {
+	CURRENT_TYPE_CHRAGE	= 0,
+	CURRENT_TYPE_INPUT	= 1,
+};
+
 /*
  * Use for fuelgauge
  */
@@ -113,23 +179,39 @@ enum voltage_type {
 enum soc_type {
 	SOC_TYPE_ADJUSTED	= 0,
 	SOC_TYPE_RAW		= 1,
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+	SOC_TYPE_FULL		= 2,
+#endif
 };
 
 /*
  * Use for battery
  */
-#define CHARGER_AC_CURRENT	1000
-#define CHARGER_AC_CURRENT_S2PLUS	650
-#define CHARGER_USB_CURRENT	475
-#define CHARGER_CDP_CURRENT	1000
-#define CHARGER_WPC_CURRENT	650
-#define CHARGER_OFF_CURRENT	0
-#define CHARGER_KEEP_CURRENT	-1
+#define OFF_CURR	0	/* charger off current */
+#define KEEP_CURR	-1	/* keep previous current */
 
 /* VF error check */
 #define VF_CHECK_COUNT		10
 #define VF_CHECK_DELAY		1000
 #define RESET_SOC_DIFF_TH	100000
+
+/* average count */
+#define CNT_VOLTAGE_AVG	5
+#define CNT_CURRENT_AVG	5
+#define CNT_TEMPER_AVG	5
+#define CNT_ADC_SAMPLE	6
+
+/* adc error retry */
+#define ADC_ERR_CNT	5
+#define ADC_ERR_DELAY	200
+
+/* voltage diff for recharge voltage calculation */
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+/* KOR model spec : max-voltage minus 60mV */
+#define RECHG_DROP_VALUE	60000
+#else
+#define RECHG_DROP_VALUE	50000	/* 4300mV */
+#endif
 
 enum {
 	CHARGE_DISABLE = 0,
@@ -140,6 +222,16 @@ enum {
 	JIG_OFF = 0,
 	JIG_ON,
 };
+
+/* cable detect source */
+enum {
+	CABLE_DET_MUIC = 0,
+	CABLE_DET_ADC,
+	CABLE_DET_CHARGER,
+
+	CABLE_DET_UNKNOWN,
+};
+
 
 /* temperature source */
 enum {
@@ -162,7 +254,8 @@ enum {
 	MONITOR_CHNG_SUSP,
 	MONITOR_NORM,
 	MONITOR_NORM_SUSP,
-	MONITOR_EMER,
+	MONITOR_EMER_LV1,
+	MONITOR_EMER_LV2,
 };
 
 /* Temperature from adc */
@@ -192,13 +285,30 @@ enum led_pattern {
 	BATT_LED_PATT_NOT_CHG,
 };
 
-#if defined(CONFIG_LEDS_AN30259A)
-extern void an30259a_start_led_pattern(int mode);
-extern void an30259a_led(int RGB, u8 brightness);
-#else
-static inline void an30259a_start_led_pattern(int mode) {};
-static inline void an30259a_led(int RGB, u8 brightness) {};
-#endif
+/* event case */
+enum event_type {
+	EVENT_TYPE_WCDMA_CALL = 0,
+	EVENT_TYPE_GSM_CALL,
+	EVENT_TYPE_CALL,
+	EVENT_TYPE_VIDEO,
+	EVENT_TYPE_MUSIC,
+	EVENT_TYPE_BROWSER,
+	EVENT_TYPE_HOTSPOT,
+	EVENT_TYPE_CAMERA,
+	EVENT_TYPE_DATA_CALL,
+	EVENT_TYPE_GPS,
+	EVENT_TYPE_LTE,
+	EVENT_TYPE_WIFI,
+	EVENT_TYPE_USE,
+
+	EVENT_TYPE_MAX,
+};
+
+enum event_state {
+	EVENT_STATE_CLEAR = 0,
+	EVENT_STATE_IN_TIMER,
+	EVENT_STATE_SET,
+};
 
 /**
  * struct sec_bat_plaform_data - init data for sec batter driver
@@ -215,23 +325,55 @@ struct samsung_battery_platform_data {
 	unsigned int voltage_max;
 	unsigned int voltage_min;
 
+	/* charge current */
+	unsigned int in_curr_limit;
+	unsigned int chg_curr_ta;
+	unsigned int chg_curr_usb;
+	unsigned int chg_curr_cdp;
+	unsigned int chg_curr_wpc;
+	unsigned int chg_curr_dock;
+	unsigned int chg_curr_etc;
+
 	/* variable monitoring interval */
 	unsigned int chng_interval;
 	unsigned int chng_susp_interval;
 	unsigned int norm_interval;
 	unsigned int norm_susp_interval;
-	unsigned int emer_interval;
+	unsigned int emer_lv1_interval;
+	unsigned int emer_lv2_interval;
 
 	/* Recharge sceanario */
 	unsigned int recharge_voltage;
 	unsigned int abstimer_charge_duration;
+	unsigned int abstimer_charge_duration_wpc;
 	unsigned int abstimer_recharge_duration;
+
+	/* cable detect */
+	int cb_det_src;
+	int cb_det_gpio;
+	int cb_det_adc_ch;
 
 	/* Temperature scenario */
 	int overheat_stop_temp;
 	int overheat_recovery_temp;
 	int freeze_stop_temp;
 	int freeze_recovery_temp;
+
+	/* CTIA spec */
+	bool ctia_spec;
+
+	/* event sceanario */
+	unsigned int event_time;
+
+	/* CTIA temperature */
+	int event_overheat_stop_temp;
+	int event_overheat_recovery_temp;
+	int event_freeze_stop_temp;
+	int event_freeze_recovery_temp;
+	int lpm_overheat_stop_temp;
+	int lpm_overheat_recovery_temp;
+	int lpm_freeze_stop_temp;
+	int lpm_freeze_recovery_temp;
 
 	/* Temperature source 0: fuelgauge, 1: ap adc, 2: ex. adc */
 	int temper_src;
@@ -245,6 +387,9 @@ struct samsung_battery_platform_data {
 
 	/* support led indicator */
 	bool led_indicator;
+
+	/* support battery_standever */
+	bool battery_standever;
 };
 
 #endif /* __MACH_SAMSUNG_BATTERY_H */

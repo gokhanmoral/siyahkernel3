@@ -19,9 +19,10 @@
 #include "mfc_dev.h"
 
 #define MAX_H2R_ARG		4
-#define H2R_CMD_TIMEOUT		100	/* ms */
+#define H2R_CMD_TIMEOUT		1000	/* ms */
 #define H2R_INT_TIMEOUT		5000	/* ms */
 #define CODEC_INT_TIMEOUT	1000	/* ms */
+#define SLICE_ENC_TIMEOUT	1000	/* ms */
 
 enum mfc_h2r_cmd {
 	H2R_NOP		= 0,
@@ -82,5 +83,8 @@ int mfc_cmd_inst_close(struct mfc_inst_ctx *ctx);
 int mfc_cmd_seq_start(struct mfc_inst_ctx *ctx);
 int mfc_cmd_init_buffers(struct mfc_inst_ctx *ctx);
 int mfc_cmd_frame_start(struct mfc_inst_ctx *ctx);
+#if SUPPORT_SLICE_ENCODING
+int mfc_cmd_slice_start(struct mfc_inst_ctx *ctx);
+#endif
 
 #endif /* __MFC_CMD_H */

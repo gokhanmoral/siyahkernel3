@@ -15,7 +15,8 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/videodev2.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_media.h>
+#include <linux/videodev2_exynos_camera.h>
 #include <linux/io.h>
 #include <media/videobuf2-core.h>
 #include <media/v4l2-device.h>
@@ -473,7 +474,7 @@ struct fimc_vb2 {
 
 	unsigned long (*plane_addr)(struct vb2_buffer *vb, u32 plane_no);
 
-	void (*resume)(void *alloc_ctx);
+	int (*resume)(void *alloc_ctx);
 	void (*suspend)(void *alloc_ctx);
 
 	int (*cache_flush)(struct vb2_buffer *vb, u32 num_planes);

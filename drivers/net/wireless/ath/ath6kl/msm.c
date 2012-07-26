@@ -1,9 +1,16 @@
 #include <linux/device.h>
 #include <linux/regulator/consumer.h>
 #include <linux/gpio.h>
-#include <mach/rpc_pmapp.h>
 #include <linux/err.h>
+
+#ifdef CONFIG_ARCH_MSM7X27A
+#include <mach/rpc_pmapp.h>
 #include <linux/qcomwlan7x27a_pwrif.h>
+#else
+#include <linux/platform_device.h>
+/* replace with plaftform specific changes */
+#endif
+
 #include "core.h"
 
 typedef int             A_BOOL;
@@ -36,10 +43,14 @@ struct ar_wep_key {
     A_UINT8                 arKey[64];
 } ;
 
+#ifdef CONFIG_ARCH_MSM7X27A
 /* BeginMMC polling stuff */
 #define MMC_MSM_DEV "msm_sdcc.2"
 #define A_MDELAY(msecs)                 mdelay(msecs)
 /* End MMC polling stuff */
+#else
+/* replace with plaftform specific changes */
+#endif
 
 #define WMI_MAX_RATE_MASK         2
 
@@ -102,6 +113,8 @@ int android_readwrite_file(const A_CHAR *filename, A_CHAR *rbuf, const A_CHAR *w
 	return ret;
 }
 
+
+#ifdef CONFIG_ARCH_MSM7X27A
 
 #define WLAN_GPIO_EXT_POR_N     134
 #define A0_CLOCK
@@ -320,15 +333,29 @@ fail:
 	return 0;
 }
 
+#else
+/* replace with plaftform specific changes */
+#endif
+
 static int ath6kl_pm_probe(struct platform_device *pdev)
 {
+#ifdef CONFIG_ARCH_MSM7X27A
     msm7x27a_wifi_power(1);
+#else
+    /* replace with plaftform specific changes */
+#endif
+
     return 0;
 }
 
 static int ath6kl_pm_remove(struct platform_device *pdev)
 {
+#ifdef CONFIG_ARCH_MSM7X27A
     msm7x27a_wifi_power(0);
+#else
+    /* replace with plaftform specific changes */
+#endif
+
     return 0;
 }
 
@@ -358,33 +385,41 @@ static struct platform_driver ath6kl_pm_device = {
     },
 };
 
-void __init ath6kl_sdio_init_msm(void)
+void __init ath6kl_sdio_init_platform(void)
 {
 	char buf[3];
 	int length;
 
 	platform_driver_register(&ath6kl_pm_device);
 
+#ifdef CONFIG_ARCH_MSM7X27A
 	length = snprintf(buf, sizeof(buf), "%d\n", 1 ? 1 : 0);
 	android_readwrite_file("/sys/devices/platform/" MMC_MSM_DEV "/polling", NULL, buf, length);
 	length = snprintf(buf, sizeof(buf), "%d\n", 0 ? 1 : 0);
 	android_readwrite_file("/sys/devices/platform/" MMC_MSM_DEV "/polling", NULL, buf, length);
 
 	A_MDELAY(50);
+#else
+	/* replace with plaftform specific changes */
+#endif
 }
 
-void __exit ath6kl_sdio_exit_msm(void)
+void __exit ath6kl_sdio_exit_platform(void)
 {
 	char buf[3];
 	int length;
 	platform_driver_unregister(&ath6kl_pm_device);
 
+#ifdef CONFIG_ARCH_MSM7X27A
 	length = snprintf(buf, sizeof(buf), "%d\n", 1 ? 1 : 0);
 	/* fall back to polling */
 	android_readwrite_file("/sys/devices/platform/" MMC_MSM_DEV "/polling", NULL, buf, length);
 	length = snprintf(buf, sizeof(buf), "%d\n", 0 ? 1 : 0);
 	/* fall back to polling */
 	android_readwrite_file("/sys/devices/platform/" MMC_MSM_DEV "/polling", NULL, buf, length);
-	A_MDELAY(1000);
 
+	A_MDELAY(1000);
+#else
+	/* replace with plaftform specific changes */
+#endif
 }

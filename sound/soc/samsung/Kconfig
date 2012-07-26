@@ -69,6 +69,12 @@ config SND_SOC_SAMSUNG_SMDK_WM8994
 	help
 		Say Y if you want to add support for SoC audio on the SMDKs.
 
+config SND_SOC_SAMSUNG_GRANDE_WM1811
+	tristate "SoC I2S Audio support for WM1811 on Grande"
+	depends on SND_SOC_SAMSUNG && (MACH_M0_GRANDECTC || MACH_IRON)
+	select SND_SOC_WM8994
+	select SND_SAMSUNG_I2S
+
 config SND_SOC_SAMSUNG_MIDAS_WM1811
 	tristate "SoC I2S Audio support for WM1811 on MIDAS"
 	depends on SND_SOC_SAMSUNG && MACH_MIDAS
@@ -85,21 +91,19 @@ config SND_SOC_SAMSUNG_SLP_MIDAS_WM1811
 	help
 	  Say Y if you want to add support for SoC audio on the MIDAS.
 
-config SND_SOC_SAMSUNG_P11_WM1811
-	tristate "SoC I2S Audio support for WM1811 on P11"
-	depends on SND_SOC_SAMSUNG && MACH_P11
+config SND_SOC_SAMSUNG_SLP_NAPLES_WM1811
+	tristate "SoC I2S Audio support for WM1811 on SLP NAPLES"
+	depends on SND_SOC_SAMSUNG && (MACH_SLP_NAPLES || MACH_SLP_NAPLES_D || MACH_SLP_NAPLES_Q)
 	select SND_SOC_WM8994
 	select SND_SAMSUNG_I2S
-	help
-	  Say Y if you want to add support for SoC audio on the P11.
 
-config SND_SOC_SAMSUNG_P10_WM1811
-	tristate "SoC I2S Audio support for WM1811 on P10"
-	depends on SND_SOC_SAMSUNG && MACH_P10
+config SND_SOC_SAMSUNG_LUNGO_WM1811
+	tristate "SoC I2S Audio support for WM1811 on LUNGO"
+	depends on SND_SOC_SAMSUNG && (MACH_P10 ||MACH_P11 || MACH_P4NOTE)
 	select SND_SOC_WM8994
 	select SND_SAMSUNG_I2S
 	help
-	  Say Y if you want to add support for SoC audio on the P10.
+	  Say Y if you want to add support for SoC audio on the LUNGO.
 
 config SND_SOC_U1_MC1N2
 	tristate "SoC I2S Audio support for MC1N2 on U1"
@@ -108,6 +112,17 @@ config SND_SOC_U1_MC1N2
 	select SND_SAMSUNG_I2S
 	help
 	  Say Y if you want to add support for SoC audio on U1.
+
+config SND_SOC_SLP_TRATS_MC1N2
+	tristate "SoC I2S Audio support for MC1N2 on SLP TRATS"
+	depends on SND_SOC_SAMSUNG && (MACH_TRATS)
+	select SND_SOC_MC1N2
+	select SND_SAMSUNG_I2S
+	help
+	  Say Y if you want to add support for SoC audio on SLP TRATS.
+	  This uses
+	  Samsung Exynos-4210 audio subsystem
+	  and Yamaha MC1N2 codec.
 
 config SND_SOC_SAMSUNG_USE_DMA_WRAPPER
 	bool "DMA wrapper for ALSA Platform(DMA)"
@@ -274,3 +289,25 @@ config SND_SOC_SPEYSIDE
 	select SND_SAMSUNG_I2S
 	select SND_SOC_WM8915
 	select SND_SOC_WM9081
+
+config SND_USE_SUB_MIC
+	bool "Use SUB_MIC"
+	depends on SND_SOC_SAMSUNG
+
+config SND_USE_THIRD_MIC
+	bool "Use THIRD_MIC"
+	depends on SND_SOC_SAMSUNG
+
+config SND_USE_STEREO_SPEAKER
+	bool "Use STEREO_SPEAKER"
+	depends on SND_SOC_SAMSUNG
+	help
+	  Support stereo speaker for Samsung's Tablet-PC device.
+
+config SND_USE_LINEOUT_SWITCH
+	bool "Use LINEOUT_SWITCH"
+	depends on SND_SOC_SAMSUNG
+
+config SND_USE_MUIC_SWITCH
+	bool "Use MUIC_SWITCH CONTROL"
+	depends on SND_SOC_SAMSUNG

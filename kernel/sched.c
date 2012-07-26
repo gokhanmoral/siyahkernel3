@@ -4305,7 +4305,7 @@ need_resched:
 	} else
 		raw_spin_unlock_irq(&rq->lock);
 
-	sec_debug_task_sched_log(cpu, rq->curr);
+	sec_debug_task_log(cpu, rq->curr);
 	post_schedule(rq);
 
 	preempt_enable_no_resched();

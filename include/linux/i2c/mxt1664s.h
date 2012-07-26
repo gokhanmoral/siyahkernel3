@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2010, Samsung Electronics Co. Ltd. All Rights Reserved.
+ *  Copyright (C) 2012, Samsung Electronics Co. Ltd. All Rights Reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,8 +18,9 @@
 
 #define MXT_DEV_NAME "Atmel MXT1664S"
 
-#define MXT_SW_RESET_TIME		300		/* msec */
-#define MXT_HW_RESET_TIME		300	/* msec */
+#define MXT_1664S_SW_RESET_TIME		300	/* msec */
+#define MXT_1664S_HW_RESET_TIME		300	/* msec */
+#define MXT_1664S_FW_RESET_TIME		500	/* msec */
 
 enum { RESERVED_T0 = 0,
 	RESERVED_T1,
@@ -78,7 +79,12 @@ enum { RESERVED_T0 = 0,
 	SPARE_T54,
 	ADAPTIVE_T55,
 	PROCI_SHIELDLESS_T56,
-	SPT_GENERICDATA_T57,
+	PROCI_EXTRATOUCHSCREENDATA_T57,
+	SPARE_T58,
+	SPARE_T59,
+	SPARE_T60,
+	SPT_TIMER_T61,
+	PROCG_NOISESUPPRESSION_T62,
 	RESERVED_T255 = 255,
 };
 
@@ -94,18 +100,9 @@ struct mxt_platform_data {
 	int max_z;
 	int min_w;
 	int max_w;
-	void (*power_on) (void);
-	void (*power_off) (void);
-	void (*read_ta_status) (bool *);
+	int (*power_on) (void);
+	int (*power_off) (void);
+	u8 boot_address;
 };
 
-enum {
-	MXT_PAGE_UP =		0x01,
-	MXT_PAGE_DOWN =		0x02,
-	MXT_DELTA_MODE =	0x10,
-	MXT_REFERENCE_MODE =	0x11,
-	MXT_CTE_MODE =		0x31
-};
-
-extern struct class *sec_class;
 #endif				/*  */

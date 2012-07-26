@@ -14,6 +14,8 @@
 
 #ifdef CONFIG_BROADCOM_WIFI_RESERVED_MEM
 
+#define WLAN_STATIC_SCAN_BUF0		5
+#define WLAN_STATIC_SCAN_BUF1		6
 #define PREALLOC_WLAN_SEC_NUM		4
 #define PREALLOC_WLAN_BUF_NUM		160
 #define PREALLOC_WLAN_SECTION_HEADER	24
@@ -44,11 +46,16 @@ static struct wlan_mem_prealloc wlan_mem_array[PREALLOC_WLAN_SEC_NUM] = {
 	{NULL, (WLAN_SECTION_SIZE_3 + PREALLOC_WLAN_SECTION_HEADER)}
 };
 
+void *wlan_static_scan_buf0;
+void *wlan_static_scan_buf1;
 static void *brcm_wlan_mem_prealloc(int section, unsigned long size)
 {
 	if (section == PREALLOC_WLAN_SEC_NUM)
 		return wlan_static_skb;
-
+	if (section == WLAN_STATIC_SCAN_BUF0)
+		return wlan_static_scan_buf0;
+	if (section == WLAN_STATIC_SCAN_BUF1)
+		return wlan_static_scan_buf1;
 	if ((section < 0) || (section > PREALLOC_WLAN_SEC_NUM))
 		return NULL;
 
@@ -86,6 +93,13 @@ static int brcm_init_wlan_mem(void)
 		if (!wlan_mem_array[i].mem_ptr)
 			goto err_mem_alloc;
 	}
+	wlan_static_scan_buf0 = kmalloc (65536, GFP_KERNEL);
+	if(!wlan_static_scan_buf0)
+		goto err_mem_alloc;
+	wlan_static_scan_buf1 = kmalloc (65536, GFP_KERNEL);
+	if(!wlan_static_scan_buf1)
+		goto err_mem_alloc;
+
 	printk("%s: WIFI MEM Allocated\n", __FUNCTION__);
 	return 0;
 
@@ -182,7 +196,7 @@ static int brcm_wlan_set_carddetect(int onoff)
 
 	udelay(200);
 
-	sdhci_s3c_force_presence_change(&s3c_device_hsmmc3);
+	mmc_force_presence_change(&s3c_device_hsmmc3);
 	/* msleep(500);  wait for carddetect */
 	return 0;
 }
@@ -197,48 +211,55 @@ typedef struct cntry_locales_custom {
 
 static cntry_locales_custom_t brcm_wlan_translate_custom_table[] = {
 	/* Table should be filled out based on custom platform regulatory requirement */
-	{"",   "XY", 4},  /* universal */
-	{"US", "US", 69}, /* input ISO "US" to : US regrev 69 */
-	{"CA", "US", 69}, /* input ISO "CA" to : US regrev 69 */
-	{"EU", "EU", 5},  /* European union countries */
-	{"AT", "EU", 5},
-	{"BE", "EU", 5},
-	{"BG", "EU", 5},
-	{"CY", "EU", 5},
-	{"CZ", "EU", 5},
-	{"DK", "EU", 5},
-	{"EE", "EU", 5},
-	{"FI", "EU", 5},
-	{"FR", "EU", 5},
-	{"DE", "EU", 5},
-	{"GR", "EU", 5},
-	{"HU", "EU", 5},
-	{"IE", "EU", 5},
-	{"IT", "EU", 5},
-	{"LV", "EU", 5},
-	{"LI", "EU", 5},
-	{"LT", "EU", 5},
-	{"LU", "EU", 5},
-	{"MT", "EU", 5},
-	{"NL", "EU", 5},
-	{"PL", "EU", 5},
-	{"PT", "EU", 5},
-	{"RO", "EU", 5},
-	{"SK", "EU", 5},
-	{"SI", "EU", 5},
-	{"ES", "EU", 5},
-	{"SE", "EU", 5},
-	{"GB", "EU", 5},  /* input ISO "GB" to : EU regrev 05 */
-	{"IL", "IL", 0},
-	{"CH", "CH", 0},
-	{"TR", "TR", 0},
-	{"NO", "NO", 0},
-	{"KR", "XY", 3},
-	{"AU", "XY", 3},
-	{"CN", "XY", 3},  /* input ISO "CN" to : XY regrev 03 */
-	{"TW", "XY", 3},
-	{"AR", "XY", 3},
-	{"MX", "XY", 3}
+	{"",   "XZ", 11},  /* Universal if Country code is unknown or empty */
+	{"AE", "AE", 1},
+	{"AR", "AR", 1},
+	{"AT", "AT", 1},
+	{"AU", "AU", 2},
+	{"BE", "BE", 1},
+	{"BG", "BG", 1},
+	{"BN", "BN", 1},
+	{"CA", "CA", 2},
+	{"CH", "CH", 1},
+	{"CY", "CY", 1},
+	{"CZ", "CZ", 1},
+	{"DE", "DE", 3},
+	{"DK", "DK", 1},
+	{"EE", "EE", 1},
+	{"ES", "ES", 1},
+	{"FI", "FI", 1},
+	{"FR", "FR", 1},
+	{"GB", "GB", 1},
+	{"GR", "GR", 1},
+	{"HR", "HR", 1},
+	{"HU", "HU", 1},
+	{"IE", "IE", 1},
+	{"IS", "IS", 1},
+	{"IT", "IT", 1},
+	{"JP", "JP", 3},
+	{"KR", "KR", 24},
+	{"KW", "KW", 1},
+	{"LI", "LI", 1},
+	{"LT", "LT", 1},
+	{"LU", "LU", 1},
+	{"LV", "LV", 1},
+	{"MA", "MA", 1},
+	{"MT", "MT", 1},
+	{"MX", "MX", 1},
+	{"NL", "NL", 1},
+	{"NO", "NO", 1},
+	{"PL", "PL", 1},
+	{"PT", "PT", 1},
+	{"PY", "PY", 1},
+	{"RO", "RO", 1},
+	{"RU", "RU", 5},
+	{"SE", "SE", 1},
+	{"SG", "SG", 4},
+	{"SI", "SI", 1},
+	{"SK", "SK", 1},
+	{"TR", "TR", 7},
+	{"TW", "TW", 2},
+	{"US", "US", 46}
 };
 
 static void *brcm_wlan_get_country_code(char *ccode)

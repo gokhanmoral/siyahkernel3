@@ -1073,14 +1073,19 @@ static int dw_mci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 	start_tune = dw_mci_get_sampling(host);
 
 	do {
-		struct mmc_command cmd = {0};
 		struct mmc_request mrq = {NULL};
+		struct mmc_command cmd = {0};
+		struct mmc_command stop = {0};
 		struct mmc_data data = {0};
 		struct scatterlist sg;
 
 		cmd.opcode = opcode;
 		cmd.arg = 0;
 		cmd.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
+
+		stop.opcode = MMC_STOP_TRANSMISSION;
+		stop.arg = 0;
+		stop.flags = MMC_RSP_R1B | MMC_CMD_AC;
 
 		data.blksz = blksz;
 		data.blocks = 1;
@@ -1092,6 +1097,7 @@ static int dw_mci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 		dw_mci_set_timeout(host);
 
 		mrq.cmd = &cmd;
+		mrq.stop = &stop;
 		mrq.data = &data;
 		host->mrq = &mrq;
 
@@ -1598,6 +1604,8 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 			host->cmd_status = status;
 			smp_wmb();
 			set_bit(EVENT_CMD_COMPLETE, &host->pending_events);
+			if (!(pending & SDMMC_INT_RTO))
+				tasklet_schedule(&host->tasklet);
 		}
 
 		if (pending & DW_MCI_DATA_ERROR_FLAGS) {
@@ -1606,8 +1614,7 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 			host->data_status = status;
 			smp_wmb();
 			set_bit(EVENT_DATA_ERROR, &host->pending_events);
-			if (!(pending & (SDMMC_INT_DTO | SDMMC_INT_DCRC |
-							SDMMC_INT_SBE | SDMMC_INT_EBE)))
+			if (!(pending & SDMMC_INT_DTO))
 				tasklet_schedule(&host->tasklet);
 		}
 

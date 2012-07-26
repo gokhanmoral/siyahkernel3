@@ -16,6 +16,7 @@
 #include "s5p_mfc_reg.h"
 #include "s5p_mfc_cmd.h"
 #include "s5p_mfc_mem.h"
+#include "s5p_mfc_pm.h"
 
 int s5p_mfc_cmd_host2risc(int cmd, struct s5p_mfc_cmd_args *args)
 {
@@ -91,7 +92,6 @@ int s5p_mfc_open_inst_cmd(struct s5p_mfc_ctx *ctx)
 	int ret;
 
 	mfc_debug_enter();
-
 	mfc_debug(2, "Requested codec mode: %d\n", ctx->codec_mode);
 
 	s5p_mfc_write_reg(ctx->codec_mode, S5P_FIMV_CODEC_TYPE);

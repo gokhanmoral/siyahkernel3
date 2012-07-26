@@ -43,6 +43,6 @@
 #define EPI_VERSION_DEV		1.15.11
 
 
-#define	EPI_VERSION_STR		"1.15.11"
+#define	EPI_VERSION_STR		"1.15.11 (WFD)"
 
 #endif /* _epivers_h_ */

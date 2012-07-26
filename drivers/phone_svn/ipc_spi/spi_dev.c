@@ -118,7 +118,7 @@ void spi_dev_destroy(void)
 
 /**********************************************************
 
-Prototype		int spi_dev_send ( void * buf, unsigned int length )
+Prototype		int spi_dev_send
 
 Type		function
 
@@ -138,13 +138,14 @@ int spi_dev_send(void *buf, unsigned int length)
 	int result = 0;
 
 	result = ipc_spi_tx_rx_sync(buf, 0, length);
+
 	return result;
 }
 
 
 /**********************************************************
 
-Prototype		int spi_dev_receive ( void * buf, unsigned int length )
+Prototype		int spi_dev_receive
 
 Type		function
 

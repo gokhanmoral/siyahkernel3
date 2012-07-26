@@ -88,10 +88,10 @@ EXPORT_SYMBOL(MHD_HW_Reset);
 
 void MHD_HW_Off(void)
 {
+	SII9234_HW_Off(SII9234_i2c_client);
 #ifdef	CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE
 	mhl_hpd_handler(false);
 #endif
-	SII9234_HW_Off(SII9234_i2c_client);
 }
 EXPORT_SYMBOL(MHD_HW_Off);
 

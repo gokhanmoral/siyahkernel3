@@ -289,6 +289,12 @@ __acquires(ehci->lock)
 		urb->actual_length, urb->transfer_buffer_length);
 #endif
 
+#ifdef CONFIG_HOST_COMPLIANT_TEST
+	if (likely (urb->transfer_flags == URB_HCD_DRIVER_TEST)) {
+		ehci_dbg(ehci, "USB_TEST : transfer_flags = URB_HCD_DRIVER_TEST so... return!\n");
+		return;
+	}
+#endif
 	/* complete() can reenter this HCD */
 	usb_hcd_unlink_urb_from_ep(ehci_to_hcd(ehci), urb);
 	spin_unlock (&ehci->lock);
@@ -387,10 +393,6 @@ qh_completions (struct ehci_hcd *ehci, struct ehci_qh *qh)
 						QTD_CERR(token) == 0 &&
 						++qh->xacterrs < QH_XACTERR_MAX &&
 						!urb->unlinked) {
-					ehci_dbg(ehci,
-	"detected XactErr len %zu/%zu retry %d\n",
-	qtd->length - QTD_LENGTH(token), qtd->length, qh->xacterrs);
-
 					/* reset the token in the qtd and the
 					 * qh overlay (which still contains
 					 * the qtd) so that we pick up from
@@ -406,6 +408,11 @@ qh_completions (struct ehci_hcd *ehci, struct ehci_qh *qh)
 							token);
 					goto retry_xacterr;
 				}
+				if (qh->xacterrs >= QH_XACTERR_MAX)
+					ehci_dbg(ehci,
+						"detected XactErr len %zu/%zu retry %d\n",
+						qtd->length - QTD_LENGTH(token),
+						qtd->length, qh->xacterrs);
 				stopped = 1;
 
 			/* magic dummy for some short reads; qh won't advance.

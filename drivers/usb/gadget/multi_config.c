@@ -158,7 +158,6 @@ int change_conf(struct usb_function *f,
 	struct usb_interface_descriptor *intf;
 	int index_intf = 0;
 	int change_intf = 0;
-	struct usb_interface_assoc_descriptor *iad = NULL;
 	struct usb_descriptor_header **descriptors;
 
 	USB_DBG("f->%s process multi\n", f->name);
@@ -202,11 +201,6 @@ int change_conf(struct usb_function *f,
 				f->set_intf_num(f,
 						intf->bInterfaceNumber,
 						index_intf++);
-			}
-			if (iad) {
-				iad->bFirstInterface =
-					intf->bInterfaceNumber;
-				iad = NULL;
 			}
 		}
 		dest += intf->bLength;
@@ -263,4 +257,14 @@ void set_string_mode(u16 w_length)
 		USB_DBG("initialize string mode\n");
 		stringMode = OTHER_REQUEST;
 	}
+}
+
+/* Description  : Get Host OS type
+ * Return value : type - u16
+ *		- 0 : MAC PC
+ *		- 1 : Windows and Linux PC
+ */
+u16 get_host_os_type(void)
+{
+	return stringMode;
 }

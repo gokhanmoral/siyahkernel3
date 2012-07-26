@@ -36,9 +36,10 @@
 #define GSC_CAP_PAD_SOURCE	1
 
 #define FLITE_PAD_SINK		0
-#define FLITE_PAD_SOURCE_PREVIEW	1
-#define FLITE_PAD_SOURCE_CAMCORDING	2
-#define FLITE_PADS_NUM		3
+#define FLITE_PAD_SOURCE_PREV	1
+#define FLITE_PAD_SOURCE_CAMCORD	2
+#define FLITE_PAD_SOURCE_MEM		3
+#define FLITE_PADS_NUM		4
 
 #define CSIS_PAD_SINK		0
 #define CSIS_PAD_SOURCE		1
@@ -47,6 +48,23 @@
 #define MAX_CAMIF_CLIENTS	2
 
 #define MXR_SUBDEV_NAME		"s5p-mixer"
+
+#define GSC_MODULE_NAME			"exynos-gsc"
+#define GSC_SUBDEV_NAME			"exynos-gsc-sd"
+#define FIMD_MODULE_NAME		"s5p-fimd1"
+#define FIMD_ENTITY_NAME		"s3c-fb-window"
+#define FLITE_MODULE_NAME		"exynos-fimc-lite"
+#define CSIS_MODULE_NAME		"s5p-mipi-csis"
+
+#define GSC_CAP_GRP_ID			(1 << 0)
+#define FLITE_GRP_ID			(1 << 1)
+#define CSIS_GRP_ID			(1 << 2)
+#define SENSOR_GRP_ID			(1 << 3)
+#define FIMD_GRP_ID			(1 << 4)
+
+#define SENSOR_MAX_ENTITIES		MAX_CAMIF_CLIENTS
+#define FLITE_MAX_ENTITIES		2
+#define CSIS_MAX_ENTITIES		2
 
 enum mdev_node {
 	MDEV_OUTPUT,
@@ -83,7 +101,11 @@ struct exynos_md {
 	struct platform_device	*pdev;
 	struct v4l2_subdev	*gsc_sd[MAX_GSC_SUBDEV];
 	struct v4l2_subdev	*gsc_cap_sd[MAX_GSC_SUBDEV];
+	struct v4l2_subdev	*csis_sd[CSIS_MAX_ENTITIES];
+	struct v4l2_subdev	*flite_sd[FLITE_MAX_ENTITIES];
+	struct v4l2_subdev	*sensor_sd[SENSOR_MAX_ENTITIES];
 	u16			id;
+	bool			is_flite_on;
 	spinlock_t slock;
 };
 
@@ -136,5 +158,4 @@ static inline void entity_info_print(struct media_entity *me, struct device *dev
 			me->links[i].sink->index);
 	}
 }
-
 #endif

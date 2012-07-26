@@ -15,27 +15,43 @@
 #ifndef _SII9234_H_
 #define _SII9234_H_
 
+#ifndef __MHL_NEW_CBUS_MSC_CMD__
+#define	__MHL_NEW_CBUS_MSC_CMD__
+/*
+ * Read DCAP for distinguish TA and USB
+ */
+#endif
+
 #ifdef __KERNEL__
-
-#define	CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE
-
 struct sii9234_platform_data {
 	u8 power_state;
+	u8	swing_level;
 	int ddc_i2c_num;
 	void (*init)(void);
 	void (*mhl_sel)(bool enable);
 	void (*hw_onoff)(bool on);
 	void (*hw_reset)(void);
 	void (*enable_vbus)(bool enable);
+#if defined(__MHL_NEW_CBUS_MSC_CMD__)
+	void (*vbus_present)(bool on, int value);
+#else
 	void (*vbus_present)(bool on);
+#endif
+#ifdef CONFIG_SAMSUNG_MHL_UNPOWERED
+	int (*get_vbus_status)(void);
+	void (*sii9234_otg_control)(bool onoff);
+#endif
 	struct i2c_client *mhl_tx_client;
 	struct i2c_client *tpi_client;
 	struct i2c_client *hdmi_rx_client;
 	struct i2c_client *cbus_client;
+
+#ifdef CONFIG_EXTCON
+	const char *extcon_name;
+#endif
 };
 
-extern void sii9234_mhl_detection_sched(void);
-
+extern u8 mhl_onoff_ex(bool onoff);
 #endif
 
 #ifdef	CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE
@@ -46,4 +62,12 @@ extern	void mhl_hpd_handler(bool onoff);
 extern	int	max77693_muic_get_status1_adc1k_value(void);
 #endif
 
+#ifdef	CONFIG_SAMSUNG_SMARTDOCK
+extern	int	max77693_muic_get_status1_adc_value(void);
+#endif
+
+#ifdef CONFIG_MACH_MIDAS
+extern void sii9234_wake_lock(void);
+extern void sii9234_wake_unlock(void);
+#endif
 #endif /* _SII9234_H_ */

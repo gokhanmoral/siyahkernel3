@@ -14,45 +14,26 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/delay.h>
+#include <linux/suspend.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <mach/regs-clock.h>
+#include <mach/pmu.h>
 #include "../codecs/mc1n2/mc1n2.h"
+
+static bool xclkout_enabled;
 
 int mc1n2_set_mclk_source(bool on)
 {
-	u32 val;
-	u32 __iomem *xusbxti_sys_pwr;
-	u32 __iomem *pmu_debug;
-
-
-	xusbxti_sys_pwr = ioremap(0x10021280, 4);
-	pmu_debug = ioremap(0x10020A00, 4);
-
 	if (on) {
-		val = readl(xusbxti_sys_pwr);
-		val |= 0x0001;			/* SYS_PWR_CFG is enabled */
-		writel(val, xusbxti_sys_pwr);
-
-		val = readl(pmu_debug);
-		val &= ~(0x000F << 8);
-		val |= 0x0009 << 8;		/* Selected XUSBXTI */
-		val &= ~(0x0001);		/* CLKOUT is enabled */
-		writel(val, pmu_debug);
+		exynos4_pmu_xclkout_set(1, XCLKOUT_XUSBXTI);
+		xclkout_enabled = true;
 	} else {
-		val = readl(xusbxti_sys_pwr);
-		val &= ~(0x0001);		/* SYS_PWR_CFG is disabled */
-		writel(val, xusbxti_sys_pwr);
-
-		val = readl(pmu_debug);
-		val |= 0x0001;			/* CLKOUT is disabled */
-		writel(val, pmu_debug);
+		exynos4_pmu_xclkout_set(0, XCLKOUT_XUSBXTI);
+		xclkout_enabled = false;
 	}
-
-	iounmap(xusbxti_sys_pwr);
-	iounmap(pmu_debug);
 
 	mdelay(10);
 
@@ -237,10 +218,19 @@ static struct snd_soc_dai_link u1_dai[] = {
 	}
 };
 
+static int u1_card_suspend(struct snd_soc_card *card)
+{
+	exynos4_sys_powerdown_xusbxti_control(xclkout_enabled ? 1 : 0);
+
+	return 0;
+}
+
 static struct snd_soc_card u1_snd_card = {
 	.name = "U1-YMU823",
 	.dai_link = u1_dai,
 	.num_links = ARRAY_SIZE(u1_dai),
+
+	.suspend_post = u1_card_suspend,
 };
 
 /* setup codec data from mc1n2 codec driver */
@@ -264,6 +254,7 @@ static int __init u1_audio_init(void)
 	if (ret) {
 		platform_device_put(u1_snd_device);
 	}
+
 	return ret;
 }
 

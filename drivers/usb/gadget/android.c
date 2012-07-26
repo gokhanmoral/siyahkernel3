@@ -62,6 +62,7 @@
 #define USB_ETH_RNDIS y
 #include "f_rndis.c"
 #include "rndis.c"
+#include "f_diag.c"
 #include "f_dm.c"
 
 MODULE_AUTHOR("Mike Lockwood");
@@ -71,6 +72,9 @@ MODULE_VERSION("1.0");
 
 static const char longname[] = "Gadget Android";
 
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+static int composite_string_index;
+#endif
 /* Default vendor and product IDs, overridden by userspace */
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
@@ -651,6 +655,15 @@ static int mass_storage_function_init(struct android_usb_function *f,
 				android_usb_pdata->nluns);
 		config->fsg.nluns = android_usb_pdata->nluns;
 		for (i = 0; i < android_usb_pdata->nluns; i++) {
+#if defined(CONFIG_MACH_M0_CTC)
+			/*FOR CTC PC-MODEM START*/
+			if (2 == i) {
+				printk(KERN_DEBUG "%s Enable cdfs\n", __func__);
+				config->fsg.luns[i].ro = 1;
+				config->fsg.luns[i].cdrom = 1;
+			}
+			/*FOR CTC PC-MODEM END*/
+#endif
 			config->fsg.luns[i].removable = 1;
 			config->fsg.luns[i].nofua = 1;
 		}
@@ -852,6 +865,63 @@ static struct android_usb_function accessory_function = {
 	.ctrlrequest	= accessory_function_ctrlrequest,
 };
 
+/* DIAG : enabled DIAG clients- "diag[,diag_mdm]" */
+static char diag_clients[32];
+static ssize_t clients_store(
+		struct device *device, struct device_attribute *attr,
+		const char *buff, size_t size)
+{
+	strlcpy(diag_clients, buff, sizeof(diag_clients));
+
+	return size;
+}
+
+static DEVICE_ATTR(clients, S_IWUSR, NULL, clients_store);
+static struct device_attribute *diag_function_attributes[] = {
+				&dev_attr_clients, NULL };
+
+static int diag_function_init(struct android_usb_function *f,
+				 struct usb_composite_dev *cdev)
+{
+	return diag_setup();
+}
+
+static void diag_function_cleanup(struct android_usb_function *f)
+{
+	diag_cleanup();
+}
+
+static int diag_function_bind_config(struct android_usb_function *f,
+					struct usb_configuration *c)
+{
+	char *name;
+	char buf[32], *b;
+	int once = 0, err = -1;
+	int (*notify)(uint32_t, const char *) = NULL;
+
+	strlcpy(buf, diag_clients, sizeof(buf));
+	b = strim(buf);
+	while (b) {
+		notify = NULL;
+		name = strsep(&b, ",");
+
+		if (name) {
+			err = diag_function_add(c, name, notify);
+			if (err)
+				pr_err("%s : usb: diag: Cannot open channel '%s\r\n",
+						 __func__, name);
+		}
+	}
+	return err;
+}
+
+static struct android_usb_function diag_function = {
+	.name		= "diag",
+	.init		= diag_function_init,
+	.cleanup	= diag_function_cleanup,
+	.bind_config	= diag_function_bind_config,
+	.attributes	= diag_function_attributes,
+};
 
 static int dm_function_bind_config(struct android_usb_function *f,
 					struct usb_configuration *c)
@@ -875,6 +945,7 @@ static struct android_usb_function *supported_functions[] = {
 #endif
 	&mass_storage_function,
 	&accessory_function,
+	&diag_function,
 	&dm_function,
 	NULL
 };
@@ -1111,8 +1182,10 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	if (enabled && !dev->enabled) {
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 		struct android_usb_function *f;
-#endif
+		cdev->next_string_id = composite_string_index;
+#else
 		cdev->next_string_id = 0;
+#endif
 		/* update values in composite driver's copy of device descriptor */
 		cdev->desc.idVendor = device_desc.idVendor;
 		cdev->desc.idProduct = device_desc.idProduct;
@@ -1348,7 +1421,9 @@ static int android_bind(struct usb_composite_dev *cdev)
 			longname, gadget->name);
 		device_desc.bcdDevice = __constant_cpu_to_le16(0x9999);
 	}
-
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	composite_string_index = 4;
+#endif
 	usb_gadget_set_selfpowered(gadget);
 	dev->cdev = cdev;
 
