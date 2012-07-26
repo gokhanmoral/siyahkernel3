@@ -40,13 +40,9 @@
 #define BT_UART_CFG
 #define BT_LPM_ENABLE
 
-static struct rfkill *bt_rfkill;
-
-/* CSR8811 Project(Alan.Ko) 2012.01.12 */
 #define IRQ_BT_HOST_WAKE	IRQ_EINT(22)
-/* CSR8811 Project(Alan.Ko) end */
 
-#define DBG
+static struct rfkill *bt_rfkill;
 
 struct csr_bt_lpm {
 	int wake;
@@ -180,7 +176,7 @@ static void update_host_wake_locked(int host_wake)
 		 * The chipset deasserts the hostwake lock, when there is no
 		 * more data to send.
 		 */
-		wake_lock_timeout(&bt_lpm.wake_lock, HZ/2);
+		wake_lock_timeout(&bt_lpm.wake_lock, 5*HZ);
 	}
 }
 
@@ -217,7 +213,7 @@ static int csr_bt_lpm_init(struct platform_device *pdev)
 	bt_lpm.host_wake = 0;
 	bt_is_running = 0;
 
-	irq = IRQ_BT_HOST_WAKE;
+	irq = gpio_to_irq(GPIO_BT_HOST_WAKE);
 	ret = request_irq(irq, host_wake_isr, IRQF_TRIGGER_HIGH,
 		"bt host_wake", NULL);
 	if (ret) {

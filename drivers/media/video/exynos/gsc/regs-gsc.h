@@ -15,20 +15,38 @@
 
 /* SYSCON. GSCBLK_CFG */
 #include <plat/map-base.h>
+#include <plat/cpu.h>
 #define SYSREG_DISP1BLK_CFG		(S3C_VA_SYS + 0x0214)
 #define FIFORST_DISP1			(1 << 23)
+#define GSC_OUT_MIXER0			(1 << 7)
+#define GSC_OUT_MIXER0_GSC3		(3 << 5)
 #define SYSREG_GSCBLK_CFG0		(S3C_VA_SYS + 0x0220)
-#define GSC_OUT_DST_SEL(x)		(1 << (8 + 2 *(x)))
+#define GSC_OUT_DST_FIMD_SEL(x)		(1 << (8 + 2 *(x)))
+#define GSC_OUT_DST_MXR_SEL(x)		(2 << (8 + 2 *(x)))
 #define GSC_PXLASYNC_RST(x)		(1 << (x))
-#define GSC_PXLASYNC_CAMIF_TOP		(1 << 20)
+#define PXLASYNC_LO_MASK_CAMIF_TOP	(1 << 20)
 #define SYSREG_GSCBLK_CFG1		(S3C_VA_SYS + 0x0224)
 #define GSC_BLK_DISP1WB_DEST(x)		(x << 10)
 #define GSC_BLK_SW_RESET_WB_DEST(x)	(1 << (18 + x))
 #define GSC_BLK_GSCL_WB_IN_SRC_SEL(x)	(1 << (2 * x))
+#define SYSREG_GSCBLK_CFG2		(S3C_VA_SYS + 0x2000)
+#define PXLASYNC_LO_MASK_CAMIF_GSCL(x)	(1 << (x))
 
 /* G-Scaler enable */
 #define GSC_ENABLE			0x00
-#define GSC_ENABLE_ON_CLEAR		(1 << 4)
+#define GSC_ENABLE_PP_UPDATE_TIME_MASK	(1 << 9)
+#define GSC_ENABLE_PP_UPDATE_TIME_CURR	(0 << 9)
+#define GSC_ENABLE_PP_UPDATE_TIME_EOPAS	(1 << 9)
+#define GSC_ENABLE_CLK_GATE_MODE_MASK	(1 << 8)
+#define GSC_ENABLE_CLK_GATE_MODE_FREE	(1 << 8)
+#define GSC_ENABLE_IPC_MODE_MASK	(1 << 7)
+#define GSC_ENABLE_NORM_MODE		(0 << 7)
+#define GSC_ENABLE_IPC_MODE		(1 << 7)
+#define GSC_ENABLE_PP_UPDATE_MODE_MASK	(1 << 6)
+#define GSC_ENABLE_PP_UPDATE_FIRE_MODE	(1 << 6)
+#define GSC_ENABLE_IN_PP_UPDATE		(1 << 5)
+#define GSC_ENABLE_ON_CLEAR_MASK	(1 << 4)
+#define GSC_ENABLE_ON_CLEAR_ONESHOT	(1 << 4)
 #define GSC_ENABLE_QOS_ENABLE		(1 << 3)
 #define GSC_ENABLE_OP_STATUS		(1 << 2)
 #define GSC_ENABLE_SFR_UPDATE		(1 << 1)
@@ -48,6 +66,10 @@
 
 /* G-Scaler input control */
 #define GSC_IN_CON			0x10
+#define GSC_IN_CHROM_STRIDE_SEL_MASK	(1 << 20)
+#define GSC_IN_CHROM_STRIDE_SEPAR	(1 << 20)
+#define GSC_IN_RB_SWAP_MASK		(1 << 19)
+#define GSC_IN_RB_SWAP			(1 << 19)
 #define GSC_IN_ROT_MASK			(7 << 16)
 #define GSC_IN_ROT_270			(7 << 16)
 #define GSC_IN_ROT_90_YFLIP		(6 << 16)
@@ -80,6 +102,7 @@
 #define GSC_IN_TILE_C_16x16		(1 << 4)
 #define GSC_IN_TILE_MODE		(1 << 3)
 #define GSC_IN_LOCAL_SEL_MASK		(3 << 1)
+#define GSC_IN_LOCAL_CAM3		(3 << 1)
 #define GSC_IN_LOCAL_FIMD_WB		(2 << 1)
 #define GSC_IN_LOCAL_CAM1		(1 << 1)
 #define GSC_IN_LOCAL_CAM0		(0 << 1)
@@ -91,7 +114,7 @@
 #define GSC_SRCIMG_SIZE			0x14
 #define GSC_SRCIMG_HEIGHT_MASK		(0x1fff << 16)
 #define GSC_SRCIMG_HEIGHT(x)		((x) << 16)
-#define GSC_SRCIMG_WIDTH_MASK		(0x1fff << 0)
+#define GSC_SRCIMG_WIDTH_MASK		(0x3fff << 0)
 #define GSC_SRCIMG_WIDTH(x)		((x) << 0)
 
 /* G-Scaler source image offset */
@@ -112,6 +135,10 @@
 #define GSC_OUT_CON			0x20
 #define GSC_OUT_GLOBAL_ALPHA_MASK	(0xff << 24)
 #define GSC_OUT_GLOBAL_ALPHA(x)		((x) << 24)
+#define GSC_OUT_CHROM_STRIDE_SEL_MASK	(1 << 13)
+#define GSC_OUT_CHROM_STRIDE_SEPAR	(1 << 13)
+#define GSC_OUT_RB_SWAP_MASK		(1 << 12)
+#define GSC_OUT_RB_SWAP			(1 << 12)
 #define GSC_OUT_RGB_TYPE_MASK		(3 << 10)
 #define GSC_OUT_RGB_HD_NARROW		(3 << 10)
 #define GSC_OUT_RGB_HD_WIDE		(2 << 10)
@@ -165,6 +192,11 @@
 #define GSC_MAIN_V_RATIO_MASK		(0xfffff << 0)
 #define GSC_MAIN_V_RATIO_VALUE(x)	((x) << 0)
 
+/* G-Scaler input chrominance stride */
+#define GSC_IN_CHROM_STRIDE		0x3C
+#define GSC_IN_CHROM_STRIDE_MASK	(0x3fff << 0)
+#define GSC_IN_CHROM_STRIDE_VALUE(x)	((x) << 0)
+
 /* G-Scaler destination image size */
 #define GSC_DSTIMG_SIZE			0x40
 #define GSC_DSTIMG_HEIGHT_MASK		(0x1fff << 16)
@@ -179,25 +211,46 @@
 #define GSC_DSTIMG_OFFSET_X_MASK	(0x1fff << 0)
 #define GSC_DSTIMG_OFFSET_X(x)		((x) << 0)
 
+/* G-Scaler output chrominance stride */
+#define GSC_OUT_CHROM_STRIDE		0x48
+#define GSC_OUT_CHROM_STRIDE_MASK	(0x3fff << 0)
+#define GSC_OUT_CHROM_STRIDE_VALUE(x)	((x) << 0)
+
 /* G-Scaler input y address mask */
 #define GSC_IN_BASE_ADDR_Y_MASK		0x4C
 /* G-Scaler input y base address */
 #define GSC_IN_BASE_ADDR_Y(n)		(0x50 + (n) * 0x4)
+/* G-Scaler input y base current address */
+#define GSC_IN_BASE_ADDR_Y_CUR(n)	(0x60 + (n) * 0x4)
 
 /* G-Scaler input cb address mask */
 #define GSC_IN_BASE_ADDR_CB_MASK	0x7C
 /* G-Scaler input cb base address */
 #define GSC_IN_BASE_ADDR_CB(n)		(0x80 + (n) * 0x4)
+/* G-Scaler input cb base current address */
+#define GSC_IN_BASE_ADDR_CB_CUR(n)	(0x90 + (n) * 0x4)
 
 /* G-Scaler input cr address mask */
 #define GSC_IN_BASE_ADDR_CR_MASK	0xAC
 /* G-Scaler input cr base address */
 #define GSC_IN_BASE_ADDR_CR(n)		(0xB0 + (n) * 0x4)
+/* G-Scaler input cr base current address */
+#define GSC_IN_BASE_ADDR_CR_CUR(n)	(0xC0 + (n) * 0x4)
 
 /* G-Scaler input address mask */
-#define GSC_IN_CURR_ADDR_INDEX		(0xf << 12)
-#define GSC_IN_CURR_GET_INDEX(x)	((x) >> 12)
-#define GSC_IN_BASE_ADDR_PINGPONG(x)	((x) << 8)
+#define GSC_EVT0_IN_CURR_ADDR_INDEX_SHIFT	12
+#define GSC_EVT0_IN_BASE_ADDR_PP_SHIFT		8
+#define GSC_EVT1_IN_CURR_ADDR_INDEX_SHIFT	24
+#define GSC_EVT1_IN_BASE_ADDR_PP_SHIFT		16
+#define GSC_IN_CURR_ADDR_INDEX		((soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0) ? \
+					(0xf << GSC_EVT1_IN_CURR_ADDR_INDEX_SHIFT) : \
+					(0xf << GSC_EVT0_IN_CURR_ADDR_INDEX_SHIFT))
+#define GSC_IN_CURR_GET_INDEX(x)	((soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0) ? \
+					((x) >> GSC_EVT1_IN_CURR_ADDR_INDEX_SHIFT) : \
+					((x) >> GSC_EVT0_IN_CURR_ADDR_INDEX_SHIFT))
+#define GSC_IN_BASE_ADDR_PINGPONG(x)	((soc_is_exynos5250() && samsung_rev() >= EXYNOS5250_REV_1_0) ? \
+					((x) << GSC_EVT1_IN_BASE_ADDR_PP_SHIFT) : \
+					((x) << GSC_EVT0_IN_BASE_ADDR_PP_SHIFT))
 #define GSC_IN_BASE_ADDR_MASK		(0xff << 0)
 
 /* G-Scaler output y address mask */
@@ -220,5 +273,32 @@
 #define GSC_OUT_CURR_GET_INDEX(x)	((x) >> 24)
 #define GSC_OUT_BASE_ADDR_PINGPONG(x)	((x) << 16)
 #define GSC_OUT_BASE_ADDR_MASK		(0xffff << 0)
+
+/* G-Scaler horizontal scaling filter */
+#define GSC_HCOEF(n, s, x)	(0x300 + (n) * 0x4 + (s) * 0x30 + (x) * 0x300)
+
+/* G-Scaler vertical scaling filter */
+#define GSC_VCOEF(n, s, x)	(0x200 + (n) * 0x4 + (s) * 0x30 + (x) * 0x300)
+
+/* G-Scaler BUS control */
+#define GSC_BUSCON			0xA78
+#define GSC_BUSCON_INT_TIME_MASK	(1 << 8)
+#define GSC_BUSCON_INT_DATA_TRANS	(0 << 8)
+#define GSC_BUSCON_INT_AXI_RESPONSE	(1 << 8)
+#define GSC_BUSCON_AWCACHE(x)		((x) << 4)
+#define GSC_BUSCON_ARCACHE(x)		((x) << 0)
+
+/* G-Scaler V position */
+#define GSC_VPOSITION			0xA7C
+#define GSC_VPOS_F(x)			((x) << 0)
+
+
+/* G-Scaler clock initial count */
+#define GSC_CLK_INIT_COUNT		0xC00
+#define GSC_CLK_GATE_MODE_INIT_CNT(x)	((x) << 0)
+
+/* G-Scaler clock snoop count */
+#define GSC_CLK_SNOOP_COUNT		0xC04
+#define GSC_CLK_GATE_MODE_SNOOP_CNT(x)	((x) << 0)
 
 #endif /* REGS_GSC_H_ */

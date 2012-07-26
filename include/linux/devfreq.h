@@ -59,6 +59,16 @@ struct devfreq_pm_qos_table {
 	s32 qos_value;
 };
 
+/*
+ * target callback, which is to provide additional information to the
+ * devfreq driver.
+ */
+
+/* The resulting frequency should be at least this. (least upper bound) */
+#define DEVFREQ_OPTION_FREQ_LUB	0x0
+/* The resulting frequency should be at most this. (greatest lower bound) */
+#define DEVFREQ_OPTION_FREQ_GLB 0x1
+
 /**
  * struct devfreq_dev_profile - Devfreq's user device profile
  * @initial_freq	The operating frequency when devfreq_add_device() is
@@ -76,6 +86,8 @@ struct devfreq_pm_qos_table {
  *			higher than any operable frequency, set maximum.
  *			Before returning, target function should set
  *			freq at the current frequency.
+ *			The "option" parameter's possible values are
+ *			explained above with "DEVFREQ_OPTION_*" macros.
  * @get_dev_status	The device should provide the current performance
  *			status to devfreq, which is used by governors.
  * @exit		An optional callback that is called when devfreq
@@ -95,7 +107,7 @@ struct devfreq_dev_profile {
 	bool qos_use_max;
 	struct devfreq_pm_qos_table *qos_list;
 
-	int (*target)(struct device *dev, unsigned long *freq);
+	int (*target)(struct device *dev, unsigned long *freq, u32 options);
 	int (*get_dev_status)(struct device *dev,
 			      struct devfreq_dev_status *stat);
 	void (*exit)(struct device *dev);
@@ -198,7 +210,7 @@ extern int devfreq_remove_device(struct devfreq *devfreq);
 
 /* Helper functions for devfreq user device driver with OPP. */
 extern struct opp *devfreq_recommended_opp(struct device *dev,
-					   unsigned long *freq);
+					   unsigned long *freq, bool floor);
 extern int devfreq_register_opp_notifier(struct device *dev,
 					 struct devfreq *devfreq);
 extern int devfreq_unregister_opp_notifier(struct device *dev,
@@ -253,7 +265,7 @@ static int devfreq_remove_device(struct devfreq *devfreq)
 }
 
 static struct opp *devfreq_recommended_opp(struct device *dev,
-					   unsigned long *freq)
+					   unsigned long *freq, bool floor)
 {
 	return -EINVAL;
 }

@@ -51,7 +51,6 @@ static int aat1290a_freeGpio(void)
 		led_pdata->status = STATUS_UNAVAILABLE;
 	} else {
 		LED_ERROR("GPIO already free!");
-		return -1;
 	}
 
 	return 0;
@@ -67,7 +66,6 @@ static int aat1290a_setGpio(void)
 		led_pdata->status = STATUS_AVAILABLE;
 	} else {
 		LED_ERROR("GPIO already set!");
-		return -1;
 	}
 
 	return 0;
@@ -127,7 +125,7 @@ static long aat1290a_ioctl(struct file *file,
 	return 0;
 }
 
-static ssize_t aat1290a_power(struct device *dev,
+ssize_t aat1290a_power(struct device *dev,
 			struct device_attribute *attr, const char *buf,
 			size_t count)
 {
@@ -150,10 +148,12 @@ static ssize_t aat1290a_power(struct device *dev,
 
 	if (brightness == 0) {
 		aat1290a_setPower(0, 0);
+		/*
 		if (aat1290a_freeGpio()) {
 			LED_ERROR("aat1290a_freeGpio failed!\n");
 			return count;
 		}
+		*/
 	} else {
 		if (aat1290a_setGpio()) {
 			LED_ERROR("aat1290a_setGpio failed!\n");
@@ -165,7 +165,8 @@ static ssize_t aat1290a_power(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(flash_power, S_IWUGO, NULL, aat1290a_power);
+static DEVICE_ATTR(flash_power, S_IWUSR|S_IWGRP|S_IROTH,
+	NULL, aat1290a_power);
 
 static const struct file_operations aat1290a_fops = {
 	.owner = THIS_MODULE,
@@ -203,6 +204,7 @@ static int aat1290a_led_probe(struct platform_device *pdev)
 				dev_attr_flash_power.attr.name);
 	}
 	led_pdata->initGpio();
+	aat1290a_setGpio();
 	return 0;
 }
 

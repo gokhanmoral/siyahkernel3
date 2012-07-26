@@ -29,6 +29,9 @@ config SEC_KEYBOARD_DOCK
 config HPD_PULL
 	tristate "HPD pull up by PMIC LDO"
 
+config SAMSUNG_MHL_9290
+	tristate "support 9290 dongle and 9292 dongle"
+
 endif # ACCESSORY
 
 

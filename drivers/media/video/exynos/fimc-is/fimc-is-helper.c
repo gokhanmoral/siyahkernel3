@@ -27,7 +27,7 @@
 #include <linux/videodev2.h>
 #include <media/v4l2-subdev.h>
 #include <linux/videodev2.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 #include <linux/gpio.h>
 #include <linux/gpio_event.h>
 #include <plat/gpio-cfg.h>
@@ -37,24 +37,6 @@
 #include "fimc-is-cmd.h"
 #include "fimc-is-param.h"
 #include "fimc-is-err.h"
-
-/*
-Default setting values
-*/
-#define DEFAULT_PREVIEW_STILL_WIDTH	640
-#define DEFAULT_PREVIEW_STILL_HEIGHT	480
-#define DEFAULT_CAPTURE_STILL_WIDTH	640
-#define DEFAULT_CAPTURE_STILL_HEIGHT	480
-#define DEFAULT_PREVIEW_VIDEO_WIDTH	640
-#define DEFAULT_PREVIEW_VIDEO_HEIGHT	480
-#define DEFAULT_CAPTURE_VIDEO_WIDTH	640
-#define DEFAULT_CAPTURE_VIDEO_HEIGHT	480
-
-
-#define DEFAULT_PREVIEW_STILL_FRAMERATE	30
-#define DEFAULT_CAPTURE_STILL_FRAMERATE	15
-#define DEFAULT_PREVIEW_VIDEO_FRAMERATE	30
-#define DEFAULT_CAPTURE_VIDEO_FRAMERATE	30
 
 static const struct sensor_param init_val_sensor_preview_still = {
 	.frame_rate = {
@@ -79,6 +61,12 @@ static const struct isp_param init_val_isp_preview_still = {
 #endif
 		.bitwidth = OTF_INPUT_BIT_WIDTH_10BIT,
 		.order = OTF_INPUT_ORDER_BAYER_GR_BG,
+		.crop_offset_x = 0,
+		.crop_offset_y = 0,
+		.crop_width = 0,
+		.crop_height = 0,
+		.frametime_min = 0,
+		.frametime_max = 66666,
 		.err = OTF_INPUT_ERROR_NO,
 	},
 	.dma1_input = {
@@ -134,8 +122,6 @@ static const struct isp_param init_val_isp_preview_still = {
 		.exposure = 0,
 		.brightness = 0,
 		.hue = 0,
-		.shutter_time_min = 0,
-		.shutter_time_max = 66666,
 		.err = ISP_ADJUST_ERROR_NO,
 	},
 	.metering = {
@@ -285,6 +271,12 @@ static const struct isp_param init_val_isp_capture = {
 #endif
 		.bitwidth = OTF_INPUT_BIT_WIDTH_10BIT,
 		.order = OTF_INPUT_ORDER_BAYER_GR_BG,
+		.crop_offset_x = 0,
+		.crop_offset_y = 0,
+		.crop_width = 0,
+		.crop_height = 0,
+		.frametime_min = 0,
+		.frametime_max = 66666,
 		.err = OTF_INPUT_ERROR_NO,
 	},
 	.dma1_input = {
@@ -340,8 +332,6 @@ static const struct isp_param init_val_isp_capture = {
 		.exposure = 0,
 		.brightness = 0,
 		.hue = 0,
-		.shutter_time_min = 0,
-		.shutter_time_max = 66666,
 		.err = ISP_ADJUST_ERROR_NO,
 	},
 	.metering = {
@@ -482,6 +472,12 @@ static const struct isp_param init_val_isp_preview_video = {
 #endif
 		.bitwidth = OTF_INPUT_BIT_WIDTH_10BIT,
 		.order = OTF_INPUT_ORDER_BAYER_GR_BG,
+		.crop_offset_x = 0,
+		.crop_offset_y = 0,
+		.crop_width = 0,
+		.crop_height = 0,
+		.frametime_min = 0,
+		.frametime_max = 33333,
 		.err = OTF_INPUT_ERROR_NO,
 	},
 	.dma1_input = {
@@ -537,8 +533,6 @@ static const struct isp_param init_val_isp_preview_video = {
 		.exposure = 0,
 		.brightness = 0,
 		.hue = 0,
-		.shutter_time_min = 0,
-		.shutter_time_max = 33333,
 		.err = ISP_ADJUST_ERROR_NO,
 	},
 	.metering = {
@@ -689,6 +683,12 @@ static const struct isp_param init_val_isp_camcording = {
 #endif
 		.bitwidth = OTF_INPUT_BIT_WIDTH_10BIT,
 		.order = OTF_INPUT_ORDER_BAYER_GR_BG,
+		.crop_offset_x = 0,
+		.crop_offset_y = 0,
+		.crop_width = 0,
+		.crop_height = 0,
+		.frametime_min = 0,
+		.frametime_max = 33333,
 		.err = OTF_INPUT_ERROR_NO,
 	},
 	.dma1_input = {
@@ -744,8 +744,6 @@ static const struct isp_param init_val_isp_camcording = {
 		.exposure = 0,
 		.brightness = 0,
 		.hue = 0,
-		.shutter_time_min = 0,
-		.shutter_time_max = 33333,
 		.err = ISP_ADJUST_ERROR_NO,
 	},
 	.metering = {
@@ -881,31 +879,52 @@ void fimc_is_hw_set_intgr0_gd0(struct fimc_is_dev *dev)
 
 int fimc_is_hw_wait_intsr0_intsd0(struct fimc_is_dev *dev)
 {
+	u32 timeout;
 	u32 cfg = readl(dev->regs + INTSR0);
 	u32 status = INTSR0_GET_INTSD0(cfg);
+	timeout = 50000;
+
 	while (status) {
+
+		printk(KERN_INFO "%s check status \n", __func__);
 		cfg = readl(dev->regs + INTSR0);
 		status = INTSR0_GET_INTSD0(cfg);
+		if (timeout == 0) {
+			printk(KERN_INFO "%s check status failed..\n", __func__);
+			return -1;
+		}
+		timeout--;
+		udelay(1);
 	}
 	return 0;
 }
 
 int fimc_is_hw_wait_intmsr0_intmsd0(struct fimc_is_dev *dev)
 {
+	u32 timeout;
 	u32 cfg = readl(dev->regs + INTMSR0);
 	u32 status = INTMSR0_GET_INTMSD0(cfg);
+
+	timeout = 50000;
+
 	while (status) {
+		printk(KERN_INFO "%s check status \n", __func__);
+
 		cfg = readl(dev->regs + INTMSR0);
 		status = INTMSR0_GET_INTMSD0(cfg);
+		if (timeout == 0) {
+			printk(KERN_INFO "%s check status failed..\n", __func__);
+			return -1;
+		}
+		timeout--;
+		udelay(1);
 	}
 	return 0;
 }
 
-int fimc_is_fw_clear_irq1(struct fimc_is_dev *dev)
+int fimc_is_fw_clear_irq1(struct fimc_is_dev *dev, unsigned int intr_pos)
 {
-	u32 cfg = readl(dev->regs + INTSR1);
-
-	writel(cfg, dev->regs + INTCR1);
+	writel((1<<intr_pos), dev->regs + INTCR1);
 	return 0;
 }
 
@@ -920,6 +939,72 @@ int fimc_is_fw_clear_irq2(struct fimc_is_dev *dev)
 /*
  Group 2. Common
 */
+int fimc_is_hw_get_sensor_size_width(struct fimc_is_dev *dev)
+{
+	int width = 0;
+	switch (dev->scenario_id) {
+	case ISS_PREVIEW_STILL:
+		width = dev->sensor.width_prev;
+		break;
+	case ISS_PREVIEW_VIDEO:
+		width = dev->sensor.width_prev_cam;
+		break;
+	case ISS_CAPTURE_STILL:
+		width = dev->sensor.width_cap;
+		break;
+	case ISS_CAPTURE_VIDEO:
+		width = dev->sensor.width_cam;
+		break;
+	default:
+		break;
+	}
+	return width;
+}
+
+int fimc_is_hw_get_sensor_size_height(struct fimc_is_dev *dev)
+{
+	int height = 0;
+	switch (dev->scenario_id) {
+	case ISS_PREVIEW_STILL:
+		height = dev->sensor.height_prev;
+		break;
+	case ISS_PREVIEW_VIDEO:
+		height = dev->sensor.height_prev_cam;
+		break;
+	case ISS_CAPTURE_STILL:
+		height = dev->sensor.height_cap;
+		break;
+	case ISS_CAPTURE_VIDEO:
+		height = dev->sensor.height_cam;
+		break;
+	default:
+		break;
+	}
+	return height;
+}
+
+int fimc_is_hw_get_sensor_format(struct fimc_is_dev *dev)
+{
+	int format = 0;
+	switch (dev->scenario_id) {
+	case ISS_PREVIEW_STILL:
+		format = init_val_isp_preview_still.otf_input.format;
+		break;
+	case ISS_PREVIEW_VIDEO:
+		format = init_val_isp_preview_video.otf_input.format;
+		break;
+	case ISS_CAPTURE_STILL:
+		format = init_val_isp_capture.otf_input.format;
+		break;
+	case ISS_CAPTURE_VIDEO:
+		format = init_val_isp_camcording.otf_input.format;
+		break;
+	default:
+		break;
+	}
+	return format;
+}
+
 int fimc_is_hw_get_sensor_max_framerate(struct fimc_is_dev *dev)
 {
 	int max_framerate = 0;
@@ -930,7 +1015,7 @@ int fimc_is_hw_get_sensor_max_framerate(struct fimc_is_dev *dev)
 		break;
 	case SENSOR_S5K3H7_CSI_A:
 	case SENSOR_S5K3H7_CSI_B:
-		max_framerate = 30;
+		max_framerate = 15;
 		break;
 	case SENSOR_S5K6A3_CSI_A:
 	case SENSOR_S5K6A3_CSI_B:
@@ -938,7 +1023,7 @@ int fimc_is_hw_get_sensor_max_framerate(struct fimc_is_dev *dev)
 		break;
 	case SENSOR_S5K4E5_CSI_A:
 	case SENSOR_S5K4E5_CSI_B:
-		max_framerate = 15;
+		max_framerate = 30;
 		break;
 	default:
 		max_framerate = 15;
@@ -948,6 +1033,7 @@ int fimc_is_hw_get_sensor_max_framerate(struct fimc_is_dev *dev)
 
 void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 {
+	struct sensor_open_extended *sensor_ext = NULL;
 	fimc_is_hw_wait_intmsr0_intmsd0(dev);
 	writel(HIC_OPEN_SENSOR, dev->regs + ISSR0);
 	writel(id, dev->regs + ISSR1);
@@ -957,52 +1043,115 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 		dev->sensor.sensor_type = SENSOR_S5K3H2_CSI_A;
 		writel(SENSOR_NAME_S5K3H2, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C0, dev->regs + ISSR3);
+		writel(0x0, dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K3H2_CSI_B:
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K3H2_CSI_B;
 		writel(SENSOR_NAME_S5K3H2, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C1, dev->regs + ISSR3);
+		writel(0x0, dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K6A3_CSI_A:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 0;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 1;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 0;
 		dev->sensor.sensor_type = SENSOR_S5K6A3_CSI_A;
 		writel(SENSOR_NAME_S5K6A3, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C0, dev->regs + ISSR3);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K6A3_CSI_B:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 0;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 1;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 0;
 		dev->sensor.sensor_type = SENSOR_S5K6A3_CSI_B;
 		writel(SENSOR_NAME_S5K6A3, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C1, dev->regs + ISSR3);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K3H7_CSI_A:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 3;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 0;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K3H7_CSI_A;
 		writel(SENSOR_NAME_S5K3H7, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C0, dev->regs + ISSR3);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K3H7_CSI_B:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 3;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 0;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K3H7_CSI_B;
 		writel(SENSOR_NAME_S5K3H7, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C1, dev->regs + ISSR3);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K4E5_CSI_A:
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K4E5_CSI_A;
 		writel(SENSOR_NAME_S5K4E5, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C0, dev->regs + ISSR3);
+		writel(0x0, dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K4E5_CSI_B:
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K4E5_CSI_B;
 		writel(SENSOR_NAME_S5K4E5, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C1, dev->regs + ISSR3);
+		writel(0x0, dev->regs + ISSR4);
+		break;
+	case SENSOR_S5K6A3_CSI_B_CUSTOM:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 0;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 6;
+		sensor_ext->self_calibration_mode = 1;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
+		dev->af.use_af = 0;
+		dev->sensor.sensor_type = SENSOR_S5K6A3_CSI_B;
+		writel(SENSOR_NAME_S5K6A3, dev->regs + ISSR2);
+		writel(SENSOR_CONTROL_I2C1, dev->regs + ISSR3);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	}
-	/* Parameter3 : Scenario ID(Initial Scenario) */
-	writel(ISS_PREVIEW_STILL, dev->regs + ISSR4);
 	fimc_is_hw_set_intgr0_gd0(dev);
 }
 
@@ -1047,6 +1196,25 @@ int fimc_is_hw_io_init(struct fimc_is_dev *dev)
 	return 0;
 }
 
+void fimc_is_hw_set_low_poweroff(struct fimc_is_dev *dev, int on)
+{
+	if (on) {
+		printk(KERN_INFO "Set low poweroff mode\n");
+		if (!dev->low_power_mode) {
+			__raw_writel(0x0, PMUREG_ISP_ARM_OPTION);
+			__raw_writel(0x47C8, PMUREG_ISP_LOW_POWER_OFF);
+			dev->low_power_mode = true;
+		}
+	} else {
+		if (dev->low_power_mode) {
+			printk(KERN_INFO "Clear low poweroff mode\n");
+			__raw_writel(0xFFFFFFFF, PMUREG_ISP_ARM_OPTION);
+			__raw_writel(0x8, PMUREG_ISP_LOW_POWER_OFF);
+		}
+		dev->low_power_mode = false;
+	}
+}
+
 void fimc_is_hw_subip_poweroff(struct fimc_is_dev *dev)
 {
 	/* 1. Make FIMC-IS power-off state */
@@ -1060,9 +1228,11 @@ void fimc_is_hw_a5_power(struct fimc_is_dev *dev, int on)
 {
 	u32 cfg;
 	u32 timeout;
+	printk(KERN_INFO "%s++ %d \n", __func__, on);
 
 	if (on) {
 		/* watchdog disable */
+		printk(KERN_INFO "%s on 1. watchdog disable\n", __func__);
 		writel(0x0, dev->regs + WDT);
 		/* 1. A5 start address setting */
 #if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
@@ -1070,27 +1240,43 @@ void fimc_is_hw_a5_power(struct fimc_is_dev *dev, int on)
 #elif defined(CONFIG_VIDEOBUF2_ION)
 		cfg = dev->mem.dvaddr;
 #endif
+		printk(KERN_INFO "%s on 2. access BBOAR\n", __func__);
 		writel(cfg, dev->regs + BBOAR);
 		/* 2. A5 power on*/
+		printk(KERN_INFO "%s on 3. access PMUREG_ISP_ARM_CONFIGURATION\n", __func__);
 		writel(0x1, PMUREG_ISP_ARM_CONFIGURATION);
 		/* 3. enable A5 */
+		printk(KERN_INFO "%s on 4. access PMUREG_ISP_ARM_OPTION\n", __func__);
 		writel(0x00018000, PMUREG_ISP_ARM_OPTION);
+		printk(KERN_INFO "%s on 5. complete\n", __func__);
 	} else {
 		/* 1. disable A5 */
-		writel(0x00010000, PMUREG_ISP_ARM_OPTION);
+		printk(KERN_INFO "%s off 1. access PMUREG_ISP_ARM_OPTION\n", __func__);
+		if (dev->low_power_mode) {
+			/* Low power mode */
+			printk(KERN_INFO "%s off ?!?! Low power mode (Option 0)\n", __func__);
+			writel(0x0, PMUREG_ISP_ARM_OPTION);
+		} else {
+			writel(0x10000, PMUREG_ISP_ARM_OPTION);
+		}
 		/* 2. A5 power off*/
+		printk(KERN_INFO "%s off 2. access PMUREG_ISP_ARM_CONFIGURATION\n", __func__);
 		writel(0x0, PMUREG_ISP_ARM_CONFIGURATION);
 		/* 3. Check A5 power off status register */
+		printk(KERN_INFO "%s off 3. check A5 power off status\n", __func__);
 		timeout = 1000;
 		while (__raw_readl(PMUREG_ISP_ARM_STATUS) & 0x1) {
-			if (timeout == 0)
-				printk(KERN_ERR "A5 power off failed\n");
-			printk(KERN_INFO "Wait A5 power off\n");
+			if (timeout == 0) {
+				printk(KERN_ERR "%s Low power off\n", __func__);
+				fimc_is_hw_set_low_poweroff(dev, true);
+			}
+			printk(KERN_INFO "%s Wait A5 power off\n", __func__);
 			timeout--;
 			udelay(1);
 		}
-		/* 4. ISP Power down mode (LOWPWR) */
+		printk(KERN_INFO "%s off 4. complete\n", __func__);
 	}
+	printk(KERN_INFO "%s --\n", __func__);
 }
 
 void fimc_is_hw_set_sensor_num(struct fimc_is_dev *dev)
@@ -1105,20 +1291,7 @@ void fimc_is_hw_set_sensor_num(struct fimc_is_dev *dev)
 	cfg = dev->sensor_num;
 	writel(cfg, dev->regs + ISSR3);
 }
-#if 0
-void fimc_is_hw_set_load_setfile(struct fimc_is_dev *dev)
-{
-	u32 cfg;
-	writel(ISR_DONE, dev->regs + ISSR0);
-	cfg = dev->sensor.id;
-	writel(cfg, dev->regs + ISSR1);
-	/* param 1 */
-	writel(IHC_LOAD_SET_FILE, dev->regs + ISSR2);
-	/* param 2 */
-	cfg = dev->sensor_num;
-	writel(cfg, dev->regs + ISSR3);
-}
-#endif
+
 int fimc_is_hw_get_sensor_num(struct fimc_is_dev *dev)
 {
 	u32 cfg = readl(dev->regs + ISSR11);
@@ -1139,6 +1312,18 @@ int fimc_is_hw_set_param(struct fimc_is_dev *dev)
 	writel(atomic_read(&dev->p_region_num), dev->regs + ISSR3);
 	writel(dev->p_region_index1, dev->regs + ISSR4);
 	writel(dev->p_region_index2, dev->regs + ISSR5);
+	fimc_is_hw_set_intgr0_gd0(dev);
+	return 0;
+}
+
+int fimc_is_hw_set_tune(struct fimc_is_dev *dev)
+{
+	fimc_is_hw_wait_intmsr0_intmsd0(dev);
+	writel(HIC_SET_TUNE, dev->regs + ISSR0);
+	writel(dev->sensor.id, dev->regs + ISSR1);
+
+	writel(dev->h2i_cmd.entry_id, dev->regs + ISSR2);
+
 	fimc_is_hw_set_intgr0_gd0(dev);
 	return 0;
 }
@@ -1196,7 +1381,7 @@ void fimc_is_hw_set_stream(struct fimc_is_dev *dev, int on)
 		fimc_is_hw_wait_intmsr0_intmsd0(dev);
 		writel(HIC_STREAM_ON, dev->regs + ISSR0);
 		writel(dev->sensor.id, dev->regs + ISSR1);
-		writel(1, dev->regs + ISSR2);
+		writel(0, dev->regs + ISSR2);
 		fimc_is_hw_set_intgr0_gd0(dev);
 	} else {
 		fimc_is_hw_wait_intmsr0_intmsd0(dev);
@@ -1214,6 +1399,7 @@ void fimc_is_hw_change_mode(struct fimc_is_dev *dev, int val)
 		fimc_is_hw_wait_intmsr0_intmsd0(dev);
 		writel(HIC_PREVIEW_STILL, dev->regs + ISSR0);
 		writel(dev->sensor.id, dev->regs + ISSR1);
+		writel(dev->setfile.sub_index, dev->regs + ISSR2);
 		fimc_is_hw_set_intgr0_gd0(dev);
 		break;
 	case IS_MODE_PREVIEW_VIDEO:
@@ -1221,6 +1407,7 @@ void fimc_is_hw_change_mode(struct fimc_is_dev *dev, int val)
 		fimc_is_hw_wait_intmsr0_intmsd0(dev);
 		writel(HIC_PREVIEW_VIDEO, dev->regs + ISSR0);
 		writel(dev->sensor.id, dev->regs + ISSR1);
+		writel(dev->setfile.sub_index, dev->regs + ISSR2);
 		fimc_is_hw_set_intgr0_gd0(dev);
 		break;
 	case IS_MODE_CAPTURE_STILL:
@@ -1228,6 +1415,7 @@ void fimc_is_hw_change_mode(struct fimc_is_dev *dev, int val)
 		fimc_is_hw_wait_intmsr0_intmsd0(dev);
 		writel(HIC_CAPTURE_STILL, dev->regs + ISSR0);
 		writel(dev->sensor.id, dev->regs + ISSR1);
+		writel(dev->setfile.sub_index, dev->regs + ISSR2);
 		fimc_is_hw_set_intgr0_gd0(dev);
 		break;
 	case IS_MODE_CAPTURE_VIDEO:
@@ -1235,6 +1423,7 @@ void fimc_is_hw_change_mode(struct fimc_is_dev *dev, int val)
 		fimc_is_hw_wait_intmsr0_intmsd0(dev);
 		writel(HIC_CAPTURE_VIDEO, dev->regs + ISSR0);
 		writel(dev->sensor.id, dev->regs + ISSR1);
+		writel(dev->setfile.sub_index, dev->regs + ISSR2);
 		fimc_is_hw_set_intgr0_gd0(dev);
 		break;
 	}
@@ -1246,10 +1435,13 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 {
 	switch (dev->scenario_id) {
 	case ISS_PREVIEW_STILL:
+		dev->sensor.frametime_max_prev =
+			init_val_isp_preview_still.otf_input.frametime_max;
 		IS_SET_PARAM_GLOBAL_SHOTMODE_CMD(dev, 1);
 		IS_SET_PARAM_BIT(dev, PARAM_GLOBAL_SHOTMODE);
 		IS_INC_PARAM_NUM(dev);
-		IS_SENSOR_SET_FRAME_RATE(dev, DEFAULT_PREVIEW_STILL_FRAMERATE);
+		IS_SENSOR_SET_FRAME_RATE(dev,
+			fimc_is_hw_get_sensor_max_framerate(dev));
 		IS_SET_PARAM_BIT(dev, PARAM_SENSOR_FRAME_RATE);
 		IS_INC_PARAM_NUM(dev);
 		/* ISP */
@@ -1273,10 +1465,18 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_preview_still.otf_input.bitwidth);
 		IS_ISP_SET_PARAM_OTF_INPUT_ORDER(dev,
 			init_val_isp_preview_still.otf_input.order);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev, 0);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev,
+			init_val_isp_preview_still.otf_input.crop_offset_x);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev,
+			init_val_isp_preview_still.otf_input.crop_offset_y);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev,
+			init_val_isp_preview_still.otf_input.crop_width);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev,
+			init_val_isp_preview_still.otf_input.crop_height);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MIN(dev,
+			init_val_isp_preview_still.otf_input.frametime_min);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MAX(dev,
+			init_val_isp_preview_still.otf_input.frametime_max);
 		IS_ISP_SET_PARAM_OTF_INPUT_ERR(dev,
 			init_val_isp_preview_still.otf_input.err);
 		dev->sensor.width_prev =
@@ -1391,10 +1591,6 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_preview_still.adjust.brightness);
 		IS_ISP_SET_PARAM_ADJUST_HUE(dev,
 			init_val_isp_preview_still.adjust.hue);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MIN(dev,
-			init_val_isp_preview_still.adjust.shutter_time_min);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MAX(dev,
-			init_val_isp_preview_still.adjust.shutter_time_max);
 		IS_ISP_SET_PARAM_ADJUST_ERR(dev,
 			init_val_isp_preview_still.adjust.err);
 		IS_SET_PARAM_BIT(dev, PARAM_ISP_ADJUST);
@@ -1619,6 +1815,8 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 		IS_INC_PARAM_NUM(dev);
 		break;
 	case ISS_PREVIEW_VIDEO:
+		dev->sensor.frametime_max_prev_cam =
+			init_val_isp_preview_video.otf_input.frametime_max;
 		IS_SET_PARAM_GLOBAL_SHOTMODE_CMD(dev, 1);
 		IS_SET_PARAM_BIT(dev, PARAM_GLOBAL_SHOTMODE);
 		IS_INC_PARAM_NUM(dev);
@@ -1646,10 +1844,18 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_preview_video.otf_input.bitwidth);
 		IS_ISP_SET_PARAM_OTF_INPUT_ORDER(dev,
 			init_val_isp_preview_video.otf_input.order);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev, 0);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev,
+			init_val_isp_preview_video.otf_input.crop_offset_x);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev,
+			init_val_isp_preview_video.otf_input.crop_offset_y);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev,
+			init_val_isp_preview_video.otf_input.crop_width);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev,
+			init_val_isp_preview_video.otf_input.crop_height);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MIN(dev,
+			init_val_isp_preview_video.otf_input.frametime_min);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MAX(dev,
+			init_val_isp_preview_video.otf_input.frametime_max);
 		IS_ISP_SET_PARAM_OTF_INPUT_ERR(dev,
 			init_val_isp_preview_video.otf_input.err);
 		dev->sensor.width_prev_cam =
@@ -1764,10 +1970,6 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_preview_video.adjust.brightness);
 		IS_ISP_SET_PARAM_ADJUST_HUE(dev,
 			init_val_isp_preview_video.adjust.hue);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MIN(dev,
-			init_val_isp_preview_video.adjust.shutter_time_min);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MAX(dev,
-			init_val_isp_preview_video.adjust.shutter_time_max);
 		IS_ISP_SET_PARAM_ADJUST_ERR(dev,
 			init_val_isp_preview_video.adjust.err);
 		IS_SET_PARAM_BIT(dev, PARAM_ISP_ADJUST);
@@ -1993,6 +2195,8 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 		break;
 
 	case ISS_CAPTURE_STILL:
+		dev->sensor.frametime_max_cap =
+			init_val_isp_capture.otf_input.frametime_max;
 		IS_SET_PARAM_GLOBAL_SHOTMODE_CMD(dev, 1);
 		IS_SET_PARAM_BIT(dev, PARAM_GLOBAL_SHOTMODE);
 		IS_INC_PARAM_NUM(dev);
@@ -2020,10 +2224,18 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_capture.otf_input.bitwidth);
 		IS_ISP_SET_PARAM_OTF_INPUT_ORDER(dev,
 			init_val_isp_capture.otf_input.order);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev, 0);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev,
+			init_val_isp_capture.otf_input.crop_offset_x);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev,
+			init_val_isp_capture.otf_input.crop_offset_y);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev,
+			init_val_isp_capture.otf_input.crop_width);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev,
+			init_val_isp_capture.otf_input.crop_height);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MIN(dev,
+			init_val_isp_capture.otf_input.frametime_min);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MAX(dev,
+			init_val_isp_capture.otf_input.frametime_max);
 		IS_ISP_SET_PARAM_OTF_INPUT_ERR(dev,
 			init_val_isp_capture.otf_input.err);
 		dev->sensor.width_cap =
@@ -2131,10 +2343,6 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_capture.adjust.brightness);
 		IS_ISP_SET_PARAM_ADJUST_HUE(dev,
 			init_val_isp_capture.adjust.hue);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MIN(dev,
-			init_val_isp_capture.adjust.shutter_time_min);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MAX(dev,
-			init_val_isp_capture.adjust.shutter_time_max);
 		IS_ISP_SET_PARAM_ADJUST_ERR(dev,
 			init_val_isp_capture.adjust.err);
 		IS_SET_PARAM_BIT(dev, PARAM_ISP_ADJUST);
@@ -2358,6 +2566,8 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 		break;
 
 	case ISS_CAPTURE_VIDEO:
+		dev->sensor.frametime_max_cam =
+			init_val_isp_camcording.otf_input.frametime_max;
 		IS_SET_PARAM_GLOBAL_SHOTMODE_CMD(dev, 1);
 		IS_SET_PARAM_BIT(dev, PARAM_SENSOR_FRAME_RATE);
 		IS_INC_PARAM_NUM(dev);
@@ -2385,10 +2595,18 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_camcording.otf_input.bitwidth);
 		IS_ISP_SET_PARAM_OTF_INPUT_ORDER(dev,
 			init_val_isp_camcording.otf_input.order);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev, 0);
-		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev, 0);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_X(dev,
+			init_val_isp_camcording.otf_input.crop_offset_x);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_OFFSET_Y(dev,
+			init_val_isp_camcording.otf_input.crop_offset_y);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_WIDTH(dev,
+			init_val_isp_camcording.otf_input.crop_width);
+		IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev,
+			init_val_isp_camcording.otf_input.crop_height);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MIN(dev,
+			init_val_isp_camcording.otf_input.frametime_min);
+		IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MAX(dev,
+			init_val_isp_camcording.otf_input.frametime_max);
 		IS_ISP_SET_PARAM_OTF_INPUT_ERR(dev,
 			init_val_isp_camcording.otf_input.err);
 		dev->sensor.width_cam =
@@ -2497,10 +2715,6 @@ void fimc_is_hw_set_init(struct fimc_is_dev *dev)
 			init_val_isp_camcording.adjust.brightness);
 		IS_ISP_SET_PARAM_ADJUST_HUE(dev,
 			init_val_isp_camcording.adjust.hue);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MIN(dev,
-			init_val_isp_camcording.adjust.shutter_time_min);
-		IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MAX(dev,
-			init_val_isp_camcording.adjust.shutter_time_max);
 		IS_ISP_SET_PARAM_ADJUST_ERR(dev,
 			init_val_isp_camcording.adjust.err);
 		IS_SET_PARAM_BIT(dev, PARAM_ISP_ADJUST);

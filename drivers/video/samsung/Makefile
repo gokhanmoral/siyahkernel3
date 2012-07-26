@@ -3,7 +3,7 @@
 #
 ifeq ($(CONFIG_FB_S5P),y)
 obj-y				+= s3cfb.o
-s3cfb-y				:= s3cfb_main.o s3cfb_ops.o
+s3cfb-y				:= s3cfb_main.o s3cfb_ops.o lcdfreq.o
 obj-$(CONFIG_ARCH_S5PV210)	+= s3cfb_fimd6x.o
 obj-$(CONFIG_ARCH_EXYNOS4)	+= s3cfb_fimd6x.o
 
@@ -14,12 +14,15 @@ obj-$(CONFIG_FB_S5P_HT101HD1)	+= s3cfb_ht101hd1.o
 obj-$(CONFIG_FB_S5P_WA101S)	+= s3cfb_wa101s.o
 obj-$(CONFIG_FB_S5P_AMS369FG06)	+= s3cfb_ams369fg06.o
 obj-$(CONFIG_FB_S5P_LD9040)	+= ld9040.o smart_dimming_ld9042.o
+obj-$(CONFIG_FB_S5P_NT35560)	+= nt35560.o
 obj-$(CONFIG_FB_S5P_MDNIE)      += s3cfb_mdnie.o s3cfb_ielcd.o mdnie.o mdnie_tunning.o
 obj-$(CONFIG_FB_S5P_LMS501KF03)	+= s3cfb_lms501kf03.o
 obj-$(CONFIG_FB_S5P_DUMMY_MIPI_LCD)	+= s3cfb_dummymipilcd.o
 obj-$(CONFIG_FB_S5P_S6E8AA0)	+= s3cfb_s6e8aa0.o smart_dimming.o
 obj-$(CONFIG_FB_S5P_S6E8AB0)	+= s3cfb_s6e8ab0.o smart_dimming_s6e8ab0.o
 obj-$(CONFIG_FB_S5P_S6E39A0)	+= s3cfb_s6e39a0.o smart_dimming.o
+obj-$(CONFIG_FB_S5P_S6E63M0)	+= s3cfb_s6e63m0.o smart_dimming.o
+obj-$(CONFIG_FB_S5P_S6D6AA1)	+= s6d6aa1.o
 obj-$(CONFIG_FB_S5P_MIPI_DSIM)	+= s5p_dsim_lowlevel.o
 obj-$(CONFIG_FB_S5P_MIPI_DSIM)	+= s5p-dsim.o
 obj-$(CONFIG_TARGET_LOCALE_KOR)	+= boot_progressbar.o

@@ -14,7 +14,7 @@
 
 #define FLITE_MAX_NUM		2
 
-enum cam_bus_type {
+enum fimc_cam_bus_type {
 	FIMC_ITU_601 = 1,
 	FIMC_ITU_656,
 	FIMC_MIPI_CSI2,
@@ -49,7 +49,7 @@ struct i2c_board_info;
 struct s5p_fimc_isp_info {
 	struct i2c_board_info *board_info;
 	unsigned long clk_frequency;
-	enum cam_bus_type bus_type;
+	enum fimc_cam_bus_type bus_type;
 	u16 csi_data_align;
 	u16 i2c_bus_num;
 	u16 mux_id;

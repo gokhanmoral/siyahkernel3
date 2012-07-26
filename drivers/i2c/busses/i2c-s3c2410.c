@@ -88,7 +88,7 @@ struct s3c24xx_i2c {
 
 static inline void dump_i2c_register(struct s3c24xx_i2c *i2c)
 {
-	dev_warn(i2c->dev, "Register dump(%d) : %x %x %x %x %x\n"
+	dev_dbg(i2c->dev, "Register dump(%d) : %x %x %x %x %x\n"
 		, i2c->suspended
 		, readl(i2c->regs + S3C2410_IICCON)
 		, readl(i2c->regs + S3C2410_IICSTAT)
@@ -315,7 +315,7 @@ static int i2c_s3c_irq_nextbyte(struct s3c24xx_i2c *i2c, unsigned long iicstat)
 		    !(i2c->msg->flags & I2C_M_IGNORE_NAK)) {
 			/* ack was not received... */
 
-			dev_warn(i2c->dev, "ack was not received\n");
+			dev_dbg(i2c->dev, "ack was not received\n");
 			s3c24xx_i2c_stop(i2c, -ENXIO);
 			goto out_ack;
 		}
@@ -346,7 +346,7 @@ static int i2c_s3c_irq_nextbyte(struct s3c24xx_i2c *i2c, unsigned long iicstat)
 
 		if (!(i2c->msg->flags & I2C_M_IGNORE_NAK)) {
 			if (iicstat & S3C2410_IICSTAT_LASTBIT) {
-				dev_warn(i2c->dev, "WRITE: No Ack\n");
+				dev_dbg(i2c->dev, "WRITE: No Ack\n");
 
 				s3c24xx_i2c_stop(i2c, -ECONNREFUSED);
 				goto out_ack;
@@ -384,12 +384,21 @@ static int i2c_s3c_irq_nextbyte(struct s3c24xx_i2c *i2c, unsigned long iicstat)
 					 * forces us to send a new START
 					 * when we change direction */
 
+					dev_dbg(i2c->dev, "Cannot do this\n");
 					s3c24xx_i2c_stop(i2c, -EINVAL);
 				}
 
+				/* For multiple messages,
+				 * ex)
+				 * Msg[0]: Slave Addr + Write(Addr)
+				 * Msg[1]: Write(Data) */
 				goto retry_write;
 			} else {
 				/* send the new start */
+				/* For multiple messages,
+				 * ex)
+				 * Msg[0]: Slave Addr + Write(Addr)
+				 * Msg[1]: Slave Addr + Read/Write(Data) */
 				s3c24xx_i2c_message_start(i2c, i2c->msg);
 				i2c->state = STATE_START;
 			}
@@ -500,13 +509,6 @@ static int s3c24xx_i2c_set_master(struct s3c24xx_i2c *i2c)
 	unsigned long iicstat;
 	int timeout = 400;
 
-	/* if hang-up of HDMIPHY occured reduce timeout
-	 * The controller will work after reset, so waiting
-	 * 400 ms will cause unneccessary system hangup
-	 */
-	if (s3c24xx_i2c_is2440_hdmiphy(i2c))
-		timeout = 10;
-
 	while (timeout-- > 0) {
 		iicstat = readl(i2c->regs + S3C2410_IICSTAT);
 
@@ -514,15 +516,6 @@ static int s3c24xx_i2c_set_master(struct s3c24xx_i2c *i2c)
 			return 0;
 
 		msleep(1);
-	}
-
-	/* hang-up of bus dedicated for HDMIPHY occured, resetting */
-	if (s3c24xx_i2c_is2440_hdmiphy(i2c)) {
-		writel(0, i2c->regs + S3C2410_IICCON);
-		writel(0, i2c->regs + S3C2410_IICSTAT);
-		writel(0, i2c->regs + S3C2410_IICDS);
-
-		return 0;
 	}
 
 	return -ETIMEDOUT;
@@ -592,16 +585,21 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 
 	/* if that timed out sleep */
 	if (!spins) {
-		msleep(1);
+		usleep_range(1000, 1000);
 		iicstat = readl(i2c->regs + S3C2410_IICSTAT);
 	}
 
 	/* if still not finished, clean it up */
 	spin_lock_irq(&i2c->lock);
-	if (iicstat & S3C2410_IICSTAT_START) {
-		dev_warn(i2c->dev, "timeout waiting for bus idle\n");
+
+	if (iicstat & S3C2410_IICSTAT_BUSBUSY) {
+		dev_dbg(i2c->dev, "timeout waiting for bus idle\n");
 		dump_i2c_register(i2c);
-		s3c24xx_i2c_stop(i2c, 0);
+
+		if (i2c->state != STATE_STOP) {
+			dev_dbg(i2c->dev, "timeout : i2c interrupt hasn't occurred\n");
+			s3c24xx_i2c_stop(i2c, 0);
+		}
 
 		/* Disable Serial Out : To forcely terminate the connection */
 		iicstat = readl(i2c->regs + S3C2410_IICSTAT);
@@ -1057,7 +1055,7 @@ static int s3c24xx_i2c_suspend_noirq(struct device *dev)
 	return 0;
 }
 
-static int s3c24xx_i2c_resume(struct device *dev)
+static int s3c24xx_i2c_resume_noirq(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct s3c24xx_i2c *i2c = platform_get_drvdata(pdev);
@@ -1072,7 +1070,12 @@ static int s3c24xx_i2c_resume(struct device *dev)
 
 static const struct dev_pm_ops s3c24xx_i2c_dev_pm_ops = {
 	.suspend_noirq = s3c24xx_i2c_suspend_noirq,
-	.resume = s3c24xx_i2c_resume,
+	.resume_noirq = s3c24xx_i2c_resume_noirq,
+#ifdef CONFIG_HIBERNATION
+	.freeze_noirq = s3c24xx_i2c_suspend_noirq,
+	.thaw_noirq = s3c24xx_i2c_resume_noirq,
+	.restore_noirq = s3c24xx_i2c_resume_noirq,
+#endif
 };
 
 #define S3C24XX_DEV_PM_OPS (&s3c24xx_i2c_dev_pm_ops)
@@ -1111,7 +1114,11 @@ static int __init i2c_adap_s3c_init(void)
 {
 	return platform_driver_register(&s3c24xx_i2c_driver);
 }
+#ifdef CONFIG_FAST_RESUME
+beforeresume_initcall(i2c_adap_s3c_init);
+#else
 subsys_initcall(i2c_adap_s3c_init);
+#endif
 
 static void __exit i2c_adap_s3c_exit(void)
 {

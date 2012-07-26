@@ -19,6 +19,7 @@
 #include <linux/types.h>
 #include <linux/io.h>
 #include <linux/irq.h>
+#include <linux/gcd.h>
 
 #include <mach/regs-clock.h>
 #include <mach/regs-gpio.h>
@@ -35,21 +36,35 @@
 struct platform_device; /* don't need the contents */
 
 #ifdef CONFIG_FB_S5P
+
+void s3cfb_set_display_path(void)
+{
+	u32 reg;
+#ifdef CONFIG_FB_S5P_MDNIE
+	reg = __raw_readl(S3C_VA_SYS + 0x0210);
+	reg &= ~(1<<13);
+	reg &= ~(1<<12);
+	reg &= ~(3<<10);
+	reg |= (1<<0);
+	reg &= ~(1<<1);
+	__raw_writel(reg, S3C_VA_SYS + 0x0210);
+#else
+	reg = __raw_readl(S3C_VA_SYS + 0x0210);
+	reg |= (1<<1);
+	__raw_writel(reg, S3C_VA_SYS + 0x0210);
+#endif
+}
+
+#if !defined(CONFIG_FB_S5P_MIPI_DSIM)
 static void s3cfb_gpio_setup_24bpp(unsigned int start, unsigned int size,
 		unsigned int cfg, s5p_gpio_drvstr_t drvstr)
 {
-	u32 reg;
-
 	s3c_gpio_cfgrange_nopull(start, size, cfg);
 
 	for (; size > 0; size--, start++)
 		s5p_gpio_set_drvstr(start, drvstr);
-
-	/* Set FIMD0 bypass */
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-	reg |= (1<<1);
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
 }
+#endif
 
 #if defined(CONFIG_FB_S5P_WA101S) || defined(CONFIG_FB_S5P_LTE480WV)
 void s3cfb_cfg_gpio(struct platform_device *pdev)
@@ -81,463 +96,32 @@ void s3cfb_cfg_gpio(struct platform_device *pdev)
 	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF0(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV1);
 	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF1(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV1);
 	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF2(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV1);
-	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF3(0), 6, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV1);
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF3(0), 4, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV1);
 }
-#endif
-
-#ifdef CONFIG_FB_S5P_MIPI_DSIM
-int s3cfb_mipi_clk_on(void)
+#elif defined(CONFIG_FB_S5P_LD9040) || defined(CONFIG_FB_S5P_S6F1202A)
+void s3cfb_cfg_gpio(struct platform_device *pdev)
 {
-	struct clk *sclk = NULL;
-	struct clk *mout_mpll_user = NULL;
-	struct clk *dsim_clk = NULL;
-	u32 rate = 0;
-
-	dsim_clk = clk_get(NULL, "dsim0");
-	if (IS_ERR(dsim_clk)) {
-		printk(KERN_ERR "failed to get ip clk for dsim0\n");
-		goto err_clk0;
-	}
-	clk_enable(dsim_clk);
-	clk_put(dsim_clk);
-
-	sclk = clk_get(NULL, "sclk_mipidphy4l");
-	if (IS_ERR(sclk)) {
-		printk(KERN_ERR "failed to get sclk for sclk_mipidphy4l\n");
-		goto err_clk1;
-	}
-
-	mout_mpll_user = clk_get(NULL, "mout_mpll_user");
-	if (IS_ERR(mout_mpll_user)) {
-		printk(KERN_ERR "failed to get mout_mpll_user\n");
-		goto err_clk2;
-	}
-
-	clk_set_parent(sclk, mout_mpll_user);
-
-	rate = clk_round_rate(sclk, 70000000);
-	printk(KERN_INFO "set mipi sclk rate to %d\n", rate);
-
-	if (!rate)
-		rate = 70000000;
-
-	clk_set_rate(sclk, rate);
-	printk(KERN_INFO "set mipi sclk rate to %d\n", rate);
-
-	clk_put(mout_mpll_user);
-
-	clk_enable(sclk);
-
-	return 0;
-
-err_clk1:
-	clk_put(mout_mpll_user);
-err_clk2:
-	clk_put(sclk);
-err_clk0:
-	clk_put(dsim_clk);
-
-	return -EINVAL;
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF0(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV4);
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF1(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV4);
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF2(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV4);
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF3(0), 4, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV4);
 }
-#endif
-#endif
-
-int s3cfb_mdnie_clk_on(u32 rate)
+#elif defined(CONFIG_FB_S5P_S6C1372)
+void s3cfb_cfg_gpio(struct platform_device *pdev)
 {
-	struct clk *sclk = NULL;
-	struct clk *mout_mpll = NULL;
-	struct clk *mdnie_clk = NULL;
-	int ret = 0;
-
-	mdnie_clk = clk_get(NULL, "mdnie0"); /*   CLOCK GATE IP ENABLE */
-	if (IS_ERR(mdnie_clk)) {
-		printk(KERN_ERR "failed to get ip clk for mdnie0\n");
-		goto err_clk0;
-	}
-	clk_enable(mdnie_clk);
-	clk_put(mdnie_clk);
-
-	sclk = clk_get(NULL, "sclk_mdnie");
-	if (IS_ERR(sclk)) {
-		printk(KERN_ERR "failed to get sclk for mdnie\n");
-		goto err_clk1;
-	}
-
-	if (soc_is_exynos4210())
-		mout_mpll = clk_get(NULL, "mout_mpll");
-	else
-		mout_mpll = clk_get(NULL, "mout_mpll_user");
-
-	if (IS_ERR(mout_mpll)) {
-		printk(KERN_ERR "failed to get mout_mpll\n");
-		goto err_clk2;
-	}
-
-	clk_set_parent(sclk, mout_mpll);
-
-	if (!rate)
-		rate = 800 * MHZ;
-
-	ret = clk_set_rate(sclk, rate);
-
-	clk_put(mout_mpll);
-
-	clk_enable(sclk);
-
-	return 0;
-
-err_clk1:
-	clk_put(mout_mpll);
-err_clk2:
-	clk_put(sclk);
-err_clk0:
-	clk_put(mdnie_clk);
-
-	return -EINVAL;
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF0(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV2);
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF1(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV2);
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF2(0), 8, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV2);
+	s3cfb_gpio_setup_24bpp(EXYNOS4_GPF3(0), 4, S3C_GPIO_SFN(2), S5P_GPIO_DRVSTR_LV2);
 }
-
-int s3cfb_mdnie_pwm_clk_on(void)
-{
-	struct clk *sclk = NULL;
-	struct clk *sclk_pre = NULL;
-	struct clk *mout_mpll = NULL;
-	u32 rate = 0;
-
-	sclk = clk_get(NULL, "sclk_mdnie_pwm");
-	if (IS_ERR(sclk)) {
-		printk(KERN_ERR "failed to get sclk for mdnie_pwm\n");
-		goto err_clk1;
-	}
-
-	sclk_pre = clk_get(NULL, "sclk_mdnie_pwm_pre");
-	if (IS_ERR(sclk_pre)) {
-		printk(KERN_ERR "failed to get sclk for mdnie_pwm_pre\n");
-		goto err_clk2;
-	}
-#if defined(CONFIG_FB_S5P_S6C1372)
-	mout_mpll = clk_get(NULL, "xusbxti");
-	if (IS_ERR(mout_mpll)) {
-		printk(KERN_ERR "failed to get mout_mpll\n");
-		goto err_clk3;
-	}
-	clk_set_parent(sclk, mout_mpll);
-	rate = clk_round_rate(sclk, 2200000);
-	if (!rate)
-		rate = 2200000;
-	clk_set_rate(sclk, rate);
-	printk(KERN_INFO "set mdnie_pwm sclk rate to %d\n", rate);
-	clk_set_parent(sclk_pre, mout_mpll);
-	rate = clk_round_rate(sclk_pre, 24000000);
-	if (!rate)
-		rate = 24000000;
-	clk_set_rate(sclk_pre, rate);
-#elif defined(CONFIG_FB_S5P_S6F1202A)
-	if (soc_is_exynos4210())
-		mout_mpll = clk_get(NULL, "mout_mpll");
-	else
-		mout_mpll = clk_get(NULL, "mout_mpll_user");
-	if (IS_ERR(mout_mpll)) {
-		printk(KERN_ERR "failed to get mout_mpll\n");
-		goto err_clk3;
-	}
-	clk_set_parent(sclk, mout_mpll);
-	rate = clk_round_rate(sclk, 50000000);
-	if (!rate)
-		rate = 50000000;
-	clk_set_rate(sclk, rate);
-	printk(KERN_INFO "set mdnie_pwm sclk rate to %d\n", rate);
-	clk_set_parent(sclk_pre, mout_mpll);
-	rate = clk_round_rate(sclk_pre, 160000000);
-	if (!rate)
-		rate = 160000000;
-	clk_set_rate(sclk_pre, rate);
 #else
-	if (soc_is_exynos4210())
-		mout_mpll = clk_get(NULL, "mout_mpll");
-	else
-		mout_mpll = clk_get(NULL, "mout_mpll_user");
-
-	if (IS_ERR(mout_mpll)) {
-		printk(KERN_ERR "failed to get mout_mpll\n");
-		goto err_clk3;
-	}
-
-	clk_set_parent(sclk, mout_mpll);
-
-	rate = 57500000;
-	clk_set_rate(sclk, rate);
-#endif
-	printk(KERN_INFO "set mdnie_pwm sclk rate to %d\n", rate);
-
-	clk_put(mout_mpll);
-
-	clk_enable(sclk);
-
-	return 0;
-
-err_clk3:
-	clk_put(mout_mpll);
-err_clk2:
-	clk_put(sclk_pre);
-err_clk1:
-	clk_put(sclk);
-
-	return -EINVAL;
-}
-
-unsigned int s3cfb_get_clk_rate(struct platform_device *pdev, struct clk *sclk)
+void s3cfb_cfg_gpio(struct platform_device *pdev)
 {
-	struct s3c_platform_fb *pdata = pdev->dev.platform_data;
-	struct s3cfb_lcd *lcd = (struct s3cfb_lcd *)pdata->lcd;
-	struct s3cfb_lcd_timing *timing = &lcd->timing;
-	u32 src_clk, vclk, div, rate;
-
-	src_clk = clk_get_rate(sclk);
-
-	vclk = (lcd->freq *
-		(timing->h_bp + timing->h_fp + timing->h_sw + lcd->width) *
-		(timing->v_bp + timing->v_fp + timing->v_sw + lcd->height));
-
-	if (!vclk)
-		vclk = src_clk;
-
-	div = DIV_ROUND_CLOSEST(src_clk, vclk);
-
-	if (!div) {
-		dev_err(&pdev->dev, "div(%d) should be non-zero\n", div);
-		div = 1;
-	} else if (div > 16) {
-		dev_err(&pdev->dev, "div(%d) max should be 16\n", div);
-		div = 16;
-	}
-
-	rate = src_clk / div;
-
-	if ((src_clk % rate) && (div != 1)) {
-		div--;
-		rate = src_clk / div;
-		if (!(src_clk % rate))
-			rate--;
-	}
-
-	dev_info(&pdev->dev, "vclk=%d, div=%d(%d), rate=%d\n",
-		vclk, DIV_ROUND_CLOSEST(src_clk, vclk), div, rate);
-
-	return rate;
+	/* do not modify this #else function,
+	if you want another rgb gpio configuration plz add another one */
 }
-
-int s3cfb_clk_on(struct platform_device *pdev, struct clk **s3cfb_clk)
-{
-	struct clk *sclk = NULL;
-	struct clk *mout_mpll = NULL;
-	struct clk *lcd_clk = NULL;
-	struct clksrc_clk *src_clk = NULL;
-	u32 clkdiv = 0;
-	struct s3c_platform_fb *pdata = pdev->dev.platform_data;
-	struct s3cfb_lcd *lcd = (struct s3cfb_lcd *)pdata->lcd;
-
-	u32 rate = 0;
-	int ret = 0;
-
-	lcd_clk = clk_get(&pdev->dev, "lcd");
-	if (IS_ERR(lcd_clk)) {
-		dev_err(&pdev->dev, "failed to get operation clk for fimd\n");
-		goto err_clk0;
-	}
-
-	ret = clk_enable(lcd_clk);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to clk_enable of lcd clk for fimd\n");
-		goto err_clk0;
-	}
-	clk_put(lcd_clk);
-
-	sclk = clk_get(&pdev->dev, "sclk_fimd");
-	if (IS_ERR(sclk)) {
-		dev_err(&pdev->dev, "failed to get sclk for fimd\n");
-		goto err_clk1;
-	}
-
-	if (soc_is_exynos4210())
-		mout_mpll = clk_get(&pdev->dev, "mout_mpll");
-	else
-		mout_mpll = clk_get(&pdev->dev, "mout_mpll_user");
-
-	if (IS_ERR(mout_mpll)) {
-		dev_err(&pdev->dev, "failed to get mout_mpll for fimd\n");
-		goto err_clk2;
-	}
-
-	ret = clk_set_parent(sclk, mout_mpll);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to clk_set_parent for fimd\n");
-		goto err_clk2;
-	}
-
-	if (!lcd->vclk) {
-		rate = s3cfb_get_clk_rate(pdev, mout_mpll);
-		if (!rate)
-			rate = 800 * MHZ;	/* MOUT PLL */
-		lcd->vclk = rate;
-	} else
-		rate = lcd->vclk;
-
-	ret = clk_set_rate(sclk, rate);
-
-	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to clk_set_rate of sclk for fimd\n");
-		goto err_clk2;
-	}
-	dev_dbg(&pdev->dev, "set fimd sclk rate to %d\n", rate);
-
-	clk_put(mout_mpll);
-
-	ret = clk_enable(sclk);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to clk_enable of sclk for fimd\n");
-		goto err_clk2;
-	}
-
-	*s3cfb_clk = sclk;
-
-#ifdef CONFIG_FB_S5P_MIPI_DSIM
-	s3cfb_mipi_clk_on();
-#endif
-#ifdef CONFIG_FB_S5P_MDNIE
-	s3cfb_mdnie_clk_on(rate);
-#ifdef CONFIG_FB_MDNIE_PWM
-	s3cfb_mdnie_pwm_clk_on();
 #endif
 #endif
-
-	src_clk = container_of(sclk, struct clksrc_clk, clk);
-	clkdiv = __raw_readl(src_clk->reg_div.reg);
-
-	dev_info(&pdev->dev, "fimd sclk rate %ld, clkdiv 0x%x\n",
-		clk_get_rate(sclk), clkdiv);
-
-	return 0;
-
-err_clk2:
-	clk_put(mout_mpll);
-err_clk1:
-	clk_put(sclk);
-err_clk0:
-	clk_put(lcd_clk);
-
-	return -EINVAL;
-}
-
-#ifdef CONFIG_FB_S5P_MIPI_DSIM
-int s3cfb_mipi_clk_off(void)
-{
-	struct clk *sclk = NULL;
-	struct clk *dsim_clk = NULL;
-
-	dsim_clk = clk_get(NULL, "dsim0"); /*  CLOCK GATE IP ENABLE */
-	if (IS_ERR(dsim_clk)) {
-		printk(KERN_ERR "failed to get ip clk for dsim0\n");
-		goto err_clk0;
-	}
-	clk_disable(dsim_clk);
-	clk_put(dsim_clk);
-
-
-	sclk = clk_get(NULL, "sclk_mipidphy4l");
-	if (IS_ERR(sclk))
-		printk(KERN_ERR "failed to get sclk for sclk_mipidphy4l\n");
-
-	clk_disable(sclk);
-	clk_put(sclk);
-
-	return 0;
-err_clk0:
-	clk_put(dsim_clk);
-
-	return -EINVAL;
-}
-#endif
-
-int s3cfb_mdnie_clk_off(void)
-{
-	struct clk *sclk = NULL;
-	struct clk *mdnie_clk = NULL;
-
-	mdnie_clk = clk_get(NULL, "mdnie0"); /*   CLOCK GATE IP ENABLE */
-	if (IS_ERR(mdnie_clk)) {
-		printk(KERN_ERR "failed to get ip clk for fimd0\n");
-		goto err_clk0;
-	}
-	clk_disable(mdnie_clk);
-	clk_put(mdnie_clk);
-
-	sclk = clk_get(NULL, "sclk_mdnie");
-	if (IS_ERR(sclk))
-		printk(KERN_ERR "failed to get sclk for mdnie\n");
-
-	clk_disable(sclk);
-	clk_put(sclk);
-
-	return 0;
-
-err_clk0:
-	clk_put(mdnie_clk);
-
-	return -EINVAL;
-}
-
-int s3cfb_mdnie_pwm_clk_off(void)
-{
-	struct clk *sclk = NULL;
-
-	sclk = clk_get(NULL, "sclk_mdnie_pwm");
-	if (IS_ERR(sclk))
-		printk(KERN_ERR "failed to get sclk for mdnie_pwm\n");
-
-	clk_disable(sclk);
-	clk_put(sclk);
-
-	return 0;
-}
-
-int s3cfb_clk_off(struct platform_device *pdev, struct clk **clk)
-{
-	struct clk *lcd_clk = NULL;
-
-	lcd_clk = clk_get(&pdev->dev, "lcd");
-	if (IS_ERR(lcd_clk)) {
-		printk(KERN_ERR "failed to get ip clk for fimd0\n");
-		goto err_clk0;
-	}
-
-	clk_disable(lcd_clk);
-	clk_put(lcd_clk);
-
-	clk_disable(*clk);
-	clk_put(*clk);
-
-	*clk = NULL;
-
-#ifdef CONFIG_FB_S5P_MIPI_DSIM
-	s3cfb_mipi_clk_off();
-#endif
-#ifdef CONFIG_FB_S5P_MDNIE
-	s3cfb_mdnie_clk_off();
-	s3cfb_mdnie_pwm_clk_off();
-#endif
-
-	return 0;
-
-err_clk0:
-	clk_put(lcd_clk);
-
-	return -EINVAL;
-}
-
-void s3cfb_get_clk_name(char *clk_name)
-{
-	strcpy(clk_name, "sclk_fimd");
-}
 
 #if defined(CONFIG_FB_S5P_WA101S)
 int s3cfb_backlight_on(struct platform_device *pdev)
@@ -812,178 +396,84 @@ int s3cfb_lcd_off(struct platform_device *pdev)
 	return 0;
 }
 
-#elif defined(CONFIG_FB_S5P_LD9040)
-void s3cfb_cfg_gpio(struct platform_device *pdev)
-{
-	int i;
-	u32 reg;
-
-	for (i = 0; i < 8; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF0(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF0(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF0(i), S5P_GPIO_DRVSTR_LV4);
-	}
-
-	for (i = 0; i < 8; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF1(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF1(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF1(i), S5P_GPIO_DRVSTR_LV4);
-	}
-
-	for (i = 0; i < 8; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF2(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF2(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF2(i), S5P_GPIO_DRVSTR_LV4);
-	}
-
-	for (i = 0; i < 4; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF3(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF3(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF3(i), S5P_GPIO_DRVSTR_LV4);
-	}
-
-	/* Set FIMD0 bypass */
-#ifdef CONFIG_FB_S5P_MDNIE
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-	reg &= ~(1<<13);
-	reg &= ~(1<<12);
-	reg &= ~(3<<10);
-	reg |= (1<<0);
-	reg &= ~(1<<1);
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
-#else
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-	reg |= (1<<1);
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
-#endif
-}
-
+#elif defined(CONFIG_FB_S5P_S6C1372) && !defined(CONFIG_FB_MDNIE_PWM)
 int s3cfb_backlight_on(struct platform_device *pdev)
 {
+	gpio_request_one(EXYNOS4_GPD0(1), GPIOF_OUT_INIT_HIGH, "GPD0");
+	gpio_free(EXYNOS4_GPD0(1));
 	return 0;
 }
 
 int s3cfb_backlight_off(struct platform_device *pdev)
 {
+	gpio_request_one(EXYNOS4_GPD0(1), GPIOF_OUT_INIT_LOW, "GPD0");
+	gpio_free(EXYNOS4_GPD0(1));
 	return 0;
 }
 
 int s3cfb_lcd_on(struct platform_device *pdev)
 {
+	int err;
+
+	err = gpio_request_one(EXYNOS4_GPC0(1), GPIOF_OUT_INIT_LOW, "GPC0");
+	if (err) {
+		printk(KERN_ERR "failed to request GPC0 for "
+			"lcd backlight control\n");
+		return err;
+	}
+
+	gpio_set_value(EXYNOS4_GPC0(1), GPIO_LEVEL_HIGH);
+	msleep(40);
+
+	/*  LVDS_N_SHDN to low */
+	err = gpio_request_one(EXYNOS4212_GPM0(5), GPIOF_OUT_INIT_LOW, "GPM0");
+	if (err) {
+		printk(KERN_ERR "failed to request GPM0 for "
+			"lcd backlight control\n");
+		return err;
+	}
+
+	gpio_set_value(EXYNOS4212_GPM0(5), GPIO_LEVEL_HIGH);
+	msleep(300);
+
+	err = gpio_request_one(EXYNOS4212_GPM0(1), GPIOF_OUT_INIT_LOW, "GPM0");
+	if (err) {
+		printk(KERN_ERR "failed to request GPM0 for "
+			"lcd backlight control\n");
+		return err;
+	}
+
+	gpio_set_value(EXYNOS4212_GPM0(1), GPIO_LEVEL_HIGH);
+	mdelay(2);
 	return 0;
 }
 
 int s3cfb_lcd_off(struct platform_device *pdev)
 {
-	return 0;
-}
-#elif defined(CONFIG_FB_S5P_MIPI_DSIM)
-void s3cfb_cfg_gpio(struct platform_device *pdev)
-{
-	u32 reg;
+	gpio_set_value(EXYNOS4212_GPM0(1), GPIO_LEVEL_LOW);
+	mdelay(200);
 
-	/* Set FIMD0 bypass */
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-#ifdef CONFIG_FB_S5P_MDNIE
-	reg &= ~(1 << 13);
-	reg &= ~(1 << 12);
-	reg &= ~(3 << 10);
-	reg |= (1 << 0);
-	reg &= ~(1 << 1);
-#else
-	reg |= (1 << 1);
-#endif
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
-}
+	/*  LVDS_N_SHDN to low */
+	gpio_set_value(EXYNOS4212_GPM0(5), GPIO_LEVEL_LOW);
+	msleep(40);
 
-int s3cfb_backlight_on(struct platform_device *pdev)
-{
-	return 0;
-}
+	gpio_set_value(EXYNOS4_GPC0(1), GPIO_LEVEL_LOW);
+	msleep(400);
 
-int s3cfb_backlight_off(struct platform_device *pdev)
-{
-	return 0;
-}
-
-int s3cfb_lcd_on(struct platform_device *pdev)
-{
-	return 0;
-}
-
-int s3cfb_lcd_off(struct platform_device *pdev)
-{
 	return 0;
 }
 
 #elif defined(CONFIG_FB_S5P_S6C1372) || defined(CONFIG_FB_S5P_S6F1202A)
-void s3cfb_cfg_gpio(struct platform_device *pdev)
-{
-	int i;
-	u32 reg;
-	for (i = 0; i < 8; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF0(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF0(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF0(i), S5P_GPIO_DRVSTR_LV4);
-	}
-	for (i = 0; i < 8; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF1(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF1(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF1(i), S5P_GPIO_DRVSTR_LV4);
-	}
-	for (i = 0; i < 8; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF2(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF2(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF2(i), S5P_GPIO_DRVSTR_LV4);
-	}
-	for (i = 0; i < 4; i++) {
-		s3c_gpio_cfgpin(EXYNOS4_GPF3(i), S3C_GPIO_SFN(2));
-		s3c_gpio_setpull(EXYNOS4_GPF3(i), S3C_GPIO_PULL_NONE);
-		s5p_gpio_set_drvstr(EXYNOS4_GPF3(i), S5P_GPIO_DRVSTR_LV4);
-	}
-#ifdef CONFIG_FB_S5P_MDNIE
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-	reg &= ~(1<<13);
-	reg &= ~(1<<12);
-	reg &= ~(3<<10);
-	reg |= (1<<0);
-	reg &= ~(1<<1);
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
-#else
-	reg = __raw_readl(S3C_VA_SYS + 0x0210);
-	reg |= (1<<1);
-	__raw_writel(reg, S3C_VA_SYS + 0x0210);
-#endif
-}
-void s3cfb_cfg_gpio_sleep(struct platform_device *pdev)
-{
-	int i;
-/* Put all LCD pin into "INPUT-PULLDOWN" State to reduce sleep mode current */
-	for (i = 0; i < 8; i++) {
-		gpio_direction_input(EXYNOS4_GPF0(i));
-		s3c_gpio_setpull(EXYNOS4_GPF0(i), S3C_GPIO_PULL_DOWN);
-	}
-	for (i = 0; i < 8; i++) {
-		gpio_direction_input(EXYNOS4_GPF1(i));
-		s3c_gpio_setpull(EXYNOS4_GPF1(i), S3C_GPIO_PULL_DOWN);
-	}
-	for (i = 0; i < 8; i++) {
-		gpio_direction_input(EXYNOS4_GPF2(i));
-		s3c_gpio_setpull(EXYNOS4_GPF2(i), S3C_GPIO_PULL_DOWN);
-	}
-	for (i = 0; i < 4; i++) {
-		gpio_direction_input(EXYNOS4_GPF3(i));
-		s3c_gpio_setpull(EXYNOS4_GPF3(i), S3C_GPIO_PULL_DOWN);
-	}
-}
 int s3cfb_backlight_on(struct platform_device *pdev)
 {
 	return 0;
 }
+
 int s3cfb_backlight_off(struct platform_device *pdev)
 {
 	return 0;
 }
+
 int s3cfb_lcd_on(struct platform_device *pdev)
 {
 #if !defined(CONFIG_FB_MDNIE_PWM)
@@ -1011,6 +501,7 @@ int s3cfb_lcd_on(struct platform_device *pdev)
 #endif
 	return 0;
 }
+
 int s3cfb_lcd_off(struct platform_device *pdev)
 {
 #if !defined(CONFIG_FB_MDNIE_PWM)
@@ -1044,10 +535,6 @@ int s3cfb_lcd_off(struct platform_device *pdev)
 }
 
 #else
-void s3cfb_cfg_gpio(struct platform_device *pdev)
-{
-	return;
-}
 int s3cfb_backlight_on(struct platform_device *pdev)
 {
 	return 0;
@@ -1068,3 +555,411 @@ int s3cfb_lcd_off(struct platform_device *pdev)
 	return 0;
 }
 #endif
+
+#ifdef CONFIG_FB_S5P_MIPI_DSIM
+int s3cfb_mipi_clk_enable(int enable)
+{
+	struct clk *dsim_clk = NULL;
+
+	dsim_clk = clk_get(NULL, "dsim0");
+	if (IS_ERR(dsim_clk)) {
+		printk(KERN_ERR "failed to get ip clk for dsim0\n");
+		goto err_clk0;
+	}
+
+	if (enable)
+		clk_enable(dsim_clk);
+	else
+		clk_disable(dsim_clk);
+
+	clk_put(dsim_clk);
+
+	return 0;
+
+err_clk0:
+	clk_put(dsim_clk);
+
+	return -EINVAL;
+}
+#endif
+
+int s3cfb_mdnie_clk_on(u32 rate)
+{
+	struct clk *sclk = NULL;
+	struct clk *mout_mpll = NULL;
+	struct clk *mdnie_clk = NULL;
+	int ret = 0;
+
+	mdnie_clk = clk_get(NULL, "mdnie0"); /*   CLOCK GATE IP ENABLE */
+	if (IS_ERR(mdnie_clk)) {
+		printk(KERN_ERR "failed to get ip clk for mdnie0\n");
+		goto err_clk0;
+	}
+	clk_enable(mdnie_clk);
+	clk_put(mdnie_clk);
+
+	sclk = clk_get(NULL, "sclk_mdnie");
+	if (IS_ERR(sclk)) {
+		printk(KERN_ERR "failed to get sclk for mdnie\n");
+		goto err_clk1;
+	}
+
+	if (soc_is_exynos4210())
+		mout_mpll = clk_get(NULL, "mout_mpll");
+	else
+		mout_mpll = clk_get(NULL, "mout_mpll_user");
+
+	if (IS_ERR(mout_mpll)) {
+		printk(KERN_ERR "failed to get mout_mpll\n");
+		goto err_clk2;
+	}
+
+	clk_set_parent(sclk, mout_mpll);
+
+	if (!rate)
+		rate = 800 * MHZ;
+
+	ret = clk_set_rate(sclk, rate);
+
+	clk_put(mout_mpll);
+
+	clk_enable(sclk);
+
+	return 0;
+
+err_clk1:
+	clk_put(mout_mpll);
+err_clk2:
+	clk_put(sclk);
+err_clk0:
+	clk_put(mdnie_clk);
+
+	return -EINVAL;
+}
+
+int s3cfb_mdnie_pwm_clk_on(void)
+{
+	struct clk *sclk = NULL;
+	struct clk *sclk_pre = NULL;
+	struct clk *mout_mpll = NULL;
+	u32 rate = 0;
+
+	sclk = clk_get(NULL, "sclk_mdnie_pwm");
+	if (IS_ERR(sclk)) {
+		printk(KERN_ERR "failed to get sclk for mdnie_pwm\n");
+		goto err_clk1;
+	}
+
+	sclk_pre = clk_get(NULL, "sclk_mdnie_pwm_pre");
+	if (IS_ERR(sclk_pre)) {
+		printk(KERN_ERR "failed to get sclk for mdnie_pwm_pre\n");
+		goto err_clk2;
+	}
+#if defined(CONFIG_FB_S5P_S6C1372)
+	mout_mpll = clk_get(NULL, "xusbxti");
+	if (IS_ERR(mout_mpll)) {
+		printk(KERN_ERR "failed to get mout_mpll\n");
+		goto err_clk3;
+	}
+	clk_set_parent(sclk, mout_mpll);
+	rate = clk_round_rate(sclk, 2200000);
+	if (!rate)
+		rate = 2200000;
+	clk_set_rate(sclk, rate);
+	printk(KERN_INFO "set mdnie_pwm sclk rate to %d\n", rate);
+	clk_set_parent(sclk_pre, mout_mpll);
+	rate = clk_round_rate(sclk_pre, 24000000);
+	if (!rate)
+		rate = 24000000;
+	clk_set_rate(sclk_pre, rate);
+#elif defined(CONFIG_FB_S5P_S6F1202A)
+	if (soc_is_exynos4210())
+		mout_mpll = clk_get(NULL, "mout_mpll");
+	else
+		mout_mpll = clk_get(NULL, "mout_mpll_user");
+	if (IS_ERR(mout_mpll)) {
+		printk(KERN_ERR "failed to get mout_mpll\n");
+		goto err_clk3;
+	}
+	clk_set_parent(sclk, mout_mpll);
+	rate = clk_round_rate(sclk, 50000000);
+	if (!rate)
+		rate = 50000000;
+	clk_set_rate(sclk, rate);
+	printk(KERN_INFO "set mdnie_pwm sclk rate to %d\n", rate);
+	clk_set_parent(sclk_pre, mout_mpll);
+	rate = clk_round_rate(sclk_pre, 160000000);
+	if (!rate)
+		rate = 160000000;
+	clk_set_rate(sclk_pre, rate);
+#else
+	if (soc_is_exynos4210())
+		mout_mpll = clk_get(NULL, "mout_mpll");
+	else
+		mout_mpll = clk_get(NULL, "mout_mpll_user");
+
+	if (IS_ERR(mout_mpll)) {
+		printk(KERN_ERR "failed to get mout_mpll\n");
+		goto err_clk3;
+	}
+
+	clk_set_parent(sclk, mout_mpll);
+
+	rate = 57500000;
+	clk_set_rate(sclk, rate);
+#endif
+	printk(KERN_INFO "set mdnie_pwm sclk rate to %d\n", rate);
+
+	clk_put(mout_mpll);
+
+	clk_enable(sclk);
+
+	return 0;
+
+err_clk3:
+	clk_put(mout_mpll);
+err_clk2:
+	clk_put(sclk_pre);
+err_clk1:
+	clk_put(sclk);
+
+	return -EINVAL;
+}
+
+unsigned int get_clk_rate(struct platform_device *pdev, struct clk *sclk)
+{
+	struct s3c_platform_fb *pdata = pdev->dev.platform_data;
+	struct s3cfb_lcd *lcd = (struct s3cfb_lcd *)pdata->lcd;
+	struct s3cfb_lcd_timing *timing = &lcd->timing;
+	u32 src_clk, vclk, div, rate;
+	u32 vclk_limit, div_limit, fimd_div;
+
+	src_clk = clk_get_rate(sclk);
+
+	vclk = (lcd->freq *
+		(timing->h_bp + timing->h_fp + timing->h_sw + lcd->width) *
+		(timing->v_bp + timing->v_fp + timing->v_sw + lcd->height));
+
+	if (!vclk)
+		vclk = src_clk;
+
+	div = DIV_ROUND_CLOSEST(src_clk, vclk);
+
+	vclk_limit = (40 *
+		(timing->h_bp + timing->h_fp + timing->h_sw + lcd->width) *
+		(timing->v_bp + timing->v_fp + timing->v_sw + lcd->height));
+
+	div_limit = DIV_ROUND_CLOSEST(src_clk, vclk_limit);
+
+	fimd_div = gcd(div, div_limit);
+
+#if defined(CONFIG_MACH_MIDAS) && defined(CONFIG_FB_S5P_S6E8AA0) && !defined(CONFIG_S6E8AA0_AMS529HA01)
+	div /= fimd_div;
+#endif
+
+	if (!div) {
+		dev_err(&pdev->dev, "div(%d) should be non-zero\n", div);
+		div = 1;
+	} else if (div > 16) {
+		dev_err(&pdev->dev, "div(%d) max should be 16\n", div);
+		div = 16;
+	}
+
+	rate = src_clk / div;
+
+	if ((src_clk % rate) && (div != 1)) {
+		div--;
+		rate = src_clk / div;
+		if (!(src_clk % rate))
+			rate--;
+	}
+
+	dev_info(&pdev->dev, "vclk=%d, div=%d(%d), rate=%d\n",
+		vclk, DIV_ROUND_CLOSEST(src_clk, vclk), div, rate);
+
+	return rate;
+}
+
+int s3cfb_clk_on(struct platform_device *pdev, struct clk **s3cfb_clk)
+{
+	struct clk *sclk = NULL;
+	struct clk *mout_mpll = NULL;
+	struct clk *lcd_clk = NULL;
+	struct clksrc_clk *src_clk = NULL;
+	u32 clkdiv = 0;
+	struct s3c_platform_fb *pdata = pdev->dev.platform_data;
+	struct s3cfb_lcd *lcd = (struct s3cfb_lcd *)pdata->lcd;
+
+	u32 rate = 0;
+	int ret = 0;
+
+	lcd_clk = clk_get(&pdev->dev, "lcd");
+	if (IS_ERR(lcd_clk)) {
+		dev_err(&pdev->dev, "failed to get operation clk for fimd\n");
+		goto err_clk0;
+	}
+
+	ret = clk_enable(lcd_clk);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "failed to clk_enable of lcd clk for fimd\n");
+		goto err_clk0;
+	}
+	clk_put(lcd_clk);
+
+	sclk = clk_get(&pdev->dev, "sclk_fimd");
+	if (IS_ERR(sclk)) {
+		dev_err(&pdev->dev, "failed to get sclk for fimd\n");
+		goto err_clk1;
+	}
+
+	if (soc_is_exynos4210())
+		mout_mpll = clk_get(&pdev->dev, "mout_mpll");
+	else
+		mout_mpll = clk_get(&pdev->dev, "mout_mpll_user");
+
+	if (IS_ERR(mout_mpll)) {
+		dev_err(&pdev->dev, "failed to get mout_mpll for fimd\n");
+		goto err_clk2;
+	}
+
+	ret = clk_set_parent(sclk, mout_mpll);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "failed to clk_set_parent for fimd\n");
+		goto err_clk2;
+	}
+
+	if (!lcd->vclk) {
+		rate = get_clk_rate(pdev, mout_mpll);
+		if (!rate)
+			rate = 800 * MHZ;	/* MOUT PLL */
+		lcd->vclk = rate;
+	} else
+		rate = lcd->vclk;
+
+	ret = clk_set_rate(sclk, rate);
+
+	if (ret < 0) {
+		dev_err(&pdev->dev, "failed to clk_set_rate of sclk for fimd\n");
+		goto err_clk2;
+	}
+	dev_dbg(&pdev->dev, "set fimd sclk rate to %d\n", rate);
+
+	clk_put(mout_mpll);
+
+	ret = clk_enable(sclk);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "failed to clk_enable of sclk for fimd\n");
+		goto err_clk2;
+	}
+
+	*s3cfb_clk = sclk;
+
+#ifdef CONFIG_FB_S5P_MIPI_DSIM
+	s3cfb_mipi_clk_enable(1);
+#endif
+#ifdef CONFIG_FB_S5P_MDNIE
+	s3cfb_mdnie_clk_on(rate);
+#ifdef CONFIG_FB_MDNIE_PWM
+	s3cfb_mdnie_pwm_clk_on();
+#endif
+#endif
+
+	src_clk = container_of(sclk, struct clksrc_clk, clk);
+	clkdiv = __raw_readl(src_clk->reg_div.reg);
+
+	dev_info(&pdev->dev, "fimd sclk rate %ld, clkdiv 0x%x\n",
+		clk_get_rate(sclk), clkdiv);
+
+	return 0;
+
+err_clk2:
+	clk_put(mout_mpll);
+err_clk1:
+	clk_put(sclk);
+err_clk0:
+	clk_put(lcd_clk);
+
+	return -EINVAL;
+}
+
+int s3cfb_mdnie_clk_off(void)
+{
+	struct clk *sclk = NULL;
+	struct clk *mdnie_clk = NULL;
+
+	mdnie_clk = clk_get(NULL, "mdnie0"); /*   CLOCK GATE IP ENABLE */
+	if (IS_ERR(mdnie_clk)) {
+		printk(KERN_ERR "failed to get ip clk for fimd0\n");
+		goto err_clk0;
+	}
+	clk_disable(mdnie_clk);
+	clk_put(mdnie_clk);
+
+	sclk = clk_get(NULL, "sclk_mdnie");
+	if (IS_ERR(sclk))
+		printk(KERN_ERR "failed to get sclk for mdnie\n");
+
+	clk_disable(sclk);
+	clk_put(sclk);
+
+	return 0;
+
+err_clk0:
+	clk_put(mdnie_clk);
+
+	return -EINVAL;
+}
+
+int s3cfb_mdnie_pwm_clk_off(void)
+{
+	struct clk *sclk = NULL;
+
+	sclk = clk_get(NULL, "sclk_mdnie_pwm");
+	if (IS_ERR(sclk))
+		printk(KERN_ERR "failed to get sclk for mdnie_pwm\n");
+
+	clk_disable(sclk);
+	clk_put(sclk);
+
+	return 0;
+}
+
+int s3cfb_clk_off(struct platform_device *pdev, struct clk **clk)
+{
+	struct clk *lcd_clk = NULL;
+
+	lcd_clk = clk_get(&pdev->dev, "lcd");
+	if (IS_ERR(lcd_clk)) {
+		printk(KERN_ERR "failed to get ip clk for fimd0\n");
+		goto err_clk0;
+	}
+
+	clk_disable(lcd_clk);
+	clk_put(lcd_clk);
+
+	clk_disable(*clk);
+	clk_put(*clk);
+
+	*clk = NULL;
+
+#ifdef CONFIG_FB_S5P_MIPI_DSIM
+	s3cfb_mipi_clk_enable(0);
+#endif
+#ifdef CONFIG_FB_S5P_MDNIE
+	s3cfb_mdnie_clk_off();
+	s3cfb_mdnie_pwm_clk_off();
+#endif
+
+	return 0;
+
+err_clk0:
+	clk_put(lcd_clk);
+
+	return -EINVAL;
+}
+
+void s3cfb_get_clk_name(char *clk_name)
+{
+	strcpy(clk_name, "sclk_fimd");
+}
+

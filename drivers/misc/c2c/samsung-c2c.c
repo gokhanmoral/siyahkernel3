@@ -102,6 +102,7 @@ static ssize_t c2c_ctrl_show(struct device *dev,
 {
 	int ret = 0;
 	ret = sprintf(buf, "C2C State");
+	c2c_set_clock_gating(C2C_CLEAR);
 	ret += sprintf(&buf[ret], "SysReg : 0x%x\n",
 			readl(c2c_con.c2c_sysreg));
 	ret += sprintf(&buf[ret], "Port Config : 0x%x\n",
@@ -116,6 +117,7 @@ static ssize_t c2c_ctrl_show(struct device *dev,
 			clk_get_rate(c2c_con.c2c_sclk));
 	ret += sprintf(&buf[ret], "Get C2C aclk rate : %ld\n",
 			clk_get_rate(c2c_con.c2c_aclk));
+	c2c_set_clock_gating(C2C_SET);
 
 	return ret;
 }
@@ -148,12 +150,12 @@ static ssize_t c2c_ctrl_store(struct device *dev, struct device_attribute *attr,
 			dev_info(c2c_con.c2c_dev, "This mode is not reserved in OPP mode.\n");
 		} else {
 			c2c_set_clock_gating(C2C_CLEAR);
-			if (c2c_con.opp_mode > opp_val) { /* increase case */
+			if (c2c_con.opp_mode < opp_val) { /* increase case */
 				clk_set_rate(c2c_con.c2c_sclk, (req_clk + 1) * MHZ);
 				c2c_writel(req_clk, EXYNOS_C2C_FCLK_FREQ);
 				c2c_set_func_clk(req_clk);
 				c2c_writel(req_clk, EXYNOS_C2C_RX_MAX_FREQ);
-			} else if (c2c_con.opp_mode < opp_val) { /* decrease case */
+			} else if (c2c_con.opp_mode > opp_val) { /* decrease case */
 				c2c_writel(req_clk, EXYNOS_C2C_RX_MAX_FREQ);
 				clk_set_rate(c2c_con.c2c_sclk, (req_clk + 1) * MHZ);
 				c2c_writel(req_clk, EXYNOS_C2C_FCLK_FREQ);
@@ -295,12 +297,12 @@ static irqreturn_t c2c_sscm1_irq(int irq, void *data)
 		if (opp_val == 0 || req_clk == 1) {
 			dev_info(c2c_con.c2c_dev, "This mode is not reserved in OPP mode.\n");
 		} else {
-			if (c2c_con.opp_mode > opp_val) { /* increase case */
+			if (c2c_con.opp_mode < opp_val) { /* increase case */
 				clk_set_rate(c2c_con.c2c_sclk, (req_clk + 1) * MHZ);
 				c2c_writel(req_clk, EXYNOS_C2C_FCLK_FREQ);
 				c2c_set_func_clk(req_clk);
 				c2c_writel(req_clk, EXYNOS_C2C_RX_MAX_FREQ);
-			} else if (c2c_con.opp_mode < opp_val) { /* decrease case */
+			} else if (c2c_con.opp_mode > opp_val) { /* decrease case */
 				c2c_writel(req_clk, EXYNOS_C2C_RX_MAX_FREQ);
 				clk_set_rate(c2c_con.c2c_sclk, (req_clk + 1) * MHZ);
 				c2c_writel(req_clk, EXYNOS_C2C_FCLK_FREQ);

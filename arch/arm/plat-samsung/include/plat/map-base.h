@@ -41,6 +41,7 @@
 
 #define S3C_VA_KLOG_BUF	S3C_ADDR(0x01100000)	/* non-cached log buf */
 #define S3C_VA_SLOG_BUF	S3C_ADDR(0x01400000)	/* non-cached sched log buf */
+#define S3C_VA_AUXLOG_BUF	S3C_ADDR(0x01600000)	/* auxiliary log buf */
 
 /* This is used for the CPU specific mappings that may be needed, so that
  * they do not need to directly used S3C_ADDR() and thus make it easier to

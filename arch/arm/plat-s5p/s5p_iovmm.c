@@ -18,7 +18,7 @@
 #include <linux/err.h>
 #include <linux/spinlock.h>
 
-#include <plat/iovmm.h>
+#include <plat/s5p-iovmm.h>
 
 struct s5p_vm_region {
 	struct list_head node;
@@ -33,7 +33,7 @@ struct s5p_iovmm {
 	struct gen_pool *vmm_pool;
 	struct list_head regions_list;	/* list of s5p_vm_region */
 	bool   active;
-	spinlock_t lock;
+	struct mutex lock;
 };
 
 static DEFINE_RWLOCK(iovmm_list_lock);
@@ -85,7 +85,7 @@ int iovmm_setup(struct device *dev)
 	}
 
 	/* 1GB addr space from 0x80000000 */
-	ret = gen_pool_add(vmm->vmm_pool, 0x80000000, 0x20000000, -1);
+	ret = gen_pool_add(vmm->vmm_pool, 0x80000000, 0x40000000, -1);
 	if (ret)
 		goto err_setup_domain;
 
@@ -97,7 +97,7 @@ int iovmm_setup(struct device *dev)
 
 	vmm->dev = dev;
 
-	spin_lock_init(&vmm->lock);
+	mutex_init(&vmm->lock);
 
 	INIT_LIST_HEAD(&vmm->node);
 	INIT_LIST_HEAD(&vmm->regions_list);
@@ -162,11 +162,13 @@ int iovmm_activate(struct device *dev)
 	if (WARN_ON(!vmm))
 		return -EINVAL;
 
-	spin_lock(&vmm->lock);
+	mutex_lock(&vmm->lock);
+
 	ret = iommu_attach_device(vmm->domain, vmm->dev);
 	if (!ret)
 		vmm->active = true;
-	spin_unlock(&vmm->lock);
+
+	mutex_unlock(&vmm->lock);
 
 	return ret;
 }
@@ -174,28 +176,28 @@ int iovmm_activate(struct device *dev)
 void iovmm_deactivate(struct device *dev)
 {
 	struct s5p_iovmm *vmm;
-	unsigned long flags;
 
 	vmm = find_iovmm(dev);
 	if (WARN_ON(!vmm))
 		return;
 
-	spin_lock_irqsave(&vmm->lock, flags);
 	iommu_detach_device(vmm->domain, vmm->dev);
 
 	vmm->active = false;
-	spin_unlock_irqrestore(&vmm->lock, flags);
 }
 
-dma_addr_t iovmm_map(struct device *dev, struct scatterlist *sg)
+dma_addr_t iovmm_map(struct device *dev, struct scatterlist *sg, off_t offset,
+								size_t size)
 {
-	size_t size = 0;
-	off_t start_off = offset_in_page(sg_phys(sg));
+	off_t start_off;
 	dma_addr_t addr, start = 0;
+	size_t mapped_size = 0;
 	struct s5p_vm_region *region;
 	struct s5p_iovmm *vmm;
-	struct scatterlist *tmpsg;
 	int order;
+#ifdef CONFIG_S5P_SYSTEM_MMU_WA5250ERR
+	size_t iova_size = 0;
+#endif
 
 	BUG_ON(!sg);
 
@@ -203,18 +205,22 @@ dma_addr_t iovmm_map(struct device *dev, struct scatterlist *sg)
 	if (WARN_ON(!vmm))
 		goto err_map_nomem;
 
-	tmpsg = sg;
-	size = start_off;
-	do {
-		size += sg_dma_len(tmpsg);
-	} while ((tmpsg = sg_next(tmpsg)));
+	for (; sg_dma_len(sg) < offset; sg = sg_next(sg))
+		offset -= sg_dma_len(sg);
 
-	size = PAGE_ALIGN(size);
+	mutex_lock(&vmm->lock);
 
-	spin_lock(&vmm->lock);
+	start_off = offset_in_page(sg_phys(sg) + offset);
+	size = PAGE_ALIGN(size + start_off);
 
 	order = __fls(min(size, (size_t)SZ_1M));
+#ifdef CONFIG_S5P_SYSTEM_MMU_WA5250ERR
+	iova_size = ALIGN(size, SZ_64K);
+	start = (dma_addr_t)gen_pool_alloc_aligned(vmm->vmm_pool, iova_size,
+									order);
+#else
 	start = (dma_addr_t)gen_pool_alloc_aligned(vmm->vmm_pool, size, order);
+#endif
 	if (!start)
 		goto err_map_nomem_lock;
 
@@ -224,11 +230,27 @@ dma_addr_t iovmm_map(struct device *dev, struct scatterlist *sg)
 		size_t len;
 
 		phys = sg_phys(sg);
-		len = PAGE_ALIGN(sg_dma_len(sg) + offset_in_page(phys));
-		phys = round_down(phys, PAGE_SIZE);
+		len = sg_dma_len(sg);
+
+		if (offset > 0) {
+			len -= offset;
+			phys += offset;
+			offset = 0;
+		}
+
+		if (offset_in_page(phys)) {
+			len += offset_in_page(phys);
+			phys = round_down(phys, PAGE_SIZE);
+		}
+
+		len = PAGE_ALIGN(len);
+
+		if (len > (size - mapped_size))
+			len = size - mapped_size;
 
 		while (len > 0) {
 			order = min3(__ffs(phys), __ffs(addr), __fls(len));
+
 			if (iommu_map(vmm->domain, addr, phys,
 							order - PAGE_SHIFT, 0))
 				goto err_map_map;
@@ -236,9 +258,30 @@ dma_addr_t iovmm_map(struct device *dev, struct scatterlist *sg)
 			addr += (1 << order);
 			phys += (1 << order);
 			len -= (1 << order);
+			mapped_size += (1 << order);
 		}
-	} while ((sg = sg_next(sg)));
+	} while ((sg = sg_next(sg)) && (mapped_size < size));
 
+	BUG_ON(mapped_size > size);
+
+	if (mapped_size < size)
+		goto err_map_map;
+
+#ifdef CONFIG_S5P_SYSTEM_MMU_WA5250ERR
+	if (iova_size != size) {
+		/* System MMU v3 support in SMDK5250 EVT0 */
+		addr = start + size;
+		size = iova_size;
+
+		for (; addr < start + size; addr += PAGE_SIZE) {
+			if (iommu_map(vmm->domain, addr,
+					page_to_phys(ZERO_PAGE(0)), 0, 0)) {
+				goto err_map_map;
+			}
+			mapped_size += PAGE_SIZE;
+		}
+	}
+#endif
 	region = kmalloc(sizeof(*region), GFP_KERNEL);
 	if (!region)
 		goto err_map_map;
@@ -249,25 +292,30 @@ dma_addr_t iovmm_map(struct device *dev, struct scatterlist *sg)
 
 	list_add(&region->node, &vmm->regions_list);
 
-	spin_unlock(&vmm->lock);
+	mutex_unlock(&vmm->lock);
 
 	return region->start;
 err_map_map:
 	while (addr >= start) {
 		int order;
-		size_t size = addr - start;
+		mapped_size = addr - start;
 
-		order = min(__fls(size), __ffs(start));
+		if (mapped_size == 0) /* Mapping failed at the first page */
+			mapped_size = size;
+
+		BUG_ON(mapped_size < PAGE_SIZE);
+
+		order = min(__fls(mapped_size), __ffs(start));
 
 		iommu_unmap(vmm->domain, start, order - PAGE_SHIFT);
 
 		start += 1 << order;
-		size -= 1 << order;
+		mapped_size -= 1 << order;
 	}
 	gen_pool_free(vmm->vmm_pool, start, size);
 
 err_map_nomem_lock:
-	spin_unlock(&vmm->lock);
+	mutex_unlock(&vmm->lock);
 err_map_nomem:
 	return (dma_addr_t)0;
 }
@@ -276,14 +324,13 @@ void iovmm_unmap(struct device *dev, dma_addr_t iova)
 {
 	struct s5p_vm_region *region;
 	struct s5p_iovmm *vmm;
-	unsigned long flags;
 
 	vmm = find_iovmm(dev);
 
 	if (WARN_ON(!vmm))
 		return;
 
-	spin_lock_irqsave(&vmm->lock, flags);
+	mutex_lock(&vmm->lock);
 
 	region = find_region(vmm, iova);
 	if (WARN_ON(!region))
@@ -308,7 +355,7 @@ void iovmm_unmap(struct device *dev, dma_addr_t iova)
 	kfree(region);
 
 err_region_not_found:
-	spin_unlock_irqrestore(&vmm->lock, flags);
+	mutex_unlock(&vmm->lock);
 }
 
 static int __init s5p_iovmm_init(void)

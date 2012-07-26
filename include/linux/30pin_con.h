@@ -43,4 +43,12 @@ struct acc_con_platform_data {
 	int hdmi_hpd_gpio;
 };
 
+#if defined(CONFIG_STMPE811_ADC)
+u16 stmpe811_get_adc_data(u8 channel);
+#endif
+
+extern struct device *sec_switch_dev;
+#ifdef CONFIG_SAMSUNG_MHL_9290
+int acc_register_notifier(struct notifier_block *nb);
+#endif
 #endif

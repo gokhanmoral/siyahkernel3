@@ -214,8 +214,12 @@ enum exynos4212_gpio_number {
 #include "gpio-naples.h"
 #endif
 
-#if defined(CONFIG_MACH_U1)
+#if defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_TRATS)
 #include "gpio-u1.h"
+#endif
+
+#if defined(CONFIG_MACH_U1CAMERA_BD)
+#include "gpio-u1camera.h"
 #endif
 
 #if defined(CONFIG_MACH_Q1_BD)
@@ -234,4 +238,7 @@ enum exynos4212_gpio_number {
 #include "gpio-p8.h"
 #endif
 
+#if defined(CONFIG_MACH_P8LTE)
+#include "gpio-p8lte.h"
+#endif
 #endif /* __ASM_ARCH_GPIO_EXYNOS4_H */

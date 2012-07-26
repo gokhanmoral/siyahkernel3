@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2004-2011 Atheros Communications Inc.
+ * Copyright (c) 2011 Qualcomm Atheros, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -197,6 +198,8 @@ struct hif_scatter_req {
 	u8 *virt_dma_buf;
 
 	struct hif_scatter_item scat_list[1];
+
+	u32 scat_q_depth;
 };
 
 struct ath6kl_irq_proc_registers {
@@ -226,6 +229,45 @@ struct ath6kl_device {
 	struct htc_target *htc_cnxt;
 	struct ath6kl *ar;
 };
+
+struct ath6kl_sdio {
+	struct sdio_func *func;
+
+	spinlock_t lock;
+
+	/* free list */
+	struct list_head bus_req_freeq;
+
+	/* available bus requests */
+	struct bus_request bus_req[BUS_REQUEST_MAX_NUM];
+
+	struct ath6kl *ar;
+
+	u8 *dma_buffer;
+
+	/* protects access to dma_buffer */
+	struct mutex dma_buffer_mutex;
+
+	/* scatter request list head */
+	struct list_head scat_req;
+
+	atomic_t irq_handling;
+	wait_queue_head_t irq_wq;
+
+	spinlock_t scat_lock;
+	bool scatter_enabled;
+
+	bool is_disabled;
+	const struct sdio_device_id *id;
+	struct work_struct wr_async_work;
+	struct list_head wr_asyncq;
+	spinlock_t wr_async_lock;
+};
+
+static inline struct ath6kl_sdio *ath6kl_sdio_priv(struct ath6kl *ar)
+{
+	return ar->hif_priv;
+}
 
 struct ath6kl_hif_ops {
 	int (*read_write_sync)(struct ath6kl *ar, u32 addr, u8 *buf,
@@ -269,4 +311,5 @@ int ath6kl_hif_intr_bh_handler(struct ath6kl *ar);
 int ath6kl_hif_submit_scat_req(struct ath6kl_device *dev,
 			       struct hif_scatter_req *scat_req, bool read);
 
+int ath6kl_hif_wait_for_pending_recv(struct ath6kl *ar);
 #endif

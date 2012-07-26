@@ -216,6 +216,8 @@ struct dsim_config {
 	unsigned char bta_timeout;
 	unsigned short rx_timeout;
 	enum dsim_video_mode_type e_lane_swap;
+
+	unsigned long hs_toggle;
 };
 
 struct dsim_lcd_config {
@@ -244,12 +246,13 @@ struct s5p_platform_dsim {
 	void (*enable_clk) (void *d_clk, unsigned char enable);
 	void (*part_reset) (void);
 	void (*init_d_phy) (unsigned int dsim_base);
+	void (*exit_d_phy) (unsigned int dsim_base);
 	void (*cfg_gpio) (void);
 };
 
 extern void s5p_dsim_enable_clk(void *d_clk, unsigned char enable);
 extern void s5p_dsim_part_reset(void);
 extern void s5p_dsim_init_d_phy(unsigned int dsim_base);
-extern void exynos4_dsim_gpio_setup_24bpp(void);
+extern void s5p_dsim_exit_d_phy(unsigned int dsim_base);
 
 #endif /* _DSIM_H */

@@ -70,7 +70,7 @@ void s5p_mipi_dsi_init_fifo_pointer(struct mipi_dsim_device *dsim,
 	reg = readl(dsim->reg_base + S5P_DSIM_FIFOCTRL);
 
 	writel(reg & ~(cfg), dsim->reg_base + S5P_DSIM_FIFOCTRL);
-	mdelay(10);
+	usleep_range(10000, 12000);
 	reg |= cfg;
 
 	writel(reg, dsim->reg_base + S5P_DSIM_FIFOCTRL);

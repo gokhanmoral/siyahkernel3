@@ -92,22 +92,27 @@ void __init s5p_tmu_set_platdata(struct s5p_platform_tmu *pd)
 	struct s5p_platform_tmu *npd;
 
 	npd = kmalloc(sizeof(struct s5p_platform_tmu), GFP_KERNEL);
-	if (!npd)
+	if (!npd) {
 		printk(KERN_ERR "%s: no memory for platform data\n", __func__);
-
-	if (!pd->ts.stop_1st_throttle)
-		memcpy(&npd->ts, &default_tmu_data.ts,
+	} else {
+		if (!pd->ts.stop_1st_throttle)
+			memcpy(&npd->ts, &default_tmu_data.ts,
 				sizeof(struct temperature_params));
-	else
-		memcpy(&npd->ts, &pd->ts,
+		else
+			memcpy(&npd->ts, &pd->ts,
 				sizeof(struct temperature_params));
 
-	if (!(pd->cpufreq.limit_1st_throttle))
-		memcpy(&npd->cpufreq, &default_tmu_data.cpufreq,
+		if (!(pd->cpufreq.limit_1st_throttle))
+			memcpy(&npd->cpufreq, &default_tmu_data.cpufreq,
 				sizeof(struct cpufreq_params));
-	else
-		memcpy(&npd->cpufreq, &pd->cpufreq,
+		else
+			memcpy(&npd->cpufreq, &pd->cpufreq,
 				 sizeof(struct cpufreq_params));
 
-	s5p_device_tmu.dev.platform_data = npd;
+		if (pd->temp_compensate.arm_volt)
+			memcpy(&npd->temp_compensate, &pd->temp_compensate,
+				 sizeof(struct temp_compensate_params));
+
+		s5p_device_tmu.dev.platform_data = npd;
+	}
 }

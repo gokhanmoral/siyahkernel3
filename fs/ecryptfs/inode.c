@@ -278,8 +278,11 @@ static int ecryptfs_initialize_file(struct dentry *ecryptfs_dentry)
 		struct ecryptfs_mount_crypt_stat *mount_crypt_stat =
 			&ecryptfs_superblock_to_private(ecryptfs_dentry->d_sb)
 			->mount_crypt_stat;
-		char filename[256];
-		strcpy(filename, fp_dentry->d_name.name);
+		char filename[NAME_MAX+1] = {0};
+		if (fp_dentry->d_name.len <= NAME_MAX)
+			memcpy(filename, fp_dentry->d_name.name,
+					fp_dentry->d_name.len + 1);
+
 		if ((mount_crypt_stat->flags & ECRYPTFS_ENABLE_NEW_PASSTHROUGH)
 		    || ((mount_crypt_stat->flags & ECRYPTFS_ENABLE_FILTERING) &&
 			(is_file_name_match(mount_crypt_stat, fp_dentry) ||

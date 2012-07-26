@@ -141,9 +141,15 @@ IS_SAMSUNG_CPU(exynos5250, EXYNOS5250_CPU_ID, EXYNOS_CPU_MASK)
 
 #if defined(CONFIG_CPU_EXYNOS5250)
 # define soc_is_exynos5250()	is_samsung_exynos5250()
+# define soc_is_exynos5250_rev1	(soc_is_exynos5250() && \
+				samsung_rev() >= EXYNOS5250_REV_1_0)
 #else
 # define soc_is_exynos5250()	0
+# define soc_is_exynos5250_rev1	0
 #endif
+
+#define EXYNOS5250_REV_0	(0x0)
+#define EXYNOS5250_REV_1_0	(0x10)
 
 #define IODESC_ENT(x) { (unsigned long)S3C24XX_VA_##x, __phys_to_pfn(S3C24XX_PA_##x), S3C24XX_SZ_##x, MT_DEVICE }
 

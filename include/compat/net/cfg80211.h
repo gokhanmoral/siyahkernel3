@@ -1670,6 +1670,9 @@ struct cfg80211_ops {
 					   enum nl80211_btcoex_vendor_list);
 	int	(*notify_btcoex)(struct wiphy *wiphy,
 					   u8 *buf, int len);
+	int	(*priv_cmd)(struct wiphy *wiphy, struct net_device *dev,
+			       char *priv_cmd);
+	int	(*notify_p2p_flush)(struct wiphy *wiphy);
 };
 
 /*
@@ -2779,6 +2782,9 @@ void cfg80211_put_bss(struct cfg80211_bss *bss);
  */
 void cfg80211_unlink_bss(struct wiphy *wiphy, struct cfg80211_bss *bss);
 
+void cfg80211_unlink_allbss(struct wiphy *wiphy);
+
+
 /**
  * cfg80211_send_rx_auth - notification of processed authentication
  * @dev: network device
@@ -3351,6 +3357,16 @@ void cfg80211_probe_status(struct net_device *dev, const u8 *addr,
 void cfg80211_report_obss_beacon(struct wiphy *wiphy,
 				 const u8 *frame, size_t len,
 				 int freq, gfp_t gfp);
+
+/**
+ * cfg80211_priv_event - notify userspace about priv event
+ * @dev: the device the priv event was sent on
+ * @priv_event: event string
+ * @gfp: allocation flags
+ */
+void cfg80211_priv_event(struct net_device *dev, const char *priv_event,
+			   gfp_t gfp);
+
 
 /* Logging, debugging and troubleshooting/diagnostic helpers. */
 

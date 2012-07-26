@@ -442,28 +442,43 @@ endchoice
 
 config VIDEO_S5K4E5
         tristate "S5K4E5 supporting camera driver"
-	depends on VIDEO_V4L2 && (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS) && VIDEO_EXYNOS_FIMC_IS
+	depends on VIDEO_V4L2 && ((VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS) && VIDEO_EXYNOS_FIMC_IS) || VIDEO_EXYNOS5_FIMC_IS 
         ---help---
-          This driver supports S5K3H7 sensor.
+          This driver supports S5K4E5 sensor.
 choice
 depends on VIDEO_S5K4E5
 prompt "MIPI Camera port for S5K4E5"
 default S5K4E5_CSI_C
 config S5K4E5_CSI_C
 	bool "CSI Camera A port"
-	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS)
+	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS || VIDEO_EXYNOS5_FIMC_IS)
 	help
 	  This enables support for CSI A port
 config S5K4E5_CSI_D
 	bool "CSI Camera B port"
-	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS)
+	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS || VIDEO_EXYNOS5_FIMC_IS)
 	help
 	  This enables support for CSI B port
+endchoice
+choice
+depends on (VIDEO_S5K4E5 && VIDEO_EXYNOS5_FIMC_IS)
+prompt "Camera position for S5K4E5"
+default S5K4E5_POSITION_REAR
+config S5K4E5_POSITION_FRONT
+	bool "front camera"
+	depends on VIDEO_EXYNOS5_FIMC_IS
+	help
+	  This set as front camera
+config S5K4E5_POSITION_REAR
+	bool "rear camera"
+	depends on VIDEO_EXYNOS5_FIMC_IS
+	help
+	  This set as rear camera
 endchoice
 
 config VIDEO_S5K6A3
 	tristate "S5K6A3 supporting camera driver"
-	depends on VIDEO_V4L2 && (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS) && VIDEO_EXYNOS_FIMC_IS
+	depends on VIDEO_V4L2 && ((VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS) && VIDEO_EXYNOS_FIMC_IS) || VIDEO_EXYNOS5_FIMC_IS 
 	---help---
 	  This driver supports S5K6A3 sensor.
 choice
@@ -472,14 +487,29 @@ prompt "MIPI Camera port for S5K6A3"
 default S5K6A3_CSI_D
 config S5K6A3_CSI_C
 	bool "CSI Camera A port"
-	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS)
+	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS || VIDEO_EXYNOS5_FIMC_IS)
 	help
 	  This enables support for CSI A port
 config S5K6A3_CSI_D
 	bool "CSI Camera B port"
-	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS)
+	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS || VIDEO_EXYNOS5_FIMC_IS)
 	help
 	  This enalbes support for CSI B port
+endchoice
+choice
+depends on (VIDEO_S5K6A3 && VIDEO_EXYNOS5_FIMC_IS)
+prompt "Camera position for S5K6A3"
+default S5K6A3_POSITION_FRONT
+config S5K6A3_POSITION_FRONT
+	bool "front camera"
+	depends on VIDEO_EXYNOS5_FIMC_IS
+	help
+	  This set as front camera
+config S5K6A3_POSITION_REAR
+	bool "rear camera"
+	depends on VIDEO_EXYNOS5_FIMC_IS
+	help
+	  This set as rear camera
 endchoice
 
 config VIDEO_M5MO
@@ -487,6 +517,12 @@ config VIDEO_M5MO
 	depends on I2C && VIDEO_V4L2 && VIDEO_FIMC_MIPI
         ---help---
           This driver supports M5MO SoC camera module
+
+config VIDEO_M9MO
+        tristate "M9MO supporting camera driver"
+	depends on I2C && VIDEO_V4L2 && VIDEO_FIMC_MIPI
+        ---help---
+          This driver supports M9MO SoC camera module
 
 config VIDEO_S5K5BAFX
 	tristate "S5K5BAFX supporting camera driver"
@@ -549,6 +585,34 @@ config VIDEO_SR200PC20_P4W
 	  This driver supports SR200PC20 SoC camera module.
 	  SR200PC20 camera module is manufactured by Silliconfile coporate
 	  and it's maximum resolution is 2MP.
+
+config VIDEO_SR200PC20M
+	tristate "SR200PC20M supporting camera driver"
+	depends on I2C && VIDEO_V4L2
+	---help---
+	  This driver supports SR200PC20M SoC camera module
+	  SR200PC20M camera module is manufactured by Silliconfile coporate
+	  and it's maximum resolution is 2MP.
+
+config VIDEO_ISX012
+	tristate "ISX012 supporting camera driver"
+	depends on I2C && VIDEO_V4L2
+	---help---
+	  This driver supports ISX012 SoC camera module
+	  ISX012 camera module is SONY camera sensor supporting 5M capture
+	  and Full-HD recording with 30 fps.
+
+config VIDEO_SLP_S5K4ECGX
+	tristate "S5K4ECGX supporting camera driver"
+	depends on I2C && VIDEO_V4L2 && VIDEO_FIMC_MIPI
+	---help---
+	  This driver supports S5K4ECGX SoC camera module
+
+config VIDEO_SLP_DB8131M
+	tristate "DB8131M supporting camera driver"
+	depends on I2C && VIDEO_V4L2 && VIDEO_FIMC_MIPI
+	---help---
+	  This driver supports DB8131M SoC camera module
 
 config VIDEO_S5K4BA
 	tristate "S5K4BA supporting camera driver"
@@ -1366,3 +1430,5 @@ config VIDEO_MEM2MEM_TESTDEV
 	  framework.
 
 endif # V4L_MEM2MEM_DRIVERS
+
+source "drivers/media/video/mhl/Kconfig"

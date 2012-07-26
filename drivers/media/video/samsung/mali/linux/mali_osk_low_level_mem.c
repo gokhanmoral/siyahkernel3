@@ -244,6 +244,7 @@ static void mali_kernel_memory_vma_close(struct vm_area_struct * vma)
 	_mali_uk_mem_munmap_s args = {0, };
 	mali_memory_allocation * descriptor;
 	mali_vma_usage_tracker * vma_usage_tracker;
+	MappingInfo *mappingInfo;
 	MALI_DEBUG_PRINT(3, ("Close called on vma %p\n", vma));
 
 	vma_usage_tracker = (mali_vma_usage_tracker*)vma->vm_private_data;
@@ -253,6 +254,11 @@ static void mali_kernel_memory_vma_close(struct vm_area_struct * vma)
 
 	vma_usage_tracker->references--;
 
+	descriptor = (mali_memory_allocation *)vma_usage_tracker->cookie;
+
+	mappingInfo = (MappingInfo *)descriptor->process_addr_mapping_info;
+	mappingInfo->vma = vma;
+
 	if (0 != vma_usage_tracker->references)
 	{
 		MALI_DEBUG_PRINT(3, ("Ignoring this close, %d references still exists\n", vma_usage_tracker->references));
@@ -261,8 +267,6 @@ static void mali_kernel_memory_vma_close(struct vm_area_struct * vma)
 
 	/** @note args->context unused, initialized to 0.
 	 * Instead, we use the memory_session from the cookie */
-
-	descriptor = (mali_memory_allocation *)vma_usage_tracker->cookie;
 
 	args.cookie = (u32)descriptor;
 	args.mapping = descriptor->mapping;

@@ -5,7 +5,7 @@
 *
 * Copyright (C) 2010 STMicroelectronics- MSH - Motion Mems BU - Application Team
 * Matteo Dameno (matteo.dameno@st.com)
-* Carmine Iascone (carmine.iascone@st.com)
+*
 *
 * Both authors are willing to be considered the contact and update points for
 * the driver.
@@ -56,6 +56,18 @@
 	corrects ord bug, forces BDU enable
  Revision 1.0.3 2011/Sep/15:
 	introduces compansation params reading and sysfs file to get them
+ Revision 1.0.4 2011/Dec/12:
+	sets maximum allowable resolution modes dynamically with ODR;
+ Revision 1.0.5 2012/Feb/29:
+	introduces more compansation params and extends sysfs file content
+	format to get them; reduces minimum polling period define;
+	enables by default DELTA_EN bit1 on CTRL_REG1
+	corrects bug on TSH acquisition
+ Revision 1.0.6 2012/Mar/30:
+	introduces one more compansation param and extends sysfs file content
+	format to get it.
+ Revision 1.0.6.1 2012/Apr/12:
+	changes Resolution settings for 25Hz to TEMP AVG=128 and PRES AVG=384.
 ******************************************************************************/
 
 #include <linux/err.h>
@@ -68,19 +80,29 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <linux/kernel.h>
+#include <linux/uaccess.h>
+#include <linux/fs.h>
 #include <linux/sensor/lps331ap.h>
 #include <linux/sensor/sensors_core.h>
 
-#undef	DEBUG
+#undef	LPS331_DEBUG
+
+#define	VENDOR		"STM"
+#define	CHIP_ID		"LPS331"
 
 #define	PR_ABS_MAX	8388607		/* 24 bit 2'compl */
 #define	PR_ABS_MIN	-8388608
 
+#ifdef SHRT_MAX
 #define	TEMP_MAX	SHRT_MAX
 #define	TEMP_MIN	SHRT_MIN
+#else
+#define	TEMP_MAX	SHORT_MAX
+#define	TEMP_MIN	SHORT_MIN
+#endif
 
-#define ALTITUDE_MAX		(99999)
-#define ALTITUDE_MIN		(-1)
+#define	ALTITUDE_MAX	(99999)
+#define	ALTITUDE_MIN	(-1)
 
 #define	WHOAMI_LPS331AP_PRS	0xBB	/*	Expctd content for WAI	*/
 
@@ -107,6 +129,13 @@
 #define	PRESS_OUT_XL	0x28		/*	press output (3 regs)	*/
 #define	TEMP_OUT_L	0x2B		/*	temper output (2 regs)	*/
 #define	COMPENS_L	0x30		/*	compensation reg (9 regs) */
+#define	DELTAREG_1	0x3C		/*	deltaPressure reg1	 */
+#define	DELTAREG_2	0x3D		/*	deltaPressure reg2	 */
+#define	DELTAREG_3	0x3E		/*	deltaPressure reg3	 */
+#define	DELTA_T1	0x3B		/*	deltaTemp1 reg		 */
+#define	DELTA_T2T3	0x3F		/*	deltaTemp2, deltaTemp3 reg */
+#define	CALIB_SETUP	0x1E		/*	calibrationSetup reg */
+#define	CALIB_STP_MASK	0x80		/*	mask to catch calibSetup info */
 
 /* REGISTERS ALIASES */
 #define	P_REF_INDATA_REG	REF_P_XL
@@ -121,6 +150,7 @@
 #define	LPS331AP_PRS_ODR_MASK		0x70	/*  ctrl_reg1 */
 #define	LPS331AP_PRS_DIFF_MASK		0x08	/*  ctrl_reg1 */
 #define	LPS331AP_PRS_BDU_MASK		0x04	/*  ctrl_reg1 */
+#define	LPS331AP_PRS_DELTA_EN_MASK	0x02	/*  ctrl_reg1 */
 #define	LPS331AP_PRS_AUTOZ_MASK		0x02	/*  ctrl_reg2 */
 
 #define	LPS331AP_PRS_PM_NORMAL		0x80	/* Power Normal Mode*/
@@ -133,16 +163,18 @@
 #define	LPS331AP_PRS_AUTOZ_OFF		0x00	/* Dis Difference Function */
 
 #define	LPS331AP_PRS_BDU_ON		0x04	/* En BDU Block Data Upd */
-#define	LPS331AP_PRS_RES_AVGTEMP_064	0X60
-#define	LPS331AP_PRS_RES_AVGTEMP_128	0X70
-#define	LPS331AP_PRS_RES_AVGPRES_512	0X0A
+#define	LPS331AP_PRS_DELTA_EN_ON	0x02	/* En Delta Press registers */
+#define	LPS331AP_PRS_RES_AVGTEMP_064	0x60
+#define	LPS331AP_PRS_RES_AVGTEMP_128	0x70
+#define	LPS331AP_PRS_RES_AVGPRES_512	0x0A
+#define	LPS331AP_PRS_RES_AVGPRES_384	0x09
 
 #define	LPS331AP_PRS_RES_MAX		(LPS331AP_PRS_RES_AVGTEMP_128  | \
 						LPS331AP_PRS_RES_AVGPRES_512)
 						/* Max Resol. for 1/7/12,5Hz */
 
-#define	LPS331AP_PRS_RES_25HZ		(LPS331AP_PRS_RES_AVGTEMP_064  | \
-						LPS331AP_PRS_RES_AVGPRES_512)
+#define	LPS331AP_PRS_RES_25HZ		(LPS331AP_PRS_RES_AVGTEMP_128  | \
+						LPS331AP_PRS_RES_AVGPRES_384)
 						/* Max Resol. for 25Hz */
 
 #define	FUZZ			0
@@ -163,7 +195,7 @@
 #define	LPS331AP_RES_INT_CFG_REG	9
 #define	LPS331AP_RES_THS_P_L		10
 #define	LPS331AP_RES_THS_P_H		11
-#define	RESUME_ENTRIES				12
+#define	RESUME_ENTRIES			12
 /* end RESUME STATE INDICES */
 
 /* Pressure Sensor Operating Mode */
@@ -173,8 +205,10 @@
 #define	LPS331AP_PRS_AUTOZ_DISABLE	0
 
 /* poll delays */
-#define DELAY_DEFAULT	(200)
-#define DELAY_MINIMUM	(40)
+#define DELAY_DEFAULT			200
+#define DELAY_MINIMUM			40
+/* calibration file path */
+#define CALIBRATION_FILE_PATH		"/efs/FactoryApp/baro_delta"
 
 static const struct {
 	unsigned int cutoff_ms;
@@ -200,11 +234,10 @@ struct lps331ap_prs_data {
 	int hw_working;
 
 	atomic_t enabled;
-	int on_before_suspend;
 
 	u8 resume_state[RESUME_ENTRIES];
 
-#ifdef DEBUG
+#ifdef LPS331_DEBUG
 	u8 reg_addr;
 #endif
 
@@ -212,12 +245,17 @@ struct lps331ap_prs_data {
 	u32 TCV1, TCV2, TCV3;
 	u32 TCS1, TCS2, TCS3;
 	u32 digGain;
+	s8 deltaT1, deltaT2, deltaT3;
+	s32 pressure_cal;
+	u8 testVer;
 };
 
 struct outputdata {
 	s32 press;
 	s16 temperature;
 };
+
+static void lps331ap_open_calibration(struct lps331ap_prs_data *prs);
 
 static int lps331ap_prs_i2c_read(struct lps331ap_prs_data *prs,
 				  u8 *buf, int len)
@@ -239,7 +277,7 @@ static int lps331ap_prs_i2c_read(struct lps331ap_prs_data *prs,
 
 	err = i2c_transfer(prs->client->adapter, msgs, 2);
 	if (err != 2) {
-		dev_err(&prs->client->dev, "read transfer error\n");
+		dev_err(&prs->client->dev, "read transfer error = %d\n", err);
 		err = -EIO;
 	}
 	return 0;
@@ -537,7 +575,7 @@ static int lps331ap_prs_get_press_reference(struct lps331ap_prs_data *prs,
 
 	temp = ((bit_valuesH) << 8) | (bit_valuesL);
 	*buf32 = (s32)((((s16) temp) << 8) | (bit_valuesXL));
-#ifdef DEBUG
+#ifdef LPS331_DEBUG
 	dev_dbg(&prs->client->dev, "%s val: %+d",\
 		LPS331AP_PRS_DEV_NAME, *buf32);
 #endif
@@ -637,14 +675,14 @@ static int lps331ap_prs_autozero_manage(struct lps331ap_prs_data *prs,
 static int lps331ap_prs_get_presstemp_data(struct lps331ap_prs_data *prs,
 						struct outputdata *out)
 {
-	int err;
+	int err = 0;
 	/* Data bytes from hardware	PRESS_OUT_XL,PRESS_OUT_L,PRESS_OUT_H, */
 	/*				TEMP_OUT_L, TEMP_OUT_H */
 
-	u8 prs_data[5];
+	u8 prs_data[5] = {0,};
 
-	s32 pressure;
-	s16 temperature;
+	s32 pressure = 0;
+	s16 temperature = 0;
 
 	int regToRead = 5;
 
@@ -653,7 +691,7 @@ static int lps331ap_prs_get_presstemp_data(struct lps331ap_prs_data *prs,
 	if (err < 0)
 		return err;
 
-#ifdef DEBUG
+#ifdef LPS331_DEBUG
 	dev_dbg(&prs->client->dev, "temp out tH = 0x%02x, tL = 0x%02x,"
 			"press_out: pH = 0x%02x, pL = 0x%02x, pXL= 0x%02x\n",
 					prs_data[4],
@@ -668,10 +706,8 @@ static int lps331ap_prs_get_presstemp_data(struct lps331ap_prs_data *prs,
 						(prs_data[0]));
 	temperature = (s16) ((((s8) prs_data[4]) << 8) | (prs_data[3]));
 
-	/* Moving average. */
-	out->press = (pressure + out->press) / 2;
-
-	out->temperature = (temperature + out->temperature) / 2;
+	out->press = pressure;
+	out->temperature = temperature;
 
 	return err;
 }
@@ -684,7 +720,9 @@ static int lps331ap_prs_acquire_compensation_data(struct lps331ap_prs_data *prs)
 
 	u8 compens_data[10];
 	u8 gain_data[3];
-
+	u8 delta_data[2];
+	u8 dT1, dT23;
+	u8 calSetup;
 	int regToRead = 10;
 
 	compens_data[0] = (I2C_AUTO_INCREMENT | COMPENS_L);
@@ -698,7 +736,33 @@ static int lps331ap_prs_acquire_compensation_data(struct lps331ap_prs_data *prs)
 	if (err < 0)
 		return err;
 
-#ifdef DEBUG
+	regToRead = 1;
+	delta_data[0] = (DELTA_T1);
+	err = lps331ap_prs_i2c_read(prs, delta_data, regToRead);
+	if (err < 0)
+		return err;
+	dT1 = delta_data[0];
+
+	regToRead = 1;
+	delta_data[0] = (DELTA_T2T3);
+	err = lps331ap_prs_i2c_read(prs, delta_data, regToRead);
+	if (err < 0)
+		return err;
+	dT23 = delta_data[0];
+
+	regToRead = 1;
+	delta_data[0] = (CALIB_SETUP);
+	err = lps331ap_prs_i2c_read(prs, delta_data, regToRead);
+	if (err < 0)
+		return err;
+	calSetup = delta_data[0];
+
+#ifdef LPS331_DEBUG
+	/* dT1  = 0xD1;
+	dT23 = 0x20;
+	calSetup = 0x80;
+	dev_info(&prs_client->dev, "forced registers 0x3b, 0x3f, 0x1e"
+		" values for debug\n"); */
 	dev_info(&prs->client->dev, "reg\n 0x30 = 0x%02x\n 0x31 = 0x%02x\n "
 			"0x32 = 0x%02x\n 0x33 = 0x%02x\n 0x34 = 0x%02x\n "
 			"0x35 = 0x%02x\n 0x36 = 0x%02x\n 0x37 = 0x%02x\n "
@@ -716,16 +780,24 @@ static int lps331ap_prs_acquire_compensation_data(struct lps331ap_prs_data *prs)
 		);
 
 	dev_info(&prs->client->dev,
-			"reg 0x18 = 0x%02x\n 0x19 = 0x%02x\n 0x1A = 0x%02x\n",
+			"reg\n 0x18 = 0x%02x\n 0x19 = 0x%02x\n 0x1A = 0x%02x\n",
 			gain_data[0],
 			gain_data[1],
 			gain_data[2]
 		);
+
+	dev_info(&prs->client->dev,
+			"reg\n 0x3b = 0x%02x\n 0x3f = 0x%02x\n 0x1e = 0x%02x\n",
+			dT1,
+			dT23,
+			calSetup
+		);
+
 #endif
 
 	prs->TSL = (u16) ((compens_data[0] & 0xFC) >> 2);
 
-	prs->TSH = (u16) (compens_data[0] & 0x3F);
+	prs->TSH = (u16) (compens_data[1] & 0x3F);
 
 	prs->TCV1 = (u32) ((((compens_data[3] & 0x03) << 16) |
 				((compens_data[2] & 0xFF) << 8) |
@@ -753,11 +825,38 @@ static int lps331ap_prs_acquire_compensation_data(struct lps331ap_prs_data *prs)
 				((gain_data[1] & 0xFF) << 8) |
 					(gain_data[0] & 0xFC)) >> 2);
 
-#ifdef DEBUG
-	dev_info(&prs->client->dev, "reg TSL = 0x%04x, TSH = 0x%04x,"
-			" TCV1 = 0x%04x, TCV2 = 0x%04x, TCV3 = 0x%04x,"
-			" TCS1 = 0x%04x, TCS2 = 0x%04x, TCS3 = 0x%04x,"
-			" DGAIN = 0x%04x\n",
+#ifdef LPS331_DEBUG
+	/*dT1 = 0xE0;*/
+	dev_info(&prs->client->dev, "test dT1 = 0x%08x\n", dT1);
+#endif
+	prs->deltaT1 = (((s8)(dT1 & 0xF0)) >> 4);
+#ifdef LPS331_DEBUG
+	dev_info(&prs->client->dev, "test deltaT1 = 0x%08x\n", prs->deltaT1);
+
+	/*dT23 = 0xE0;*/
+	dev_info(&prs->client->dev, "test dT23 = 0x%08x\n", dT23);
+#endif
+	prs->deltaT2 = (((s8)(dT23 & 0xF0)) >> 4);
+#ifdef LPS331_DEBUG
+	dev_info(&prs->client->dev, "test deltaT2 = 0x%08x\n", prs->deltaT2);
+
+	/*dT23 = 0x0E;*/
+	dev_info(&prs->client->dev, "test dT23 = 0x%08x\n", dT23);
+#endif
+	prs->deltaT3 = (((s8)((dT23 & 0x0F) << 4)) >> 4);
+#ifdef LPS331_DEBUG
+	dev_info(&prs->client->dev, "test deltaT3 = 0x%08x\n", prs->deltaT3);
+	/* calSetup = 0xe0; */
+	dev_info(&prs->client->dev, "test calSetup = 0x%08x\n", calSetup);
+#endif
+#ifdef LPS331_DEBUG
+	dev_info(&prs->client->dev, "reg TSL = %d, TSH = %d,"
+			" TCV1 = %d, TCV2 = %d, TCV3 = %d,"
+			" TCS1 = %d, TCS2 = %d, TCS3 = %d,"
+			" DGAIN = %d,"
+			" deltaT1 = %d, deltaT2 = %d,"
+			" deltaT3 = %d,"
+			" testVer = %d\n",
 			prs->TSL,
 			prs->TSH,
 			prs->TCV1,
@@ -766,7 +865,11 @@ static int lps331ap_prs_acquire_compensation_data(struct lps331ap_prs_data *prs)
 			prs->TCS1,
 			prs->TCS2,
 			prs->TCS3,
-			prs->digGain
+			prs->digGain,
+			prs->deltaT1,
+			prs->deltaT2,
+			prs->deltaT3,
+			prs->testVer
 		);
 #endif
 
@@ -776,13 +879,24 @@ static int lps331ap_prs_acquire_compensation_data(struct lps331ap_prs_data *prs)
 static void lps331ap_prs_report_values(struct lps331ap_prs_data *prs,
 					struct outputdata *out)
 {
-
-	input_report_abs(prs->input_dev, ABS_PRESSURE, out->press);
-	input_report_abs(prs->input_dev, ABS_MISC, out->temperature);
+	if (out->press == 0) {
+		pr_info("%s, our->press = 0\n", __func__);
+		out->press = -1;
+	}
+	if (out->temperature == 0) {
+		pr_info("%s, our->temperature = 0\n", __func__);
+		out->temperature = -1;
+	}
+	input_report_rel(prs->input_dev, REL_X, out->press);
+	input_report_rel(prs->input_dev, REL_Z, out->temperature);
 	input_sync(prs->input_dev);
+#ifdef LPS331_DEBUG
+	pr_info("%s, pressure = %d, temperature = %d\n",
+		__func__, out->press, out->temperature);
+#endif
 }
 
-static ssize_t lpa331ap_get_press_ref(struct device *dev,
+static ssize_t lps331ap_get_press_ref(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
 	int err;
@@ -798,7 +912,7 @@ static ssize_t lpa331ap_get_press_ref(struct device *dev,
 	return sprintf(buf, "%d\n", val);
 }
 
-static ssize_t lpa331ap_set_press_ref(struct device *dev,
+static ssize_t lps331ap_set_press_ref(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf, size_t size)
 {
@@ -820,7 +934,7 @@ static ssize_t lpa331ap_set_press_ref(struct device *dev,
 	return size;
 }
 
-static ssize_t lpa331ap_get_temperature_ref(struct device *dev,
+static ssize_t lps331ap_get_temperature_ref(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	int err;
@@ -836,7 +950,7 @@ static ssize_t lpa331ap_get_temperature_ref(struct device *dev,
 	return sprintf(buf, "%d\n", val);
 }
 
-static ssize_t lpa331ap_set_temperature_ref(struct device *dev,
+static ssize_t lps331ap_set_temperature_ref(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t size)
 {
@@ -860,7 +974,7 @@ static ssize_t lpa331ap_set_temperature_ref(struct device *dev,
 	return size;
 }
 
-static ssize_t lpa331ap_set_autozero(struct device *dev,
+static ssize_t lps331ap_set_autozero(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t size)
 {
@@ -879,11 +993,12 @@ static ssize_t lpa331ap_set_autozero(struct device *dev,
 	return size;
 }
 
-static ssize_t lpa331ap_get_compensation_param(struct device *dev,
+static ssize_t lps331ap_get_compensation_param(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
-	return sprintf(buf, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+	return sprintf(buf,
+			"%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
 			prs->TSL,
 			prs->TSH,
 			prs->TCV1,
@@ -892,12 +1007,16 @@ static ssize_t lpa331ap_get_compensation_param(struct device *dev,
 			prs->TCS1,
 			prs->TCS2,
 			prs->TCS3,
-			prs->digGain
+			prs->digGain,
+			prs->deltaT1,
+			prs->deltaT2,
+			prs->deltaT3,
+			prs->testVer
 	);
 }
 
-#ifdef DEBUG
-static ssize_t lpa331ap_reg_set(struct device *dev,\
+#ifdef LPS331_DEBUG
+static ssize_t lps331ap_reg_set(struct device *dev,\
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	int rc;
@@ -917,25 +1036,35 @@ static ssize_t lpa331ap_reg_set(struct device *dev,\
 	return size;
 }
 
-static ssize_t lpa331ap_reg_get(struct device *dev,\
+static ssize_t lps331ap_reg_get(struct device *dev,\
 	struct device_attribute *attr, char *buf)
 {
 	ssize_t ret;
 	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
-	int rc;
+	int rc, i;
 	u8 data;
+	u8 data_all[64] = {0,};
 
 	mutex_lock(&prs->lock);
 	data = prs->reg_addr;
 	mutex_unlock(&prs->lock);
 	rc = lps331ap_prs_i2c_read(prs, &data, 1);
 	if (rc < 0)
-			return rc;
+		return rc;
+
+	data_all[0] = (I2C_AUTO_INCREMENT | 0x00);
+	rc = lps331ap_prs_i2c_read(prs, data_all, 64);
+	if (rc < 0)
+		return rc;
+	for (i = 0; i < 64; i++)
+		pr_info("%s, Register[0x%02x] = 0x%02x\n", __func__,
+			i, data_all[i]);
+
 	ret = sprintf(buf, "0x%02x\n", data);
 	return ret;
 }
 
-static ssize_t lpa331ap_addr_set(struct device *dev, \
+static ssize_t lps331ap_addr_set(struct device *dev, \
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
@@ -950,9 +1079,10 @@ static ssize_t lpa331ap_addr_set(struct device *dev, \
 #endif
 static int lps331ap_prs_enable(struct lps331ap_prs_data *prs)
 {
-	int err;
+	int err = 0;
 
 	if (!atomic_cmpxchg(&prs->enabled, 0, 1)) {
+		lps331ap_open_calibration(prs);
 		err = lps331ap_prs_device_power_on(prs);
 		if (err < 0) {
 			atomic_set(&prs->enabled, 0);
@@ -976,7 +1106,7 @@ static int lps331ap_prs_disable(struct lps331ap_prs_data *prs)
 	return 0;
 }
 
-static ssize_t lpa331ap_get_poll_delay(struct device *dev,
+static ssize_t lps331ap_get_poll_delay(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
@@ -988,7 +1118,7 @@ static ssize_t lpa331ap_get_poll_delay(struct device *dev,
 	return sprintf(buf, "%d\n", val);
 }
 
-static ssize_t lpa331ap_set_poll_delay(struct device *dev,
+static ssize_t lps331ap_set_poll_delay(struct device *dev,
 					 struct device_attribute *attr,
 					 const char *buf, size_t size)
 {
@@ -1014,7 +1144,7 @@ static ssize_t lpa331ap_set_poll_delay(struct device *dev,
 	return size;
 }
 
-static ssize_t lpa331ap_get_enable(struct device *dev,
+static ssize_t lps331ap_get_enable(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
@@ -1022,7 +1152,7 @@ static ssize_t lpa331ap_get_enable(struct device *dev,
 	return sprintf(buf, "%d\n", val);
 }
 
-static ssize_t lpa331ap_set_enable(struct device *dev,
+static ssize_t lps331ap_set_enable(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t size)
 {
@@ -1042,24 +1172,24 @@ static ssize_t lpa331ap_set_enable(struct device *dev,
 }
 
 static DEVICE_ATTR(poll_delay, 0664,
-		lpa331ap_get_poll_delay, lpa331ap_set_poll_delay);
+		lps331ap_get_poll_delay, lps331ap_set_poll_delay);
 
 static DEVICE_ATTR(enable, 0664,
-		lpa331ap_get_enable, lpa331ap_set_enable);
+		lps331ap_get_enable, lps331ap_set_enable);
 
 static DEVICE_ATTR(pressure_reference_level, 0664,
-		lpa331ap_get_press_ref, lpa331ap_set_press_ref);
+		lps331ap_get_press_ref, lps331ap_set_press_ref);
 static DEVICE_ATTR(temperature_reference_level, 0664,
-		lpa331ap_get_temperature_ref, lpa331ap_set_temperature_ref);
+		lps331ap_get_temperature_ref, lps331ap_set_temperature_ref);
 static DEVICE_ATTR(enable_autozero, 0220,
-		NULL, lpa331ap_set_autozero);
+		NULL, lps331ap_set_autozero);
 static DEVICE_ATTR(compensation_param, 0444,
-		lpa331ap_get_compensation_param, NULL);
-#ifdef DEBUG
+		lps331ap_get_compensation_param, NULL);
+#ifdef LPS331_DEBUG
 static DEVICE_ATTR(reg_value, 0664,
-		lpa331ap_reg_get, lpa331ap_reg_set);
+		lps331ap_reg_get, lps331ap_reg_set);
 static DEVICE_ATTR(reg_addr, 0220,
-		NULL, lpa331ap_addr_set);
+		NULL, lps331ap_addr_set);
 #endif
 static struct attribute *barometer_sysfs_attrs[] = {
 	&dev_attr_enable.attr,
@@ -1068,7 +1198,7 @@ static struct attribute *barometer_sysfs_attrs[] = {
 	&dev_attr_temperature_reference_level.attr,
 	&dev_attr_enable_autozero.attr,
 	&dev_attr_compensation_param.attr,
-#ifdef DEBUG
+#ifdef LPS331_DEBUG
 	&dev_attr_reg_value.attr,
 	&dev_attr_reg_addr.attr,
 #endif
@@ -1087,12 +1217,184 @@ static ssize_t sea_level_pressure_store(struct device *dev,
 
 	sscanf(buf, "%d", &new_sea_level_pressure);
 
-	input_report_abs(prs->input_dev, ABS_VOLUME, new_sea_level_pressure);
+	if (new_sea_level_pressure == 0) {
+		pr_info("%s, our->temperature = 0\n", __func__);
+		new_sea_level_pressure = -1;
+	}
+	input_report_rel(prs->input_dev, REL_Y, new_sea_level_pressure);
 	input_sync(prs->input_dev);
 
 	return size;
 }
 
+static void lps331ap_save_caldata(struct lps331ap_prs_data *prs,
+	s32 pressure_cal)
+{
+	u8 pressure_offset[3] = {0,};
+	int err = 0;
+	u8 buf[4] = {0,};
+#ifdef LPS331_DEBUG
+	struct file *cal_filp = NULL;
+	mm_segment_t old_fs;
+	char buf_ref[10] = {0,};
+	int i, buf_size = 0;
+#endif
+
+	pr_info("%s, pressure_cal = %d\n", __func__, pressure_cal);
+	prs->pressure_cal = pressure_cal;
+
+	/* set delta register */
+	pressure_offset[0] = (u8)(0xFF & (s32)prs->pressure_cal);
+	pressure_offset[1] = (u8)(0xFF & (s32)prs->pressure_cal >> 8);
+	pressure_offset[2] = (u8)(0xFF & (s32)prs->pressure_cal >> 16);
+	buf[0] = (I2C_AUTO_INCREMENT | DELTAREG_1);
+	buf[1] = pressure_offset[0];
+	buf[2] = pressure_offset[1];
+	buf[3] = pressure_offset[2];
+	err = lps331ap_prs_i2c_write(prs, buf, 3);
+	if (err < 0) {
+		pr_err("%s, save_cal_data failed(err=%d)\n",
+			__func__, err);
+		return;
+	}
+#ifdef LPS331_DEBUG
+	/* change to string */
+	sprintf(buf_ref, "%d", prs->pressure_cal);
+	/* get size of the cal value */
+	for (i = 0; i < 10; i++) {
+		if (buf_ref[i] == '\0') {
+			buf_size = i+1;
+			break;
+		}
+	}
+
+	/* Save in the file. */
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	cal_filp = filp_open(CALIBRATION_FILE_PATH,
+			O_CREAT | O_TRUNC | O_WRONLY, 0666);
+	if (IS_ERR(cal_filp)) {
+		set_fs(old_fs);
+		err = PTR_ERR(cal_filp);
+		pr_err("%s: Can't open calibration file(err=%d)\n",
+			__func__, err);
+		return;
+	}
+
+	err = cal_filp->f_op->write(cal_filp,
+		buf_ref, buf_size * sizeof(char), &cal_filp->f_pos);
+	if (err < 0) {
+		pr_err("%s: Can't write the cal data to file(err=%d)\n",
+			__func__, err);
+	}
+
+	filp_close(cal_filp, current->files);
+	set_fs(old_fs);
+#endif
+}
+
+static void lps331ap_open_calibration(struct lps331ap_prs_data *prs)
+{
+	struct file *cal_filp = NULL;
+	int err = 0;
+	mm_segment_t old_fs;
+	u8 buf[4] = {0,};
+	char buf_ref[10] = {0,};
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	cal_filp = filp_open(CALIBRATION_FILE_PATH, O_RDONLY, 0666);
+	if (IS_ERR(cal_filp)) {
+		err = PTR_ERR(cal_filp);
+		if (err != -ENOENT)
+			pr_err("%s: Can't open calibration file(err=%d)\n",
+				__func__, err);
+		set_fs(old_fs);
+		return;
+	}
+	err = cal_filp->f_op->read(cal_filp,
+		buf_ref, 10 * sizeof(char), &cal_filp->f_pos);
+	if (err < 0) {
+		pr_err("%s: Can't read the cal data from file (err=%d)\n",
+			__func__, err);
+		return;
+	}
+	filp_close(cal_filp, current->files);
+	set_fs(old_fs);
+
+	err = kstrtoint(buf_ref, 10, &prs->pressure_cal);
+	if (err < 0) {
+		pr_err("%s, kstrtoint failed.(err = %d)", __func__, err);
+		return;
+	}
+	pr_info("%s, prs->pressure_cal = %d\n", __func__, prs->pressure_cal);
+	if (prs->pressure_cal < PR_ABS_MIN || prs->pressure_cal > PR_ABS_MAX) {
+		pr_err("%s, wrong offset value!!!\n", __func__);
+		return;
+	}
+
+	buf[0] = (I2C_AUTO_INCREMENT | DELTAREG_1);
+	buf[1] = (u8)(0xFF & prs->pressure_cal);
+	buf[2] = (u8)(0xFF & prs->pressure_cal >> 8);
+	buf[3] = (u8)(0xFF & prs->pressure_cal >> 16);
+	err = lps331ap_prs_i2c_write(prs, buf, 3);
+	if (err < 0)
+		pr_err("%s, write_delta_reg failed(err=%d)\n", __func__, err);
+
+	return;
+}
+
+static ssize_t lps331ap_cabratioin_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
+	int pressure_cal = 0, err = 0;
+
+	err = kstrtoint(buf, 10, &pressure_cal);
+	if (err < 0) {
+		pr_err("%s, kstrtoint failed.(err = %d)", __func__, err);
+		return err;
+	}
+
+	if (pressure_cal < PR_ABS_MIN || pressure_cal > PR_ABS_MAX)
+		return -EINVAL;
+
+	lps331ap_save_caldata(prs, (s32)pressure_cal);
+
+	return size;
+}
+
+static ssize_t lps331ap_cabratioin_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct lps331ap_prs_data *prs = dev_get_drvdata(dev);
+
+	if (!atomic_read(&prs->enabled))
+		lps331ap_open_calibration(prs);
+
+	return sprintf(buf, "%d\n", prs->pressure_cal);
+}
+
+/* sysfs for vendor & name */
+static ssize_t lps331_vendor_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", VENDOR);
+}
+
+static ssize_t lps331_name_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", CHIP_ID);
+}
+static DEVICE_ATTR(vendor, 0644, lps331_vendor_show, NULL);
+static DEVICE_ATTR(name, 0644, lps331_name_show, NULL);
+
+static DEVICE_ATTR(calibration, 0664,
+		lps331ap_cabratioin_show, lps331ap_cabratioin_store);
 static DEVICE_ATTR(sea_level_pressure, 0664,
 		NULL, sea_level_pressure_store);
 
@@ -1104,7 +1406,7 @@ static void lps331ap_prs_input_work_func(struct work_struct *work)
 			input_work);
 
 	static struct outputdata output;
-	int err;
+	int err = 0;
 
 	mutex_lock(&prs->lock);
 	err = lps331ap_prs_get_presstemp_data(prs, &output);
@@ -1146,19 +1448,13 @@ static int lps331ap_prs_input_init(struct lps331ap_prs_data *prs)
 	input_set_drvdata(prs->input_dev, prs);
 
 	/* temperature */
-	input_set_capability(prs->input_dev, EV_ABS, ABS_MISC);
-	input_set_abs_params(prs->input_dev, ABS_MISC,
-				TEMP_MIN, TEMP_MAX, 0, 0);
+	input_set_capability(prs->input_dev, EV_REL, REL_Z);
 
 	/* reference altitude */
-	input_set_capability(prs->input_dev, EV_ABS, ABS_VOLUME);
-	input_set_abs_params(prs->input_dev, ABS_VOLUME,
-				ALTITUDE_MIN, ALTITUDE_MAX, 0, 0);
+	input_set_capability(prs->input_dev, EV_REL, REL_Y);
 
 	/* pressure */
-	input_set_capability(prs->input_dev, EV_ABS, ABS_PRESSURE);
-	input_set_abs_params(prs->input_dev, ABS_PRESSURE,
-				PR_ABS_MAX, PR_ABS_MIN, 0, 0);
+	input_set_capability(prs->input_dev, EV_REL, REL_X);
 
 	err = input_register_device(prs->input_dev);
 	if (err) {
@@ -1183,7 +1479,7 @@ static int lps331ap_prs_probe(struct i2c_client *client,
 	int err = -1;
 	int tempvalue;
 
-	pr_err("%s: probe start.\n", LPS331AP_PRS_DEV_NAME);
+	pr_info("%s: probe start.\n", LPS331AP_PRS_DEV_NAME);
 
 	if (client->dev.platform_data == NULL) {
 		dev_err(&client->dev, "platform data is NULL. exiting.\n");
@@ -1240,7 +1536,7 @@ static int lps331ap_prs_probe(struct i2c_client *client,
 	/* read chip id */
 	tempvalue = i2c_smbus_read_word_data(client, WHO_AM_I);
 	if ((tempvalue & 0x00FF) == WHOAMI_LPS331AP_PRS) {
-		pr_err("%s I2C driver registered!\n", LPS331AP_PRS_DEV_NAME);
+		pr_info("%s I2C driver registered!\n", LPS331AP_PRS_DEV_NAME);
 	} else {
 		prs->client = NULL;
 		err = -ENODEV;
@@ -1255,7 +1551,8 @@ static int lps331ap_prs_probe(struct i2c_client *client,
 		(
 			(LPS331AP_PRS_ENABLE_MASK & LPS331AP_PRS_PM_NORMAL) |
 			(LPS331AP_PRS_ODR_MASK & LPS331AP_PRS_ODR_1_1) |
-			(LPS331AP_PRS_BDU_MASK & LPS331AP_PRS_BDU_ON)
+			(LPS331AP_PRS_BDU_MASK & LPS331AP_PRS_BDU_ON) |
+			(LPS331AP_PRS_DELTA_EN_MASK & LPS331AP_PRS_DELTA_EN_ON)
 		);
 
 	prs->resume_state[LPS331AP_RES_TP_RESOL] = LPS331AP_PRS_RES_MAX;
@@ -1296,7 +1593,7 @@ static int lps331ap_prs_probe(struct i2c_client *client,
 	err = lps331ap_prs_acquire_compensation_data(prs);
 	if (err < 0) {
 		dev_err(&client->dev, "compensation data acquisition failed\n");
-		goto err_power_off;
+		goto err_input_cleanup;
 	}
 
 	err = sysfs_create_group(&prs->input_dev->dev.kobj,
@@ -1321,9 +1618,30 @@ static int lps331ap_prs_probe(struct i2c_client *client,
 
 	err = device_create_file(prs->dev, &dev_attr_sea_level_pressure);
 	if (err < 0) {
-		pr_err("%s: device_create_fil(sea_level_pressure) failed\n",
+		pr_err("%s: device_create(sea_level_pressure) failed\n",
 			__func__);
 		goto err_device_create_file1;
+	}
+
+	err = device_create_file(prs->dev, &dev_attr_calibration);
+	if (err < 0) {
+		pr_err("%s: device_create(vendor) failed\n",
+			__func__);
+		goto err_device_create_file2;
+	}
+
+	err = device_create_file(prs->dev, &dev_attr_vendor);
+	if (err < 0) {
+		pr_err("%s: device_create(vendor) failed\n",
+			__func__);
+		goto err_device_create_file3;
+	}
+
+	err = device_create_file(prs->dev, &dev_attr_name);
+	if (err < 0) {
+		pr_err("%s: device_create(name) failed\n",
+			__func__);
+		goto err_device_create_file4;
 	}
 
 	dev_set_drvdata(prs->dev, prs);
@@ -1334,6 +1652,13 @@ static int lps331ap_prs_probe(struct i2c_client *client,
 
 	return 0;
 
+/* error, unwind it all */
+err_device_create_file4:
+	device_remove_file(prs->dev, &dev_attr_vendor);
+err_device_create_file3:
+	device_remove_file(prs->dev, &dev_attr_calibration);
+err_device_create_file2:
+	device_remove_file(prs->dev, &dev_attr_sea_level_pressure);
 err_device_create_file1:
 	sensors_classdev_unregister(prs->dev);
 err_device_create:
@@ -1356,6 +1681,9 @@ static int __devexit lps331ap_prs_remove(struct i2c_client *client)
 {
 	struct lps331ap_prs_data *prs = i2c_get_clientdata(client);
 
+	device_remove_file(prs->dev, &dev_attr_calibration);
+	device_remove_file(prs->dev, &dev_attr_name);
+	device_remove_file(prs->dev, &dev_attr_vendor);
 	device_remove_file(prs->dev, &dev_attr_sea_level_pressure);
 	sensors_classdev_unregister(prs->dev);
 	input_unregister_device(prs->input_dev);
@@ -1371,18 +1699,40 @@ static int __devexit lps331ap_prs_remove(struct i2c_client *client)
 static int lps331ap_prs_resume(struct i2c_client *client)
 {
 	struct lps331ap_prs_data *prs = i2c_get_clientdata(client);
+	int err = 0;
+	u8 buf[2] = {0,};
 
-	if (prs->on_before_suspend)
-		return lps331ap_prs_enable(prs);
-	return 0;
+	if (atomic_read(&prs->enabled)) {
+		buf[0] = CTRL_REG1;
+		buf[1] = prs->resume_state[LPS331AP_RES_CTRL_REG1];
+		err = lps331ap_prs_i2c_write(prs, buf, 1);
+		if (err < 0)
+			dev_err(&prs->client->dev, "resume failed: %d\n", err);
+		schedule_delayed_work(&prs->input_work,
+			msecs_to_jiffies(prs->poll_delay));
+		pr_info("%s\n", __func__);
+	}
+
+	return err;
 }
 
 static int lps331ap_prs_suspend(struct i2c_client *client, pm_message_t mesg)
 {
 	struct lps331ap_prs_data *prs = i2c_get_clientdata(client);
+	int err = 0;
+	u8 buf[2] = {0,};
 
-	prs->on_before_suspend = atomic_read(&prs->enabled);
-	return lps331ap_prs_disable(prs);
+	if (atomic_read(&prs->enabled)) {
+		cancel_delayed_work_sync(&prs->input_work);
+		buf[0] = CTRL_REG1;
+		buf[1] = LPS331AP_PRS_PM_OFF;
+		err = lps331ap_prs_i2c_write(prs, buf, 1);
+		if (err < 0)
+			dev_err(&prs->client->dev, "suspend failed: %d\n", err);
+		pr_info("%s\n", __func__);
+	}
+
+	return err;
 }
 
 static const struct i2c_device_id lps331ap_prs_id[]
@@ -1404,7 +1754,7 @@ static struct i2c_driver lps331ap_prs_driver = {
 
 static int __init lps331ap_prs_init(void)
 {
-#ifdef DEBUG
+#ifdef LPS331_DEBUG
 	pr_debug("%s barometer driver: init\n", LPS331AP_PRS_DEV_NAME);
 #endif
 	return i2c_add_driver(&lps331ap_prs_driver);
@@ -1412,7 +1762,7 @@ static int __init lps331ap_prs_init(void)
 
 static void __exit lps331ap_prs_exit(void)
 {
-#ifdef DEBUG
+#ifdef LPS331_DEBUG
 	pr_debug("%s barometer driver exit\n", LPS331AP_PRS_DEV_NAME);
 #endif
 	i2c_del_driver(&lps331ap_prs_driver);

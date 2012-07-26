@@ -17,6 +17,7 @@
 #include <linux/delay.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
+#include <linux/mfd/max77686.h>
 #include <linux/mfd/max77686-private.h>
 #if defined(CONFIG_RTC_ALARM_BOOT)
 #include <linux/reboot.h>
@@ -49,7 +50,8 @@
 #define ALARM_ENABLE_MASK		(1 << ALARM_ENABLE_SHIFT)
 
 #define MAX77686_RTC_UPDATE_DELAY	16
-#undef MAX77686_RTC_WTSR_SMPL
+#define MAX77686_RTC_WTSR_SMPL
+#define MAX77686_RTC_DEBUG
 
 enum {
 	RTC_SEC = 0,
@@ -197,6 +199,9 @@ static int max77686_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	struct max77686_rtc_info *info = dev_get_drvdata(dev);
 	u8 data[RTC_NR_TIME];
 	int ret;
+#ifdef MAX77686_RTC_DEBUG
+	struct task_struct *task = current;
+#endif
 
 	ret = max77686_rtc_tm_to_data(tm, data);
 	if (ret < 0)
@@ -216,6 +221,10 @@ static int max77686_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	}
 
 	ret = max77686_rtc_update(info, MAX77686_RTC_WRITE);
+
+#ifdef MAX77686_RTC_DEBUG
+	printk(KERN_INFO "%s: task=%s[%d]\n", __func__, task->comm, task->pid);
+#endif
 
 out:
 	mutex_unlock(&info->lock);
@@ -434,7 +443,7 @@ static int max77686_rtc_start_alarm_boot(struct max77686_rtc_info *info)
 	data[RTC_SEC] |= (1 << ALARM_ENABLE_SHIFT);
 	data[RTC_MIN] |= (1 << ALARM_ENABLE_SHIFT);
 	data[RTC_HOUR] |= (1 << ALARM_ENABLE_SHIFT);
-	data[RTC_WEEKDAY] |= (1 << ALARM_ENABLE_SHIFT);
+	data[RTC_WEEKDAY] |= 0;
 	if (data[RTC_MONTH] & 0xf)
 		data[RTC_MONTH] |= (1 << ALARM_ENABLE_SHIFT);
 	if (data[RTC_YEAR] & 0x7f)
@@ -492,6 +501,7 @@ static int max77686_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	if (alrm->enabled)
 		ret = max77686_rtc_start_alarm(info);
+
 out:
 	mutex_unlock(&info->lock);
 	return ret;
@@ -505,9 +515,24 @@ static int max77686_rtc_set_alarm_boot(struct device *dev,
 	u8 data[RTC_NR_TIME];
 	int ret;
 
-	ret = max77686_rtc_tm_to_data(&alrm->time, data);
-	if (ret < 0)
-		return ret;
+	if (alrm->enabled) {
+		data[RTC_SEC] = alrm->time.tm_sec;
+		data[RTC_MIN] = alrm->time.tm_min;
+		data[RTC_HOUR] = alrm->time.tm_hour;
+		data[RTC_WEEKDAY] = 0;
+		data[RTC_DATE] = alrm->time.tm_mday;
+		data[RTC_MONTH] = alrm->time.tm_mon + 1;
+		data[RTC_YEAR] = alrm->time.tm_year > 100
+					? (alrm->time.tm_year - 100) : 0;
+	} else {
+		data[RTC_SEC] = 0;
+		data[RTC_MIN] = 0;
+		data[RTC_HOUR] = 0;
+		data[RTC_WEEKDAY] = 0;
+		data[RTC_DATE] = 1;
+		data[RTC_MONTH] = 0;
+		data[RTC_YEAR] = 0;
+	}
 
 	printk(KERN_INFO "%s: %d/%d/%d %d:%d:%d(%d)\n", __func__,
 		alrm->time.tm_year, alrm->time.tm_mon, alrm->time.tm_mday,
@@ -577,8 +602,13 @@ static irqreturn_t max77686_rtc_alarm2_irq(int irq, void *data)
 
 	dev_info(info->dev, "%s:irq(%d)\n", __func__, irq);
 
+#if defined(CONFIG_SLP)
+	if (strstr(saved_command_line, "charger_detect_boot") != 0)
+		kernel_restart(NULL);
+#else
 	if (lpcharge == 1)
 		kernel_restart(NULL);
+#endif
 
 	rtc_update_irq(info->rtc_dev, 1, RTC_IRQF | RTC_AF);
 
@@ -590,7 +620,12 @@ static const struct rtc_class_ops max77686_rtc_ops = {
 	.read_time = max77686_rtc_read_time,
 	.set_time = max77686_rtc_set_time,
 	.read_alarm = max77686_rtc_read_alarm,
+#if defined(CONFIG_RTC_ALARM_BOOT) && defined(CONFIG_SLP)
+	.set_alarm = max77686_rtc_set_alarm_boot,
+#else
 	.set_alarm = max77686_rtc_set_alarm,
+#endif
+
 #if defined(CONFIG_RTC_ALARM_BOOT)
 	.set_alarm_boot = max77686_rtc_set_alarm_boot,
 #endif
@@ -612,6 +647,8 @@ static void max77686_rtc_enable_wtsr(struct max77686_rtc_info *info, bool enable
 
 	dev_info(info->dev, "%s: %s WTSR\n", __func__,
 			enable ? "enable" : "disable");
+
+	max77686_rtc_update(info, MAX77686_RTC_READ);
 
 	ret = max77686_update_reg(info->rtc, MAX77686_WTSR_SMPL_CNTL, val, mask);
 	if (ret < 0) {
@@ -638,6 +675,8 @@ static void max77686_rtc_enable_smpl(struct max77686_rtc_info *info, bool enable
 	dev_info(info->dev, "%s: %s SMPL\n", __func__,
 			enable ? "enable" : "disable");
 
+	max77686_rtc_update(info, MAX77686_RTC_READ);
+
 	ret = max77686_update_reg(info->rtc, MAX77686_WTSR_SMPL_CNTL, val, mask);
 	if (ret < 0) {
 		dev_err(info->dev, "%s: fail to update SMPL reg(%d)\n",
@@ -646,10 +685,6 @@ static void max77686_rtc_enable_smpl(struct max77686_rtc_info *info, bool enable
 	}
 
 	max77686_rtc_update(info, MAX77686_RTC_WRITE);
-
-	val = 0;
-	max77686_read_reg(info->rtc, MAX77686_WTSR_SMPL_CNTL, &val);
-	pr_info("%s: WTSR_SMPL(0x%02x)\n", __func__, val);
 }
 #endif /* MAX77686_RTC_WTSR_SMPL */
 
@@ -659,6 +694,28 @@ static int max77686_rtc_init_reg(struct max77686_rtc_info *info)
 	u8 buf;
 	int ret = 0;
 	struct rtc_time tm;
+#if defined(CONFIG_RTC_ALARM_BOOT)
+	u8 data_alm2[RTC_NR_TIME];
+
+	ret = max77686_rtc_update(info, MAX77686_RTC_READ);
+	if (ret < 0)
+		return ret;
+
+	ret = max77686_bulk_read(info->rtc, MAX77686_ALARM2_SEC,
+						RTC_NR_TIME, data_alm2);
+	if (ret < 0) {
+		dev_err(info->dev, "%s:%d fail to read alarm reg(%d)\n",
+				__func__, __LINE__, ret);
+		return ret;
+	}
+
+	printk(KERN_INFO "%s:alm2: %d/%d/%d %d:%d:%d(%d)\n", __func__,
+		data_alm2[RTC_YEAR], data_alm2[RTC_MONTH], data_alm2[RTC_DATE],
+		data_alm2[RTC_HOUR], data_alm2[RTC_MIN], data_alm2[RTC_SEC],
+		data_alm2[RTC_WEEKDAY]);
+#endif
+
+	max77686_rtc_update(info, MAX77686_RTC_READ);
 
 	ret = max77686_read_reg(info->rtc, MAX77686_RTC_CONTROL, &buf);
 	if (ret < 0) {
@@ -667,15 +724,30 @@ static int max77686_rtc_init_reg(struct max77686_rtc_info *info)
 		return ret;
 	}
 
+	if (buf & (1 << MODEL24_SHIFT)) {
+		dev_info(info->dev, "%s: bypass init\n", __func__);
+		return ret;
+	}
+
 	/* Set RTC control register : Binary mode, 24hour mdoe */
 	data[0] = (1 << BCD_EN_SHIFT) | (1 << MODEL24_SHIFT);
 	data[1] = (0 << BCD_EN_SHIFT) | (1 << MODEL24_SHIFT);
 
-	info->rtc_24hr_mode = 1;
-
 	ret = max77686_bulk_write(info->rtc, MAX77686_RTC_CONTROLM, 2, data);
 	if (ret < 0) {
 		dev_err(info->dev, "%s: fail to write controlm reg(%d)\n",
+				__func__, ret);
+		return ret;
+	}
+
+	max77686_rtc_update(info, MAX77686_RTC_WRITE);
+
+	/* Mask control register */
+	max77686_rtc_update(info, MAX77686_RTC_READ);
+
+	ret = max77686_update_reg(info->rtc, MAX77686_RTC_CONTROLM, 0x0, 0x3);
+	if (ret < 0) {
+		dev_err(info->dev, "%s: fail to mask CONTROLM reg(%d)\n",
 				__func__, ret);
 		return ret;
 	}
@@ -720,6 +792,7 @@ static int __devinit max77686_rtc_probe(struct platform_device *pdev)
 #if defined(CONFIG_RTC_ALARM_BOOT)
 	info->irq2 = max77686->irq_base + MAX77686_RTCIRQ_RTCA2;
 #endif
+	info->rtc_24hr_mode = 1;
 
 	platform_set_drvdata(pdev, info);
 
@@ -731,8 +804,13 @@ static int __devinit max77686_rtc_probe(struct platform_device *pdev)
 	}
 
 #ifdef MAX77686_RTC_WTSR_SMPL
-	max77686_rtc_enable_wtsr(info, true);
-	max77686_rtc_enable_smpl(info, true);
+	if (max77686->wtsr_smpl & MAX77686_WTSR_ENABLE)
+		max77686_rtc_enable_wtsr(info, true);
+#if !defined(CONFIG_MACH_C1_KOR_SKT) && !defined(CONFIG_MACH_C1_KOR_KT) && \
+	!defined(CONFIG_MACH_C1_KOR_LGT) && !defined(CONFIG_MACH_M0_KOR_SKT)
+	if (max77686->wtsr_smpl & MAX77686_SMPL_ENABLE)
+		max77686_rtc_enable_smpl(info, true);
+#endif
 #endif
 
 	device_init_wakeup(&pdev->dev, 1);
@@ -753,6 +831,7 @@ static int __devinit max77686_rtc_probe(struct platform_device *pdev)
 	ret = request_threaded_irq(info->irq, NULL, max77686_rtc_alarm_irq, 0,
 			"rtc-alarm0", info);
 	if (ret < 0) {
+		rtc_device_unregister(info->rtc_dev);
 		dev_err(&pdev->dev, "Failed to request alarm IRQ: %d: %d\n",
 			info->irq, ret);
 		goto err_rtc;
@@ -762,6 +841,8 @@ static int __devinit max77686_rtc_probe(struct platform_device *pdev)
 	ret = request_threaded_irq(info->irq2, NULL, max77686_rtc_alarm2_irq, 0,
 			"rtc-alarm0", info);
 	if (ret < 0) {
+		rtc_device_unregister(info->rtc_dev);
+		free_irq(info->irq, info);
 		dev_err(&pdev->dev, "Failed to request alarm2 IRQ: %d: %d\n",
 			info->irq2, ret);
 		goto err_rtc;
@@ -801,6 +882,8 @@ static void max77686_rtc_shutdown(struct platform_device *pdev)
 
 	for (i = 0; i < 3; i++) {
 		max77686_rtc_enable_wtsr(info, false);
+
+		max77686_rtc_update(info, MAX77686_RTC_READ);
 		max77686_read_reg(info->rtc, MAX77686_WTSR_SMPL_CNTL, &val);
 		pr_info("%s: WTSR_SMPL reg(0x%02x)\n", __func__, val);
 		if (val & WTSR_EN_MASK)

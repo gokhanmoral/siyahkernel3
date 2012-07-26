@@ -36,7 +36,11 @@
 
 /* PCLK(=PERIR=ACLK_100)/256/128 (~3200:1s) */
 #define TPS 3200
+#if defined(CONFIG_MACH_P4) && defined(CONFIG_TARGET_LOCALE_USA)
+#define PET_BY_WORKQUEUE
+#else
 #define PET_BY_DIRECT_TIMER
+#endif
 
 /* reset timeout in seconds */
 static unsigned watchdog_reset = 20;
@@ -65,7 +69,7 @@ static spinlock_t wdt_lock;
 #if defined(PET_BY_WORKQUEUE)
 static void watchdog_workfunc(struct work_struct *work)
 {
-/*	pr_err("%s kicking...\n", __func__); */
+	pr_info("%s kicking...%x\n", __func__, readl(S3C2410_WTCNT));
 	writel(watchdog_reset * TPS, S3C2410_WTCNT);
 	queue_delayed_work_on(0, watchdog_wq, &watchdog_work,
 			      watchdog_pet * HZ);
@@ -73,7 +77,7 @@ static void watchdog_workfunc(struct work_struct *work)
 #elif defined(PET_BY_DIRECT_TIMER)
 static void pet_watchdog_timer_fn(unsigned long data)
 {
-/*	pr_err("%s kicking...\n", __func__); */
+	pr_info("%s kicking...%x\n", __func__, readl(S3C2410_WTCNT));
 	writel(watchdog_reset * TPS, S3C2410_WTCNT);
 	pet_watchdog_timer.expires += watchdog_pet * HZ;
 	add_timer_on(&pet_watchdog_timer, 0);
@@ -81,7 +85,7 @@ static void pet_watchdog_timer_fn(unsigned long data)
 #else
 static enum hrtimer_restart watchdog_timerfunc(struct hrtimer *timer)
 {
-/*	pr_err("%s kicking...\n", __func__); */
+	pr_info("%s kicking...%x\n", __func__, readl(S3C2410_WTCNT));
 	writel(watchdog_reset * TPS, S3C2410_WTCNT);
 	hrtimer_start(&watchdog_timer,
 		      ktime_set(watchdog_pet, 0), HRTIMER_MODE_REL);

@@ -1,6 +1,7 @@
 
 /*
  * Copyright (c) 2011 Atheros Communications Inc.
+ * Copyright (c) 2011-2012 Qualcomm Atheros, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,17 +25,42 @@
 #include "target.h"
 #include "debug.h"
 #include "hif-ops.h"
+#include "pm.h"
 #include <linux/vmalloc.h>
 
-unsigned int debug_mask = ATH6KL_DBG_WMI | ATH6KL_DBG_BOOT | ATH6KL_DBG_WLAN_CFG; //ATH6KL_DBG_SUSPEND;
+unsigned int debug_mask = ATH6KL_DBG_WMI | ATH6KL_DBG_BOOT |
+			ATH6KL_DBG_WLAN_CFG | ATH6KL_DBG_SUSPEND |
+			ATH6KL_DBG_TRC;
 static unsigned int testmode;
-static unsigned char suspend_mode;
+#ifdef CONFIG_MACH_PX
+/* WoW2 (deepsleep), Suspend (WoW) */
+static unsigned int suspend_mode = WLAN_POWER_STATE_WOW;
+static unsigned int wow_mode = WLAN_POWER_STATE_DEEP_SLEEP;
+#else
+static unsigned int suspend_mode;
+static unsigned int wow_mode;
+#endif
 static unsigned int uart_debug;
+#ifdef CONFIG_MACH_PX
+static unsigned int ar6k_clock = 26000000;
+#else
+static unsigned int ar6k_clock = 19200000;
+#endif
+static unsigned short reg_domain = 0xffff;
+static unsigned short lrssi = 10;
+
+static unsigned short en_ani = 1;
 
 module_param(debug_mask, uint, 0644);
 module_param(testmode, uint, 0644);
-module_param(suspend_mode, byte, 0644);
+module_param(suspend_mode, uint, 0644);
+module_param(wow_mode, uint, 0644);
 module_param(uart_debug, uint, 0644);
+module_param(ar6k_clock, uint, 0644);
+module_param(reg_domain, ushort, 0644);
+module_param(lrssi, ushort, 0644);
+module_param(en_ani, ushort, 0644);
+
 
 static const struct ath6kl_hw hw_list[] = {
 	{
@@ -155,6 +181,62 @@ static const struct ath6kl_hw hw_list[] = {
 
 typedef char            A_CHAR;
 extern int android_readwrite_file(const A_CHAR *filename, A_CHAR *rbuf, const A_CHAR *wbuf, size_t length);
+
+ /*
+ * Number of bytes in board data that we are interested
+ * in while setting regulatory domain from host
+ */
+#define REG_DMN_BOARD_DATA_LEN	16
+
+/* Modifies regulatory domain in board data in target RAM */
+static int ath6kl_set_reg_dmn(struct ath6kl *ar)
+{
+	u8 buf[REG_DMN_BOARD_DATA_LEN];
+	__le16 old_sum, old_ver, old_rd, old_rd_next;
+	__le32 brd_dat_addr = 0, new_sum, new_rd;
+	int ret;
+
+	ret = ath6kl_bmi_read(ar, AR6003_BOARD_DATA_ADDR,
+			      (u8 *)&brd_dat_addr, 4);
+	if (ret)
+		return ret;
+
+	memset(buf, 0, sizeof(buf));
+	ret = ath6kl_bmi_read(ar, brd_dat_addr, buf, sizeof(buf));
+	if (ret)
+		return ret;
+
+	memcpy((u8 *)&old_sum, buf + AR6003_BOARD_DATA_OFFSET, 2);
+	memcpy((u8 *)&old_ver, buf + AR6003_BOARD_DATA_OFFSET + 2, 2);
+	memcpy((u8 *)&old_rd, buf + AR6003_RD_OFFSET, 2);
+	memcpy((u8 *)&old_rd_next, buf + AR6003_RD_OFFSET + 2, 2);
+
+	/*
+	 * Overwrite the new regulatory domain and preserve the
+	 * MAC addr which is in the same word.
+	 */
+	new_rd = cpu_to_le32((le32_to_cpu(old_rd_next) << 16) + reg_domain);
+	ret = ath6kl_bmi_write(ar,
+		cpu_to_le32(le32_to_cpu(brd_dat_addr) + AR6003_RD_OFFSET),
+		(u8 *)&new_rd, 4);
+	if (ret)
+		return ret;
+
+	/*
+	 * Recompute the board data checksum with the new regulatory
+	 * domain, preserve the version information which is in the
+	 * same word.
+	 */
+	new_sum = cpu_to_le32((le32_to_cpu(old_ver) << 16) +
+			      (le32_to_cpu(old_sum) ^ le32_to_cpu(old_rd) ^
+			       reg_domain));
+	ret = ath6kl_bmi_write(ar,
+		cpu_to_le32(le32_to_cpu(brd_dat_addr) +
+		AR6003_BOARD_DATA_OFFSET),
+		(u8 *)&new_sum, 4);
+
+	return ret;
+}
 
 struct sk_buff *ath6kl_buf_alloc(int size)
 {
@@ -399,7 +481,9 @@ static int ath6kl_target_config_wlan_params(struct ath6kl *ar, int idx)
 {
 	int status = 0;
 	int ret;
-
+#if CONFIG_MACH_PX
+	struct ath6kl_vif *vif = ath6kl_get_vif_by_index(ar, idx);
+#endif
 	/*
 	 * Configure the device for rx dot11 header rules. "0,0" are the
 	 * default values. Required if checksum offload is needed. Set
@@ -411,12 +495,31 @@ static int ath6kl_target_config_wlan_params(struct ath6kl *ar, int idx)
 		status = -EIO;
 	}
 
+
+#if CONFIG_MACH_PX
+	if (ar->conf_flags & ATH6KL_CONF_IGNORE_PS_FAIL_EVT_IN_SCAN) {
+		if ((ath6kl_wmi_pmparams_cmd(ar->wmi, idx,
+			0, vif->pspoll_num, 0, 0, 1,
+			IGNORE_POWER_SAVE_FAIL_EVENT_DURING_SCAN)) != 0) {
+			ath6kl_err("unable to set power save fail event policy during scan\n");
+			status = -EIO;
+		}
+	} else {
+		if ((ath6kl_wmi_pmparams_cmd(ar->wmi, idx, 0,
+				 vif->pspoll_num, 0, 0, 1, 0)) != 0) {
+			ath6kl_err("unable to set pm params\n");
+			status = -EIO;
+		}
+	}
+#else
 	if (ar->conf_flags & ATH6KL_CONF_IGNORE_PS_FAIL_EVT_IN_SCAN)
 		if ((ath6kl_wmi_pmparams_cmd(ar->wmi, idx, 0, 1, 0, 0, 1,
 		     IGNORE_POWER_SAVE_FAIL_EVENT_DURING_SCAN)) != 0) {
 			ath6kl_err("unable to set power save fail event policy\n");
 			status = -EIO;
 		}
+#endif
+
 
 	if (!(ar->conf_flags & ATH6KL_CONF_IGNORE_ERP_BARKER))
 		if ((ath6kl_wmi_set_lpreamble_cmd(ar->wmi, idx, 0,
@@ -465,6 +568,27 @@ static int ath6kl_target_config_wlan_params(struct ath6kl *ar, int idx)
 		}
 	}
 
+#ifdef CONFIG_MACH_PX
+	if (vif->nw_type == INFRA_NETWORK) {
+		ath6kl_dbg(ATH6KL_DBG_TRC, "AR6K: bg scan interval = %d, active dwell time = %d, passive dwell time = %d\n",
+			vif->scparams.bg_period,
+			vif->scparams.maxact_chdwell_time,
+			vif->scparams.pas_chdwell_time);
+
+		ath6kl_wmi_scanparams_cmd(ar->wmi, idx,
+		      vif->scparams.fg_start_period,
+		      vif->scparams.fg_end_period, vif->scparams.bg_period,
+		      vif->scparams.minact_chdwell_time,
+		      vif->scparams.maxact_chdwell_time,
+		      vif->scparams.pas_chdwell_time,
+		      vif->scparams.short_scan_ratio,
+		      vif->scparams.scan_ctrl_flags,
+		      vif->scparams.max_dfsch_act_time,
+		      vif->scparams.maxact_scan_per_ssid);
+
+		ath6kl_wmi_set_roam_lrssi_cmd(ar->wmi, lrssi);
+	}
+#endif
 	return status;
 }
 
@@ -624,11 +748,11 @@ void ath6kl_core_cleanup(struct ath6kl *ar)
 
 	ath6kl_debug_cleanup(ar);
 
-	kfree(ar->fw_board);
-	kfree(ar->fw_otp);
-	kfree(ar->fw);
-	kfree(ar->fw_patch);
-	kfree(ar->fw_testscript);
+	vfree(ar->fw_board);
+	vfree(ar->fw_otp);
+	vfree(ar->fw);
+	vfree(ar->fw_patch);
+	vfree(ar->fw_testscript);
 
 	ath6kl_deinit_ieee80211_hw(ar);
 }
@@ -645,10 +769,12 @@ static int ath6kl_get_fw(struct ath6kl *ar, const char *filename,
 		return ret;
 
 	*fw_len = fw_entry->size;
-	*fw = kmemdup(fw_entry->data, fw_entry->size, GFP_KERNEL);
+	*fw = vmalloc(fw_entry->size);
 
 	if (*fw == NULL)
 		ret = -ENOMEM;
+
+	memcpy(*fw, fw_entry->data, fw_entry->size);
 
 	release_firmware(fw_entry);
 
@@ -969,13 +1095,14 @@ static int ath6kl_fetch_fw_apin(struct ath6kl *ar, const char *name)
 			ath6kl_dbg(ATH6KL_DBG_BOOT, "found otp image ie (%zd B)\n",
 				ie_len);
 
-			ar->fw_otp = kmemdup(data, ie_len, GFP_KERNEL);
+			ar->fw_otp = vmalloc(ie_len);
 
 			if (ar->fw_otp == NULL) {
 				ret = -ENOMEM;
 				goto out;
 			}
 
+			memcpy(ar->fw_otp, data, ie_len);
 			ar->fw_otp_len = ie_len;
 			break;
 		case ATH6KL_FW_IE_FW_IMAGE:
@@ -986,26 +1113,28 @@ static int ath6kl_fetch_fw_apin(struct ath6kl *ar, const char *name)
 			if (ar->fw != NULL)
 				break;
 
-			ar->fw = kmemdup(data, ie_len, GFP_KERNEL);
+			ar->fw = vmalloc(ie_len);
 
 			if (ar->fw == NULL) {
 				ret = -ENOMEM;
 				goto out;
-			}
 
+			}
+			memcpy(ar->fw, data, ie_len);
 			ar->fw_len = ie_len;
 			break;
 		case ATH6KL_FW_IE_PATCH_IMAGE:
 			ath6kl_dbg(ATH6KL_DBG_BOOT, "found patch image ie (%zd B)\n",
 				ie_len);
 
-			ar->fw_patch = kmemdup(data, ie_len, GFP_KERNEL);
+			ar->fw_patch = vmalloc(ie_len);
 
 			if (ar->fw_patch == NULL) {
 				ret = -ENOMEM;
 				goto out;
 			}
 
+			memcpy(ar->fw_patch, data, ie_len);
 			ar->fw_patch_len = ie_len;
 			break;
 		case ATH6KL_FW_IE_RESERVED_RAM_SIZE:
@@ -1093,6 +1222,11 @@ static int ath6kl_fetch_firmwares(struct ath6kl *ar)
 {
 	int ret;
 
+#ifdef CONFIG_MACH_PX
+	if (testmode)
+		ar->hw.fw_board = AR6003_HW_2_1_1_TCMD_BOARD_DATA_FILE;
+#endif
+
 	ret = ath6kl_fetch_board_file(ar);
 	if (ret)
 		return ret;
@@ -1168,6 +1302,8 @@ static int ath6kl_upload_board_file(struct ath6kl *ar)
 	case TARGET_TYPE_AR6003:
 		board_data_size = AR6003_BOARD_DATA_SZ;
 		board_ext_data_size = AR6003_BOARD_EXT_DATA_SZ;
+		if (ar->fw_board_len > (board_data_size + board_ext_data_size))
+			board_ext_data_size = AR6003_BOARD_EXT_DATA_SZ_V2;
 		break;
 	case TARGET_TYPE_AR6004:
 		board_data_size = AR6004_BOARD_DATA_SZ;
@@ -1276,7 +1412,14 @@ static int ath6kl_upload_otp(struct ath6kl *ar)
 	/* execute the OTP code */
 	ath6kl_dbg(ATH6KL_DBG_BOOT, "executing OTP at 0x%x\n",
 		   ar->hw.app_start_override_addr);
+
+#ifdef CONFIG_MACH_PX
+	/* SOFTMAC has higher priority than OTP MAC */
+	param = 1;
+#else
 	param = 0;
+#endif
+
 	ath6kl_bmi_execute(ar, ar->hw.app_start_override_addr, &param);
 
 	return ret;
@@ -1388,37 +1531,45 @@ static int ath6kl_upload_testscript(struct ath6kl *ar)
 
 static void ath6kl_update_psminfo(struct ath6kl *ar)
 {
-    char psm_filename[32];
-    ar->psminfo = 1;
+	char psm_filename[32];
+	ar->psminfo = 1;
 
-    do {
+	do {
 		int ret = 0;
-        size_t length;
+		size_t length;
 		u8 *pdata = NULL;
 
-        snprintf(psm_filename, sizeof(psm_filename), "/data/.psm.info");
+		snprintf(psm_filename, sizeof(psm_filename), "/data/.psm.info");
 
-		if ( (ret = android_readwrite_file(psm_filename, NULL, NULL, 0)) < 0) {
+		ret = android_readwrite_file(psm_filename, NULL, NULL, 0);
+
+		if (ret < 0)
 			break;
-		} else {
-		    length = ret;
-		}
+		else
+			length = ret;
+
 		pdata = vmalloc(length);
+
 		if (!pdata) {
-			ath6kl_dbg(ATH6KL_DBG_BOOT,"%s: Cannot allocate buffer for psm_info (%d)\n", __func__,length);
+			ath6kl_dbg(ATH6KL_DBG_BOOT,
+				"%s: Cannot allocate buffer for psm_info (%d)\n",
+				__func__, length);
 			break;
 		}
 
-		if ( android_readwrite_file(psm_filename, (char*)pdata, NULL, length) != length) {
-			ath6kl_dbg(ATH6KL_DBG_BOOT,"%s: file read error, length %d\n", __func__, length);
+		if (android_readwrite_file(psm_filename,
+				(char *)pdata, NULL, length) != length) {
+			ath6kl_dbg(ATH6KL_DBG_BOOT,
+				"%s: file read error, length %d\n",
+				__func__, length);
 			vfree(pdata);
 			break;
 		}
+
 		ar->psminfo = *pdata - '0';
 		ath6kl_dbg(ATH6KL_DBG_BOOT,"%s: psm_info is %d\n", __FUNCTION__, ar->psminfo);
 		vfree(pdata);
 	} while (0);
-
 }
 
 static int ath6kl_init_upload(struct ath6kl *ar)
@@ -1484,7 +1635,8 @@ static int ath6kl_init_upload(struct ath6kl *ar)
 		return status;
 
 	/* WAR to avoid SDIO CRC err */
-	if (ar->version.target_ver == AR6003_HW_2_0_VERSION) {
+	if (ar->version.target_ver == AR6003_HW_2_0_VERSION ||
+	    ar->version.target_ver == AR6003_HW_2_1_1_VERSION) {
 		ath6kl_err("temporary war to avoid sdio crc error\n");
 
 		param = 0x20;
@@ -1511,20 +1663,12 @@ static int ath6kl_init_upload(struct ath6kl *ar)
 	}
 
 	ath6kl_bmi_init(ar);
-#if 1 /* Px */
-	ath6kl_bmi_reg_write(ar, 0x540678, 26000000);
-#else
-	ath6kl_bmi_reg_write(ar, 0x540678, 19200000);
-#endif
+	ath6kl_bmi_reg_write(ar, 0x540678, ar6k_clock);
 
 	/* write EEPROM data to Target RAM */
 	status = ath6kl_upload_board_file(ar);
 	if (status)
 		return status;
-
-#if 1 /* Px */
-    ath6kl_update_psminfo(ar);
-#endif
 
 	/* transfer One time Programmable data */
 	status = ath6kl_upload_otp(ar);
@@ -1552,7 +1696,12 @@ static int ath6kl_init_upload(struct ath6kl *ar)
 		return status;
 
 	address = MBOX_BASE_ADDRESS + LOCAL_SCRATCH_ADDRESS;
-	param = options | 0x20;
+
+	if (en_ani)
+		param = options & ~0x20;
+	else
+		param = options | 0x20;
+
 	status = ath6kl_bmi_reg_write(ar, address, param);
 	if (status)
 		return status;
@@ -1625,6 +1774,12 @@ int ath6kl_init_hw_start(struct ath6kl *ar)
 	ret = ath6kl_init_upload(ar);
 	if (ret)
 		goto err_power_off;
+
+	if (reg_domain != 0xffff) {
+		ret = ath6kl_set_reg_dmn(ar);
+		if (ret)
+			goto err_power_off;
+	}
 
 	/* Do we need to finish the BMI phase */
 	/* FIXME: return error from ath6kl_bmi_done() */
@@ -1784,6 +1939,9 @@ int ath6kl_core_init(struct ath6kl *ar)
 	if (ret)
 		goto err_htc_cleanup;
 
+	ath6kl_mangle_mac_address(ar);
+	ath6kl_update_psminfo(ar);
+
 	/* FIXME: we should free all firmwares in the error cases below */
 
 	/* Indicate that WMI is enabled (although not ready yet) */
@@ -1835,10 +1993,6 @@ int ath6kl_core_init(struct ath6kl *ar)
 	ar->ac_stream_pri_map[WMM_AC_VI] = 2;
 	ar->ac_stream_pri_map[WMM_AC_VO] = 3; /* highest */
 
-	/* give our connected endpoints some buffers */
-	ath6kl_rx_refill(ar->htc_target, ar->ctrl_ep);
-	ath6kl_rx_refill(ar->htc_target, ar->ac2ep_map[WMM_AC_BE]);
-
 	/* allocate some buffers that handle larger AMSDU frames */
 	ath6kl_refill_amsdu_rxbufs(ar, ATH6KL_MAX_AMSDU_RX_BUFFERS);
 
@@ -1847,18 +2001,29 @@ int ath6kl_core_init(struct ath6kl *ar)
 	ar->conf_flags = ATH6KL_CONF_IGNORE_ERP_BARKER |
 			 ATH6KL_CONF_ENABLE_11N | ATH6KL_CONF_ENABLE_TX_BURST;
 
-	if (suspend_mode < WLAN_POWER_STATE_CUT_PWR ||
-	    suspend_mode > WLAN_POWER_STATE_WOW)
-		ar->suspend_mode = WLAN_POWER_STATE_CUT_PWR;
-	else
+	if (suspend_mode &&
+	     suspend_mode >= WLAN_POWER_STATE_CUT_PWR &&
+	     suspend_mode <= WLAN_POWER_STATE_WOW)
 		ar->suspend_mode = suspend_mode;
+	else
+		ar->suspend_mode = 0;
+
+	if (suspend_mode == WLAN_POWER_STATE_WOW &&
+	    (wow_mode == WLAN_POWER_STATE_CUT_PWR ||
+	     wow_mode == WLAN_POWER_STATE_DEEP_SLEEP))
+		ar->wow_suspend_mode = wow_mode;
+	else
+		ar->wow_suspend_mode = 0;
 
 	ar->wiphy->flags |= WIPHY_FLAG_SUPPORTS_FW_ROAM |
 			    WIPHY_FLAG_HAVE_AP_SME |
 			    WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD;
 
+#ifdef CONFIG_MACH_PX
+#else
 	if (test_bit(ATH6KL_FW_CAPABILITY_SCHED_SCAN, ar->fw_capabilities))
 		ar->wiphy->flags |= WIPHY_FLAG_SUPPORTS_SCHED_SCAN;
+#endif
 
 	ar->wiphy->probe_resp_offload =
 		NL80211_PROBE_RESP_OFFLOAD_SUPPORT_WPS |
@@ -1878,6 +2043,10 @@ int ath6kl_core_init(struct ath6kl *ar)
 		goto err_rxbuf_cleanup;
 	}
 
+	/* give our connected endpoints some buffers */
+	ath6kl_rx_refill(ar->htc_target, ar->ctrl_ep);
+	ath6kl_rx_refill(ar->htc_target, ar->ac2ep_map[WMM_AC_BE]);
+
 	/*
 	 * Set mac address which is received in ready event
 	 * FIXME: Move to ath6kl_interface_add()
@@ -1896,6 +2065,7 @@ err_rxbuf_cleanup:
 err_debug_init:
 	ath6kl_debug_cleanup(ar);
 err_node_cleanup:
+	ath6kl_cleanup_android_resource(ar);
 	ath6kl_wmi_shutdown(ar->wmi);
 	clear_bit(WMI_ENABLED, &ar->flag);
 	ar->wmi = NULL;

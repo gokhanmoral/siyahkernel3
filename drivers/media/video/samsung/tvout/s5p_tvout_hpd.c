@@ -62,6 +62,9 @@ struct hpd_struct {
 #ifdef CONFIG_HDMI_SWITCH_HPD
 	struct switch_dev hpd_switch;
 #endif
+#ifdef CONFIG_HDMI_CONTROLLED_BY_EXT_IC
+	void (*ext_ic_control) (bool ic_on);
+#endif
 };
 
 static struct hpd_struct hpd_struct;
@@ -93,6 +96,10 @@ static struct miscdevice hpd_misc_device = {
 	"HPD",
 	&hpd_fops,
 };
+
+#ifdef CONFIG_LSI_HDMI_AUDIO_CH_EVENT
+	static struct switch_dev g_audio_ch_switch;
+#endif
 
 static void s5p_hpd_kobject_uevent(void)
 {
@@ -131,6 +138,10 @@ static void s5p_hpd_kobject_uevent(void)
 	hpd_state = atomic_read(&hpd_struct.state);
 	if (hpd_state) {
 		if (last_uevent_state == -1 || last_uevent_state == HPD_LO) {
+#ifdef CONFIG_HDMI_CONTROLLED_BY_EXT_IC
+			hpd_struct.ext_ic_control(true);
+			msleep(20);
+#endif
 #ifdef CONFIG_HDMI_SWITCH_HPD
 			hpd_struct.hpd_switch.state = 0;
 			switch_set_state(&hpd_struct.hpd_switch, 1);
@@ -150,6 +161,9 @@ static void s5p_hpd_kobject_uevent(void)
 		last_uevent_state = HPD_HI;
 	} else {
 		if (last_uevent_state == -1 || last_uevent_state == HPD_HI) {
+#ifdef CONFIG_LSI_HDMI_AUDIO_CH_EVENT
+			switch_set_state(&g_audio_ch_switch, (int)-1);
+#endif
 #ifdef CONFIG_HDMI_SWITCH_HPD
 			hpd_struct.hpd_switch.state = 1;
 			switch_set_state(&hpd_struct.hpd_switch, 0);
@@ -163,6 +177,9 @@ static void s5p_hpd_kobject_uevent(void)
 #endif
 			HPDPRINTK("[HDMI] HPD event -disconnet!!!\n");
 			on_stop_process = true;
+#ifdef CONFIG_HDMI_CONTROLLED_BY_EXT_IC
+			hpd_struct.ext_ic_control(false);
+#endif
 		}
 		last_uevent_state = HPD_LO;
 	}
@@ -210,6 +227,19 @@ static unsigned int s5p_hpd_poll(struct file *file, poll_table * wait)
 }
 
 #define HPD_GET_STATE _IOR('H', 100, unsigned int)
+#define AUDIO_CH_SET_STATE _IOR('H', 101, unsigned int)
+
+#ifdef	CONFIG_LSI_HDMI_AUDIO_CH_EVENT
+void hdmi_send_audio_ch_num(
+	int supported_ch_num, struct switch_dev *p_audio_ch_switch)
+{
+	printk(KERN_INFO	"%s() hdmi_send_audio_ch_num :: "
+		"HDMI Audio supported ch = %d",
+		__func__, supported_ch_num);
+	p_audio_ch_switch->state = 0;
+	switch_set_state(p_audio_ch_switch, (int)supported_ch_num);
+}
+#endif
 
 static long s5p_hpd_ioctl(struct file *file,
 			  unsigned int cmd, unsigned long arg)
@@ -234,6 +264,24 @@ static long s5p_hpd_ioctl(struct file *file,
 				    (*status) ? "plugged" : "unplugged");
 			return 0;
 		}
+#ifdef	CONFIG_LSI_HDMI_AUDIO_CH_EVENT
+	case AUDIO_CH_SET_STATE:
+		{
+			int supported_ch_num;
+			if (copy_from_user(&supported_ch_num,
+				(void __user *)arg, sizeof(supported_ch_num))) {
+				printk(KERN_ERR	"%s() -copy_from_user error\n",
+					__func__);
+				return -EFAULT;
+			}
+
+			printk(KERN_INFO	"%s() - AUDIO_CH_SET_STATE = 0x%x\n",
+				__func__, supported_ch_num);
+			hdmi_send_audio_ch_num(supported_ch_num,
+				&g_audio_ch_switch);
+			return 0;
+		}
+#endif
 	default:
 		printk(KERN_ERR "(%d) unknown ioctl, HPD_GET_STATE(%d)\n",
 		       (unsigned int)cmd, (unsigned int)HPD_GET_STATE);
@@ -460,9 +508,9 @@ void mhl_hpd_handler(bool onoff)
 			__func__, onoff ? "on" : "off");
 		return;
 	} else {
-		old_state = onoff;
 		printk(KERN_INFO	"%s(%d), old_state(%d)\n",
 			__func__, onoff, old_state);
+		old_state = onoff;
 	}
 
 	if (onoff == true) {
@@ -508,7 +556,10 @@ static int __devinit s5p_hpd_probe(struct platform_device *pdev)
 		    (void (*)(void))pdata->int_src_ext_hpd;
 	if (pdata->read_gpio)
 		hpd_struct.read_gpio = (int (*)(void))pdata->read_gpio;
-
+#ifdef CONFIG_HDMI_CONTROLLED_BY_EXT_IC
+	if (pdata->ext_ic_control)
+		hpd_struct.ext_ic_control = pdata->ext_ic_control;
+#endif
 	hpd_struct.irq_n = platform_get_irq(pdev, 0);
 
 	hpd_struct.int_src_ext_hpd();
@@ -544,6 +595,10 @@ static int __devinit s5p_hpd_probe(struct platform_device *pdev)
 
 	last_uevent_state = -1;
 
+#ifdef CONFIG_LSI_HDMI_AUDIO_CH_EVENT
+	g_audio_ch_switch.name = "ch_hdmi_audio";
+	switch_dev_register(&g_audio_ch_switch);
+#endif
 	return 0;
 }
 
@@ -551,6 +606,9 @@ static int __devexit s5p_hpd_remove(struct platform_device *pdev)
 {
 #ifdef CONFIG_HDMI_SWITCH_HPD
 	switch_dev_unregister(&hpd_struct.hpd_switch);
+#endif
+#ifdef CONFIG_LSI_HDMI_AUDIO_CH_EVENT
+	switch_dev_unregister(&g_audio_ch_switch);
 #endif
 	return 0;
 }

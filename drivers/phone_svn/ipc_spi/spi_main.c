@@ -170,7 +170,7 @@ void spi_main_send_signal(enum SPI_MAIN_MSG_T spi_sigs)
 	spi_wq = spi_os_malloc(sizeof(struct spi_work));
 	spi_wq->signal_code = spi_sigs;
 	INIT_WORK(&spi_wq->work, spi_main_process);
-	queue_work(suspend_work_queue, (struct work_struct *)spi_wq);
+	queue_work(ipc_spi_wq, (struct work_struct *)spi_wq);
 }
 
 
@@ -183,7 +183,7 @@ void spi_main_send_signalfront(enum SPI_MAIN_MSG_T spi_sigs)
 	spi_wq = spi_os_malloc(sizeof(struct spi_work));
 	spi_wq->signal_code = spi_sigs;
 	INIT_WORK(&spi_wq->work, spi_main_process);
-	queue_work_front(suspend_work_queue, (struct work_struct *)spi_wq);
+	queue_work_front(ipc_spi_wq, (struct work_struct *)spi_wq);
 }
 
 
@@ -211,7 +211,6 @@ static void _start_packet_tx(void)
 	if (spi_data_check_tx_queue() == 0)
 		return;
 
-
 	/* check SUB SRDY state */
 	if (spi_dev_get_gpio(spi_dev_gpio_subsrdy) ==
 		SPI_DEV_GPIOLEVEL_HIGH) {
@@ -226,13 +225,21 @@ static void _start_packet_tx(void)
 		return;
 	}
 
+	if (get_console_suspended()) {
+		spi_main_send_signal(SPI_MAIN_MSG_SEND);
+		return;
+	}
+
+	if (spi_main_state == SPI_MAIN_STATE_END)
+		return;
+
 	/* change state SPI_MAIN_STATE_IDLE to SPI_MAIN_STATE_TX_WAIT */
 	spi_main_state = SPI_MAIN_STATE_TX_WAIT;
 
 #ifdef SPI_GUARANTEE_MRDY_GAP
 	mrdy_high_time_save = spi_os_get_tick();
 	if (check_mrdy_time_gap(mrdy_low_time_save, mrdy_high_time_save))
-		spi_os_loop_delay(MRDY_GUARANTEE_MRDY_LOOP_COUNT);
+		spi_os_sleep(1);
 #endif
 
 	spi_dev_set_gpio(spi_dev_gpio_mrdy, SPI_DEV_GPIOLEVEL_HIGH);
@@ -249,7 +256,7 @@ static void _start_packet_tx(void)
 
 		i++;
 		if (i > MRDY_GUARANTEE_MRDY_TIME_SLEEP * 20) {
-			SPI_OS_TRACE(("%s spi_main_state=[%d]\n",
+			SPI_OS_ERROR(("%s spi_main_state=[%d]\n",
 				"[SPI] === spi Fail to receiving SUBSRDY CONF :",
 				(int)spi_main_state));
 
@@ -291,8 +298,8 @@ static void _start_packet_tx_send(void)
 	/* change state SPI_MAIN_STATE_TX_WAIT to SPI_MAIN_STATE_TX_SENDING */
 	spi_main_state = SPI_MAIN_STATE_TX_SENDING;
 
-
 	spi_packet_buf = gspi_data_packet_buf;
+
 	spi_os_memset(spi_packet_buf, 0, SPI_DEV_MAX_PACKET_SIZE);
 
 	spi_data_prepare_tx_packet(spi_packet_buf);
@@ -300,6 +307,24 @@ static void _start_packet_tx_send(void)
 		SPI_DEV_MAX_PACKET_SIZE) != 0) {
 		/* TODO: save failed packet */
 		/* back data to each queue */
+		SPI_OS_ERROR(("[SPI] spi_dev_send fail\n"));
+
+		spi_dev_set_gpio(spi_dev_gpio_submrdy, SPI_DEV_GPIOLEVEL_HIGH);
+
+		while (spi_dev_get_gpio(spi_dev_gpio_subsrdy) ==
+			SPI_DEV_GPIOLEVEL_LOW) {
+			};
+
+		spi_os_sleep(1);
+
+		if (spi_dev_send((void *)spi_packet_buf,
+			SPI_DEV_MAX_PACKET_SIZE) != 0) {
+			panic("[SPI] spi_dev_send\n");
+		} else {
+			SPI_OS_ERROR(("[SPI] spi_dev_send\n"));
+		}
+
+		spi_dev_set_gpio(spi_dev_gpio_submrdy, SPI_DEV_GPIOLEVEL_LOW);
 	}
 
 	spi_main_state = SPI_MAIN_STATE_TX_TERMINATE;
@@ -330,11 +355,15 @@ static void _start_packet_receive(void)
 	if (spi_dev_get_gpio(spi_dev_gpio_srdy) == SPI_DEV_GPIOLEVEL_LOW)
 		return;
 
+	if (get_console_suspended())
+		return;
+
+	if (spi_main_state == SPI_MAIN_STATE_END)
+		return;
+
 	spi_main_state = SPI_MAIN_STATE_RX_WAIT;
 
-
 	spi_dev_set_gpio(spi_dev_gpio_submrdy, SPI_DEV_GPIOLEVEL_HIGH);
-
 
 	/* check SUBSRDY state */
 	while (spi_dev_get_gpio(spi_dev_gpio_subsrdy) ==
@@ -370,6 +399,7 @@ static void _start_packet_receive(void)
 		return;
 
 	spi_packet_buf = gspi_data_packet_buf;
+
 	spi_os_memset(spi_packet_buf, 0, SPI_DEV_MAX_PACKET_SIZE);
 
 	if (spi_dev_receive((void *)spi_packet_buf,
@@ -383,6 +413,9 @@ static void _start_packet_receive(void)
 			/* call function for send data to IPC, RAW, RFS */
 			spi_send_msg_to_app();
 		}
+	} else{
+		SPI_OS_ERROR(("[SPI] spi_dev_receive fail\n"));
+		panic("[SPI] spi_dev_receive\n");
 	}
 
 	spi_main_state = SPI_MAIN_STATE_RX_TERMINATE;
@@ -501,7 +534,7 @@ void spi_main(unsigned long argc, void *argv)
 	spi_dev_set_gpio(spi_dev_gpio_submrdy, SPI_DEV_GPIOLEVEL_HIGH);
 
 	do {
-		spi_os_sleep(20);
+		spi_os_sleep(30);
 	} while (spi_dev_get_gpio(spi_dev_gpio_subsrdy) ==
 		SPI_DEV_GPIOLEVEL_LOW);
 
@@ -528,7 +561,7 @@ void spi_set_restart(void)
 
 	spi_is_restart = 1;
 
-	flush_workqueue(suspend_work_queue);
+	flush_workqueue(ipc_spi_wq);
 
 	spi_data_queue_destroy();
 

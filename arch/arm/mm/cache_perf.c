@@ -22,11 +22,20 @@
 #include <linux/math64.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
+#include <linux/delay.h>
 
 #include <asm/outercache.h>
 #include <asm/cacheflush.h>
+#include <linux/string.h>
 
-static unsigned int try_cnt = 1;
+enum memtype {
+	MT_WBWA = 1,
+	MT_NC,
+	MT_SO,
+	MT_MAX,
+};
+
+static unsigned int try_cnt = 100;
 module_param(try_cnt, uint, S_IRUGO);
 MODULE_PARM_DESC(try_cnt, "Try count to test");
 
@@ -38,30 +47,26 @@ static bool l2 = 1;
 module_param(l2, bool, S_IRUGO);
 MODULE_PARM_DESC(l2, "Set for L2 check");
 
-static bool mcpy = 1;
-module_param(mcpy, bool, S_IRUGO);
+static unsigned int  mcpy = MT_WBWA;
+module_param(mcpy, uint, S_IRUGO);
 MODULE_PARM_DESC(mcpy, "Set for mcpy");
-
-static unsigned int mcpy_size = SZ_4M;
-module_param(mcpy_size, uint, S_IRUGO);
-MODULE_PARM_DESC(mcpy_size, "Set for mcpy size");
 
 static bool cm = 1;
 module_param(cm, bool, S_IRUGO);
 MODULE_PARM_DESC(cm, "Set for cache maintenance");
+
+static unsigned int mcpy_size = SZ_4M;
+module_param(mcpy_size, uint, S_IRUGO);
+MODULE_PARM_DESC(mcpy_size, "Set for mcpy size");
 
 struct task_struct *cacheperf_task;
 static bool thread_running;
 
 #define START_SIZE (64)
 #define END_SIZE (SZ_4M)
-
-enum memtype {
-	MT_WBWA,
-	MT_NC,
-	MT_SO,
-	MT_MAX,
-};
+#define OUT_TRY_CNT 100
+#define SCRAMBLE_SIZE (128+64+32+16+8+4+2+1)
+#define SMALL_SIZE (7)
 
 enum cachemaintenance {
 	CM_CLEAN,
@@ -81,19 +86,19 @@ static long update_timeval(struct timespec lhs, struct timespec rhs)
 	return val;
 }
 
-bool buf_compare(u32 src[], u32 dst[], unsigned int bytes)
+bool buf_compare(u8 src[], u8 dst[], unsigned int bytes)
 {
 	unsigned int i;
 
-	for (i = 0; i < bytes / 4; i++) {
+	for (i = 0; i < bytes; i++) {
 		if (src[i] != dst[i]) {
 			printk(KERN_ERR "Failed to compare: %d, %x:%x-%x:%x\n",
-			       i, (u32) src, src[i], (u32) dst, dst[i]);
-			return false;
+			       i, (u32)src, src[i], (u32)dst, dst[i]);
+			return -EINVAL;
 		}
 	}
 
-	return true;
+	return 0;
 }
 
 static void *remap_vm(dma_addr_t phys, u32 size, pgprot_t pgprot)
@@ -123,19 +128,33 @@ static void *remap_vm(dma_addr_t phys, u32 size, pgprot_t pgprot)
 	return virt;
 }
 
-static void memcpyperf(void *src, void *dst, u32 size)
+static void memcpyperf(void *src, void *dst, u32 size, u32 cnt)
 {
 	struct timespec beforets;
 	struct timespec afterts;
-	u32 i;
+	long val[OUT_TRY_CNT];
+	long sum = 0;
+	u32 i, j;
 
-	getnstimeofday(&beforets);
+	memset(src, 0xab, size);
+	memset(dst, 0x00, size);
 
-	for (i = 0; i < try_cnt; i++)
-		memcpy(dst, src, size);
+	for (j = 0; j < OUT_TRY_CNT; j++) {
+		getnstimeofday(&beforets);
+		for (i = 0; i < cnt; i++)
+			memcpy(dst, src, size);
+		getnstimeofday(&afterts);
+		mdelay(100);
+		val[j] = update_timeval(beforets, afterts)/cnt;
+	}
 
-	getnstimeofday(&afterts);
-	printk(KERN_ERR "%lu\n", update_timeval(beforets, afterts)/try_cnt);
+	for (j = 0; j < OUT_TRY_CNT; j++)
+		sum += val[j];
+
+	printk(KERN_ERR "%lu\n", sum/OUT_TRY_CNT);
+
+	if (buf_compare(src, dst, size))
+		printk(KERN_ERR "copy err\n");
 }
 
 static void cacheperf(void *vbuf, enum cachemaintenance id)
@@ -219,29 +238,48 @@ static int perfmain(void)
 		printk(KERN_INFO "## Memcpy perf (ns, unit tr size: %dKB)\n",
 				mcpy_size/SZ_1K);
 
-		printk(KERN_INFO "1. SO type\n");
-		srcbuf[MT_SO] = remap_vm(dmasrc, mcpy_size,
-				pgprot_noncached(PAGE_KERNEL));
-		dstbuf[MT_SO] = remap_vm(dmadst, mcpy_size,
-				pgprot_noncached(PAGE_KERNEL));
-		xfer_size = START_SIZE;
-		while (xfer_size <= END_SIZE) {
-			memcpyperf(srcbuf[MT_SO], dstbuf[MT_SO], mcpy_size);
-			xfer_size *= 2;
+		if (mcpy >= MT_SO) {
+			printk(KERN_INFO "1. SO type\n");
+			srcbuf[MT_SO] = remap_vm(dmasrc, mcpy_size,
+					pgprot_noncached(PAGE_KERNEL));
+			dstbuf[MT_SO] = remap_vm(dmadst, mcpy_size,
+					pgprot_noncached(PAGE_KERNEL));
+			xfer_size = START_SIZE;
+			while (xfer_size <= END_SIZE) {
+				memcpyperf(srcbuf[MT_SO], dstbuf[MT_SO],
+					xfer_size, 10);
+				xfer_size *= 2;
+			}
+			vunmap(srcbuf[MT_SO]);
+			vunmap(dstbuf[MT_SO]);
 		}
-		vunmap(srcbuf[MT_SO]);
-		vunmap(dstbuf[MT_SO]);
 
-		printk(KERN_INFO "2. Normal NCNB type\n");
-		while (xfer_size <= END_SIZE) {
-			memcpyperf(srcbuf[MT_NC], dstbuf[MT_NC], mcpy_size);
-			xfer_size *= 2;
+		if (mcpy >= MT_NC) {
+			printk(KERN_INFO "2. Normal NCNB type\n");
+			xfer_size = START_SIZE;
+			while (xfer_size <= END_SIZE) {
+				memcpyperf(srcbuf[MT_NC], dstbuf[MT_NC],
+					xfer_size, 10);
+				xfer_size *= 2;
+			}
 		}
 
 		printk(KERN_INFO "3. Cache memcpy\n");
+		printk(KERN_INFO "scramble size:");
+		memcpyperf(srcbuf[MT_WBWA], dstbuf[MT_WBWA],
+			SCRAMBLE_SIZE, try_cnt);
+		memset(dstbuf[MT_WBWA], 0x0, SCRAMBLE_SIZE);
+
+		printk(KERN_INFO "small size:");
+		memcpyperf(srcbuf[MT_WBWA], dstbuf[MT_WBWA],
+			SMALL_SIZE, try_cnt);
+		memset(dstbuf[MT_WBWA], 0x0, SMALL_SIZE);
+
+		printk(KERN_INFO "size (%d ~ %d)\n ", START_SIZE, END_SIZE);
 		xfer_size = START_SIZE;
 		while (xfer_size <= END_SIZE) {
-			memcpyperf(srcbuf[MT_WBWA], dstbuf[MT_WBWA], xfer_size);
+			memcpyperf(srcbuf[MT_WBWA], dstbuf[MT_WBWA],
+				xfer_size, try_cnt);
 			xfer_size *= 2;
 		}
 	}

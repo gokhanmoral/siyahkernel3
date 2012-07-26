@@ -105,6 +105,8 @@ static void ump_vma_close(struct vm_area_struct * vma)
 
 	DBG_MSG(4, ("VMA close, VMA reference count decremented. VMA: 0x%08lx, reference count: %d\n", (unsigned long)vma, new_val));
 
+	vma_usage_tracker->descriptor->process_mapping_info = vma;
+
 	if (0 == new_val)
 	{
 		ump_memory_allocation * descriptor;

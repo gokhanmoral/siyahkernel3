@@ -55,6 +55,8 @@ struct max77693_charger_platform_data {
 	int num_init_data;
 #ifdef CONFIG_BATTERY_WPC_CHARGER
 	int wpc_irq_gpio;
+	int vbus_irq_gpio;
+	bool wc_pwr_det;
 #endif
 };
 
@@ -131,4 +133,9 @@ struct max77693_muic_data {
 	void (*jig_state) (int jig_state);
 
 };
+
+#if defined(CONFIG_MACH_M0_CTC)
+int max7693_muic_cp_usb_state(void);
+#endif
+
 #endif				/* __LINUX_MFD_MAX77693_H */

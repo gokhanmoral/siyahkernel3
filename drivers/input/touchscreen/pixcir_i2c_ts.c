@@ -384,6 +384,44 @@ static void pixcir_ts_close(struct input_dev *dev)
 {
 }
 
+static ssize_t virtualkeys_sysfs_read(struct file *filp,
+		struct kobject *kobj, struct bin_attribute *attr,
+		char *buf, loff_t off, size_t count)
+{
+	int len = 0;
+
+	len = sprintf(buf, "0x01:32:50:835:50:50\n");
+	len += sprintf(buf + len, "0x01:30:240:835:50:50\n");
+	len += sprintf(buf + len, "0x01:48:430:835:50:50");
+
+	return len;
+}
+
+static struct bin_attribute virtualkeys_attr = {
+	.attr = {
+		.name = "virtualkeys.pixcir-i2c-ts",
+		.mode = S_IRWXUGO,
+	},
+	.size = KEYMAPSIZE+1,
+	.read = virtualkeys_sysfs_read,
+	.write = NULL,
+	.mmap = NULL,
+};
+
+static int board_properties_init(struct kobject *kobj)
+{
+	int retval;
+	kobj = kobject_create_and_add("board_properties", NULL);
+	if (!kobj)
+		return -ENOMEM;
+
+	retval = sysfs_create_bin_file(kobj, &virtualkeys_attr);
+	if (retval)
+		return -ENOMEM;
+
+	return 0;
+}
+
 static int pixcir_i2c_ts_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {

@@ -30,7 +30,6 @@ enum {
 	DSIM_LANE_DATA3	= (1 << 4),
 };
 
-#define MHZ			(1000 * 1000)
 #define FIN_HZ			(24 * MHZ)
 
 #define DFIN_PLL_MIN_HZ		(6 * MHZ)

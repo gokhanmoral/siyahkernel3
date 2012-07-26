@@ -61,7 +61,6 @@ static bool __get_ensemble_info(struct ensemble_info_type *e_info
 
 	if (e_info->tot_sub_ch > 0) {
 		ensembleName = (char *)dmb_drv_get_ensemble_label();
-		DPRINTK("ensembleName : %s\n", ensembleName);
 
 		if (ensembleName)
 			strncpy((char *)e_info->ensem_label,
@@ -69,10 +68,6 @@ static bool __get_ensemble_info(struct ensemble_info_type *e_info
 					ENSEMBLE_LABEL_MAX);
 
 		e_info->ensem_freq = freq;
-
-		DPRINTK("%s : ensembleName(%s)\n",
-			__func__,
-			ensembleName);
 
 		for (i = 0; i < 2; i++) {
 			cnt = (i == 0)
@@ -106,10 +101,6 @@ static bool __get_ensemble_info(struct ensemble_info_type *e_info
 						dmb_drv_get_sub_ch_dab_label(j),
 						SVC_LABEL_MAX);
 
-				DPRINTK("%s(sub_ch_id:%d,tmid:%d)\n",
-					e_info->sub_ch[sub_i].svc_label,
-					e_info->sub_ch[sub_i].sub_ch_id,
-					e_info->sub_ch[sub_i].tmid);
 			}
 		}
 		return true;

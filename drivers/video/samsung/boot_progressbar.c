@@ -54,11 +54,11 @@ static int progress_flag = FALSE;
 static int progress_pos;
 static struct timer_list progress_timer;
 
-#define PROGRESS_BAR_LEFT_POS	    54
-#define PROGRESS_BAR_RIGHT_POS	    425
-#define PROGRESS_BAR_START_Y	    576
 #define PROGRESS_BAR_WIDTH	    4
 #define PROGRESS_BAR_HEIGHT	    8
+#define PROGRESS_BAR_LEFT_POS	    54
+#define PROGRESS_BAR_RIGHT_POS	   (425-PROGRESS_BAR_WIDTH)
+#define PROGRESS_BAR_START_Y	    576
 
 static unsigned char anycall_progress_bar_left[] = {
 0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00,
@@ -158,6 +158,31 @@ static void s3cfb_update_framebuffer( \
 	}
 }
 
+
+/*
+if Updated-pixel is overwrited by other color, progressbar-Update Stop.
+return value : TRUE(update), FALSE(STOP)
+*/
+static int s3cfb_check_progress(struct fb_info *fb, const int progress_pos)
+{
+	unsigned char *pDst = fb->screen_base;
+	struct fb_fix_screeninfo *fix = &fb->fix;
+	struct fb_var_screeninfo *var = &fb->var;
+	int bytes_per_pixel = (var->bits_per_pixel / 8);
+	int x = PROGRESS_BAR_LEFT_POS;
+	int y = PROGRESS_BAR_START_Y;
+
+	if (progress_pos + PROGRESS_BAR_WIDTH >= PROGRESS_BAR_RIGHT_POS)
+		return FALSE;
+
+	pDst += y * fix->line_length + x * bytes_per_pixel;
+	if (*pDst == anycall_progress_bar_left[0])
+		return TRUE;
+	else
+		return FALSE;
+}
+
+
 void s3cfb_start_progress(struct fb_info *fb)
 {
 	int x_pos;
@@ -214,13 +239,15 @@ static void s3cfb_stop_progress(void)
 static void progress_timer_handler(unsigned long data)
 {
 	int i;
-	for (i = 0; i < 4; i++) {
-		s3cfb_update_framebuffer((struct fb_info *)data,
-			progress_pos++,
-			PROGRESS_BAR_START_Y,
-			(void *)anycall_progress_bar_center,
-			1,
-			PROGRESS_BAR_HEIGHT);
+
+	if (s3cfb_check_progress((struct fb_info *)data, progress_pos)) {
+		for (i = 0; i < PROGRESS_BAR_WIDTH; i++) {
+			s3cfb_update_framebuffer((struct fb_info *)data,
+				progress_pos++,
+				PROGRESS_BAR_START_Y,
+				(void *)anycall_progress_bar_center,
+				1,
+				PROGRESS_BAR_HEIGHT);
 	}
 
 	s3cfb_update_framebuffer((struct fb_info *)data,
@@ -230,11 +257,10 @@ static void progress_timer_handler(unsigned long data)
 		PROGRESS_BAR_WIDTH,
 		PROGRESS_BAR_HEIGHT);
 
-	if (progress_pos + PROGRESS_BAR_WIDTH >= PROGRESS_BAR_RIGHT_POS) {
-		s3cfb_stop_progress();
-	} else {
 		progress_timer.expires = (get_jiffies_64() + (HZ/20));
 		progress_timer.function = progress_timer_handler;
 		add_timer(&progress_timer);
-	}
+	} else
+		s3cfb_stop_progress();
+
 }

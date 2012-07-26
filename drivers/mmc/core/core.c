@@ -101,7 +101,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 			cmd->retries = 0;
 	}
 
-	if (err && cmd->retries) {
+	if (err && cmd->retries && !mmc_card_removed(host->card)) {
 		pr_debug("%s: req failed (CMD%u): %d, retrying...\n",
 			mmc_hostname(host), cmd->opcode, err);
 
@@ -207,20 +207,29 @@ static void __mmc_start_req(struct mmc_host *host, struct mmc_request *mrq)
 	init_completion(&mrq->completion);
 	mrq->done = mmc_wait_done;
 
+	if (mmc_card_removed(host->card)) {
+		mrq->cmd->error = -ENOMEDIUM;
+		complete(&mrq->completion);
+		return;
+	}
+
 #if (defined(CONFIG_MIDAS_COMMON) && !defined(CONFIG_EXYNOS4_DEV_DWMCI)) || \
-	defined(CONFIG_MACH_U1)
+	defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_SLP_NAPLES) || \
+	defined(CONFIG_MACH_TRATS)
+#ifndef CONFIG_MMC_POLLING_WAIT_CMD23
+
 	if(mrq->sbc) {
-                struct mmc_request tmp_mrq;
+		struct mmc_request tmp_mrq;
 
-                memcpy(&tmp_mrq, mrq, sizeof(struct mmc_request));
+		memcpy(&tmp_mrq, mrq, sizeof(struct mmc_request));
 
-                /* send cmd 23 first */
-                mrq->cmd = mrq->sbc;
-                mrq->data = 0;
-                mmc_start_request(host, mrq);
+		/* send cmd 23 first */
+		mrq->cmd = mrq->sbc;
+		mrq->data = 0;
+		mmc_start_request(host, mrq);
 
-                /* wait for cmd 23 complete */
-                wait_for_completion(&mrq->completion);
+		/* wait for cmd 23 complete */
+		wait_for_completion(&mrq->completion);
 
 		/* check that cmd23 is done well */
 		if(mrq->cmd->error) {
@@ -230,15 +239,16 @@ static void __mmc_start_req(struct mmc_host *host, struct mmc_request *mrq)
 			mrq->data = tmp_mrq.data;
 			return;
 		}
-                /* send R/W command */
-                init_completion(&mrq->completion);
-                mrq->sbc = mrq->cmd;
-                mrq->cmd = tmp_mrq.cmd;
-                mrq->data = tmp_mrq.data;
-                mmc_start_request(host, mrq);
-        } else
+		/* send R/W command */
+		init_completion(&mrq->completion);
+		mrq->sbc = mrq->cmd;
+		mrq->cmd = tmp_mrq.cmd;
+		mrq->data = tmp_mrq.data;
+		mmc_start_request(host, mrq);
+	} else
 #endif
-                mmc_start_request(host, mrq);
+#endif
+		mmc_start_request(host, mrq);
 }
 
 static inline void mmc_set_ios(struct mmc_host *host);
@@ -246,22 +256,29 @@ static void mmc_power_up(struct mmc_host *host);
 static void mmc_wait_for_req_done(struct mmc_host *host,
 				  struct mmc_request *mrq)
 {
+	struct mmc_command *cmd;
 #if (defined(CONFIG_MIDAS_COMMON) && !defined(CONFIG_EXYNOS4_DEV_DWMCI))
+#ifndef CONFIG_MMC_POLLING_WAIT_CMD23
 	if(mrq->sbc && mrq->sbc->error) {
 		/* if an sbc error exists, do not wait completion.
 		   completion is already called.
 		   nothing to do at this condition. */
 	} else
 #endif
+#endif
 		wait_for_completion(&mrq->completion);
+
+	cmd = mrq->cmd;
+	if (!cmd->error || !cmd->retries ||
+	    mmc_card_removed(host->card))
+		return;
 
 	/* if card is mmc type and nonremovable, and there are erros after
 	   issuing r/w command, then init eMMC and mshc */
 	if (((host->card) && mmc_card_mmc(host->card) && \
 		(host->caps & MMC_CAP_NONREMOVABLE)) && \
 		(mrq->cmd->error == -ENOTRECOVERABLE || \
-		((mrq->cmd->opcode == 17 || mrq->cmd->opcode == 18 || \
-		mrq->cmd->opcode == 24 || mrq->cmd->opcode == 25) && \
+		((mrq->cmd->opcode == 17 || mrq->cmd->opcode == 18) && \
 		((mrq->data->error) || mrq->cmd->error || \
 		(mrq->sbc && mrq->sbc->error))))) {
 		int rt_err = -1,count = 3;
@@ -317,8 +334,11 @@ static void mmc_wait_for_req_done(struct mmc_host *host,
 static void mmc_pre_req(struct mmc_host *host, struct mmc_request *mrq,
 		 bool is_first_req)
 {
-	if (host->ops->pre_req)
+	if (host->ops->pre_req) {
+		mmc_host_clk_hold(host);
 		host->ops->pre_req(host, mrq, is_first_req);
+		mmc_host_clk_release(host);
+	}
 }
 
 /**
@@ -333,8 +353,11 @@ static void mmc_pre_req(struct mmc_host *host, struct mmc_request *mrq,
 static void mmc_post_req(struct mmc_host *host, struct mmc_request *mrq,
 			 int err)
 {
-	if (host->ops->post_req)
+	if (host->ops->post_req) {
+		mmc_host_clk_hold(host);
 		host->ops->post_req(host, mrq, err);
+		mmc_host_clk_release(host);
+	}
 }
 
 /**
@@ -358,13 +381,6 @@ struct mmc_async_req *mmc_start_req(struct mmc_host *host,
 {
 	int err = 0;
 	struct mmc_async_req *data = host->areq;
-
-	if (!host->card || (host && mmc_card_sd(host->card) &&
-			 !mmc_host_sd_present(host))) {
-		printk(KERN_DEBUG "mmc%d: SDcard removed. areq is %s.\n",
-				host->index, areq ? "not NULL" : "NULL");
-		goto sdcard_removed;
-	}
 
 	/* Prepare a new request */
 	if (areq)
@@ -394,8 +410,6 @@ struct mmc_async_req *mmc_start_req(struct mmc_host *host,
 	if (error)
 		*error = err;
 	return data;
- sdcard_removed:
-	return NULL;
 }
 EXPORT_SYMBOL(mmc_start_req);
 
@@ -638,7 +652,9 @@ int mmc_host_enable(struct mmc_host *host)
 		int err;
 
 		host->en_dis_recurs = 1;
+		mmc_host_clk_hold(host);
 		err = host->ops->enable(host);
+		mmc_host_clk_release(host);
 		host->en_dis_recurs = 0;
 
 		if (err) {
@@ -658,7 +674,9 @@ static int mmc_host_do_disable(struct mmc_host *host, int lazy)
 		int err;
 
 		host->en_dis_recurs = 1;
+		mmc_host_clk_hold(host);
 		err = host->ops->disable(host, lazy);
+		mmc_host_clk_release(host);
 		host->en_dis_recurs = 0;
 
 		if (err < 0) {
@@ -1221,8 +1239,11 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage, bool cmd11
 
 	host->ios.signal_voltage = signal_voltage;
 
-	if (host->ops->start_signal_voltage_switch)
+	if (host->ops->start_signal_voltage_switch) {
+		mmc_host_clk_hold(host);
 		err = host->ops->start_signal_voltage_switch(host, &host->ios);
+		mmc_host_clk_release(host);
+	}
 
 	return err;
 }
@@ -1506,6 +1527,7 @@ void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 	spin_unlock_irqrestore(&host->lock, flags);
 #endif
 
+	host->detect_change = 1;
 	wake_lock(&host->detect_wake_lock);
 	mmc_schedule_delayed_work(&host->detect, delay);
 }
@@ -2101,6 +2123,43 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
 	return -EIO;
 }
 
+int _mmc_detect_card_removed(struct mmc_host *host)
+{
+	int ret;
+
+	if ((host->caps & MMC_CAP_NONREMOVABLE) || !host->bus_ops->alive)
+		return 0;
+
+	if (!host->card || mmc_card_removed(host->card))
+		return 1;
+
+	ret = host->bus_ops->alive(host);
+	if (ret) {
+		mmc_card_set_removed(host->card);
+		pr_debug("%s: card remove detected\n", mmc_hostname(host));
+	}
+
+	return ret;
+}
+
+int mmc_detect_card_removed(struct mmc_host *host)
+{
+	struct mmc_card *card = host->card;
+
+	WARN_ON(!host->claimed);
+	/*
+	 * The card will be considered unchanged unless we have been asked to
+	 * detect a change or host requires polling to provide card detection.
+	 */
+	if (card && !host->detect_change && !(host->caps & MMC_CAP_NEEDS_POLL))
+		return mmc_card_removed(card);
+
+	host->detect_change = 0;
+
+	return _mmc_detect_card_removed(host);
+}
+EXPORT_SYMBOL(mmc_detect_card_removed);
+
 void mmc_rescan(struct work_struct *work)
 {
 	static const unsigned freqs[] = { 400000, 300000, 200000, 100000 };
@@ -2127,6 +2186,8 @@ void mmc_rescan(struct work_struct *work)
 	 * can respond */
 	if (host->bus_dead)
 		extend_wakelock = 1;
+
+	host->detect_change = 0;
 
 	/*
 	 * Let mmc_bus_put() free the bus/bus_ops if we've found that
@@ -2373,16 +2434,41 @@ int mmc_suspend_host(struct mmc_host *host)
 	if (mmc_bus_needs_resume(host))
 		return 0;
 
-	if (host->pm_flags & MMC_PM_IGNORE_SUSPEND_RESUME)
-		host->pm_flags |= MMC_PM_KEEP_POWER;
-
 	if (host->caps & MMC_CAP_DISABLE)
 		cancel_delayed_work(&host->disable);
 	if (cancel_delayed_work(&host->detect))
 		wake_unlock(&host->detect_wake_lock);
 	mmc_flush_scheduled_work();
 	if (mmc_try_claim_host(host)) {
+		u32 status;
+		u32 count=300000; /* up to 300ms */
+
+		/* if a sdmmc card exists and the card is mmc */
+		if (((host->card) && mmc_card_mmc(host->card))) {
+			int ret;
+			/* flush emmc's cache before getting suspend */
+			ret = mmc_flush_cache(host->card);
+			if (ret)
+				pr_err("%s: there is error %d while "
+				       "flushing emmc's cache\n",
+					mmc_hostname(host),ret);
+		}
 		err = mmc_cache_ctrl(host, 0);
+
+		/* to make sure that emmc is not working. should check
+		   emmc's state */
+		if (((host->card) && mmc_card_mmc(host->card))) {
+			do {
+				err = mmc_send_status(host->card, &status);
+				if (err)
+					break;
+
+				/* if it is not the first time */
+				if (count != 300000)
+					udelay(1);
+				count--;
+			} while (count && R1_CURRENT_STATE(status) == 7);
+		}
 		mmc_do_release_host(host);
 	} else {
 		err = -EBUSY;
@@ -2424,6 +2510,7 @@ int mmc_suspend_host(struct mmc_host *host)
 				host->pm_flags = 0;
 				err = 0;
 			}
+
 			mmc_do_release_host(host);
 		} else {
 			err = -EBUSY;
@@ -2431,10 +2518,8 @@ int mmc_suspend_host(struct mmc_host *host)
 	}
 	mmc_bus_put(host);
 
-	if (!err && !mmc_card_keep_power(host)) {
-		if (!(host->pm_flags & MMC_PM_IGNORE_SUSPEND_RESUME))
-			mmc_power_off(host);
-	}
+	if (!err && !mmc_card_keep_power(host))
+		mmc_power_off(host);
 
 out:
 	return err;
@@ -2459,10 +2544,7 @@ int mmc_resume_host(struct mmc_host *host)
 
 	if (host->bus_ops && !host->bus_dead) {
 		if (!mmc_card_keep_power(host)) {
-			/* for BCM WIFI */
-			if (!(host->pm_flags & MMC_PM_IGNORE_SUSPEND_RESUME))
-				mmc_power_up(host);
-
+			mmc_power_up(host);
 			mmc_select_voltage(host, host->ocr);
 			/*
 			 * Tell runtime PM core we just powered up the card,
@@ -2614,7 +2696,11 @@ static void __exit mmc_exit(void)
 	destroy_workqueue(workqueue);
 }
 
+#ifdef CONFIG_FAST_RESUME
+beforeresume_initcall(mmc_init);
+#else
 subsys_initcall(mmc_init);
+#endif
 module_exit(mmc_exit);
 
 MODULE_LICENSE("GPL");

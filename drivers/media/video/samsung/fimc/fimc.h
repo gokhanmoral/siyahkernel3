@@ -26,7 +26,7 @@
 #include <media/v4l2-ioctl.h>
 #include <media/videobuf-core.h>
 #include <media/v4l2-mediabus.h>
-#ifdef CONFIG_BUSFREQ_OPP
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 #include <mach/dev.h>
 #endif
 #include <plat/media.h>
@@ -62,11 +62,7 @@
 #define FIMC_TPID		3
 #define FIMC_CAPBUFS		32
 #define FIMC_ONESHOT_TIMEOUT	200
-#if defined (CONFIG_CPU_EXYNOS4210)
-#define FIMC_DQUEUE_TIMEOUT 100
-#else
 #define FIMC_DQUEUE_TIMEOUT	1000
-#endif
 
 #define FIMC_FIFOOFF_CNT	1000000 /* Sufficiently big value for stop */
 
@@ -286,9 +282,6 @@ struct fimc_capinfo {
 	u32			vt_mode;
 	u32			sensor_output_width;
 	u32			sensor_output_height;
-#if defined(CONFIG_MACH_PX) && defined(CONFIG_VIDEO_HD_SUPPORT)
-	u32			video_width;
-#endif
 };
 
 /* for output overlay device */
@@ -348,6 +341,7 @@ struct fimc_outinfo {
 	int			last_ctx;
 	spinlock_t		lock_in;
 	spinlock_t		lock_out;
+	spinlock_t		slock;
 	struct fimc_idx		inq[FIMC_INQUEUES];
 	struct fimc_ctx		ctx[FIMC_MAX_CTXS];
 	bool			ctx_used[FIMC_MAX_CTXS];
@@ -452,7 +446,7 @@ struct fimc_control {
 	spinlock_t			outq_lock;
 	wait_queue_head_t		wq;
 	struct device			*dev;
-#ifdef CONFIG_BUSFREQ_OPP
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	struct device			*bus_dev;
 #endif
 	int				irq;
@@ -483,10 +477,6 @@ struct fimc_control {
 	struct timeval			before_time;
 	char 				cma_name[16];
 	bool				restart;
-#if defined(CONFIG_CPU_FREQ) && defined(CONFIG_CPU_EXYNOS4210)
-	atomic_t			busfreq_lock_cnt;
-	int				busfreq_flag;
-#endif
 };
 
 /* global */
@@ -568,7 +558,13 @@ extern int s3cfb_direct_ioctl(int id, unsigned int cmd, unsigned long arg);
 extern int s3cfb_open_fifo(int id, int ch, int (*do_priv)(void *), void *param);
 extern int s3cfb_close_fifo(int id, int (*do_priv)(void *), void *param);
 #else /* Mainline FIMD */
+#ifdef CONFIG_DRM_EXYNOS_FIMD_WB
+extern int fimc_send_event(unsigned long val, void *v);
+static inline int s3cfb_direct_ioctl(int id, unsigned int cmd,
+unsigned long arg) { return fimc_send_event(cmd, (void *)arg); }
+#else
 static inline int s3cfb_direct_ioctl(int id, unsigned int cmd, unsigned long arg) { return 0; }
+#endif
 static inline int s3cfb_open_fifo(int id, int ch, int (*do_priv)(void *), void *param) { return 0; }
 static inline int s3cfb_close_fifo(int id, int (*do_priv)(void *), void *param) { return 0; }
 #endif

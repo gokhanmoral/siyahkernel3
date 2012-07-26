@@ -9,6 +9,7 @@ extern void midas_camera_init(void);
 /* charger-manager */
 extern struct charger_global_desc midas_charger_g_desc;
 extern struct platform_device midas_charger_manager;
+extern void cm_change_fullbatt_uV(void);
 
 /* MAX77693 */
 extern struct max77693_muic_data max77693_muic;
@@ -24,6 +25,10 @@ extern struct max77693_regulator_data max77693_regulators;
 
 #ifdef CONFIG_SLP
 extern int __init midas_nfc_init(int i2c_bus);
+
+/* NTC thermistor */
+extern struct platform_device midas_ncp15wb473_thermistor;
+extern int __init adc_ntc_init(int port);
 #endif
 
 /* wifi */

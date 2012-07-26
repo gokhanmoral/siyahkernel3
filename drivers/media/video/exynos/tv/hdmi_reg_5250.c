@@ -12,6 +12,8 @@
  */
 
 #include <linux/delay.h>
+#include <linux/pm_runtime.h>
+#include <plat/tvout.h>
 
 #include "hdmi.h"
 #include "regs-hdmi-5250.h"
@@ -201,7 +203,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080i60 = {
 		.width = 1920,
 		.height = 1080,
 		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
+		.field = V4L2_FIELD_INTERLACED,
 	},
 };
 
@@ -441,7 +443,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080i50 = {
 		.width = 1920,
 		.height = 1080,
 		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
+		.field = V4L2_FIELD_INTERLACED,
 	},
 };
 
@@ -882,7 +884,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080i59_94 = {
 		.width = 1920,
 		.height = 1080,
 		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
+		.field = V4L2_FIELD_INTERLACED,
 	},
 };
 
@@ -949,75 +951,12 @@ static const struct hdmi_preset_conf hdmi_conf_1080p59_94 = {
 	},
 };
 
-static const struct hdmi_preset_conf hdmi_conf_720p60_fp = {
-	.core = {
-		.h_blank = {0x72, 0x01},
-		.v2_blank = {0xdc, 0x05},
-		.v1_blank = {0x1e, 0x00},
-		.v_line = {0xdc, 0x05},
-		.h_line = {0x72, 0x06},
-		.hsync_pol = {0x00},
-		.vsync_pol = {0x00},
-		.int_pro_mode = {0x00},
-		.v_blank_f0 = {0xff, 0xff},
-		.v_blank_f1 = {0xff, 0xff},
-		.h_sync_start = {0x6c, 0x00},
-		.h_sync_end = {0x94, 0x00},
-		.v_sync_line_bef_2 = {0x0a, 0x00},
-		.v_sync_line_bef_1 = {0x05, 0x00},
-		.v_sync_line_aft_2 = {0xff, 0xff},
-		.v_sync_line_aft_1 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_2 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_1 = {0xff, 0xff},
-		.v_blank_f2 = {0xff, 0xff},
-		.v_blank_f3 = {0xff, 0xff},
-		.v_blank_f4 = {0xff, 0xff},
-		.v_blank_f5 = {0xff, 0xff},
-		.v_sync_line_aft_3 = {0xff, 0xff},
-		.v_sync_line_aft_4 = {0xff, 0xff},
-		.v_sync_line_aft_5 = {0xff, 0xff},
-		.v_sync_line_aft_6 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_3 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0xee, 0x02},
-		.vact_space_2 = {0x0c, 0x03},
-		.vact_space_3 = {0xff, 0xff},
-		.vact_space_4 = {0xff, 0xff},
-		.vact_space_5 = {0xff, 0xff},
-		.vact_space_6 = {0xff, 0xff},
-		/* other don't care */
-	},
-	.tg = {
-		0x00, /* cmd */
-		0x72, 0x06, /* h_fsz */
-		0x72, 0x01, 0x00, 0x05, /* hact */
-		0xdc, 0x05, /* v_fsz */
-		0x01, 0x00, 0x33, 0x02, /* vsync */
-		0x1e, 0x00, 0x00, 0x2d, /* vact */
-		0x33, 0x02, /* field_chg */
-		0x0c, 0x03, /* vact_st2 */
-		0x00, 0x00, /* vact_st3 */
-		0x00, 0x00, /* vact_st4 */
-		0x01, 0x00, 0x01, 0x00, /* vsync top/bot */
-		0x01, 0x00, 0x33, 0x02, /* field top/bot */
-		0x01, /* 3d FP */
-	},
-	.mbus_fmt = {
-		.width = 1280,
-		.height = 720,
-		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
-	},
-};
-
 static const struct hdmi_preset_conf hdmi_conf_720p60_sb_half = {
 	.core = {
 		.h_blank = {0x72, 0x01},
-		.v2_blank = {0xdc, 0x05},
+		.v2_blank = {0xee, 0x02},
 		.v1_blank = {0x1e, 0x00},
-		.v_line = {0xdc, 0x05},
+		.v_line = {0xee, 0x02},
 		.h_line = {0x72, 0x06},
 		.hsync_pol = {0x00},
 		.vsync_pol = {0x00},
@@ -1044,8 +983,8 @@ static const struct hdmi_preset_conf hdmi_conf_720p60_sb_half = {
 		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0xee, 0x02},
-		.vact_space_2 = {0x0c, 0x03},
+		.vact_space_1 = {0xff, 0xff},
+		.vact_space_2 = {0xff, 0xff},
 		.vact_space_3 = {0xff, 0xff},
 		.vact_space_4 = {0xff, 0xff},
 		.vact_space_5 = {0xff, 0xff},
@@ -1078,9 +1017,9 @@ static const struct hdmi_preset_conf hdmi_conf_720p60_sb_half = {
 static const struct hdmi_preset_conf hdmi_conf_720p60_tb = {
 	.core = {
 		.h_blank = {0x72, 0x01},
-		.v2_blank = {0xdc, 0x05},
+		.v2_blank = {0xee, 0x02},
 		.v1_blank = {0x1e, 0x00},
-		.v_line = {0xdc, 0x05},
+		.v_line = {0xee, 0x02},
 		.h_line = {0x72, 0x06},
 		.hsync_pol = {0x00},
 		.vsync_pol = {0x00},
@@ -1107,8 +1046,8 @@ static const struct hdmi_preset_conf hdmi_conf_720p60_tb = {
 		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0xee, 0x02},
-		.vact_space_2 = {0x0c, 0x03},
+		.vact_space_1 = {0xff, 0xff},
+		.vact_space_2 = {0xff, 0xff},
 		.vact_space_3 = {0xff, 0xff},
 		.vact_space_4 = {0xff, 0xff},
 		.vact_space_5 = {0xff, 0xff},
@@ -1138,75 +1077,12 @@ static const struct hdmi_preset_conf hdmi_conf_720p60_tb = {
 	},
 };
 
-static const struct hdmi_preset_conf hdmi_conf_720p59_94_fp = {
-	.core = {
-		.h_blank = {0x72, 0x01},
-		.v2_blank = {0xdc, 0x05},
-		.v1_blank = {0x1e, 0x00},
-		.v_line = {0xdc, 0x05},
-		.h_line = {0x72, 0x06},
-		.hsync_pol = {0x00},
-		.vsync_pol = {0x00},
-		.int_pro_mode = {0x00},
-		.v_blank_f0 = {0xff, 0xff},
-		.v_blank_f1 = {0xff, 0xff},
-		.h_sync_start = {0x6c, 0x00},
-		.h_sync_end = {0x94, 0x00},
-		.v_sync_line_bef_2 = {0x0a, 0x00},
-		.v_sync_line_bef_1 = {0x05, 0x00},
-		.v_sync_line_aft_2 = {0xff, 0xff},
-		.v_sync_line_aft_1 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_2 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_1 = {0xff, 0xff},
-		.v_blank_f2 = {0xff, 0xff},
-		.v_blank_f3 = {0xff, 0xff},
-		.v_blank_f4 = {0xff, 0xff},
-		.v_blank_f5 = {0xff, 0xff},
-		.v_sync_line_aft_3 = {0xff, 0xff},
-		.v_sync_line_aft_4 = {0xff, 0xff},
-		.v_sync_line_aft_5 = {0xff, 0xff},
-		.v_sync_line_aft_6 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_3 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0xee, 0x02},
-		.vact_space_2 = {0x0c, 0x03},
-		.vact_space_3 = {0xff, 0xff},
-		.vact_space_4 = {0xff, 0xff},
-		.vact_space_5 = {0xff, 0xff},
-		.vact_space_6 = {0xff, 0xff},
-		/* other don't care */
-	},
-	.tg = {
-		0x00, /* cmd */
-		0x72, 0x06, /* h_fsz */
-		0x72, 0x01, 0x00, 0x05, /* hact */
-		0xee, 0x02, /* v_fsz */
-		0x01, 0x00, 0x33, 0x02, /* vsync */
-		0x1e, 0x00, 0xd0, 0x02, /* vact */
-		0x00, 0x00, /* field_chg */
-		0x0c, 0x03, /* vact_st2 */
-		0x00, 0x00, /* vact_st3 */
-		0x00, 0x00, /* vact_st4 */
-		0x00, 0x00, 0x00, 0x00, /* vsync top/bot */
-		0x00, 0x00, 0x00, 0x00, /* field top/bot */
-		0x01, /* 3d FP */
-	},
-	.mbus_fmt = {
-		.width = 1280,
-		.height = 720,
-		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
-	},
-};
-
 static const struct hdmi_preset_conf hdmi_conf_720p59_94_sb_half = {
 	.core = {
 		.h_blank = {0x72, 0x01},
-		.v2_blank = {0xdc, 0x05},
+		.v2_blank = {0xee, 0x02},
 		.v1_blank = {0x1e, 0x00},
-		.v_line = {0xdc, 0x05},
+		.v_line = {0xee, 0x02},
 		.h_line = {0x72, 0x06},
 		.hsync_pol = {0x00},
 		.vsync_pol = {0x00},
@@ -1233,8 +1109,8 @@ static const struct hdmi_preset_conf hdmi_conf_720p59_94_sb_half = {
 		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0xee, 0x02},
-		.vact_space_2 = {0x0c, 0x03},
+		.vact_space_1 = {0xff, 0xff},
+		.vact_space_2 = {0xff, 0xff},
 		.vact_space_3 = {0xff, 0xff},
 		.vact_space_4 = {0xff, 0xff},
 		.vact_space_5 = {0xff, 0xff},
@@ -1267,9 +1143,9 @@ static const struct hdmi_preset_conf hdmi_conf_720p59_94_sb_half = {
 static const struct hdmi_preset_conf hdmi_conf_720p59_94_tb = {
 	.core = {
 		.h_blank = {0x72, 0x01},
-		.v2_blank = {0xdc, 0x05},
+		.v2_blank = {0xee, 0x02},
 		.v1_blank = {0x1e, 0x00},
-		.v_line = {0xdc, 0x05},
+		.v_line = {0xee, 0x02},
 		.h_line = {0x72, 0x06},
 		.hsync_pol = {0x00},
 		.vsync_pol = {0x00},
@@ -1296,8 +1172,8 @@ static const struct hdmi_preset_conf hdmi_conf_720p59_94_tb = {
 		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
 		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0xee, 0x02},
-		.vact_space_2 = {0x0c, 0x03},
+		.vact_space_1 = {0xff, 0xff},
+		.vact_space_2 = {0xff, 0xff},
 		.vact_space_3 = {0xff, 0xff},
 		.vact_space_4 = {0xff, 0xff},
 		.vact_space_5 = {0xff, 0xff},
@@ -1318,69 +1194,6 @@ static const struct hdmi_preset_conf hdmi_conf_720p59_94_tb = {
 		0x01, 0x00, 0x01, 0x00, /* vsync top/bot */
 		0x01, 0x00, 0x33, 0x02, /* field top/bot */
 		0x00, /* 3d FP */
-	},
-	.mbus_fmt = {
-		.width = 1280,
-		.height = 720,
-		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
-	},
-};
-
-static const struct hdmi_preset_conf hdmi_conf_720p50_fp = {
-	.core = {
-		.h_blank = {0xbc, 0x02},
-		.v2_blank = {0xdc, 0x05},
-		.v1_blank = {0x1e, 0x00},
-		.v_line = {0xdc, 0x05},
-		.h_line = {0xbc, 0x07},
-		.hsync_pol = {0x00},
-		.vsync_pol = {0x00},
-		.int_pro_mode = {0x00},
-		.v_blank_f0 = {0xff, 0xff},
-		.v_blank_f1 = {0xff, 0xff},
-		.h_sync_start = {0xb6, 0x01},
-		.h_sync_end = {0xde, 0x01},
-		.v_sync_line_bef_2 = {0x0a, 0x00},
-		.v_sync_line_bef_1 = {0x05, 0x00},
-		.v_sync_line_aft_2 = {0xff, 0xff},
-		.v_sync_line_aft_1 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_2 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_1 = {0xff, 0xff},
-		.v_blank_f2 = {0xff, 0xff},
-		.v_blank_f3 = {0xff, 0xff},
-		.v_blank_f4 = {0xff, 0xff},
-		.v_blank_f5 = {0xff, 0xff},
-		.v_sync_line_aft_3 = {0xff, 0xff},
-		.v_sync_line_aft_4 = {0xff, 0xff},
-		.v_sync_line_aft_5 = {0xff, 0xff},
-		.v_sync_line_aft_6 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_3 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0xee, 0x02},
-		.vact_space_2 = {0x0c, 0x03},
-		.vact_space_3 = {0xff, 0xff},
-		.vact_space_4 = {0xff, 0xff},
-		.vact_space_5 = {0xff, 0xff},
-		.vact_space_6 = {0xff, 0xff},
-		/* other don't care */
-	},
-	.tg = {
-		0x00, /* cmd */
-		0xbc, 0x07, /* h_fsz */
-		0xbc, 0x02, 0x00, 0x05, /* hact */
-		0xee, 0x02, /* v_fsz */
-		0x01, 0x00, 0x33, 0x02, /* vsync */
-		0x1e, 0x00, 0xd0, 0x02, /* vact */
-		0x00, 0x00, /* field_chg */
-		0x0c, 0x03, /* vact_st2 */
-		0x00, 0x00, /* vact_st3 */
-		0x00, 0x00, /* vact_st4 */
-		0x00, 0x00, 0x00, 0x00, /* vsync top/bot */
-		0x00, 0x00, 0x00, 0x00, /* field top/bot */
-		0x01, /* 3d FP */
 	},
 	.mbus_fmt = {
 		.width = 1280,
@@ -1528,7 +1341,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080p24_fp = {
 		.int_pro_mode = {0x00},
 		.v_blank_f0 = {0xff, 0xff},
 		.v_blank_f1 = {0xff, 0xff},
-		.h_sync_start = {0x27, 0x0c},
+		.h_sync_start = {0x7c, 0x02},
 		.h_sync_end = {0xa8, 0x02},
 		.v_sync_line_bef_2 = {0x09, 0x00},
 		.v_sync_line_bef_1 = {0x04, 0x00},
@@ -1710,7 +1523,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080p23_98_fp = {
 		.h_blank = {0x3e, 0x03},
 		.v2_blank = {0xca, 0x08},
 		.v1_blank = {0x2d, 0x00},
-		.v_line = {0x08, 0xca},
+		.v_line = {0xca, 0x08},
 		.h_line = {0xbe, 0x0a},
 		.hsync_pol = {0x00},
 		.vsync_pol = {0x00},
@@ -1953,7 +1766,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080i60_sb_half = {
 		.width = 1920,
 		.height = 1080,
 		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
+		.field = V4L2_FIELD_INTERLACED,
 	},
 };
 
@@ -2016,7 +1829,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080i59_94_sb_half = {
 		.width = 1920,
 		.height = 1080,
 		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
+		.field = V4L2_FIELD_INTERLACED,
 	},
 };
 
@@ -2079,7 +1892,7 @@ static const struct hdmi_preset_conf hdmi_conf_1080i50_sb_half = {
 		.width = 1920,
 		.height = 1080,
 		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
+		.field = V4L2_FIELD_INTERLACED,
 	},
 };
 
@@ -2200,69 +2013,6 @@ static const struct hdmi_preset_conf hdmi_conf_1080p60_tb = {
 		0x01, 0x00, 0x01, 0x00, /* vsync top/bot */
 		0x01, 0x00, 0x33, 0x02, /* field top/bot */
 		0x00, /* 3d FP */
-	},
-	.mbus_fmt = {
-		.width = 1920,
-		.height = 1080,
-		.code = V4L2_MBUS_FMT_FIXED, /* means RGB888 */
-		.field = V4L2_FIELD_NONE,
-	},
-};
-
-static const struct hdmi_preset_conf hdmi_conf_1080p30_fp = {
-	.core = {
-		.h_blank = {0x18, 0x01},
-		.v2_blank = {0xca, 0x08},
-		.v1_blank = {0x2d, 0x00},
-		.v_line = {0xca, 0x08},
-		.h_line = {0x98, 0x08},
-		.hsync_pol = {0x00},
-		.vsync_pol = {0x00},
-		.int_pro_mode = {0x00},
-		.v_blank_f0 = {0xff, 0xff},
-		.v_blank_f1 = {0xff, 0xff},
-		.h_sync_start = {0x56, 0x00},
-		.h_sync_end = {0x82, 0x00},
-		.v_sync_line_bef_2 = {0x09, 0x00},
-		.v_sync_line_bef_1 = {0x04, 0x00},
-		.v_sync_line_aft_2 = {0xff, 0xff},
-		.v_sync_line_aft_1 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_2 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_1 = {0xff, 0xff},
-		.v_blank_f2 = {0xff, 0xff},
-		.v_blank_f3 = {0xff, 0xff},
-		.v_blank_f4 = {0xff, 0xff},
-		.v_blank_f5 = {0xff, 0xff},
-		.v_sync_line_aft_3 = {0xff, 0xff},
-		.v_sync_line_aft_4 = {0xff, 0xff},
-		.v_sync_line_aft_5 = {0xff, 0xff},
-		.v_sync_line_aft_6 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_3 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_4 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_5 = {0xff, 0xff},
-		.v_sync_line_aft_pxl_6 = {0xff, 0xff},
-		.vact_space_1 = {0x65, 0x04},
-		.vact_space_2 = {0x92, 0x04},
-		.vact_space_3 = {0xff, 0xff},
-		.vact_space_4 = {0xff, 0xff},
-		.vact_space_5 = {0xff, 0xff},
-		.vact_space_6 = {0xff, 0xff},
-		/* other don't care */
-	},
-	.tg = {
-		0x00, /* cmd */
-		0x98, 0x08, /* h_fsz */
-		0x18, 0x01, 0x80, 0x07, /* hact */
-		0xca, 0x08, /* v_fsz */
-		0x01, 0x00, 0x33, 0x02, /* vsync */
-		0x2d, 0x00, 0x38, 0x04, /* vact */
-		0x33, 0x02, /* field_chg */
-		0x92, 0x04, /* vact_st2 */
-		0x00, 0x00, /* vact_st3 */
-		0x00, 0x00, /* vact_st4 */
-		0x01, 0x00, 0x01, 0x00, /* vsync top/bot */
-		0x01, 0x00, 0x33, 0x02, /* field top/bot */
-		0x01, /* 3d FP */
 	},
 	.mbus_fmt = {
 		.width = 1920,
@@ -2433,13 +2183,10 @@ const struct hdmi_conf hdmi_conf[] = {
 	{ V4L2_DV_1080P50,	   &hdmi_conf_1080p50,		&info_2d },
 	{ V4L2_DV_1080P59_94,	   &hdmi_conf_1080p59_94,	&info_2d },
 	{ V4L2_DV_1080P60,	   &hdmi_conf_1080p60,		&info_2d },
-	{ V4L2_DV_720P60_FP,	   &hdmi_conf_720p60_fp,	&info_3d_fp },
 	{ V4L2_DV_720P60_SB_HALF,  &hdmi_conf_720p60_sb_half,	&info_3d_sb_h },
 	{ V4L2_DV_720P60_TB,	   &hdmi_conf_720p60_tb,	&info_3d_tb },
-	{ V4L2_DV_720P59_94_FP,	   &hdmi_conf_720p59_94_fp,	&info_3d_fp },
 	{ V4L2_DV_720P59_94_SB_HALF, &hdmi_conf_720p59_94_sb_half, &info_3d_sb_h },
 	{ V4L2_DV_720P59_94_TB,	   &hdmi_conf_720p59_94_tb,	&info_3d_tb },
-	{ V4L2_DV_720P50_FP,	   &hdmi_conf_720p50_fp,	&info_3d_fp },
 	{ V4L2_DV_720P50_SB_HALF,  &hdmi_conf_720p50_sb_half,	&info_3d_sb_h },
 	{ V4L2_DV_720P50_TB,	   &hdmi_conf_720p50_tb,	&info_3d_tb },
 	{ V4L2_DV_1080P24_FP,	   &hdmi_conf_1080p24_fp,	&info_3d_fp },
@@ -2453,7 +2200,6 @@ const struct hdmi_conf hdmi_conf[] = {
 	{ V4L2_DV_1080I50_SB_HALF, &hdmi_conf_1080i50_sb_half, &info_3d_sb_h },
 	{ V4L2_DV_1080P60_SB_HALF, &hdmi_conf_1080p60_sb_half, &info_3d_sb_h },
 	{ V4L2_DV_1080P60_TB, &hdmi_conf_1080p60_tb, &info_3d_tb },
-	{ V4L2_DV_1080P30_FP, &hdmi_conf_1080p30_fp, &info_3d_fp },
 	{ V4L2_DV_1080P30_SB_HALF, &hdmi_conf_1080p30_sb_half, &info_3d_sb_h },
 	{ V4L2_DV_1080P30_TB, &hdmi_conf_1080p30_tb, &info_3d_tb },
 };
@@ -2465,29 +2211,34 @@ irqreturn_t hdmi_irq_handler(int irq, void *dev_data)
 	struct hdmi_device *hdev = dev_data;
 	u32 intc_flag;
 
-	(void)irq;
-	intc_flag = hdmi_read(hdev, HDMI_INTC_FLAG_0);
-	/* clearing flags for HPD plug/unplug */
-	if (intc_flag & HDMI_INTC_FLAG_HPD_UNPLUG) {
-		printk(KERN_INFO "unplugged\n");
-		if (hdev->hdcp_info.hdcp_enable)
-			hdcp_stop(hdev);
-
-		hdmi_write_mask(hdev, HDMI_INTC_FLAG_0, ~0,
-			HDMI_INTC_FLAG_HPD_UNPLUG);
-		atomic_set(&hdev->hpd_state, HPD_LOW);
-	}
-	if (intc_flag & HDMI_INTC_FLAG_HPD_PLUG) {
-		printk(KERN_INFO "plugged\n");
-		hdmi_write_mask(hdev, HDMI_INTC_FLAG_0, ~0,
-			HDMI_INTC_FLAG_HPD_PLUG);
-		atomic_set(&hdev->hpd_state, HPD_HIGH);
-	}
-	if (intc_flag & HDMI_INTC_FLAG_HDCP) {
-		printk(KERN_INFO "hdcp interrupt occur\n");
-		hdcp_irq_handler(hdev);
-		hdmi_write_mask(hdev, HDMI_INTC_FLAG_0, ~0,
-			HDMI_INTC_FLAG_HDCP);
+	if (!pm_runtime_suspended(hdev->dev)) {
+		intc_flag = hdmi_read(hdev, HDMI_INTC_FLAG_0);
+		/* clearing flags for HPD plug/unplug */
+		if (intc_flag & HDMI_INTC_FLAG_HPD_UNPLUG) {
+			printk(KERN_INFO "unplugged\n");
+			if (hdev->hdcp_info.hdcp_enable)
+				hdcp_stop(hdev);
+			hdmi_write_mask(hdev, HDMI_INTC_FLAG_0, ~0,
+					HDMI_INTC_FLAG_HPD_UNPLUG);
+			atomic_set(&hdev->hpd_state, HPD_LOW);
+		}
+		if (intc_flag & HDMI_INTC_FLAG_HPD_PLUG) {
+			printk(KERN_INFO "plugged\n");
+			hdmi_write_mask(hdev, HDMI_INTC_FLAG_0, ~0,
+					HDMI_INTC_FLAG_HPD_PLUG);
+			atomic_set(&hdev->hpd_state, HPD_HIGH);
+		}
+		if (intc_flag & HDMI_INTC_FLAG_HDCP) {
+			printk(KERN_INFO "hdcp interrupt occur\n");
+			hdcp_irq_handler(hdev);
+			hdmi_write_mask(hdev, HDMI_INTC_FLAG_0, ~0,
+					HDMI_INTC_FLAG_HDCP);
+		}
+	} else{
+		if (s5p_v4l2_hpd_read_gpio())
+			atomic_set(&hdev->hpd_state, HPD_HIGH);
+		else
+			atomic_set(&hdev->hpd_state, HPD_LOW);
 	}
 
 	queue_work(hdev->hpd_wq, &hdev->hpd_work);
@@ -2507,9 +2258,25 @@ void hdmi_reg_init(struct hdmi_device *hdev)
 	hdmi_write_mask(hdev, HDMI_CON_0, 0, HDMI_BLUE_SCR_EN);
 	/* enable AVI packet every vsync, fixes purple line problem */
 	hdmi_writeb(hdev, HDMI_AVI_CON, 0x02);
-	/* force YUV444, look to CEA-861-D, table 7 for more detail */
-	hdmi_writeb(hdev, HDMI_AVI_BYTE(1), 2 << 5);
+	/* RGB888 is default output format of HDMI,
+	 * look to CEA-861-D, table 7 for more detail */
+	hdmi_writeb(hdev, HDMI_AVI_BYTE(1), 0 << 5);
 	hdmi_write_mask(hdev, HDMI_CON_1, 2, 3 << 5);
+
+}
+
+void hdmi_set_dvi_mode(struct hdmi_device *hdev)
+{
+	u32 val;
+
+	hdmi_write_mask(hdev, HDMI_MODE_SEL, hdev->dvi_mode ? HDMI_MODE_DVI_EN :
+		HDMI_MODE_HDMI_EN, HDMI_MODE_MASK);
+
+	if (hdev->dvi_mode)
+		val = HDMI_VID_PREAMBLE_DIS | HDMI_GUARD_BAND_DIS;
+	else
+		val = HDMI_VID_PREAMBLE_EN | HDMI_GUARD_BAND_EN;
+	hdmi_write(hdev, HDMI_CON_2, val);
 }
 
 void hdmi_timing_apply(struct hdmi_device *hdev,
@@ -2634,12 +2401,6 @@ int hdmi_conf_apply(struct hdmi_device *hdmi_dev)
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	/* reset hdmiphy */
-	hdmi_write_mask(hdmi_dev, HDMI_PHY_RSTOUT, ~0, HDMI_PHY_SW_RSTOUT);
-	mdelay(10);
-	hdmi_write_mask(hdmi_dev, HDMI_PHY_RSTOUT,  0, HDMI_PHY_SW_RSTOUT);
-	mdelay(10);
-
 	/* configure presets */
 	preset.preset = hdmi_dev->cur_preset;
 	ret = v4l2_subdev_call(hdmi_dev->phy_sd, video, s_dv_preset, &preset);
@@ -2647,12 +2408,6 @@ int hdmi_conf_apply(struct hdmi_device *hdmi_dev)
 		dev_err(dev, "failed to set preset (%u)\n", preset.preset);
 		return ret;
 	}
-
-	/* resetting HDMI core */
-	hdmi_write_mask(hdmi_dev, HDMI_CORE_RSTOUT,  0, HDMI_CORE_SW_RSTOUT);
-	mdelay(10);
-	hdmi_write_mask(hdmi_dev, HDMI_CORE_RSTOUT, ~0, HDMI_CORE_SW_RSTOUT);
-	mdelay(10);
 
 	hdmi_reg_init(hdmi_dev);
 
@@ -2699,22 +2454,22 @@ void hdmi_tg_enable(struct hdmi_device *hdev, int on)
 		hdmi_write_mask(hdev, HDMI_TG_CMD, 0, mask);
 }
 
-static u8 hdmi_chksum(struct hdmi_device *hdev, u32 start, u8 len)
+static u8 hdmi_chksum(struct hdmi_device *hdev, u32 start, u8 len, u32 hdr_sum)
 {
 	int i;
-	u32 chksum;
 
-	/* 0 ~ 2 : headers
-	 * 3 : data0 for storing checksum value
-	 * 4 ~ len+4 : data1 to data(len+1)
-	 */
-	for (i = 0; i < len + 4; ++i) {
-		if (len == 3) /* skip data0 register for storing checksum */
-			continue;
-		chksum += hdmi_read(hdev, start + i * 4);
-	}
+	/* hdr_sum : header0 + header1 + header2
+	 * start : start address of packet byte1
+	 * len : packet bytes - 1 */
+	for (i = 0; i < len; ++i)
+		hdr_sum += hdmi_read(hdev, start + i * 4);
 
-	return (u8)(0x100 - (chksum & 0xff));
+	return (u8)(0x100 - (hdr_sum & 0xff));
+}
+
+void hdmi_reg_stop_vsi(struct hdmi_device *hdev)
+{
+	hdmi_writeb(hdev, HDMI_VSI_CON, HDMI_VSI_CON_DO_NOT_TRANSMIT);
 }
 
 void hdmi_reg_infoframe(struct hdmi_device *hdev,
@@ -2722,6 +2477,8 @@ void hdmi_reg_infoframe(struct hdmi_device *hdev,
 {
 	struct device *dev = hdev->dev;
 	const struct hdmi_3d_info *info = hdmi_preset2info(hdev->cur_preset);
+	u32 hdr_sum;
+	u8 chksum;
 	dev_dbg(dev, "%s: InfoFrame type = 0x%x\n", __func__, infoframe->type);
 
 	switch (infoframe->type) {
@@ -2743,16 +2500,21 @@ void hdmi_reg_infoframe(struct hdmi_device *hdev,
 			(u8)HDMI_VSI_DATA06_3D_EXT_DATA(HDMI_H_SUB_SAMPLE));
 		}
 		hdmi_writeb(hdev, HDMI_VSI_HEADER2, infoframe->len);
-		hdmi_writeb(hdev, HDMI_VSI_DATA(0),
-			hdmi_chksum(hdev, HDMI_VSI_HEADER0, infoframe->len));
+		hdr_sum = infoframe->type + infoframe->ver + infoframe->len;
+		chksum = hdmi_chksum(hdev, HDMI_VSI_DATA(1), infoframe->len, hdr_sum);
+		dev_dbg(dev, "VSI checksum = 0x%x\n", chksum);
+		hdmi_writeb(hdev, HDMI_VSI_DATA(0), chksum);
 		break;
 	case HDMI_PACKET_TYPE_AVI:
 		hdmi_writeb(hdev, HDMI_AVI_CON, HDMI_AVI_CON_EVERY_VSYNC);
 		hdmi_writeb(hdev, HDMI_AVI_HEADER0, infoframe->type);
 		hdmi_writeb(hdev, HDMI_AVI_HEADER1, infoframe->ver);
 		hdmi_writeb(hdev, HDMI_AVI_HEADER2, infoframe->len);
-		hdmi_writeb(hdev, HDMI_AVI_CHECK_SUM,
-			hdmi_chksum(hdev, HDMI_AVI_HEADER0, infoframe->len));
+		hdmi_writeb(hdev, HDMI_AVI_BYTE(1), hdev->output_fmt << 5);
+		hdr_sum = infoframe->type + infoframe->ver + infoframe->len;
+		chksum = hdmi_chksum(hdev, HDMI_AVI_BYTE(1), infoframe->len, hdr_sum);
+		dev_dbg(dev, "AVI checksum = 0x%x\n", chksum);
+		hdmi_writeb(hdev, HDMI_AVI_CHECK_SUM, chksum);
 		break;
 	default:
 		break;
@@ -2992,6 +2754,13 @@ void hdmi_sw_hpd_plug(struct hdmi_device *hdev, int en)
 		hdmi_write_mask(hdev, HDMI_HPD, 0, HDMI_SW_HPD_PLUGGED);
 }
 
+void hdmi_phy_sw_reset(struct hdmi_device *hdev)
+{
+	hdmi_write_mask(hdev, HDMI_PHY_RSTOUT, ~0, HDMI_PHY_SW_RSTOUT);
+	mdelay(10);
+	hdmi_write_mask(hdev, HDMI_PHY_RSTOUT,  0, HDMI_PHY_SW_RSTOUT);
+}
+
 void hdmi_dumpregs(struct hdmi_device *hdev, char *prefix)
 {
 #define DUMPREG(reg_id) \
@@ -3149,6 +2918,8 @@ void hdmi_dumpregs(struct hdmi_device *hdev, char *prefix)
 	DUMPREG(HDMI_AVI_HEADER1);
 	DUMPREG(HDMI_AVI_HEADER2);
 	DUMPREG(HDMI_AVI_CHECK_SUM);
+	DUMPREG(HDMI_AVI_BYTE(1));
+
 	DUMPREG(HDMI_VSI_CON);
 	DUMPREG(HDMI_VSI_HEADER0);
 	DUMPREG(HDMI_VSI_HEADER1);

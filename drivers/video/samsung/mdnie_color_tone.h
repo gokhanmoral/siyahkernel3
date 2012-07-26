@@ -83,10 +83,56 @@ static const unsigned short tune_negative_amoled[] = {
 	END_SEQ, 0x0000,
 };
 
+static const unsigned short tune_negative_cabcoff[] = {
+	0x0000, 0x0000, /*BANK 0*/
+	0x0008, 0x0020, /*Dither8 UC4 ABC2 CP1 | CC8 MCM4 SCR2 SCC1 | CS8 DE4 DNR2 HDR1*/
+	0x0030, 0x0000, /*FA cs1 de8 hdr2 fa1*/
+	0x00e1, 0x00ff, /*SCR RrCr*/
+	0x00e2, 0xff00, /*SCR RgCg*/
+	0x00e3, 0xff00, /*SCR RbCb*/
+	0x00e4, 0xff00, /*SCR GrMr*/
+	0x00e5, 0x00ff, /*SCR GgMg*/
+	0x00e6, 0xff00, /*SCR GbMb*/
+	0x00e7, 0xff00, /*SCR BrYr*/
+	0x00e8, 0xff00, /*SCR BgYg*/
+	0x00e9, 0x00ff, /*SCR BbYb*/
+	0x00ea, 0xff00, /*SCR KrWr*/
+	0x00eb, 0xff00, /*SCR KgWg*/
+	0x00ec, 0xff00, /*SCR KbWb*/
+	0x00ff, 0x0000, /*Mask Release*/
+	END_SEQ, 0x0000,
+};
+
+static const unsigned short tune_negative_cabcOn[] = {
+	0x0000, 0x0000, /*BANK 0*/
+	0x0008, 0x0220, /*Dither8 UC4 ABC2 CP1 | CC8 MCM4 SCR2 SCC1 | CS8 DE4 DNR2 HDR1*/
+	0x0030, 0x0000, /*FA cs1 de8 hdr2 fa1*/
+	0x00e1, 0x00ff, /*SCR RrCr*/
+	0x00e2, 0xff00, /*SCR RgCg*/
+	0x00e3, 0xff00, /*SCR RbCb*/
+	0x00e4, 0xff00, /*SCR GrMr*/
+	0x00e5, 0x00ff, /*SCR GgMg*/
+	0x00e6, 0xff00, /*SCR GbMb*/
+	0x00e7, 0xff00, /*SCR BrYr*/
+	0x00e8, 0xff00, /*SCR BgYg*/
+	0x00e9, 0x00ff, /*SCR BbYb*/
+	0x00ea, 0xff00, /*SCR KrWrv*/
+	0x00eb, 0xff00, /*SCR KgWg*/
+	0x00ec, 0xff00, /*SCR KbWb*/
+	0x0000, 0x0001, /*BANK 1*/
+	0x0075, 0x0000, /*CABC dgain*/
+	0x0076, 0x0000,
+	0x0077, 0x0000,
+	0x0078, 0x0000,
+	0x007f, 0x0002, /*dynamic lcd*/
+	0x00ff, 0x0000, /*Mask Release*/
+	END_SEQ, 0x0000,
+};
+
 struct mdnie_tunning_info tune_negative[CABC_MAX] = {
 #if defined(CONFIG_FB_MDNIE_PWM)
-	{"NEGATIVE_CABC_OFF",	tune_negative_amoled},
-	{"NEGATIVE_CABC_ON",	tune_negative_amoled},
+	{"NEGATIVE_CABC_OFF",	tune_negative_cabcoff},
+	{"NEGATIVE_CABC_ON",	tune_negative_cabcOn},
 #else
 	{"NEGATIVE_ON",		tune_negative_amoled},
 #endif

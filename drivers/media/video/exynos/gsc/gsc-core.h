@@ -18,6 +18,7 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/videodev2.h>
+#include <linux/videodev2_exynos_media.h>
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
 #include <mach/videonode.h>
@@ -36,6 +37,8 @@
 #include <media/videobuf2-ion.h>
 #endif
 
+extern const int h_coef_8t[7][16][8];
+extern const int v_coef_4t[7][16][4];
 extern int gsc_dbg;
 
 #define gsc_info(fmt, args...)						\
@@ -68,21 +71,13 @@ extern int gsc_dbg;
 
 #define GSC_MAX_CLOCKS			3
 #define GSC_SHUTDOWN_TIMEOUT		((100*HZ)/1000)
-#define GSC_MODULE_NAME			"exynos-gsc"
-#define GSC_SUBDEV_NAME			"exynos-gsc-sd"
-#define FLITE_MODULE_NAME		"exynos-fimc-lite"
-#define CSIS_MODULE_NAME		"s5p-mipi-csis"
-#define FIMD_MODULE_NAME		"s5p-fimd1"
-#define FIMD_ENTITY_NAME		"s3c-fb-window"
 #define GSC_MAX_DEVS			4
 #define WORKQUEUE_NAME_SIZE		32
 #define FIMD_NAME_SIZE			32
 #define GSC_M2M_BUF_NUM			0
 #define GSC_OUT_BUF_MAX			2
-#define GSC_MAX_CTRL_NUM		10
+#define GSC_MAX_CTRL_NUM		16
 #define GSC_OUT_MAX_MASK_NUM		7
-#define GSC_SC_ALIGN_4			4
-#define GSC_SC_ALIGN_2			2
 #define GSC_OUT_DEF_SRC			15
 #define GSC_OUT_DEF_DST			7
 #define DEFAULT_GSC_SINK_WIDTH		800
@@ -91,21 +86,12 @@ extern int gsc_dbg;
 #define DEFAULT_GSC_SOURCE_HEIGHT	480
 #define DEFAULT_CSC_EQ			1
 #define DEFAULT_CSC_RANGE		1
+#define DEFAULT_USE_SYSMMU		1
 
 #define GSC_LAST_DEV_ID			3
 #define GSC_PAD_SINK			0
 #define GSC_PAD_SOURCE			1
 #define GSC_PADS_NUM			2
-
-#define GSC_CAP_GRP_ID			(1 << 0)
-#define FLITE_GRP_ID			(1 << 1)
-#define CSIS_GRP_ID			(1 << 2)
-#define SENSOR_GRP_ID			(1 << 3)
-#define FIMD_GRP_ID			(1 << 4)
-
-#define SENSOR_MAX_ENTITIES		MAX_CAMIF_CLIENTS
-#define FLITE_MAX_ENTITIES		2
-#define CSIS_MAX_ENTITIES		2
 
 #define	GSC_PARAMS			(1 << 0)
 #define	GSC_SRC_FMT			(1 << 1)
@@ -115,6 +101,14 @@ extern int gsc_dbg;
 #define	GSC_CTX_START			(1 << 5)
 #define	GSC_CTX_STOP_REQ		(1 << 6)
 #define	GSC_CTX_CAP			(1 << 10)
+
+#define GSC_SC_UP_MAX_RATIO		65536
+#define GSC_SC_DOWN_RATIO_7_8		74898
+#define GSC_SC_DOWN_RATIO_6_8		87381
+#define GSC_SC_DOWN_RATIO_5_8		104857
+#define GSC_SC_DOWN_RATIO_4_8		131072
+#define GSC_SC_DOWN_RATIO_3_8		174762
+#define GSC_SC_DOWN_RATIO_2_8		262144
 
 enum gsc_dev_flags {
 	/* for global */
@@ -147,7 +141,12 @@ enum gsc_cap_input_entity {
 
 enum gsc_irq {
 	GSC_OR_IRQ = 17,
-	GSC_DONE_IRQ= 16,
+	GSC_DONE_IRQ = 16,
+};
+
+enum gsc_clk_status {
+	GSC_CLK_OFF,
+	GSC_CLK_ON,
 };
 
 /**
@@ -165,13 +164,6 @@ enum gsc_datapath {
 	GSC_WRITEBACK,
 };
 
-enum gsc_color_fmt {
-	GSC_RGB = 0x1,
-	GSC_YUV420 = 0x2,
-	GSC_YUV422 = 0x4,
-	GSC_YUV444 = 0x8,
-};
-
 enum gsc_yuv_fmt {
 	GSC_LSB_Y = 0x10,
 	GSC_LSB_C,
@@ -180,9 +172,19 @@ enum gsc_yuv_fmt {
 };
 
 #define fh_to_ctx(__fh) container_of(__fh, struct gsc_ctx, fh)
-#define is_rgb(x) (!!((x) & 0x1))
-#define is_yuv420(x) (!!((x) & 0x2))
-#define is_yuv422(x) (!!((x) & 0x4))
+
+#define is_rgb(img) ((img == V4L2_PIX_FMT_RGB565X) | (img == V4L2_PIX_FMT_RGB32))
+#define is_yuv422(img) ((img == V4L2_PIX_FMT_YUYV) | (img == V4L2_PIX_FMT_UYVY) | \
+		     (img == V4L2_PIX_FMT_VYUY) | (img == V4L2_PIX_FMT_YVYU) | \
+		     (img == V4L2_PIX_FMT_YUV422P) | (img == V4L2_PIX_FMT_NV16) | \
+		     (img == V4L2_PIX_FMT_NV61))
+#define is_yuv420(img) ((img == V4L2_PIX_FMT_YUV420) | (img == V4L2_PIX_FMT_YVU420) | \
+		     (img == V4L2_PIX_FMT_NV12) | (img == V4L2_PIX_FMT_NV21) | \
+		     (img == V4L2_PIX_FMT_NV12M) | (img == V4L2_PIX_FMT_NV21M) | \
+		     (img == V4L2_PIX_FMT_YUV420M) | (img == V4L2_PIX_FMT_YVU420M) | \
+		     (img == V4L2_PIX_FMT_NV12MT_16X16))
+#define is_AYV12(img) (img == V4L2_PIX_FMT_YVU420M)
+
 #define gsc_m2m_run(dev) test_bit(ST_M2M_RUN, &(dev)->state)
 #define gsc_m2m_opened(dev) test_bit(ST_M2M_OPEN, &(dev)->state)
 #define gsc_out_run(dev) test_bit(ST_OUTPUT_STREAMON, &(dev)->state)
@@ -212,7 +214,6 @@ struct gsc_fmt {
 	enum v4l2_mbus_pixelcode mbus_code;
 	char	*name;
 	u32	pixelformat;
-	u32	color;
 	u32	yorder;
 	u32	corder;
 	u16	num_planes;
@@ -271,9 +272,12 @@ struct gsc_ctrls {
 	struct v4l2_ctrl	*pixel_blend_en;
 	struct v4l2_ctrl	*chroma_en;
 	struct v4l2_ctrl	*chroma_val;
+	struct v4l2_ctrl	*prio;
 	struct v4l2_ctrl	*csc_eq_mode;
 	struct v4l2_ctrl	*csc_eq;
 	struct v4l2_ctrl	*csc_range;
+	struct v4l2_ctrl	*m2m_ctx_num;
+	struct v4l2_ctrl	*use_sysmmu;
 };
 
 /**
@@ -319,7 +323,7 @@ struct gsc_frame {
 };
 
 struct gsc_sensor_info {
-	struct exynos_gscaler_isp_info *pdata;
+	struct exynos_isp_info *pdata;
 	struct v4l2_subdev *sd;
 	struct clk *camclk;
 };
@@ -469,12 +473,10 @@ struct gsc_variant {
  * struct gsc_driverdata - per device type driver data for init time.
  *
  * @variant: the variant information for this driver.
- * @lclk_frequency: g-scaler clock frequency
  * @num_entities: the number of g-scalers
  */
 struct gsc_driverdata {
 	struct gsc_variant *variant[GSC_MAX_DEVS];
-	unsigned long	lclk_frequency;
 	int		num_entities;
 };
 
@@ -485,12 +487,12 @@ struct gsc_vb2 {
 
 	unsigned long (*plane_addr)(struct vb2_buffer *vb, u32 plane_no);
 
-	void (*resume)(void *alloc_ctx);
+	int (*resume)(void *alloc_ctx);
 	void (*suspend)(void *alloc_ctx);
 
 	int (*cache_flush)(struct vb2_buffer *vb, u32 num_planes);
 	void (*set_cacheable)(void *alloc_ctx, bool cacheable);
-	void (*set_sharable)(void *alloc_ctx, bool sharable);
+	bool use_sysmmu;
 };
 
 struct gsc_pipeline {
@@ -528,12 +530,12 @@ struct gsc_dev {
 	struct gsc_variant		*variant;
 	u16				id;
 	struct clk			*clock;
+	atomic_t			clk_cnt;
 	void __iomem			*regs;
 	struct resource			*regs_res;
 	int				irq;
 	wait_queue_head_t		irq_queue;
 	struct work_struct		work_struct;
-	struct workqueue_struct		*irq_workqueue;
 	struct gsc_m2m_device		m2m;
 	struct gsc_output_device	out;
 	struct gsc_capture_device	cap;
@@ -578,6 +580,7 @@ struct gsc_ctx {
 	struct v4l2_fh		fh;
 	struct v4l2_ctrl_handler ctrl_handler;
 	struct gsc_ctrls	gsc_ctrls;
+	struct timer_list	op_timer;
 	bool			ctrls_rdy;
 };
 
@@ -587,6 +590,8 @@ extern const struct gsc_vb2 gsc_vb2_cma;
 extern const struct gsc_vb2 gsc_vb2_ion;
 #endif
 
+void gsc_set_prefbuf(struct gsc_dev *gsc, struct gsc_frame frm);
+void gsc_clock_gating(struct gsc_dev *gsc, enum gsc_clk_status status);
 void gsc_clk_release(struct gsc_dev *gsc);
 int gsc_register_m2m_device(struct gsc_dev *gsc);
 void gsc_unregister_m2m_device(struct gsc_dev *gsc);
@@ -609,7 +614,7 @@ int gsc_try_crop(struct gsc_ctx *ctx, struct v4l2_crop *cr);
 int gsc_cal_prescaler_ratio(struct gsc_variant *var, u32 src, u32 dst, u32 *ratio);
 void gsc_get_prescaler_shfactor(u32 hratio, u32 vratio, u32 *sh);
 void gsc_check_src_scale_info(struct gsc_variant *var, struct gsc_frame *s_frame,
-			      u32 *wratio, u32 tx, u32 ty, u32 *hratio);
+			      u32 *wratio, u32 tx, u32 ty, u32 *hratio, int rot);
 int gsc_check_scaler_ratio(struct gsc_variant *var, int sw, int sh, int dw,
 			   int dh, int rot, int out_path);
 int gsc_set_scaler_info(struct gsc_ctx *ctx);
@@ -668,6 +673,12 @@ static inline void gsc_hw_enable_control(struct gsc_dev *dev, bool on)
 		cfg &= ~GSC_ENABLE_ON;
 
 	writel(cfg, dev->regs + GSC_ENABLE);
+}
+
+static inline int gsc_hw_get_curr_in_buf_idx(struct gsc_dev *dev)
+{
+	u32 cfg = readl(dev->regs + GSC_IN_BASE_ADDR_Y_MASK);
+	return GSC_IN_CURR_GET_INDEX(cfg);
 }
 
 static inline int gsc_hw_get_irq_status(struct gsc_dev *dev)
@@ -742,10 +753,7 @@ active_queue_pop(struct gsc_output_device *vid_out, struct gsc_dev *dev)
 static inline void active_queue_push(struct gsc_output_device *vid_out,
 				     struct gsc_input_buf *buf, struct gsc_dev *dev)
 {
-	unsigned long flags;
-	spin_lock_irqsave(&dev->slock, flags);
 	list_add_tail(&buf->list, &vid_out->active_buf_q);
-	spin_unlock_irqrestore(&dev->slock, flags);
 }
 
 static inline struct gsc_dev *entity_to_gsc(struct media_entity *me)
@@ -756,9 +764,16 @@ static inline struct gsc_dev *entity_to_gsc(struct media_entity *me)
 	return entity_data_to_gsc(v4l2_get_subdevdata(sd));
 }
 
-static inline void user_to_drv(struct v4l2_ctrl *ctrl, s32 value)
+static inline void update_ctrl_value(struct v4l2_ctrl *ctrl, s32 value)
 {
 	ctrl->cur.val = ctrl->val = value;
+}
+
+static inline void update_use_sysmmu(const struct gsc_vb2 *vb2,
+				     struct v4l2_ctrl *ctrl)
+{
+	bool *use_sysmmu = (bool *)&vb2->use_sysmmu;
+	*use_sysmmu = ctrl->cur.val;
 }
 
 void gsc_hw_set_sw_reset(struct gsc_dev *dev);
@@ -772,6 +787,7 @@ void gsc_hw_set_input_buf_masking(struct gsc_dev *dev, u32 shift, bool enable);
 void gsc_hw_set_output_buf_masking(struct gsc_dev *dev, u32 shift, bool enable);
 void gsc_hw_set_input_addr(struct gsc_dev *dev, struct gsc_addr *addr, int index);
 void gsc_hw_set_output_addr(struct gsc_dev *dev, struct gsc_addr *addr, int index);
+void gsc_hw_set_freerun_clock_mode(struct gsc_dev *dev, bool mask);
 void gsc_hw_set_input_path(struct gsc_ctx *ctx);
 void gsc_hw_set_in_size(struct gsc_ctx *ctx);
 void gsc_hw_set_in_image_rgb(struct gsc_ctx *ctx);
@@ -785,14 +801,22 @@ void gsc_hw_set_mainscaler(struct gsc_ctx *ctx);
 void gsc_hw_set_rotation(struct gsc_ctx *ctx);
 void gsc_hw_set_global_alpha(struct gsc_ctx *ctx);
 void gsc_hw_set_sfr_update(struct gsc_ctx *ctx);
-void gsc_hw_set_local_dst(int id, bool on);
+void gsc_hw_set_local_dst(int id, int out, bool on);
+void gsc_hw_set_mixer(void);
 void gsc_hw_set_sysreg_writeback(struct gsc_ctx *ctx);
-void gsc_hw_set_sysreg_camif(bool on);
+void gsc_hw_set_pxlasync_camif_lo_mask(struct gsc_dev *dev, bool on);
+void gsc_hw_set_h_coef(struct gsc_ctx *ctx);
+void gsc_hw_set_v_coef(struct gsc_ctx *ctx);
+void gsc_hw_set_in_pingpong_update(struct gsc_dev *dev);
+void gsc_hw_set_in_chrom_stride(struct gsc_ctx *ctx);
+void gsc_hw_set_out_chrom_stride(struct gsc_ctx *ctx);
+void gsc_hw_set_fire_bit_sync_mode(struct gsc_dev *dev, bool mask);
 
 int gsc_hw_get_input_buf_mask_status(struct gsc_dev *dev);
 int gsc_hw_get_done_input_buf_index(struct gsc_dev *dev);
 int gsc_hw_get_done_output_buf_index(struct gsc_dev *dev);
 int gsc_hw_get_nr_unmask_bits(struct gsc_dev *dev);
+int gsc_hw_get_mxr_path_status(void);
 int gsc_wait_reset(struct gsc_dev *dev);
 int gsc_wait_operating(struct gsc_dev *dev);
 int gsc_wait_stop(struct gsc_dev *dev);

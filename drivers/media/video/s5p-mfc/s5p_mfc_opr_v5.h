@@ -102,6 +102,9 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 						S5P_FIMV_SI_BUF_NUMBER)
 #define s5p_mfc_get_inst_no()		readl(dev->regs_base + \
 						S5P_FIMV_RISC2HOST_ARG1)
+#define s5p_mfc_get_mv_count()		0
+#define s5p_mfc_get_mvc_num_views()	-1
+#define s5p_mfc_get_mvc_disp_view_id()	-1
 #define s5p_mfc_get_enc_dpb_count()	-1
 #define s5p_mfc_get_enc_strm_size()	readl(dev->regs_base + \
 						S5P_FIMV_ENC_SI_STRM_SIZE)
@@ -119,17 +122,18 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 	} while (0)
 
 /* Definition */
-#define ENC_MULTI_SLICE_MB_MAX 		(1 << 16) - 1
+#define ENC_MULTI_SLICE_MB_MAX		((1 << 16) - 1)
 #define ENC_MULTI_SLICE_BIT_MIN		1900
-#define ENC_INTRA_REFRESH_MB_MAX	(1 << 16) - 1
-#define ENC_VBV_BUF_SIZE_MAX		(1 << 16) - 1
+#define ENC_MULTI_SLICE_BYTE_MIN	238
+#define ENC_INTRA_REFRESH_MB_MAX	((1 << 16) - 1)
+#define ENC_VBV_BUF_SIZE_MAX		((1 << 16) - 1)
 #define ENC_H264_LOOP_FILTER_AB_MIN	-6
 #define ENC_H264_LOOP_FILTER_AB_MAX	6
-#define ENC_H264_RC_FRAME_RATE_MAX	(1 << 30) -1
-#define ENC_H263_RC_FRAME_RATE_MAX	(1 << 30) -1
+#define ENC_H264_RC_FRAME_RATE_MAX	((1 << 30) - 1)
+#define ENC_H263_RC_FRAME_RATE_MAX	((1 << 30) - 1)
 #define ENC_H264_PROFILE_MAX		2
 #define ENC_H264_LEVEL_MAX		40
-#define ENC_MPEG4_VOP_TIME_RES_MAX	(1 << 15) - 1
+#define ENC_MPEG4_VOP_TIME_RES_MAX	((1 << 15) - 1)
 
 void s5p_mfc_try_run(struct s5p_mfc_dev *dev);
 

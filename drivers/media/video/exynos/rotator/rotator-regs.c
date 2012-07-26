@@ -1,7 +1,6 @@
-/* linux/drivers/media/video/exynos/rotator/rotator-regs.c
- *
- * Copyright (c) 2011 Samsung Electronics Co., Ltd.
- *		http://www.samsung.com/
+/*
+ * Copyright (c) 2012 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
  *
  * Register interface file for Exynos Rotator driver
  *
@@ -58,7 +57,7 @@ int rot_hwset_image_format(struct rot_dev *rot, u32 pixelformat)
 		cfg |= ROTATOR_CONTROL_FMT_RGB888;
 		break;
 	default:
-		rot_err("invalid pixelformat type\n");
+		dev_err(rot->dev, "invalid pixelformat type\n");
 		return -EINVAL;
 	}
 	writel(cfg, rot->regs + ROTATOR_CONTROL);
@@ -191,26 +190,26 @@ void rot_hwget_status(struct rot_dev *rot, enum rot_status *state)
 	switch (cfg) {
 	case 0:
 		*state = ROT_IDLE;
-		return;
+		break;
 	case 1:
 		*state = ROT_RESERVED;
-		return;
+		break;
 	case 2:
 		*state = ROT_RUNNING;
-		return;
+		break;
 	case 3:
 		*state = ROT_RUNNING_REMAIN;
-		return;
+		break;
 	};
 }
 
-void rot_dump_register(struct rot_dev *rot)
+void rot_dump_registers(struct rot_dev *rot)
 {
 	unsigned int tmp, i;
 
 	rot_dbg("dump rotator registers\n");
 	for (i = 0; i <= ROTATOR_DST; i += 0x4) {
 		tmp = readl(rot->regs + i);
-		rot_dbg("+0x%x: 0x%x", i, tmp);
+		rot_dbg("0x%08x: 0x%08x", i, tmp);
 	}
 }

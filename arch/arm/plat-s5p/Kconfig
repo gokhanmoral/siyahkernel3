@@ -43,16 +43,42 @@ config S5P_HRT
 	help
 	  Use the High Resolution timer support
 
-comment "System MMU"
-
 config S5P_SYSTEM_MMU
-	bool "S5P SYSTEM MMU"
-	depends on ARCH_EXYNOS
-	select IOMMU_API
+	bool "System MMU for Exynos families"
+	depends on ARCH_EXYNOS4
+	select IOMMU_EXYNOS4_API
+	select IOVMM
 	help
 	  Say Y here if you want to enable System MMU
 
-config IOMMU_API
+config S5P_SYSTEM_MMU_REFCOUNT
+	bool "Counting System MMU activations"
+	depends on S5P_SYSTEM_MMU
+	help
+	  Say Y here if you want to enable counting System MMU enabling and
+	  disabling.
+
+config S5P_SYSTEM_MMU_DEBUG
+	bool "Enables verbose debugging message about System MMU"
+	depends on S5P_SYSTEM_MMU
+	help
+	  Say Y here if you need detailed message while System MMU driver works
+
+config S5P_SYSTEM_MMU_WA5250ERR
+	bool "Ensure 64KB-aligned mapping for DMA I/O buffers"
+	depends on S5P_SYSTEM_MMU && CPU_EXYNOS5250
+	default y
+	help
+	  Select this to avoid unexpected fault occurred by System MMU v3.0.
+	  This is just a makeshift option for those problems.
+
+	  If unsure, n here.
+
+config IOVMM
+	bool
+	select GENERIC_ALLOCATOR
+
+config IOMMU_EXYNOS4_API
 	bool
 
 config S3C_DEV_FIMC
@@ -229,6 +255,12 @@ config S5P_DEV_DSIM12
 	bool
 	help
 	  Compile in platform device definitions for MIPI-DSIM channel 1
+
+config S5P_BTS
+	bool "S5P BTS driver"
+	default n
+	help
+	  Use Bus Traffic Shaper Driver
 
 config S5P_DEV_MIPI_DSIM
 	bool

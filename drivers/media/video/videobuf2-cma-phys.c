@@ -120,7 +120,8 @@ static struct sg_table *
 }
 
 static void cma_phys_unmap_dmabuf(struct dma_buf_attachment *attach,
-					struct sg_table *sgt)
+					struct sg_table *sgt,
+					enum dma_data_direction dir)
 {
 	struct vb2_cma_phys_buf *buf = attach->dmabuf->priv;
 
@@ -368,7 +369,7 @@ static void vb2_cma_phys_unmap_dmabuf(void *mem_priv)
 	/*
 	 * Put the sg for this buffer:
 	 */
-	dma_buf_unmap_attachment(buf->db_attach, sg);
+	dma_buf_unmap_attachment(buf->db_attach, sg, DMA_FROM_DEVICE);
 
 	buf->dma_addr = 0;
 	buf->size = 0;
@@ -379,13 +380,17 @@ static int vb2_cma_phys_export_dmabuf(void *alloc_ctx, void *buf_priv,
 					int *export_fd)
 {
 	struct vb2_cma_phys_buf *buf = buf_priv;
+	unsigned int flags = O_RDWR;
 
 	buf->export_dma_buf = dma_buf_export(buf, &cma_phys_dmabuf_ops,
 						buf->size, 0600);
 	if (!buf->export_dma_buf)
 		return PTR_ERR(buf->export_dma_buf);
 
-	buf->export_fd = dma_buf_fd(buf->export_dma_buf);
+	/* FIXME!!! */
+	flags |= O_CLOEXEC;
+
+	buf->export_fd = dma_buf_fd(buf->export_dma_buf, flags);
 	if (buf->export_fd < 0) {
 		printk(KERN_ERR "fail to get fd from dmabuf.\n");
 		dma_buf_put(buf->export_dma_buf);

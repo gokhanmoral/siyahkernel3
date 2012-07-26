@@ -155,8 +155,8 @@ static ssize_t terminal_version_show(struct device *dev,
 {
 	int ret;
 	ret = sprintf(buf, "major %x minor %x vendor %x\n",
-			terminal_mode_version && 0xff,
-			(terminal_mode_version >> 8 && 0xff),
+			terminal_mode_version & 0xff,
+			(terminal_mode_version >> 8 & 0xff),
 			terminal_mode_vendor_id);
 	printk(KERN_DEBUG "usb: %s terminal_mode %s\n", __func__, buf);
 	return ret;

@@ -415,7 +415,7 @@ int s5m_irq_init(struct s5m87xx_dev *s5m87xx)
 		}
 		for (i = 0; i < S5M8767_IRQ_NR; i++) {
 			cur_irq = i + s5m87xx->irq_base;
-			irq_set_chip_data(cur_irq, s5m87xx);
+			ret = irq_set_chip_data(cur_irq, s5m87xx);
 			if (ret) {
 				dev_err(s5m87xx->dev,
 					"Failed to irq_set_chip_data %d: %d\n",

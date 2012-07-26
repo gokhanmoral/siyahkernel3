@@ -34,6 +34,7 @@
 #include "ecryptfs_kernel.h"
 
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
+#include <linux/ctype.h>
 #define ECRYPTFS_IOCTL_GET_ATTRIBUTES	_IOR('l', 0x10, __u32)
 #define ECRYPTFS_WAS_ENCRYPTED 128
 #endif
@@ -243,7 +244,6 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 		rc = 0;
 		goto out;
 	}
-/* change@wtl.fzhang encryption filter */
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	mutex_lock(&crypt_stat->cs_mutex);
 	if ((mount_crypt_stat->flags & ECRYPTFS_ENABLE_NEW_PASSTHROUGH)
@@ -258,8 +258,11 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 			&& (crypt_stat->flags & ECRYPTFS_ENCRYPTED)) {
 		struct dentry *fp_dentry =
 			ecryptfs_inode_to_private(inode)->lower_file->f_dentry;
-		char filename[256];
-		strcpy(filename, fp_dentry->d_name.name);
+		char filename[NAME_MAX+1] = {0};
+		if (fp_dentry->d_name.len <= NAME_MAX)
+			memcpy(filename, fp_dentry->d_name.name,
+					fp_dentry->d_name.len + 1);
+
 		if (is_file_name_match(mount_crypt_stat, fp_dentry)
 			|| is_file_ext_match(mount_crypt_stat, filename)) {
 			if (ecryptfs_read_metadata(ecryptfs_dentry))
@@ -358,7 +361,7 @@ ecryptfs_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	if (cmd == ECRYPTFS_IOCTL_GET_ATTRIBUTES) {
 		u32 __user *user_attr = (u32 __user *)arg;
 		u32 attr = 0;
-		char filename[256];
+		char filename[NAME_MAX+1] = {0};
 		struct dentry *ecryptfs_dentry = file->f_path.dentry;
 		struct ecryptfs_mount_crypt_stat *mount_crypt_stat =
 			&ecryptfs_superblock_to_private(ecryptfs_dentry->d_sb)
@@ -369,7 +372,10 @@ ecryptfs_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			&ecryptfs_inode_to_private(inode)->crypt_stat;
 		struct dentry *fp_dentry =
 			ecryptfs_inode_to_private(inode)->lower_file->f_dentry;
-		strcpy(filename, fp_dentry->d_name.name);
+		if (fp_dentry->d_name.len <= NAME_MAX)
+			memcpy(filename, fp_dentry->d_name.name,
+					fp_dentry->d_name.len + 1);
+
 		mutex_lock(&crypt_stat->cs_mutex);
 		if ((crypt_stat->flags & ECRYPTFS_ENCRYPTED) ||
 			((mount_crypt_stat->flags & ECRYPTFS_ENABLE_FILTERING)
@@ -400,6 +406,88 @@ ecryptfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	if (lower_file && lower_file->f_op && lower_file->f_op->compat_ioctl)
 		rc = lower_file->f_op->compat_ioctl(lower_file, cmd, arg);
 	return rc;
+}
+#endif
+
+#ifdef CONFIG_WTL_ENCRYPTION_FILTER
+int is_file_name_match(struct ecryptfs_mount_crypt_stat *mcs,
+					struct dentry *fp_dentry)
+{
+	int i;
+	char *str = NULL;
+	if (!(strcmp("/", fp_dentry->d_name.name))
+		|| !(strcmp("", fp_dentry->d_name.name)))
+		return 0;
+	str = kzalloc(mcs->max_name_filter_len + 1, GFP_KERNEL);
+	if (!str) {
+		printk(KERN_ERR "%s: Out of memory whilst attempting "
+			       "to kzalloc [%zd] bytes\n", __func__,
+			       (mcs->max_name_filter_len + 1));
+		return 0;
+	}
+
+	for (i = 0; i < ENC_NAME_FILTER_MAX_INSTANCE; i++) {
+		int len = 0;
+		struct dentry *p = fp_dentry;
+		if (!mcs->enc_filter_name[i] ||
+			 !strlen(mcs->enc_filter_name[i]))
+			break;
+
+		while (1) {
+			if (len == 0) {
+				len = strlen(p->d_name.name);
+				if (len > mcs->max_name_filter_len)
+					break;
+				strcpy(str, p->d_name.name);
+			} else {
+				len = len + 1 + strlen(p->d_name.name) ;
+				if (len > mcs->max_name_filter_len)
+					break;
+				strcat(str, "/");
+				strcat(str, p->d_name.name);
+			}
+
+			if (strnicmp(str, mcs->enc_filter_name[i], len))
+				break;
+			p = p->d_parent;
+
+			if (!(strcmp("/", p->d_name.name))
+				|| !(strcmp("", p->d_name.name))) {
+				if (len == strlen(mcs->enc_filter_name[i])) {
+					kfree(str);
+					return 1;
+				}
+				break;
+			}
+		}
+	}
+	kfree(str);
+	return 0;
+}
+
+int is_file_ext_match(struct ecryptfs_mount_crypt_stat *mcs, char *str)
+{
+	int i;
+	char ext[NAME_MAX + 1] = {0};
+
+	char *token;
+	int count = 0;
+	while ((token = strsep(&str, ".")) != NULL) {
+		strncpy(ext, token, NAME_MAX);
+		count++;
+	}
+	if (count <= 1)
+		return 0;
+
+	for (i = 0; i < ENC_EXT_FILTER_MAX_INSTANCE; i++) {
+		if (!mcs->enc_filter_ext[i] || !strlen(mcs->enc_filter_ext[i]))
+			return 0;
+		if (strlen(ext) != strlen(mcs->enc_filter_ext[i]))
+			continue;
+		if (!strnicmp(ext, mcs->enc_filter_ext[i], strlen(ext)))
+			return 1;
+	}
+	return 0;
 }
 #endif
 

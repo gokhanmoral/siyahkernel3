@@ -16,76 +16,26 @@
 #include <linux/err.h>
 #include <linux/clk.h>
 #include <linux/io.h>
-#include <linux/module.h>
 
 #include <mach/asv.h>
 #include <mach/map.h>
-
-#define VA_LID		(S5P_VA_CHIPID + 0x14)
-#define NR_SS_CASE	3
-
-unsigned int rev_lid;
-
-unsigned int not_ss_lid[NR_SS_CASE][2] = {
-	/* lid, wno */
-	{0X00197EA7, 0x6},
-	{0X00197EA7, 0x7},
-	{0x00197EF9, 0xFFFFFFFF},
-};
-
-/* ASV function for Non-Fused Chip */
-
-static int exynos4x12_nonfuse_get_hpm(struct samsung_asv *asv_info)
-{
-	unsigned int wno;
-
-	wno = (rev_lid >> 6) & 0x1F;
-
-	asv_info->hpm_result = wno;
-
-	return 0;
-}
-
-static int exynos4x12_nonfuse_get_ids(struct samsung_asv *asv_info)
-{
-	unsigned int lid;
-
-	lid = (rev_lid >> 11) & 0x1FFFFF;
-
-	asv_info->ids_result = lid;
-
-	return 0;
-}
-
-static int exynos4x12_nonfuse_asv_store_result(struct samsung_asv *asv_info)
-{
-	unsigned int i;
-	unsigned int ret = 4;
-
-	for (i = 0; i < NR_SS_CASE; i++) {
-		if (asv_info->ids_result == not_ss_lid[i][0]) {
-			if (asv_info->hpm_result == not_ss_lid[i][1]) {
-				ret = 4;
-				break;
-			} else {
-				ret = 0xff;
-				break;
-			}
-		}
-	}
-
-	exynos_result_of_asv = ret;
-
-	pr_info("EXYNOS4X12: RESULT : %d\n", exynos_result_of_asv);
-
-	return 0;
-}
+#include <plat/cpu.h>
 
 /* ASV function for Fused Chip */
-#define IDS_ARM_OFFSET	24
-#define IDS_ARM_MASK	0xFF
-#define HPM_OFFSET	12
-#define HPM_MASK	0x1F
+#define IDS_ARM_OFFSET		24
+#define IDS_ARM_MASK		0xFF
+#define HPM_OFFSET		12
+#define HPM_MASK		0x1F
+
+#define FUSED_SG_OFFSET		3
+#define ORIG_SG_OFFSET		17
+#define ORIG_SG_MASK		0xF
+#define MOD_SG_OFFSET		21
+#define MOD_SG_MASK		0x7
+
+#define DEFAULT_ASV_GROUP	1
+
+#define CHIP_ID_REG		(S5P_VA_CHIPID + 0x4)
 
 struct asv_judge_table exynos4x12_limit[] = {
 	/* HPM, IDS */
@@ -103,35 +53,38 @@ struct asv_judge_table exynos4x12_limit[] = {
 	{999, 999},		/* Reserved Group */
 };
 
-static int exynos4x12_fuse_get_hpm(struct samsung_asv *asv_info)
+struct asv_judge_table exynos4212_limit[] = {
+	/* HPM, IDS */
+	{  0,   0},		/* Reserved Group */
+	{ 17,  12},
+	{ 18,  13},
+	{ 20,  14},
+	{ 22,  18},
+	{ 24,  22},
+	{ 25,  29},
+	{ 26,  31},
+	{ 27,  35},
+	{ 28,  39},
+	{100, 100},
+	{999, 999},		/* Reserved Group */
+};
+
+static int exynos4x12_get_hpm(struct samsung_asv *asv_info)
 {
 	asv_info->hpm_result = (asv_info->pkg_id >> HPM_OFFSET) & HPM_MASK;
 
 	return 0;
 }
 
-static int exynos4x12_fuse_get_ids(struct samsung_asv *asv_info)
+static int exynos4x12_get_ids(struct samsung_asv *asv_info)
 {
 	asv_info->ids_result = (asv_info->pkg_id >> IDS_ARM_OFFSET) & IDS_ARM_MASK;
 
 	return 0;
 }
 
-static int exynos4x12_fuse_asv_store_result(struct samsung_asv *asv_info)
+static void exynos4x12_pre_set_abb(void)
 {
-	unsigned int i;
-
-	/* Not use ASV 0,1,11 group */
-	for (i = 2; i < ARRAY_SIZE(exynos4x12_limit) - 1; i++) {
-		if (asv_info->ids_result <= exynos4x12_limit[i].ids_limit) {
-			exynos_result_of_asv = i;
-			break;
-		}
-	}
-
-	pr_info("EXYNOS4X12: IDS : %d HPM : %d RESULT : %d\n",
-		asv_info->ids_result, asv_info->hpm_result, exynos_result_of_asv);
-
 	switch (exynos_result_of_asv) {
 	case 0:
 	case 1:
@@ -144,46 +97,94 @@ static int exynos4x12_fuse_asv_store_result(struct samsung_asv *asv_info)
 		exynos4x12_set_abb(ABB_MODE_130V);
 		break;
 	}
+}
+
+static int exynos4x12_asv_store_result(struct samsung_asv *asv_info)
+{
+	unsigned int i;
+
+	if (soc_is_exynos4412()) {
+		for (i = 0; i < ARRAY_SIZE(exynos4x12_limit); i++) {
+			if ((asv_info->ids_result <= exynos4x12_limit[i].ids_limit) ||
+			    (asv_info->hpm_result <= exynos4x12_limit[i].hpm_limit)) {
+				exynos_result_of_asv = i;
+				break;
+			}
+		}
+	} else {
+		for (i = 0; i < ARRAY_SIZE(exynos4212_limit); i++) {
+			if ((asv_info->ids_result <= exynos4212_limit[i].ids_limit) ||
+			    (asv_info->hpm_result <= exynos4212_limit[i].hpm_limit)) {
+				exynos_result_of_asv = i;
+				break;
+			}
+		}
+
+	}
+
+	/*
+	 * If ASV result value is lower than default value
+	 * Fix with default value.
+	 */
+	if (exynos_result_of_asv < DEFAULT_ASV_GROUP)
+		exynos_result_of_asv = DEFAULT_ASV_GROUP;
+
+	pr_info("EXYNOS4X12(NO SG): IDS : %d HPM : %d RESULT : %d\n",
+		asv_info->ids_result, asv_info->hpm_result, exynos_result_of_asv);
+
+	exynos4x12_pre_set_abb();
 
 	return 0;
 }
 
 int exynos4x12_asv_init(struct samsung_asv *asv_info)
 {
-	unsigned int lid_reg;
 	unsigned int tmp;
-	unsigned int i;
+	unsigned int exynos_orig_sp;
+	unsigned int exynos_mod_sp;
+	int exynos_cal_asv;
 
 	exynos_result_of_asv = 0;
 
 	pr_info("EXYNOS4X12: Adaptive Support Voltage init\n");
 
-	tmp = __raw_readl(S5P_VA_CHIPID + 0x4);
+	tmp = __raw_readl(CHIP_ID_REG);
 
 	/* Store PKG_ID */
 	asv_info->pkg_id = tmp;
 
-	/* If no fused Chip */
-	if (!((tmp >> IDS_ARM_OFFSET) & IDS_ARM_MASK) || !((tmp >> HPM_OFFSET) & HPM_MASK)) {
-		rev_lid = 0;
+	/* If Speed group is fused, get speed group from */
+	if ((tmp >> FUSED_SG_OFFSET) & 0x1) {
+		exynos_orig_sp = (tmp >> ORIG_SG_OFFSET) & ORIG_SG_MASK;
+		exynos_mod_sp = (tmp >> MOD_SG_OFFSET) & MOD_SG_MASK;
 
-		lid_reg = __raw_readl(VA_LID);
+		exynos_cal_asv = exynos_orig_sp - exynos_mod_sp;
 
-		for (i = 0; i < 32; i++) {
-			tmp = (lid_reg >> i) & 0x1;
-			rev_lid += tmp << (31 - i);
+		/*
+		 * If There is no origin speed group,
+		 * store 1 asv group into exynos_result_of_asv.
+		 */
+		if (!exynos_orig_sp) {
+			pr_info("EXYNOS4X12: No Origin speed Group\n");
+			exynos_result_of_asv = DEFAULT_ASV_GROUP;
+		} else {
+			if (exynos_cal_asv < DEFAULT_ASV_GROUP)
+				exynos_result_of_asv = DEFAULT_ASV_GROUP;
+			else
+				exynos_result_of_asv = exynos_cal_asv;
 		}
 
-		asv_info->get_ids = exynos4x12_nonfuse_get_ids;
-		asv_info->get_hpm = exynos4x12_nonfuse_get_hpm;
-		asv_info->store_result = exynos4x12_nonfuse_asv_store_result;
+		pr_info("EXYNOS4X12(SG):  ORIG : %d MOD : %d RESULT : %d\n",
+			exynos_orig_sp, exynos_mod_sp, exynos_result_of_asv);
 
-		return 0;
+		exynos4x12_pre_set_abb();
+
+		return -EEXIST;
 	}
 
-	asv_info->get_ids = exynos4x12_fuse_get_ids;
-	asv_info->get_hpm = exynos4x12_fuse_get_hpm;
-	asv_info->store_result = exynos4x12_fuse_asv_store_result;
+	asv_info->get_ids = exynos4x12_get_ids;
+	asv_info->get_hpm = exynos4x12_get_hpm;
+	asv_info->store_result = exynos4x12_asv_store_result;
 
 	return 0;
 }

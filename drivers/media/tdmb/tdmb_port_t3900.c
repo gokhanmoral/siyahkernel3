@@ -65,7 +65,6 @@ static bool __get_ensemble_info(struct ensemble_info_type *e_info
 	if (e_info->tot_sub_ch > 0) {
 		e_name =
 			(char *)INTERFACE_GETENSEMBLE_LABEL(TDMB_I2C_ID80);
-		DPRINTK("e_name : %s\n", e_name);
 
 		if (e_name)
 			strncpy((char *)e_info->ensem_label,
@@ -96,10 +95,6 @@ static bool __get_ensemble_info(struct ensemble_info_type *e_info
 						inc_sub_info->aucLabel,
 						SVC_LABEL_MAX);
 
-				DPRINTK("%s(subchid:%d,tmid:%d)\n",
-					e_info->sub_ch[sub_i].svc_label,
-					e_info->sub_ch[sub_i].sub_ch_id,
-					e_info->sub_ch[sub_i].tmid);
 			}
 		}
 		return true;

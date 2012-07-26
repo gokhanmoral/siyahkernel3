@@ -75,15 +75,16 @@ IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_AmpDisable(VibeUInt8 nActuatorIndex
 	if (g_bAmpEnabled) {
 
 		g_bAmpEnabled = false;
+#if !defined(CONFIG_MACH_P4NOTE)
 		vibtonz_pwm(0);
 		vibtonz_en(false);
-
+#endif
 		if (regulator_hapticmotor_enabled == 1) {
 			regulator_hapticmotor_enabled = 0;
 
-			/*
-			printk(KERN_ERR "tspdrv: %s (%d)\n", __func__, regulator_hapticmotor_enabled);
-			*/
+			printk(KERN_DEBUG "Motor:tspdrv: %s (%d)\n", __func__,
+						regulator_hapticmotor_enabled);
+
 		}
 	}
 
@@ -111,14 +112,16 @@ IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_AmpEnable(VibeUInt8 nActuatorIndex)
 #endif
 
 	if (!g_bAmpEnabled) {
+#if !defined(CONFIG_MACH_P4NOTE)
 		vibtonz_en(true);
+#endif
 
 		g_bAmpEnabled = true;
 		regulator_hapticmotor_enabled = 1;
 
-		/*
-		printk(KERN_ERR "tspdrv: %s (%d)\n", __func__, regulator_hapticmotor_enabled);
-		*/
+		printk(KERN_DEBUG "Motor:tspdrv: %s (%d)\n", __func__,
+					regulator_hapticmotor_enabled);
+
 	}
 
 	return VIBE_S_SUCCESS;
@@ -237,7 +240,9 @@ IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_SetSamples(VibeUInt8 nActuatorIndex
 	} else {
 		/* Map force from [-127, 127] to [0, PWM_DUTY_MAX] */
 		ImmVibeSPI_ForceOut_AmpEnable(0);
+#if !defined(CONFIG_MACH_P4NOTE)
 		vibtonz_pwm(nForce);
+#endif
 	}
 
 	return VIBE_S_SUCCESS;

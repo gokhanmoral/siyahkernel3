@@ -836,6 +836,7 @@
 /* SPD_DATA0~27 */
 
 /* VSI_CON */
+#define HDMI_VSI_CON_DO_NOT_TRANSMIT		(0 << 0)
 #define HDMI_VSI_CON_EVERY_VSYNC		(1 << 1)
 
 /* VSI_DATA00 ~ 27 */

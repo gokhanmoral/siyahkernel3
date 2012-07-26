@@ -20,7 +20,7 @@
 #include <media/s5k4ba_platform.h>
 
 #ifdef CONFIG_VIDEO_SAMSUNG_V4L2
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 #endif
 
 #include "s5k4ba.h"

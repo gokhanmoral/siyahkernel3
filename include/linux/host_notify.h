@@ -50,9 +50,11 @@ struct host_notifier_platform_data {
 	struct	host_notify_dev ndev;
 	int		gpio;
 	void	(*booster)(int);
+	void (*powered_booster)(int);
 	int		(*usbhostd_start)(void);
 	int		(*usbhostd_stop)(void);
 	int		thread_enable;
+	int		irq_enable;
 };
 
 extern void host_state_notify(struct host_notify_dev *ndev, int state);

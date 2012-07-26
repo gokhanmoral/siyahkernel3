@@ -28,6 +28,7 @@
 #include <mach/clock-domain.h>
 #include <mach/regs-audss.h>
 #include <mach/asv.h>
+#include <mach/regs-usb-phy.h>
 
 #include <plat/regs-otg.h>
 #include <plat/exynos4.h>
@@ -37,8 +38,9 @@
 #ifdef CONFIG_SEC_WATCHDOG_RESET
 #include <plat/regs-watchdog.h>
 #endif
-#include <plat/usb-phy.h>
 #include <mach/regs-usb-phy.h>
+#include <plat/usb-phy.h>
+
 
 #ifdef CONFIG_ARM_TRUSTZONE
 #define REG_DIRECTGO_ADDR	(S5P_VA_SYSRAM_NS + 0x24)
@@ -50,8 +52,17 @@
 				(S5P_VA_SYSRAM + 0x20) : S5P_INFORM6)
 #endif
 
+#include <asm/hardware/gic.h>
+#include <plat/map-base.h>
+#include <plat/map-s5p.h>
+
 extern unsigned long sys_pwr_conf_addr;
 extern unsigned int l2x0_save[3];
+extern unsigned int scu_save[2];
+
+#ifdef CONFIG_FAST_RESUME
+static void exynos4_init_cpuidle_post_hib(void);
+#endif
 
 enum hc_type {
 	HC_SDHC,
@@ -71,8 +82,21 @@ struct check_device_op {
 	enum hc_type		type;
 };
 
-#if defined(CONFIG_MACH_MIDAS)
+#ifdef CONFIG_MACH_MIDAS
+unsigned int log_en = 1;
+#else
+unsigned int log_en;
+#endif
+module_param_named(log_en, log_en, uint, 0644);
+
+#if defined(CONFIG_MACH_MIDAS) || defined(CONFIG_SLP)
+#if defined(CONFIG_MACH_T0_EUR_LTE) || defined(CONFIG_MACH_T0_USA_ATT) \
+|| defined(CONFIG_MACH_T0_USA_TMO) || defined(CONFIG_MACH_T0_USA_VZW) \
+|| defined(CONFIG_MACH_T0_USA_SPR) || defined(CONFIG_MACH_T0_USA_USCC)
+#define CPUDILE_ENABLE_MASK (0)
+#else
 #define CPUDILE_ENABLE_MASK (ENABLE_LPA)
+#endif
 #else
 #define CPUDILE_ENABLE_MASK (ENABLE_AFTR | ENABLE_LPA)
 #endif
@@ -107,9 +131,11 @@ static struct check_device_op chk_sdhc_op[] = {
 #endif
 };
 
+#if defined(CONFIG_USB_S3C_OTGD) && !defined(CONFIG_USB_EXYNOS_SWITCH)
 static struct check_device_op chk_usbotg_op = {
 	.base = 0, .pdev = &s3c_device_usbgadget, .type = 0
 };
+#endif
 
 #define S3C_HSMMC_PRNSTS	(0x24)
 #define S3C_HSMMC_CLKCON	(0x2c)
@@ -289,23 +315,24 @@ static int loop_sdmmc_check(void)
 	unsigned int iter;
 
 	for (iter = 0; iter < sdmmc_dev_num; iter++) {
-		if (check_sdmmc_op(iter)) {
-			printk(KERN_DEBUG "SDMMC [%d] working\n", iter);
+		if (check_sdmmc_op(iter))
 			return 1;
-		}
 	}
 	return 0;
 }
 
 /*
- * Check USBOTG is working or not
+ * Check USB Device and Host is working or not
+ * USB_S3C-OTGD can check GOTGCTL register
  * GOTGCTL(0xEC000000)
  * BSesVld (Indicates the Device mode transceiver status)
  * BSesVld =	1b : B-session is valid
- *		0b : B-session is not valid
+ *		0b : B-session is not valiid
+ * USB_EXYNOS_SWITCH can check Both Host and Device status.
  */
-static int check_usbotg_op(void)
+static int check_usb_op(void)
 {
+#if defined(CONFIG_USB_S3C_OTGD) && !defined(CONFIG_USB_EXYNOS_SWITCH)
 	void __iomem *base_addr;
 	unsigned int val;
 
@@ -313,6 +340,11 @@ static int check_usbotg_op(void)
 	val = __raw_readl(base_addr + S3C_UDC_OTG_GOTGCTL);
 
 	return val & (A_SESSION_VALID | B_SESSION_VALID);
+#elif defined(CONFIG_USB_EXYNOS_SWITCH)
+	return exynos_check_usb_op();
+#else
+	return 0;
+#endif
 }
 
 #ifdef CONFIG_SND_SAMSUNG_RP
@@ -341,6 +373,33 @@ static inline int check_gps_uart_op(void)
 	return gps_is_running;
 }
 
+#ifdef CONFIG_INTERNAL_MODEM_IF
+static int check_idpram_op(void)
+{
+	/* This pin is high when CP might be accessing dpram */
+	int cp_int = gpio_get_value(GPIO_CP_AP_DPRAM_INT);
+	if (cp_int != 0)
+		pr_info("%s cp_int is high.\n", __func__);
+	return cp_int;
+}
+#endif
+
+static atomic_t sromc_use_count;
+
+void set_sromc_access(bool access)
+{
+	if (access)
+		atomic_set(&sromc_use_count, 1);
+	else
+		atomic_set(&sromc_use_count, 0);
+}
+EXPORT_SYMBOL(set_sromc_access);
+
+static inline int check_sromc_access(void)
+{
+	return atomic_read(&sromc_use_count);
+}
+
 static int exynos4_check_operation(void)
 {
 	if (check_power_domain())
@@ -349,23 +408,46 @@ static int exynos4_check_operation(void)
 	if (clock_domain_enabled(LPA_DOMAIN))
 		return 1;
 
-	if (loop_sdmmc_check() || exynos4_check_usb_op())
+	if (loop_sdmmc_check())
 		return 1;
 #ifdef CONFIG_SND_SAMSUNG_RP
 	if (srp_get_op_level())
 		return 1;
 #endif
+	if (check_usb_op())
+		return 1;
 
 #if defined(CONFIG_BT)
 	if (check_bt_op())
 		return 1;
 #endif
 
+#ifdef CONFIG_INTERNAL_MODEM_IF
+	if (check_idpram_op())
+		return 1;
+#endif
+
 	if (check_gps_uart_op())
 		return 1;
 
+	if (exynos4_check_usb_op())
+		return 1;
+
+	if (check_sromc_access()) {
+		pr_info("%s: SROMC is in use!!!\n", __func__);
+		return 1;
+	}
+
 	return 0;
 }
+
+#ifdef CONFIG_SEC_WATCHDOG_RESET
+static struct sleep_save exynos4_aftr_save[] = {
+	SAVE_ITEM(S3C2410_WTDAT),
+	SAVE_ITEM(S3C2410_WTCNT),
+	SAVE_ITEM(S3C2410_WTCON),
+};
+#endif
 
 static struct sleep_save exynos4_lpa_save[] = {
 	/* CMU side */
@@ -386,31 +468,20 @@ static struct sleep_save exynos4_lpa_save[] = {
 #endif
 };
 
-static struct sleep_save exynos4_aftr_save[] = {
-	/* CMU side */
-	SAVE_ITEM(S5P_CLKSRC_AUDSS),
-	SAVE_ITEM(S5P_CLKDIV_AUDSS),
-#ifdef CONFIG_SEC_WATCHDOG_RESET	
-	SAVE_ITEM(S3C2410_WTDAT),
-	SAVE_ITEM(S3C2410_WTCNT),
-	SAVE_ITEM(S3C2410_WTCON),
-#endif
-};
-
 static struct sleep_save exynos4_set_clksrc[] = {
-	{ .reg = EXYNOS4_CLKSRC_MASK_TOP			, .val = 0x00000001, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_CAM			, .val = 0x11111111, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_TV				, .val = 0x00000111, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_LCD0			, .val = 0x00001111, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_MAUDIO			, .val = 0x00000001, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_FSYS			, .val = 0x01011111, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_PERIL0			, .val = 0x01111111, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_PERIL1			, .val = 0x01110111, },
-	{ .reg = EXYNOS4_CLKSRC_MASK_DMC			, .val = 0x00010000, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_TOP		, .val = 0x00000001, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_CAM		, .val = 0x11111111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_TV			, .val = 0x00000111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_LCD0		, .val = 0x00001111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_MAUDIO		, .val = 0x00000001, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_FSYS		, .val = 0x01011111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_PERIL0		, .val = 0x01111111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_PERIL1		, .val = 0x01110111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_DMC		, .val = 0x00010000, },
 };
 
 static struct sleep_save exynos4210_set_clksrc[] = {
-	{ .reg = EXYNOS4_CLKSRC_MASK_LCD1			, .val = 0x00001111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_LCD1		, .val = 0x00001111, },
 };
 
 static int exynos4_check_enter(void)
@@ -459,18 +530,17 @@ static int exynos4_enter_core0_aftr(struct cpuidle_device *dev,
 {
 	struct timeval before, after;
 	int idle_time;
-	unsigned long tmp;
+	unsigned long tmp, abb_val;
 
-	/*
-	 * Defence code to avoid start up code latency after wakeup from aftr mode
-	 */
+#ifdef CONFIG_SEC_WATCHDOG_RESET
 	s3c_pm_do_save(exynos4_aftr_save, ARRAY_SIZE(exynos4_aftr_save));
-
-	tmp = __raw_readl(S5P_CLKDIV_AUDSS);
-	tmp &= ~S5P_AUDSS_CLKDIV_RP_MASK;
-	__raw_writel(tmp, S5P_CLKDIV_AUDSS);
+#endif
 
 	local_irq_disable();
+
+	if (log_en)
+		pr_info("+++aftr\n");
+
 	do_gettimeofday(&before);
 
 	exynos4_set_wakeupmask();
@@ -484,8 +554,12 @@ static int exynos4_enter_core0_aftr(struct cpuidle_device *dev,
 	if (!soc_is_exynos4210())
 		exynos4_reset_assert_ctrl(0);
 
-	if (!soc_is_exynos4210())
-		exynos4x12_set_abb(ABB_MODE_100V);
+#ifdef CONFIG_EXYNOS4_CPUFREQ
+	if (!soc_is_exynos4210()) {
+		abb_val = exynos4x12_get_abb_member(ABB_ARM);
+		exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_075V);
+	}
+#endif
 
 	if (exynos4_enter_lp(0, PLAT_PHYS_OFFSET - PAGE_OFFSET) == 0) {
 
@@ -504,11 +578,16 @@ static int exynos4_enter_core0_aftr(struct cpuidle_device *dev,
 
 	vfp_enable(NULL);
 
+#ifdef CONFIG_SEC_WATCHDOG_RESET
 	s3c_pm_do_restore_core(exynos4_aftr_save,
-			       ARRAY_SIZE(exynos4_aftr_save));
+				ARRAY_SIZE(exynos4_aftr_save));
+#endif
+
 early_wakeup:
-	if ((exynos_result_of_asv > 3) && !soc_is_exynos4210())
-		exynos4x12_set_abb(ABB_MODE_130V);
+#ifdef CONFIG_EXYNOS4_CPUFREQ
+	if ((exynos_result_of_asv > 1) && !soc_is_exynos4210())
+		exynos4x12_set_abb_member(ABB_ARM, abb_val);
+#endif
 
 	if (!soc_is_exynos4210())
 		exynos4_reset_assert_ctrl(1);
@@ -517,6 +596,9 @@ early_wakeup:
 	__raw_writel(0x0, S5P_WAKEUP_STAT);
 
 	do_gettimeofday(&after);
+
+	if (log_en)
+		pr_info("---aftr\n");
 
 	local_irq_enable();
 	idle_time = (after.tv_sec - before.tv_sec) * USEC_PER_SEC +
@@ -532,7 +614,7 @@ static int exynos4_enter_core0_lpa(struct cpuidle_device *dev,
 {
 	struct timeval before, after;
 	int idle_time;
-	unsigned long tmp;
+	unsigned long tmp, abb_val, abb_val_int;
 
 	s3c_pm_do_save(exynos4_lpa_save, ARRAY_SIZE(exynos4_lpa_save));
 
@@ -551,6 +633,13 @@ static int exynos4_enter_core0_lpa(struct cpuidle_device *dev,
 #endif
 	local_irq_disable();
 
+#ifdef CONFIG_INTERNAL_MODEM_IF
+	gpio_set_value(GPIO_PDA_ACTIVE, 0);
+#endif
+
+	if (log_en)
+		pr_info("+++lpa\n");
+
 	do_gettimeofday(&before);
 
 	/*
@@ -559,15 +648,12 @@ static int exynos4_enter_core0_lpa(struct cpuidle_device *dev,
 	__raw_writel(0x3ff0000, S5P_WAKEUP_MASK);
 
 	/* Configure GPIO Power down control register */
-	if (soc_is_exynos4210())
-		exynos4_gpio_conpdn_reg();
-	else
 #ifdef CONFIG_MIDAS_COMMON
-		if (exynos4_sleep_gpio_table_set)
-			exynos4_sleep_gpio_table_set();
-#else
-		exynos4212_gpio_conpdn_reg();
+	if (exynos4_sleep_gpio_table_set)
+		exynos4_sleep_gpio_table_set();
+	else
 #endif
+		exynos4_gpio_conpdn_reg();
 
 	/* ensure at least INFORM0 has the resume address */
 	__raw_writel(virt_to_phys(exynos4_idle_resume), S5P_INFORM0);
@@ -586,9 +672,14 @@ static int exynos4_enter_core0_lpa(struct cpuidle_device *dev,
 		/* Waiting for flushing UART fifo */
 	} while (exynos4_check_enter());
 
-	if (!soc_is_exynos4210())
-		exynos4x12_set_abb(ABB_MODE_100V);
-
+#ifdef CONFIG_EXYNOS4_CPUFREQ
+	if (!soc_is_exynos4210()) {
+		abb_val = exynos4x12_get_abb_member(ABB_ARM);
+		abb_val_int = exynos4x12_get_abb_member(ABB_INT);
+		exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_075V);
+		exynos4x12_set_abb_member(ABB_INT, ABB_MODE_075V);
+	}
+#endif
 
 	if (exynos4_enter_lp(0, PLAT_PHYS_OFFSET - PAGE_OFFSET) == 0) {
 
@@ -607,9 +698,6 @@ static int exynos4_enter_core0_lpa(struct cpuidle_device *dev,
 
 	vfp_enable(NULL);
 
-	s3c_pm_do_restore_core(exynos4_lpa_save,
-			       ARRAY_SIZE(exynos4_lpa_save));
-
 	/* For release retention */
 	__raw_writel((1 << 28), S5P_PAD_RET_GPIO_OPTION);
 	__raw_writel((1 << 28), S5P_PAD_RET_UART_OPTION);
@@ -619,8 +707,15 @@ static int exynos4_enter_core0_lpa(struct cpuidle_device *dev,
 	__raw_writel((1 << 28), S5P_PAD_RET_EBIB_OPTION);
 
 early_wakeup:
-	if ((exynos_result_of_asv > 3) && !soc_is_exynos4210())
-		exynos4x12_set_abb(ABB_MODE_130V);
+	s3c_pm_do_restore_core(exynos4_lpa_save,
+			       ARRAY_SIZE(exynos4_lpa_save));
+
+#ifdef CONFIG_EXYNOS4_CPUFREQ
+	if ((exynos_result_of_asv > 1) && !soc_is_exynos4210()) {
+		exynos4x12_set_abb_member(ABB_ARM, abb_val);
+		exynos4x12_set_abb_member(ABB_INT, abb_val_int);
+	}
+#endif
 
 	if (!soc_is_exynos4210())
 		exynos4_reset_assert_ctrl(1);
@@ -631,6 +726,12 @@ early_wakeup:
 	__raw_writel(0x0, S5P_WAKEUP_MASK);
 
 	do_gettimeofday(&after);
+
+	if (log_en)
+		pr_info("---lpa\n");
+#ifdef CONFIG_INTERNAL_MODEM_IF
+	gpio_set_value(GPIO_PDA_ACTIVE, 1);
+#endif
 
 	local_irq_enable();
 	idle_time = (after.tv_sec - before.tv_sec) * USEC_PER_SEC +
@@ -659,6 +760,7 @@ static struct cpuidle_state exynos4_cpuidle_set[] = {
 		.name			= "IDLE",
 		.desc			= "ARM clock gating(WFI)",
 	},
+#ifdef CONFIG_EXYNOS4_LOWPWR_IDLE
 	[1] = {
 		.enter			= exynos4_enter_lowpower,
 		.exit_latency		= 300,
@@ -667,6 +769,7 @@ static struct cpuidle_state exynos4_cpuidle_set[] = {
 		.name			= "LOW_POWER",
 		.desc			= "ARM power down",
 	},
+#endif
 };
 
 static DEFINE_PER_CPU(struct cpuidle_device, exynos4_cpuidle_device);
@@ -795,9 +898,15 @@ static int exynos4_cpuidle_notifier_event(struct notifier_block *this,
 {
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
+	case PM_HIBERNATION_PREPARE:
+	case PM_RESTORE_PREPARE:
 		disable_hlt();
 		pr_debug("PM_SUSPEND_PREPARE for CPUIDLE\n");
 		return NOTIFY_OK;
+	case PM_POST_HIBERNATION:
+#ifdef CONFIG_FAST_RESUME
+		exynos4_init_cpuidle_post_hib();
+#endif
 	case PM_POST_RESTORE:
 	case PM_POST_SUSPEND:
 		enable_hlt();
@@ -871,9 +980,38 @@ static void __init exynos4_core_down_clk(void)
 #define exynos4_core_down_clk()	do { } while (0)
 #endif
 
+#ifdef CONFIG_FAST_RESUME
+static void exynos4_init_cpuidle_post_hib(void)
+{
+	if (soc_is_exynos4210())
+		use_clock_down = SW_CLK_DWN;
+	else
+		use_clock_down = HW_CLK_DWN;
+
+	/* Clock down feature can use only EXYNOS4212 */
+	if (use_clock_down == HW_CLK_DWN)
+		exynos4_core_down_clk();
+
+	sys_pwr_conf_addr = (unsigned long)S5P_CENTRAL_SEQ_CONFIGURATION;
+
+	/* Save register value for SCU */
+	scu_save[0] = __raw_readl(S5P_VA_SCU + 0x30);
+	scu_save[1] = __raw_readl(S5P_VA_SCU + 0x0);
+
+	/* Save register value for L2X0 */
+	l2x0_save[0] = __raw_readl(S5P_VA_L2CC + 0x108);
+	l2x0_save[1] = __raw_readl(S5P_VA_L2CC + 0x10C);
+	l2x0_save[2] = __raw_readl(S5P_VA_L2CC + 0xF60);
+
+	flush_cache_all();
+	outer_clean_range(virt_to_phys(l2x0_save), ARRAY_SIZE(l2x0_save));
+	outer_clean_range(virt_to_phys(scu_save), ARRAY_SIZE(scu_save));
+}
+#endif
+
 static int __init exynos4_init_cpuidle(void)
 {
-	int i, max_cpuidle_state, cpu_id;
+	int i, max_cpuidle_state, cpu_id, ret;
 	struct cpuidle_device *device;
 	struct platform_device *pdev;
 	struct resource *res;
@@ -887,7 +1025,12 @@ static int __init exynos4_init_cpuidle(void)
 	if (use_clock_down == HW_CLK_DWN)
 		exynos4_core_down_clk();
 
-	cpuidle_register_driver(&exynos4_idle_driver);
+	ret = cpuidle_register_driver(&exynos4_idle_driver);
+
+	if(ret < 0){
+		printk(KERN_ERR "exynos4 idle register driver failed\n");
+		return ret;
+	}
 
 	for_each_cpu(cpu_id, cpu_online_mask) {
 		device = &per_cpu(exynos4_cpuidle_device, cpu_id);
@@ -908,6 +1051,7 @@ static int __init exynos4_init_cpuidle(void)
 		device->safe_state = &device->states[0];
 
 		if (cpuidle_register_device(device)) {
+			cpuidle_unregister_driver(&exynos4_idle_driver);
 			printk(KERN_ERR "CPUidle register device failed\n,");
 			return -EIO;
 		}
@@ -933,6 +1077,7 @@ static int __init exynos4_init_cpuidle(void)
 		}
 	}
 
+#if defined(CONFIG_USB_S3C_OTGD) && !defined(CONFIG_USB_EXYNOS_SWITCH)
 	pdev = chk_usbotg_op.pdev;
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
@@ -946,9 +1091,13 @@ static int __init exynos4_init_cpuidle(void)
 		printk(KERN_ERR "failed to map io region\n");
 		return -EINVAL;
 	}
-
+#endif
 	register_pm_notifier(&exynos4_cpuidle_notifier);
 	sys_pwr_conf_addr = (unsigned long)S5P_CENTRAL_SEQ_CONFIGURATION;
+
+	/* Save register value for SCU */
+	scu_save[0] = __raw_readl(S5P_VA_SCU + 0x30);
+	scu_save[1] = __raw_readl(S5P_VA_SCU + 0x0);
 
 	/* Save register value for L2X0 */
 	l2x0_save[0] = __raw_readl(S5P_VA_L2CC + 0x108);
@@ -957,6 +1106,7 @@ static int __init exynos4_init_cpuidle(void)
 
 	flush_cache_all();
 	outer_clean_range(virt_to_phys(l2x0_save), ARRAY_SIZE(l2x0_save));
+	outer_clean_range(virt_to_phys(scu_save), ARRAY_SIZE(scu_save));
 
 	return 0;
 }

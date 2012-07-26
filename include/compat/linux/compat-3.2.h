@@ -73,6 +73,9 @@ static inline void *dma_zalloc_coherent(struct device *dev, size_t size,
 	return ret;
 }
 
+extern int __netdev_printk(const char *level, const struct net_device *dev,
+			   struct va_format *vaf);
+
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)) */
 
 #endif /* LINUX_3_2_COMPAT_H */

@@ -50,6 +50,10 @@
 #define INT1_SRC		0x31
 #define INT1_THS		0x32
 #define INT1_DURATION		0x33
+#define INT2_CFG		0x34
+#define INT2_SRC		0x35
+#define INT2_THS		0x36
+#define INT2_DURATION		0x37
 #define CLICK_CFG		0x38
 #define CLICK_SRC		0x39
 #define CLICK_THS		0x3A
@@ -67,9 +71,10 @@
 #define CTRL_REG1_Yen		(1 << 1)
 #define CTRL_REG1_Xen		(1 << 0)
 
-#define PM_OFF	0x00
-#define LOW_PWR_MODE	0x3F /* 25HZ */
-#define ENABLE_ALL_AXES 0x07
+#define PM_OFF			0x00
+#define LOW_PWR_MODE		0x4F /* 50HZ */
+#define FASTEST_MODE		0x9F /* 1344Hz */
+#define ENABLE_ALL_AXES		0x07
 
 #define ODR1			0x10	/* 1Hz output data rate */
 #define ODR10			0x20	/* 10Hz output data rate */
@@ -165,7 +170,7 @@ struct lsm330dlc_acc {
 };
 
 /* For movement recognition*/
-#define USES_MOVEMETNT_RECOGNITION
+#define USES_MOVEMENT_RECOGNITION
 
 /* LSM330DLC_ACCEL ioctl command label */
 #define LSM330DLC_ACCEL_IOCTL_BASE 'a'
@@ -173,10 +178,8 @@ struct lsm330dlc_acc {
 	_IOW(LSM330DLC_ACCEL_IOCTL_BASE, 0, int64_t)
 #define LSM330DLC_ACCEL_IOCTL_GET_DELAY  \
 	_IOR(LSM330DLC_ACCEL_IOCTL_BASE, 1, int64_t)
-#ifdef USES_MOVEMETNT_RECOGNITION
-#define LSM330DLC_ACCEL_IOCTL_SET_MOTION  \
-	_IOR(LSM330DLC_ACCEL_IOCTL_BASE, 2, int64_t)
-#endif
 #define LSM330DLC_ACCEL_IOCTL_READ_XYZ\
 	_IOR(LSM330DLC_ACCEL_IOCTL_BASE, 8, struct lsm330dlc_acc)
+#define LSM330DLC_ACCEL_IOCTL_SET_ENABLE   \
+	_IOW(LSM330DLC_ACCEL_IOCTL_BASE, 9, int)
 #endif

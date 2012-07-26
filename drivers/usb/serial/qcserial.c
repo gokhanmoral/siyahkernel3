@@ -86,9 +86,13 @@ static const struct usb_device_id id_table[] = {
 	{USB_DEVICE(0x05c6, 0x9204)},	/* Gobi 2000 QDL device */
 	{USB_DEVICE(0x05c6, 0x9205)},	/* Gobi 2000 Modem device */
 	{USB_DEVICE(0x1199, 0x9013)},	/* Sierra Wireless Gobi 3000 Modem device (MC8355) */
+	{USB_DEVICE(0x05c6, 0x9048)},	/* MDM9x15 device */
+	{USB_DEVICE(0x05c6, 0x904C)},	/* MDM9x15 device */
 	{ }				/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, id_table);
+
+#define EFS_SYNC_IFC_NUM	2
 
 static struct usb_driver qcdriver = {
 	.name			= "qcserial",
@@ -97,6 +101,7 @@ static struct usb_driver qcdriver = {
 	.id_table		= id_table,
 	.suspend		= usb_serial_suspend,
 	.resume			= usb_serial_resume,
+	.reset_resume		= usb_serial_resume,
 	.supports_autosuspend	= true,
 };
 
@@ -121,9 +126,14 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 		return -ENOMEM;
 
 	spin_lock_init(&data->susp_lock);
-
+#ifdef CONFIG_MDM_HSIC_PM
+	if (id->idVendor == 0x05c6 &&
+			(id->idProduct == 0x9008 || id->idProduct == 0x9048 ||
+					id->idProduct == 0x904c))
+		goto set_interface;
 	usb_enable_autosuspend(serial->dev);
-
+set_interface:
+#endif
 	switch (nintf) {
 	case 1:
 		/* QDL mode */
@@ -201,6 +211,14 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 		}
 		break;
 
+	case 9:
+		if (ifnum != EFS_SYNC_IFC_NUM) {
+			kfree(data);
+			break;
+		}
+
+		retval = 0;
+		break;
 	default:
 		dev_err(&serial->dev->dev,
 			"unknown number of interfaces: %d\n", nintf);

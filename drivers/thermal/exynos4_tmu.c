@@ -618,6 +618,8 @@ static int __devinit exynos4_tmu_probe(struct platform_device *pdev)
 		goto err_hwmon_device;
 	}
 #endif
+	hwmon_register_properties(data->hwmon_dev, &exynos4_tmu_attr_group);
+
 	exynos4_tmu_control(pdev, true);
 
 	return 0;

@@ -32,7 +32,7 @@ static int exynos_pd_save(struct device *dev)
 	exynos_pd_status[pdev->id] &= S5P_INT_LOCAL_PWR_EN;
 
 #if !defined(CONFIG_CPU_EXYNOS4210)
-	printk(KERN_DEBUG "%s: %s(%d) exynos4_pd_status = 0x%08x\n",
+	pr_debug("%s: %s(%d) exynos4_pd_status = 0x%08x\n",
 		__func__, pdev->name, pdev->id, exynos_pd_status[pdev->id]);
 #endif
 
@@ -40,7 +40,7 @@ static int exynos_pd_save(struct device *dev)
 		ret = exynos_pd_disable(dev);
 
 #if !defined(CONFIG_CPU_EXYNOS4210)
-	printk(KERN_DEBUG "%s: %s(%d) exynos4 pd status reg = 0x%08x\n",
+	pr_debug("%s: %s(%d) exynos4 pd status reg = 0x%08x\n",
 		__func__, pdev->name, pdev->id, __raw_readl(pdata->base + 0x4));
 #endif
 
@@ -54,7 +54,7 @@ static int exynos_pd_restore(struct device *dev)
 	int ret = 0;
 
 #if !defined(CONFIG_CPU_EXYNOS4210)
-	printk(KERN_DEBUG "%s: %s(%d) exynos4_pd_status = 0x%08x\n",
+	pr_debug("%s: %s(%d) exynos4_pd_status = 0x%08x\n",
 		__func__, pdev->name, pdev->id, exynos_pd_status[pdev->id]);
 #endif
 
@@ -64,7 +64,7 @@ static int exynos_pd_restore(struct device *dev)
 	exynos_pd_status[pdev->id] = 0;
 
 #if !defined(CONFIG_CPU_EXYNOS4210)
-	printk(KERN_DEBUG "%s: %s(%d) exynos4 pd status reg = 0x%08x\n",
+	pr_debug("%s: %s(%d) exynos4 pd status reg = 0x%08x\n",
 		__func__, pdev->name, pdev->id, __raw_readl(pdata->base + 0x4));
 #endif
 

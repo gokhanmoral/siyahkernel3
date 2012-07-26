@@ -61,7 +61,7 @@ enum SPI_MAIN_STATE_T {
 	SPI_MAIN_STATE_END			/* spi task is stopped */
 };
 
-extern struct workqueue_struct *suspend_work_queue;
+extern struct workqueue_struct *ipc_spi_wq;
 extern int send_modem_spi;
 extern int boot_done;
 extern struct semaphore srdy_sem;
@@ -74,6 +74,7 @@ extern void spi_main_init(void *data);
 extern void spi_main_send_signal(enum SPI_MAIN_MSG_T  spi_sigs);
 extern void spi_main_send_signalfront(enum SPI_MAIN_MSG_T  spi_sigs);
 extern void spi_set_restart(void);
+extern int get_console_suspended(void);
 
 #endif
 

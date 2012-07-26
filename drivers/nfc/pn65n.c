@@ -36,7 +36,7 @@
 #include <linux/spinlock.h>
 #include <linux/nfc/pn65n.h>
 
-#define MAX_BUFFER_SIZE	512
+#define MAX_BUFFER_SIZE		512
 
 #define NXP_KR_READ_IRQ_MODIFY
 
@@ -45,7 +45,11 @@ static bool do_reading;
 static bool cancle_read;
 #endif
 
-#define NFC_DEBUG 0
+#define NFC_DEBUG		0
+#define MAX_TRY_I2C_READ	10
+#define I2C_ADDR_READ_L		0x51
+#define I2C_ADDR_READ_H		0x57
+
 
 struct pn65n_dev	{
 	wait_queue_head_t	read_wq;
@@ -55,39 +59,29 @@ struct pn65n_dev	{
 	unsigned int		ven_gpio;
 	unsigned int		firm_gpio;
 	unsigned int		irq_gpio;
-	bool			irq_enabled;
-	spinlock_t		irq_enabled_lock;
+	atomic_t		irq_enabled;
 };
-
-static void pn65n_disable_irq(struct pn65n_dev *pn65n_dev)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&pn65n_dev->irq_enabled_lock, flags);
-	if (pn65n_dev->irq_enabled) {
-		disable_irq_nosync(pn65n_dev->client->irq);
-		pn65n_dev->irq_enabled = false;
-	}
-	spin_unlock_irqrestore(&pn65n_dev->irq_enabled_lock, flags);
-}
 
 static irqreturn_t pn65n_dev_irq_handler(int irq, void *dev_id)
 {
 	struct pn65n_dev *pn65n_dev = dev_id;
 
+	if (!gpio_get_value(pn65n_dev->irq_gpio)) {
+#if NFC_DEBUG
+		pr_err("%s, irq_gpio = %d\n", __func__,
+		gpio_get_value(pn65n_dev->irq_gpio));
+#endif
+		return IRQ_HANDLED;
+	}
+
 #ifdef NXP_KR_READ_IRQ_MODIFY
 	do_reading = true;
 #endif
-
-	if (!gpio_get_value(pn65n_dev->irq_gpio))
-		return IRQ_HANDLED;
-
-	pn65n_disable_irq(pn65n_dev);
 	/* Wake up waiting readers */
 	wake_up(&pn65n_dev->read_wq);
 
 #if NFC_DEBUG
-	dev_info(&pn65n_dev->client->dev, "pn65n : call\n");
+	pr_info("%s, IRQ_HANDLED\n", __func__);
 #endif
 
 	return IRQ_HANDLED;
@@ -98,7 +92,8 @@ static ssize_t pn65n_dev_read(struct file *filp, char __user *buf,
 {
 	struct pn65n_dev *pn65n_dev = filp->private_data;
 	char tmp[MAX_BUFFER_SIZE];
-	int ret;
+	int ret = 0;
+	int readingWatchdog = 0;
 
 	if (count > MAX_BUFFER_SIZE)
 		count = MAX_BUFFER_SIZE;
@@ -112,32 +107,33 @@ static ssize_t pn65n_dev_read(struct file *filp, char __user *buf,
 
 	mutex_lock(&pn65n_dev->read_mutex);
 
-/*wait_irq:*/
+wait_irq:
 	if (!gpio_get_value(pn65n_dev->irq_gpio)) {
+#ifdef NXP_KR_READ_IRQ_MODIFY
+		do_reading = false;
+#endif
 		if (filp->f_flags & O_NONBLOCK) {
 			dev_info(&pn65n_dev->client->dev, "%s : O_NONBLOCK\n",
 				 __func__);
 			ret = -EAGAIN;
 			goto fail;
 		}
-
-		pn65n_dev->irq_enabled = true;
-
-#ifdef NXP_KR_READ_IRQ_MODIFY
-		do_reading = false;
+#if NFC_DEBUG
+		dev_info(&pn65n_dev->client->dev,
+			"wait_event_interruptible : in\n");
 #endif
 
-		enable_irq(pn65n_dev->client->irq);
 #ifdef NXP_KR_READ_IRQ_MODIFY
-		ret = wait_event_interruptible(pn65n_dev->read_wq, do_reading);
+		ret = wait_event_interruptible(pn65n_dev->read_wq,
+			do_reading);
 #else
 		ret = wait_event_interruptible(pn65n_dev->read_wq,
 			gpio_get_value(pn65n_dev->irq_gpio));
 #endif
-		pn65n_disable_irq(pn65n_dev);
 
 #if NFC_DEBUG
-		dev_info(&pn65n_dev->client->dev, "pn65n : h\n");
+		dev_info(&pn65n_dev->client->dev,
+			"wait_event_interruptible : out\n");
 #endif
 
 #ifdef NXP_KR_READ_IRQ_MODIFY
@@ -150,17 +146,29 @@ static ssize_t pn65n_dev_read(struct file *filp, char __user *buf,
 
 		if (ret)
 			goto fail;
-
 	}
 
 	/* Read data */
 	ret = i2c_master_recv(pn65n_dev->client, tmp, count);
+
+	/* If bad frame(from 0x51 to 0x57) is received from pn65n,
+	* we need to read again after waiting that IRQ is down.
+	* if data is not ready, pn65n will send from 0x51 to 0x57. */
+	if ((I2C_ADDR_READ_L <= tmp[0] && tmp[0] <= I2C_ADDR_READ_H)
+		&& readingWatchdog < MAX_TRY_I2C_READ) {
+		pr_warn("%s: data is not ready yet.data = 0x%x, cnt=%d\n",
+			__func__, tmp[0], readingWatchdog);
+		usleep_range(2000, 2000); /* sleep 2ms to wait for IRQ */
+		readingWatchdog++;
+		goto wait_irq;
+	}
+
 	mutex_unlock(&pn65n_dev->read_mutex);
 
 	if (ret < 0) {
-			dev_err(&pn65n_dev->client->dev,
-				"%s: i2c_master_recv returned %d\n",
-					__func__, ret);
+		dev_err(&pn65n_dev->client->dev,
+			"%s: i2c_master_recv returned %d\n",
+				__func__, ret);
 		return ret;
 	}
 	if (ret > count) {
@@ -264,8 +272,6 @@ static long pn65n_dev_ioctl(struct file *filp,
 		if (arg == 2) {
 			/* power on with firmware download (requires hw reset)
 			 */
-			dev_info(&pn65n_dev->client->dev,
-				 "%s power on with firmware\n", __func__);
 			gpio_set_value(pn65n_dev->ven_gpio, 1);
 			gpio_set_value(pn65n_dev->firm_gpio, 1);
 			usleep_range(10000, 10000);
@@ -273,17 +279,38 @@ static long pn65n_dev_ioctl(struct file *filp,
 			usleep_range(10000, 10000);
 			gpio_set_value(pn65n_dev->ven_gpio, 1);
 			usleep_range(10000, 10000);
+			if (atomic_read(&pn65n_dev->irq_enabled) == 0) {
+				atomic_set(&pn65n_dev->irq_enabled, 1);
+				enable_irq(pn65n_dev->client->irq);
+				enable_irq_wake(pn65n_dev->client->irq);
+			}
+			dev_info(&pn65n_dev->client->dev,
+				 "%s power on with firmware, irq=%d\n",
+				 __func__,
+				 atomic_read(&pn65n_dev->irq_enabled));
 		} else if (arg == 1) {
 			/* power on */
-			dev_info(&pn65n_dev->client->dev, "%s power on\n",
-				 __func__);
 			gpio_set_value(pn65n_dev->firm_gpio, 0);
 			gpio_set_value(pn65n_dev->ven_gpio, 1);
 			usleep_range(10000, 10000);
+			if (atomic_read(&pn65n_dev->irq_enabled) == 0) {
+				atomic_set(&pn65n_dev->irq_enabled, 1);
+				enable_irq(pn65n_dev->client->irq);
+				enable_irq_wake(pn65n_dev->client->irq);
+			}
+			dev_info(&pn65n_dev->client->dev,
+				"%s power on, irq=%d\n", __func__,
+				atomic_read(&pn65n_dev->irq_enabled));
 		} else if (arg == 0) {
 			/* power off */
-			dev_info(&pn65n_dev->client->dev, "%s power off\n",
-				 __func__);
+			if (atomic_read(&pn65n_dev->irq_enabled) == 1) {
+				disable_irq_wake(pn65n_dev->client->irq);
+				disable_irq_nosync(pn65n_dev->client->irq);
+				atomic_set(&pn65n_dev->irq_enabled, 0);
+			}
+			dev_info(&pn65n_dev->client->dev, "%s power off, irq=%d\n",
+				 __func__,
+				 atomic_read(&pn65n_dev->irq_enabled));
 			gpio_set_value(pn65n_dev->firm_gpio, 0);
 			gpio_set_value(pn65n_dev->ven_gpio, 0);
 			usleep_range(10000, 10000);
@@ -365,7 +392,6 @@ static int pn65n_probe(struct i2c_client *client,
 	/* init mutex and queues */
 	init_waitqueue_head(&pn65n_dev->read_wq);
 	mutex_init(&pn65n_dev->read_mutex);
-	spin_lock_init(&pn65n_dev->irq_enabled_lock);
 
 	pn65n_dev->pn65n_device.minor = MISC_DYNAMIC_MINOR;
 	pn65n_dev->pn65n_device.name = "pn544";
@@ -384,26 +410,24 @@ static int pn65n_probe(struct i2c_client *client,
 	 */
 	dev_info(&pn65n_dev->client->dev, "%s : requesting IRQ %d\n", __func__,
 		 client->irq);
-	pn65n_dev->irq_enabled = true;
-	gpio_direction_input(pn65n_dev->irq_gpio);
+	ret = gpio_direction_input(pn65n_dev->irq_gpio);
+	if (ret) {
+		dev_err(&client->dev, "%s : gpio_direction_input failed. ret = %d\n",
+			__FILE__, ret);
+		goto err_request_irq_failed;
+	}
+
 	ret = request_irq(client->irq, pn65n_dev_irq_handler,
 			  IRQF_TRIGGER_RISING, "pn65n", pn65n_dev);
 	if (ret) {
 		dev_err(&client->dev, "request_irq failed. ret = %d\n", ret);
 		goto err_request_irq_failed;
 	}
-	pn65n_disable_irq(pn65n_dev);
-	ret = enable_irq_wake(client->irq);
-	if (ret < 0) {
-		dev_err(&client->dev, "enable_irq_wake failed. ret = %d\n",
-			ret);
-		goto err_renable_irq_wake;
-	}
+	disable_irq_nosync(pn65n_dev->client->irq);
+	atomic_set(&pn65n_dev->irq_enabled, 0);
 
 	return 0;
 
-err_renable_irq_wake:
-	free_irq(client->irq, pn65n_dev);
 err_request_irq_failed:
 	misc_deregister(&pn65n_dev->pn65n_device);
 err_misc_register:

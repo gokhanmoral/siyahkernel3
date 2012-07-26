@@ -27,7 +27,7 @@
 #include <linux/pm_runtime.h>
 
 #include <linux/videodev2.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 #include <media/v4l2-subdev.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -54,10 +54,8 @@ struct fimc_is_dev *to_fimc_is_dev(struct v4l2_subdev *sdev)
 	return container_of(sdev, struct fimc_is_dev, sd);
 }
 
-static irqreturn_t fimc_is_irq_handler1(int irq, void *dev_id)
+static void fimc_is_irq_handler_general(struct fimc_is_dev *dev)
 {
-	struct fimc_is_dev *dev = dev_id;
-
 	/* Read ISSR10 ~ ISSR15 */
 	dev->i2h_cmd.cmd = readl(dev->regs + ISSR10);
 
@@ -65,6 +63,7 @@ static irqreturn_t fimc_is_irq_handler1(int irq, void *dev_id)
 	case IHC_GET_SENSOR_NUMBER:
 		dbg("IHC_GET_SENSOR_NUMBER\n");
 		fimc_is_hw_get_param(dev, 1);
+			dbg("ISP - FW version - %d\n", dev->i2h_cmd.arg[0]);
 		dev->fw.ver = dev->i2h_cmd.arg[0];
 		fimc_is_hw_wait_intmsr0_intmsd0(dev);
 		fimc_is_hw_set_sensor_num(dev);
@@ -90,8 +89,9 @@ static irqreturn_t fimc_is_irq_handler1(int irq, void *dev_id)
 		fimc_is_hw_get_param(dev, 4);
 		break;
 	}
+
 	/* Just clear the interrupt pending bits. */
-	fimc_is_fw_clear_irq1(dev);
+	fimc_is_fw_clear_irq1(dev, INTR_GENERAL);
 
 	switch (dev->i2h_cmd.cmd) {
 	case IHC_GET_SENSOR_NUMBER:
@@ -103,11 +103,20 @@ static irqreturn_t fimc_is_irq_handler1(int irq, void *dev_id)
 	case IHC_SET_FACE_MARK:
 		dev->fd_header.count = dev->i2h_cmd.arg[0];
 		dev->fd_header.index = dev->i2h_cmd.arg[1];
+		/* Implementation of AF with face */
+		if (dev->af.mode == IS_FOCUS_MODE_CONTINUOUS &&
+				dev->af.af_state == FIMC_IS_AF_LOCK) {
+			fimc_is_af_face(dev);
+		} else if (dev->af.mode == IS_FOCUS_MODE_FACEDETECT) {
+			/* Using face information once only */
+			fimc_is_af_face(dev);
+			dev->af.mode = IS_FOCUS_MODE_IDLE;
+		}
 		break;
 	case IHC_FRAME_DONE:
 		break;
 	case IHC_AA_DONE:
-		err("AA_DONE - %d, %d, %d\n", dev->i2h_cmd.arg[0],
+		dbg("AA_DONE - %d, %d, %d\n", dev->i2h_cmd.arg[0],
 			dev->i2h_cmd.arg[1], dev->i2h_cmd.arg[2]);
 		switch (dev->i2h_cmd.arg[0]) {
 		/* SEARCH: Occurs when search is requested at continuous AF */
@@ -169,6 +178,8 @@ static irqreturn_t fimc_is_irq_handler1(int irq, void *dev_id)
 			break;
 		case HIC_OPEN_SENSOR:
 			set_bit(IS_ST_OPEN_SENSOR, &dev->state);
+			printk(KERN_INFO "FIMC-IS Lane= %d, Settle line= %d\n",
+				dev->i2h_cmd.arg[2], dev->i2h_cmd.arg[1]);
 			break;
 		case HIC_CLOSE_SENSOR:
 			clear_bit(IS_ST_OPEN_SENSOR, &dev->state);
@@ -200,8 +211,38 @@ static irqreturn_t fimc_is_irq_handler1(int irq, void *dev_id)
 			fimc_is_param_err_checker(dev);
 			break;
 		}
-		break;
 	}
+}
+
+static void fimc_is_irq_handler_isp(struct fimc_is_dev *dev)
+{
+#if defined(CONFIG_VIDEO_EXYNOS_FIMC_IS_BAYER)
+	int buf_index;
+#endif
+	/* INTR_FRAME_DONE_ISP */
+	dev->i2h_cmd.arg[0] = readl(dev->regs + ISSR20);
+	dev->i2h_cmd.arg[1] = readl(dev->regs + ISSR21);
+	fimc_is_fw_clear_irq1(dev, INTR_FRAME_DONE_ISP);
+#if defined(CONFIG_VIDEO_EXYNOS_FIMC_IS_BAYER)
+	buf_index = (dev->i2h_cmd.arg[1] - 1)
+				% dev->video[FIMC_IS_VIDEO_NUM_BAYER].num_buf;
+	vb2_buffer_done(dev->video[FIMC_IS_VIDEO_NUM_BAYER].vbq.bufs[buf_index],
+			VB2_BUF_STATE_DONE);
+#endif
+}
+
+static irqreturn_t fimc_is_irq_handler1(int irq, void *dev_id)
+{
+	struct fimc_is_dev *dev = dev_id;
+	unsigned int intr_status;
+
+	intr_status = readl(dev->regs + INTSR1);
+
+	/* INTR_GENERAL */
+	if (intr_status & BIT0)
+		fimc_is_irq_handler_general(dev);
+	else if (intr_status & BIT1)
+		fimc_is_irq_handler_isp(dev);
 	wake_up(&dev->irq_queue1);
 	return IRQ_HANDLED;
 }
@@ -217,37 +258,8 @@ static ssize_t s5k6a3_camera_front_camtype_show(struct device *dev,
 static ssize_t s5k6a3_camera_front_camfw_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	char fw_sd[7];
-	char fw_ori[7];
-	struct file *fp_sd;
-	struct file *fp_ori;
-
-	mm_segment_t old_fs;
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	fp_ori = filp_open("/vendor/firmware/fimc_is_fw.bin", O_RDONLY, 0);
-
-	if (IS_ERR(fp_ori))
-		return sprintf(buf, "%s\n", "Error!!!");
-
-	vfs_llseek(fp_ori, -7, SEEK_END);
-	vfs_read(fp_ori, (char __user *)fw_ori, 7, &fp_ori->f_pos);
-	fw_ori[6] = '\0';
-	filp_close(fp_ori, current->files);
-
-	fp_sd = filp_open("/sdcard/fimc_is_fw.bin", O_RDONLY, 0);
-
-	if (IS_ERR(fp_sd))
-		return sprintf(buf, "%s\n", fw_ori);
-	else {
-		vfs_llseek(fp_sd, -7, SEEK_END);
-		vfs_read(fp_sd, (char __user *)fw_sd, 7, &fp_sd->f_pos);
-		fw_sd[6] = '\0';
-		filp_close(fp_sd, current->files);
-	}
-	set_fs(old_fs);
-	return sprintf(buf, "%s %s\n", fw_ori, fw_sd);
+	char type[] = "S5K6A3";
+	return sprintf(buf, "%s %s\n", type, type);
 
 }
 
@@ -261,6 +273,10 @@ static int fimc_is_probe(struct platform_device *pdev)
 	struct resource *mem_res;
 	struct resource *regs_res;
 	struct fimc_is_dev *dev;
+#if defined(CONFIG_VIDEO_EXYNOS_FIMC_IS_BAYER)
+	struct v4l2_device *v4l2_dev;
+	struct vb2_queue *isp_q;
+#endif
 	int ret = -ENODEV;
 
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
@@ -327,6 +343,57 @@ static int fimc_is_probe(struct platform_device *pdev)
 		goto p_err_req_irq;
 	}
 
+#if defined(CONFIG_VIDEO_EXYNOS_FIMC_IS_BAYER)
+	/* Init v4l2 device (ISP) */
+#if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
+	dev->vb2 = &fimc_is_vb2_cma;
+#elif defined(CONFIG_VIDEOBUF2_ION)
+	dev->vb2 = &fimc_is_vb2_ion;
+#endif
+
+	/* Init and register V4L2 device */
+	v4l2_dev = &dev->video[FIMC_IS_VIDEO_NUM_BAYER].v4l2_dev;
+	if (!v4l2_dev->name[0])
+		snprintf(v4l2_dev->name, sizeof(v4l2_dev->name),
+			 "%s.isp", dev_name(&dev->pdev->dev));
+	ret = v4l2_device_register(NULL, v4l2_dev);
+
+	snprintf(dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.name,
+			sizeof(dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.name),
+			"%s", "exynos4-fimc-is-bayer");
+	dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.fops		=
+						&fimc_is_isp_video_fops;
+	dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.ioctl_ops	=
+						&fimc_is_isp_video_ioctl_ops;
+	dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.minor		= -1;
+	dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.release		=
+						video_device_release;
+	dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.lock		=
+						&dev->lock;
+	video_set_drvdata(&dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd, dev);
+	dev->video[FIMC_IS_VIDEO_NUM_BAYER].dev = dev;
+
+	isp_q = &dev->video[FIMC_IS_VIDEO_NUM_BAYER].vbq;
+	memset(isp_q, 0, sizeof(*isp_q));
+	isp_q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	isp_q->io_modes = VB2_MMAP | VB2_USERPTR;
+	isp_q->drv_priv = &dev->video[FIMC_IS_VIDEO_NUM_BAYER];
+	isp_q->ops = &fimc_is_isp_qops;
+	isp_q->mem_ops = dev->vb2->ops;
+
+	vb2_queue_init(isp_q);
+
+	ret = video_register_device(&dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd,
+							VFL_TYPE_GRABBER, 30);
+	if (ret) {
+		v4l2_err(v4l2_dev, "Failed to register video device\n");
+		goto err_vd_reg;
+	}
+
+	printk(KERN_INFO "FIMC-IS Video node :: ISP %d minor : %d\n",
+		dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.num,
+		dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd.minor);
+#endif
 	/*
 	 * initialize memory manager
 	*/
@@ -338,6 +405,15 @@ static int fimc_is_probe(struct platform_device *pdev)
 	}
 	dbg("Parameter region = 0x%08x\n", (unsigned int)dev->is_p_region);
 
+	/*
+	 * Get related clock for FIMC-IS
+	*/
+	if (dev->pdata->clk_get) {
+		dev->pdata->clk_get(pdev);
+	} else {
+		err("#### failed to Get Clock####\n");
+		goto p_err_init_mem;
+	}
 	/* Init v4l2 sub device */
 	v4l2_subdev_init(&dev->sd, &fimc_is_subdev_ops);
 	dev->sd.owner = THIS_MODULE;
@@ -348,7 +424,7 @@ static int fimc_is_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(&pdev->dev);
 
-#ifdef CONFIG_BUSFREQ_OPP
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	/* To lock bus frequency in OPP mode */
 	dev->bus_dev = dev_get("exynos-busfreq");
 #endif
@@ -358,10 +434,17 @@ static int fimc_is_probe(struct platform_device *pdev)
 	dev->sensor.id = 0;
 	dev->p_region_index1 = 0;
 	dev->p_region_index2 = 0;
+	dev->sensor.offset_x = 16;
+	dev->sensor.offset_y = 12;
+	dev->sensor.framerate_update = false;
 	atomic_set(&dev->p_region_num, 0);
 	set_bit(IS_ST_IDLE, &dev->state);
 	set_bit(IS_PWR_ST_POWEROFF, &dev->power);
 	dev->af.af_state = FIMC_IS_AF_IDLE;
+	dev->af.mode = IS_FOCUS_MODE_IDLE;
+	dev->low_power_mode = false;
+	dev->fw.state = 0;
+	dev->setfile.state = 0;
 
 	s5k6a3_dev = device_create(camera_class, NULL, 0, NULL, "front");
 	if (IS_ERR(s5k6a3_dev)) {
@@ -377,11 +460,15 @@ static int fimc_is_probe(struct platform_device *pdev)
 				dev_attr_front_camfw.attr.name);
 		}
 	}
-	dbg("FIMC-IS probe completed\n");
+	printk(KERN_INFO "FIMC-IS probe completed\n");
 	return 0;
 
 p_err_init_mem:
 	free_irq(dev->irq1, dev);
+#if defined(CONFIG_VIDEO_EXYNOS_FIMC_IS_BAYER)
+err_vd_reg:
+	video_device_release(&dev->video[FIMC_IS_VIDEO_NUM_BAYER].vd);
+#endif
 p_err_req_irq:
 p_err_get_irq:
 	iounmap(dev->regs);
@@ -397,6 +484,12 @@ static int fimc_is_remove(struct platform_device *pdev)
 {
 	struct v4l2_subdev *sd = platform_get_drvdata(pdev);
 	struct fimc_is_dev *dev = to_fimc_is_dev(sd);
+
+	if (dev->pdata->clk_put)
+		dev->pdata->clk_put(pdev);
+	else
+		err("#### failed to Put Clock####\n");
+
 #if defined(CONFIG_VIDEOBUF2_ION)
 	fimc_is_mem_init_mem_cleanup(dev->alloc_ctx);
 #endif
@@ -409,14 +502,52 @@ static int fimc_is_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct v4l2_subdev *sd = platform_get_drvdata(pdev);
 	struct fimc_is_dev *is_dev = to_fimc_is_dev(sd);
+	int ret = 0;
 
 	printk(KERN_INFO "FIMC_IS suspend\n");
-	mutex_lock(&is_dev->lock);
-	if (!test_bit(IS_PWR_ST_POWEROFF, &is_dev->power)) {
-		err("not power off state\n");
-		fimc_is_s_power(sd, false);
+	if (!test_bit(IS_ST_INIT_DONE, &is_dev->state)) {
+		printk(KERN_INFO "FIMC_IS suspend end\n");
+		return 0;
 	}
-	mutex_unlock(&is_dev->lock);
+	/* If stream was not stopped, stop streaming */
+	if (!test_bit(IS_ST_STREAM_OFF, &is_dev->state)) {
+		err("Not stream off state\n");
+		clear_bit(IS_ST_STREAM_OFF, &is_dev->state);
+		fimc_is_hw_set_stream(is_dev, false);
+		ret = wait_event_timeout(is_dev->irq_queue1,
+				test_bit(IS_ST_STREAM_OFF, &is_dev->state),
+				(HZ));
+		if (!ret) {
+			err("wait timeout : Stream off\n");
+			fimc_is_hw_set_low_poweroff(is_dev, true);
+		}
+	}
+	/* If the power is not off state, turn off the power */
+	if (!test_bit(IS_PWR_ST_POWEROFF, &is_dev->power)) {
+		err("Not power off state\n");
+		if (!test_bit(IS_PWR_SUB_IP_POWER_OFF, &is_dev->power)) {
+			fimc_is_hw_subip_poweroff(is_dev);
+			ret = wait_event_timeout(is_dev->irq_queue1,
+				test_bit(IS_PWR_SUB_IP_POWER_OFF,
+				&is_dev->power), FIMC_IS_SHUTDOWN_TIMEOUT);
+			if (!ret) {
+				err("wait timeout : %s\n", __func__);
+				fimc_is_hw_set_low_poweroff(is_dev, true);
+			}
+		}
+		fimc_is_hw_a5_power(is_dev, 0);
+		pm_runtime_put_sync(dev);
+
+		is_dev->sensor.id = 0;
+		is_dev->p_region_index1 = 0;
+		is_dev->p_region_index2 = 0;
+		atomic_set(&is_dev->p_region_num, 0);
+		is_dev->state = 0;
+		set_bit(IS_ST_IDLE, &is_dev->state);
+		is_dev->power = 0;
+		is_dev->af.af_state = FIMC_IS_AF_IDLE;
+		set_bit(IS_PWR_ST_POWEROFF, &is_dev->power);
+	}
 	printk(KERN_INFO "FIMC_IS suspend end\n");
 	return 0;
 }
@@ -441,14 +572,13 @@ static int fimc_is_runtime_suspend(struct device *dev)
 	struct fimc_is_dev *is_dev = to_fimc_is_dev(sd);
 
 	printk(KERN_INFO "FIMC_IS runtime suspend\n");
-	mutex_lock(&is_dev->lock);
 	if (is_dev->pdata->clk_off) {
 		is_dev->pdata->clk_off(pdev);
 	} else {
 		printk(KERN_ERR "#### failed to Clock OFF ####\n");
 		return -EINVAL;
 	}
-#ifdef CONFIG_BUSFREQ_OPP
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	/* Unlock bus frequency */
 	dev_unlock(is_dev->bus_dev, dev);
 #endif
@@ -456,6 +586,7 @@ static int fimc_is_runtime_suspend(struct device *dev)
 	if (is_dev->alloc_ctx)
 		fimc_is_mem_suspend(is_dev->alloc_ctx);
 #endif
+	mutex_lock(&is_dev->lock);
 	clear_bit(IS_PWR_ST_POWERON, &is_dev->power);
 	set_bit(IS_PWR_ST_POWEROFF, &is_dev->power);
 	mutex_unlock(&is_dev->lock);
@@ -470,7 +601,6 @@ static int fimc_is_runtime_resume(struct device *dev)
 	struct fimc_is_dev *is_dev = to_fimc_is_dev(sd);
 
 	printk(KERN_INFO "FIMC_IS runtime resume\n");
-	mutex_lock(&is_dev->lock);
 	if (is_dev->pdata->clk_cfg) {
 		is_dev->pdata->clk_cfg(pdev);
 	} else {
@@ -483,15 +613,12 @@ static int fimc_is_runtime_resume(struct device *dev)
 		printk(KERN_ERR "#### failed to Clock On ####\n");
 		return -EINVAL;
 	}
-#ifdef CONFIG_BUSFREQ_OPP
-	/* lock bus frequency */
-	dev_lock(is_dev->bus_dev, dev, BUS_LOCK_FREQ_L0);
-#endif
 	is_dev->frame_count = 0;
 #if defined(CONFIG_VIDEOBUF2_ION)
 	if (is_dev->alloc_ctx)
 		fimc_is_mem_resume(is_dev->alloc_ctx);
 #endif
+	mutex_lock(&is_dev->lock);
 	clear_bit(IS_PWR_ST_POWEROFF, &is_dev->power);
 	clear_bit(IS_PWR_SUB_IP_POWER_OFF, &is_dev->power);
 	set_bit(IS_PWR_ST_POWERON, &is_dev->power);

@@ -45,7 +45,7 @@
 #include "tdmb.h"
 
 #define MTV318_INTERRUPT_SIZE (188*10)
-#define TDMB_DEBUG_SCAN
+/* #define TDMB_DEBUG_SCAN */
 
 static bool mtv318_on_air;
 static bool mtv318_pwr_on;
@@ -121,26 +121,11 @@ static bool mtv318_power_on(void)
 
 static void mtv318_get_dm(struct tdmb_dm *info)
 {
-	unsigned int cnr;
 	if (mtv318_pwr_on == true && mtv318_on_air == true) {
 		info->rssi = (rtvTDMB_GetRSSI() / RTV_TDMB_RSSI_DIVIDER);
-		info->ber = rtvTDMB_GetBER();
-		cnr = (unsigned int)(rtvTDMB_GetCNR() / RTV_TDMB_CNR_DIVIDER);
-		if (cnr > 17)
-			info->antenna = 6;
-		else if (cnr > 15)
-			info->antenna = 5;
-		else if (cnr > 13)
-			info->antenna = 4;
-		else if (cnr > 11)
-			info->antenna = 3;
-		else if (cnr > 9)
-			info->antenna = 2;
-		else if (cnr > 7)
-			info->antenna = 1;
-		else
-			info->antenna = 0;
-		info->per = 0;
+		info->per = rtvTDMB_GetPER();
+		info->ber = rtvTDMB_GetCER();
+		info->antenna = rtvTDMB_GetAntennaLevel(info->ber);
 	} else {
 		info->rssi = 100;
 		info->ber = 2000;
@@ -223,6 +208,8 @@ static void mtv318_pull_data(void)
 			rtv_ClearAndSetupMemory_MSC1();
 			/* MSC1 Interrupt status clear */
 			RTV_REG_SET(INT_E_UCLRL, 0x04);
+			DPRINTK("%s : int_type 0x%x\n",
+					 __func__, int_type_val1);
 		} else {
 			/* Get the frame data using CPU or DMA.
 			RTV_REG_BURST_GET() macro should implemented by user. */

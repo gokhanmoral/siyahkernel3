@@ -33,10 +33,16 @@ if ARCH_EXYNOS5
 endif
 config VIDEO_EXYNOS_MEMSIZE_FIMC_IS
 	int "Memory size in Kbytes for FIMC-IS"
-	depends on VIDEO_EXYNOS
+	depends on VIDEO_EXYNOS && (VIDEO_EXYNOS_FIMC_IS || VIDEO_EXYNOS5_FIMC_IS)
 	default "10240"
 	help
 	  This is to assign memory used in FIMC-IS.
+config VIDEO_EXYNOS_MEMSIZE_FIMC_IS_ISP
+	int "Memory size in kbytes for FIMC-IS ISP(bayer)"
+	depends on VIDEO_EXYNOS_FIMC_IS_BAYER
+	default "61000"
+	help
+	  This is to assign memory used in FIMC-IS ISP.
 endif
 
 config MEDIA_EXYNOS

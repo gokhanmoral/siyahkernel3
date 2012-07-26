@@ -7,7 +7,7 @@ config FB_S5P_EXTDSP
 	select FB_CFB_FILLRECT
 	select FB_CFB_COPYAREA
 	select FB_CFB_IMAGEBLIT
-	depends on FB && (ARCH_S5PV210 || ARCH_EXYNOS4) && !FB_S3C
+	depends on FB && (((ARCH_S5PV210 || ARCH_EXYNOS4) && !FB_S3C) ||ARCH_EXYNOS5)
 	default n
 	help
 	  This enables support for Samsung External Display Controller

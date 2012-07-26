@@ -16,7 +16,8 @@
 #include <linux/platform_device.h>
 #include <linux/mm.h>
 #include <linux/videodev2.h>
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_media.h>
+#include <linux/videodev2_exynos_camera.h>
 #include <media/videobuf-core.h>
 #include <linux/io.h>
 #include <linux/uaccess.h>
@@ -36,9 +37,11 @@ static __u32 fimc_get_pixel_format_type(__u32 pixelformat)
 		return FIMC_RGB;
 
 	case V4L2_PIX_FMT_NV12:
+	case V4L2_PIX_FMT_NV12M:
 	case V4L2_PIX_FMT_NV12T:
 	case V4L2_PIX_FMT_NV21:
 	case V4L2_PIX_FMT_YUV420:
+	case V4L2_PIX_FMT_YVU420:
 		return FIMC_YUV420;
 
 	case V4L2_PIX_FMT_YUYV:
@@ -82,6 +85,10 @@ static int fimc_outdev_stop_camif(void *param)
 {
 	struct fimc_control *ctrl = (struct fimc_control *)param;
 
+	if (ctrl->regs == 0) {
+		fimc_err("%s: power offed", __func__);
+		return 0;
+	}
 	fimc_hwset_stop_input_dma(ctrl);
 	fimc_hwset_disable_autoload(ctrl);
 	fimc_hwset_stop_scaler(ctrl);
@@ -290,6 +297,10 @@ static int fimc_outdev_set_src_buf(struct fimc_control *ctrl,
 	u32 cb_size = 0, cr_size = 0;
 	u32 i, size;
 	dma_addr_t *curr = &ctrl->mem.curr;
+#ifdef	CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+	int err;
+	struct cma_info	mem_info;
+#endif
 
 	switch (format) {
 	case V4L2_PIX_FMT_RGB32:
@@ -318,6 +329,30 @@ static int fimc_outdev_set_src_buf(struct fimc_control *ctrl,
 		fimc_err("%s: Invalid pixelformt : %d\n", __func__, format);
 		return -EINVAL;
 	}
+
+#ifdef	CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+	ctrl->mem.size = size * FIMC_OUTBUFS;
+	err = cma_info(&mem_info, ctrl->dev, 0);
+	printk(KERN_DEBUG "%s : [cma_info] start_addr : 0x%x, end_addr : 0x%x, "
+			"total_size : 0x%x, free_size : 0x%x req_size : 0x%x\n",
+			__func__, mem_info.lower_bound, mem_info.upper_bound,
+			mem_info.total_size, mem_info.free_size,
+			ctrl->mem.size);
+	if (err || (mem_info.free_size < ctrl->mem.size)) {
+		fimc_err("%s: get cma info failed\n", __func__);
+		ctrl->mem.size = 0;
+		ctrl->mem.base = 0;
+		return -ENOMEM;
+	} else {
+		ctrl->mem.base = (dma_addr_t)cma_alloc
+			(ctrl->dev, ctrl->cma_name, (size_t)ctrl->mem.size, 0);
+	}
+
+	fimc_dbg("%s : ctrl->mem.base = 0x%x\n", __func__, ctrl->mem.base);
+	fimc_dbg("%s : ctrl->mem.size = 0x%x\n", __func__, ctrl->mem.size);
+
+	ctrl->mem.curr = ctrl->mem.base;
+#endif
 
 	if ((*curr + size * FIMC_OUTBUFS) > (ctrl->mem.base + ctrl->mem.size)) {
 		fimc_err("%s: Reserved memory is not sufficient\n", __func__);
@@ -396,9 +431,39 @@ static int fimc_outdev_set_dst_buf(struct fimc_control *ctrl,
 	u32 width = ctrl->fb.lcd_hres;
 	u32 height = ctrl->fb.lcd_vres;
 	u32 i, size;
+#ifdef	CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+	int err;
+	struct cma_info	mem_info;
+#endif
 
 	end = ctrl->mem.base + ctrl->mem.size;
 	size = PAGE_ALIGN(width * height * 4);
+
+#ifdef	CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+	ctrl->mem.size = size * FIMC_OUTBUFS;
+	err = cma_info(&mem_info, ctrl->dev, 0);
+	printk(KERN_DEBUG "%s : [cma_info] start_addr : 0x%x, end_addr : 0x%x, "
+			"total_size : 0x%x, free_size : 0x%x req_size=0x%x\n",
+			__func__, mem_info.lower_bound, mem_info.upper_bound,
+			mem_info.total_size, mem_info.free_size,
+			ctrl->mem.size);
+	if (err || (mem_info.free_size < ctrl->mem.size)) {
+		fimc_err("%s: get cma info failed\n", __func__);
+		ctrl->mem.size = 0;
+		ctrl->mem.base = 0;
+		return -ENOMEM;
+	} else {
+		ctrl->mem.base = (dma_addr_t)cma_alloc
+			(ctrl->dev, ctrl->cma_name,
+			(size_t) (size * FIMC_OUTBUFS), 0);
+	}
+
+	fimc_dbg("%s : ctrl->mem.base = 0x%x\n", __func__, ctrl->mem.base);
+	fimc_dbg("%s : ctrl->mem.size = 0x%x\n", __func__, ctrl->mem.size);
+
+	end = ctrl->mem.base + (size * FIMC_OUTBUFS);
+	ctrl->mem.curr = ctrl->mem.base;
+#endif
 
 	if ((*curr + (size * FIMC_OUTBUFS)) > end) {
 		fimc_err("%s: Reserved memory is not sufficient\n", __func__);
@@ -1193,6 +1258,7 @@ static int fimc_outdev_check_scaler(struct fimc_control *ctrl,
 		pixels = 2;
 		break;
 	case V4L2_PIX_FMT_YUV420:	/* fall through */
+	case V4L2_PIX_FMT_YVU420:	/* fall through */
 	case V4L2_PIX_FMT_NV12:		/* fall through */
 	case V4L2_PIX_FMT_NV21:		/* fall through */
 	case V4L2_PIX_FMT_NV12T:
@@ -1232,7 +1298,9 @@ static int fimc_outdev_check_scaler(struct fimc_control *ctrl,
 		pixels = 2;
 		break;
 	case V4L2_PIX_FMT_YUV420:	/* fall through */
+	case V4L2_PIX_FMT_YVU420:	/* fall through */
 	case V4L2_PIX_FMT_NV12:		/* fall through */
+	case V4L2_PIX_FMT_NV12M:		/* fall through */
 	case V4L2_PIX_FMT_NV21:		/* fall through */
 	case V4L2_PIX_FMT_NV12T:
 		pixels = 8;
@@ -1277,6 +1345,19 @@ static int fimc_outdev_set_scaler(struct fimc_control *ctrl,
 		fimc_err("Fail : Out of Height scale range(%d, %d)\n",
 				src.height, dst.height);
 		return ret;
+	}
+
+	if (src.width == src.height) {
+		if ((src.width * 10 / dst.width) >= 15 &&
+					(src.width * 10 / dst.width) < 20) {
+			ctx->sc.pre_hratio = 2;
+			ctx->sc.hfactor = 1;
+		}
+		if ((src.height * 10 / dst.height) >= 15 &&
+					(src.height * 10 / dst.height) < 20) {
+			ctx->sc.pre_vratio = 2;
+			ctx->sc.vfactor = 1;
+		}
 	}
 
 	ctx->sc.pre_dst_width = src.width / ctx->sc.pre_hratio;
@@ -1557,7 +1638,7 @@ int fimc_reqbufs_output(void *fh, struct v4l2_requestbuffers *b)
 
 	fimc_info1("%s: called\n", __func__);
 
-	if (ctx->status != FIMC_STREAMOFF) {
+	if (ctx->status != FIMC_STREAMOFF && b->count != 0) {
 		fimc_dump_context(ctrl, ctx);
 		fimc_err("%s: FIMC is running\n", __func__);
 		return -EBUSY;
@@ -1583,7 +1664,14 @@ int fimc_reqbufs_output(void *fh, struct v4l2_requestbuffers *b)
 
 	if (b->count == 0) {
 		ctrl->mem.curr = ctrl->mem.base;
-
+		ctx->status = FIMC_STREAMOFF;
+#ifdef CONFIG_VIDEO_SAMSUNG_USE_DMA_MEM
+		if (ctrl->mem.base && b->memory == V4L2_MEMORY_MMAP) {
+			cma_free(ctrl->mem.base);
+			ctrl->mem.base = 0;
+			ctrl->mem.size = 0;
+		}
+#endif
 		switch (ctx->overlay.mode) {
 		case FIMC_OVLY_DMA_AUTO:	/* fall through */
 		case FIMC_OVLY_DMA_MANUAL:
@@ -1710,11 +1798,8 @@ int fimc_g_ctrl_output(void *fh, struct v4l2_control *c)
 		break;
 
 	case V4L2_CID_RESERVED_MEM_SIZE:
-#ifdef	CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1
-		c->value = CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1;
-#else
-		c->value = 0;
-#endif
+		/* return KB size */
+		c->value = (ctrl->mem.size) / 1024;
 		break;
 
 	case V4L2_CID_FIMC_VERSION:
@@ -1897,6 +1982,7 @@ int fimc_cropcap_output(void *fh, struct v4l2_cropcap *a)
 	case V4L2_PIX_FMT_UYVY:		/* fall through */
 	case V4L2_PIX_FMT_YUYV:		/* fall through */
 	case V4L2_PIX_FMT_YUV420:	/* fall through */
+	case V4L2_PIX_FMT_YVU420:	/* fall through */
 		max_w = FIMC_SRC_MAX_W;
 		max_h = FIMC_SRC_MAX_H;
 		break;
@@ -2269,6 +2355,29 @@ int fimc_output_set_dst_addr(struct fimc_control *ctrl,
 	return 0;
 }
 
+static int fimc_outdev_start_operation(struct fimc_control *ctrl,
+				       struct fimc_ctx *ctx, int idx)
+{
+	int ret = 0;
+	unsigned long spin_flags;
+
+	spin_lock_irqsave(&ctrl->out->slock, spin_flags);
+	ret = fimc_outdev_start_camif(ctrl);
+	if (ret < 0) {
+		fimc_err("Fail: fimc_start_camif\n");
+		return -EINVAL;
+	}
+
+	ctrl->out->idxs.active.idx = idx;
+	ctrl->out->idxs.active.ctx = ctx->ctx_num;
+
+	ctrl->status = FIMC_STREAMON;
+	ctx->status = FIMC_STREAMON;
+	spin_unlock_irqrestore(&ctrl->out->slock, spin_flags);
+
+	return ret;
+}
+
 static int fimc_qbuf_output_single_buf(struct fimc_control *ctrl,
 				       struct fimc_ctx *ctx,
 				       int idx)
@@ -2288,7 +2397,8 @@ static int fimc_qbuf_output_single_buf(struct fimc_control *ctrl,
 
 	switch (format) {
 	case V4L2_PIX_FMT_RGB32:
-	case V4L2_PIX_FMT_RGB565:	/* fall through */
+	case V4L2_PIX_FMT_RGB565:
+	case V4L2_PIX_FMT_YUYV:
 		buf_set.base[FIMC_ADDR_Y] = (dma_addr_t)ctx->fbuf.base;
 		break;
 	case V4L2_PIX_FMT_YUV420:
@@ -2296,10 +2406,20 @@ static int fimc_qbuf_output_single_buf(struct fimc_control *ctrl,
 		buf_set.base[FIMC_ADDR_CB] = buf_set.base[FIMC_ADDR_Y] + y_size;
 		buf_set.base[FIMC_ADDR_CR] = buf_set.base[FIMC_ADDR_CB] + c_size;
 		break;
+	case V4L2_PIX_FMT_YVU420:
+		buf_set.base[FIMC_ADDR_Y] = (dma_addr_t)ctx->fbuf.base;
+		buf_set.base[FIMC_ADDR_CR] = buf_set.base[FIMC_ADDR_Y] + y_size;
+		buf_set.base[FIMC_ADDR_CB] = buf_set.base[FIMC_ADDR_CR] + c_size;
+		break;
 	case V4L2_PIX_FMT_NV12:
 	case V4L2_PIX_FMT_NV21:
 		buf_set.base[FIMC_ADDR_Y] = (dma_addr_t)ctx->fbuf.base;
 		buf_set.base[FIMC_ADDR_CB] = buf_set.base[FIMC_ADDR_Y] + y_size;
+		break;
+	case V4L2_PIX_FMT_NV12M:
+		buf_set.base[FIMC_ADDR_Y] = (dma_addr_t)ctx->fbuf.base;
+		buf_set.base[FIMC_ADDR_CB] =
+			ALIGN(buf_set.base[FIMC_ADDR_Y] + y_size, PAGE_SIZE - 1);
 		break;
 	case V4L2_PIX_FMT_NV12T:
 		if (rot == 0 || rot == 180)
@@ -2320,15 +2440,9 @@ static int fimc_qbuf_output_single_buf(struct fimc_control *ctrl,
 			fimc_hwset_output_address(ctrl, &buf_set, i);
 	}
 
-	ctrl->out->idxs.active.idx = idx;
-	ctrl->out->idxs.active.ctx = ctx->ctx_num;
-
-	ctrl->status = FIMC_STREAMON;
-	ctx->status = FIMC_STREAMON;
-
-	ret = fimc_outdev_start_camif(ctrl);
+	ret = fimc_outdev_start_operation(ctrl, ctx, idx);
 	if (ret < 0) {
-		fimc_err("Fail: fimc_start_camif\n");
+		fimc_err("Fail: fimc_start_operation\n");
 		return -EINVAL;
 	}
 
@@ -2349,7 +2463,8 @@ static int fimc_qbuf_output_multi_buf(struct fimc_control *ctrl,
 
 	switch (format) {
 	case V4L2_PIX_FMT_RGB32:
-	case V4L2_PIX_FMT_RGB565:	/* fall through */
+	case V4L2_PIX_FMT_RGB565:
+	case V4L2_PIX_FMT_YUYV:
 		buf_set.base[FIMC_ADDR_Y] = ctx->dst[idx].base[FIMC_ADDR_Y];
 		break;
 	case V4L2_PIX_FMT_YUV420:
@@ -2375,15 +2490,9 @@ static int fimc_qbuf_output_multi_buf(struct fimc_control *ctrl,
 			fimc_hwset_output_address(ctrl, &buf_set, i);
 	}
 
-	ctrl->out->idxs.active.idx = idx;
-	ctrl->out->idxs.active.ctx = ctx->ctx_num;
-
-	ctrl->status = FIMC_STREAMON;
-	ctx->status = FIMC_STREAMON;
-
-	ret = fimc_outdev_start_camif(ctrl);
+	ret = fimc_outdev_start_operation(ctrl, ctx, idx);
 	if (ret < 0) {
-		fimc_err("Fail: fimc_start_camif\n");
+		fimc_err("Fail: fimc_start_operation\n");
 		return -EINVAL;
 	}
 
@@ -2473,18 +2582,11 @@ static int fimc_qbuf_output_dma_auto(struct fimc_control *ctrl,
 				fimc_hwset_output_address(ctrl, &buf_set, i);
 		}
 
-		ctrl->out->idxs.active.idx = idx;
-		ctrl->out->idxs.active.ctx = ctx->ctx_num;
-
-		ctrl->status = FIMC_STREAMON;
-		ctx->status = FIMC_STREAMON;
-
-		ret = fimc_outdev_start_camif(ctrl);
+		ret = fimc_outdev_start_operation(ctrl, ctx, idx);
 		if (ret < 0) {
-			fimc_err("Fail: fimc_start_camif\n");
+			fimc_err("Fail: fimc_start_operation\n");
 			return -EINVAL;
 		}
-
 		break;
 
 	default:
@@ -2565,8 +2667,13 @@ static int fimc_update_in_queue_addr(struct fimc_control *ctrl,
 	}
 
 	ctx->src[idx].base[FIMC_ADDR_Y] = addr[FIMC_ADDR_Y];
-	ctx->src[idx].base[FIMC_ADDR_CB] = addr[FIMC_ADDR_CB];
-	ctx->src[idx].base[FIMC_ADDR_CR] = addr[FIMC_ADDR_CR];
+	if (ctx->pix.pixelformat == V4L2_PIX_FMT_YVU420) {
+		ctx->src[idx].base[FIMC_ADDR_CB] = addr[FIMC_ADDR_CR];
+		ctx->src[idx].base[FIMC_ADDR_CR] = addr[FIMC_ADDR_CB];
+	} else {
+		ctx->src[idx].base[FIMC_ADDR_CB] = addr[FIMC_ADDR_CB];
+		ctx->src[idx].base[FIMC_ADDR_CR] = addr[FIMC_ADDR_CR];
+	}
 
 	return 0;
 }
@@ -2724,6 +2831,7 @@ int fimc_dqbuf_output(void *fh, struct v4l2_buffer *b)
 	int idx = -1, ret = -1;
 
 	ctx = &ctrl->out->ctx[ctx_id];
+
 	ret = fimc_pop_outq(ctrl, ctx, &idx);
 	if (ret < 0) {
 		ret = wait_event_timeout(ctrl->wq, (ctx->outq[0] != -1),
@@ -2779,6 +2887,7 @@ int fimc_g_fmt_vid_out(struct file *filp, void *fh, struct v4l2_format *f)
 
 		spin_lock_init(&ctrl->out->lock_in);
 		spin_lock_init(&ctrl->out->lock_out);
+		spin_lock_init(&ctrl->out->slock);
 
 		for (i = 0; i < FIMC_INQUEUES; i++) {
 			ctrl->out->inq[i].ctx = -1;
@@ -2839,6 +2948,7 @@ int fimc_try_fmt_vid_out(struct file *filp, void *fh, struct v4l2_format *f)
 	case V4L2_PIX_FMT_NV12T:	/* fall through */
 	case V4L2_PIX_FMT_YUYV:		/* fall through */
 	case V4L2_PIX_FMT_UYVY:		/* fall through */
+	case V4L2_PIX_FMT_YVU420:	/* fall through */
 	case V4L2_PIX_FMT_YUV420:	/* fall through */
 	case V4L2_PIX_FMT_RGB32:	/* fall through */
 	case V4L2_PIX_FMT_RGB565:	/* fall through */
@@ -2860,6 +2970,7 @@ int fimc_try_fmt_vid_out(struct file *filp, void *fh, struct v4l2_format *f)
 	case V4L2_PIX_FMT_UYVY:		/* fall through */
 	case V4L2_PIX_FMT_YUYV:		/* fall through */
 	case V4L2_PIX_FMT_YUV420:	/* fall through */
+	case V4L2_PIX_FMT_YVU420:	/* fall through */
 	case V4L2_PIX_FMT_RGB565:
 		f->fmt.pix.bytesperline = f->fmt.pix.width << 1;
 		break;
@@ -2970,28 +3081,8 @@ int fimc_push_inq(struct fimc_control *ctrl, struct fimc_ctx *ctx, int idx)
 	fimc_dbg("%s: idx = %d\n", __func__, idx);
 
 	if (ctrl->out->inq[FIMC_INQUEUES-1].idx != -1) {
-#if defined (CONFIG_CPU_EXYNOS4210)
-		struct fimc_ctx *temp_ctx;
-		for (i=0; i<FIMC_MAX_CTXS; i++) {
-			if (true == ctrl->out->ctx_used[i]) {
-				temp_ctx = &ctrl->out->ctx[i];
-				fimc_err("ctx[%d] : buf_num(%d) [used]\n", i, temp_ctx->buf_num);
-			} else {
-				fimc_err("ctx[%d] : buf_num(0) [not used]\n", i);
-			}
-		}
-		fimc_err("FULL: common incoming queue(%d): ",
-				ctrl->out->inq[FIMC_INQUEUES-1].idx);
-		for (i=0; i<FIMC_INQUEUES; i++) {
-			printk("(%d,%d) ", ctrl->out->inq[i].ctx, ctrl->out->inq[i].idx);
-			ctrl->out->inq[i].ctx = -1;
-			ctrl->out->inq[i].idx = -1;
-		}
-		printk ("\n");
-#else
 		fimc_err("FULL: common incoming queue(%d)\n",
 				ctrl->out->inq[FIMC_INQUEUES-1].idx);
-#endif
 		return -EBUSY;
 	}
 

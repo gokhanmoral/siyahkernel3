@@ -56,6 +56,9 @@ struct wm8994 {
 
 	enum wm8994_type type;
 
+	int revision;
+	int cust_id;
+
 	struct device *dev;
 	int (*read_dev)(struct wm8994 *wm8994, unsigned short reg,
 			int bytes, void *dest);

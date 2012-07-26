@@ -36,21 +36,11 @@ static struct dsim_config dsim_info = {
 	.e_no_data_lane = DSIM_DATA_LANE_4,
 	.e_byte_clk = DSIM_PLL_OUT_DIV8,
 
-#ifdef CONFIG_MACH_JENGA
-	.p = 3,
-	.m = 75,
-	.s = 0,
-#endif
-
 	.pll_stable_time = 500,		/* D-PHY PLL stable time spec :min = 200usec ~ max 400usec */
 
-#ifdef CONFIG_MACH_JENGA
-	.esc_clk = 10 * 1000000,	/* escape clk : 10MHz */
-#else
 	.esc_clk = 20 * 1000000,	/* escape clk : 10MHz */
-#endif
 
-	.stop_holding_cnt = 0x07ff,	/* stop state holding counter after bta change count 0 ~ 0xfff */
+	.stop_holding_cnt = 0,		/* stop state holding counter after bta change count 0 ~ 0xfff */
 	.bta_timeout = 0xff,		/* bta timeout 0 ~ 0xff */
 	.rx_timeout = 0xffff,		/* lp rx timeout 0 ~ 0xffff */
 
@@ -67,12 +57,7 @@ static struct dsim_lcd_config dsim_lcd_info = {
 
 	.parameter[DSI_VIRTUAL_CH_ID]	= (unsigned int) DSIM_VIRTUAL_CH_0,
 	.parameter[DSI_FORMAT]		= (unsigned int) DSIM_24BPP_888,
-#if defined(CONFIG_CPU_EXYNOS4210)
 	.parameter[DSI_VIDEO_MODE_SEL]	= (unsigned int) DSIM_BURST_SYNC_EVENT,
-#else	/* should be fixed */
-	.parameter[DSI_VIDEO_MODE_SEL]	= (unsigned int) DSIM_BURST,
-#endif
-
 	.mipi_ddi_pd		= (void *) &mipi_ddi_pd,
 };
 
@@ -97,10 +82,10 @@ static struct s5p_platform_dsim dsim_platform_data = {
 	.enable_clk = s5p_dsim_enable_clk,
 	.part_reset = s5p_dsim_part_reset,
 	.init_d_phy = s5p_dsim_init_d_phy,
+	.exit_d_phy = s5p_dsim_exit_d_phy,
 
 	/* default platform revision is 0(evt0). */
 	.platform_rev = 0,
-	.cfg_gpio = exynos4_dsim_gpio_setup_24bpp,
 };
 
 struct platform_device s5p_device_dsim = {

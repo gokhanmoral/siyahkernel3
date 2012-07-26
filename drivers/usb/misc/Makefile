@@ -28,3 +28,8 @@ obj-$(CONFIG_USB_YUREX)			+= yurex.o
 obj-$(CONFIG_USB_EXYNOS_SWITCH)		+= exynos-usb-switch.o
 
 obj-$(CONFIG_USB_SISUSBVGA)		+= sisusbvga/
+
+obj-$(CONFIG_USB_QCOM_DIAG_BRIDGE)	+= diag_bridge.o
+obj-$(CONFIG_USB_QCOM_DIAG_BRIDGE_TEST)	+= diag_bridge_test.o
+mdm_bridge-y				:= mdm_ctrl_bridge.o mdm_data_bridge.o
+obj-$(CONFIG_USB_QCOM_MDM_BRIDGE) 	+= mdm_bridge.o

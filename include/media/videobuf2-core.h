@@ -72,6 +72,12 @@ struct vb2_fileio_data;
  *		it) is the only user
  * @mmap:	setup a userspace mapping for a given memory buffer under
  *		the provided virtual memory region
+ * @sync_to_dev: change the ownership of the buffer from CPU to device; this
+ *               ensures that all stuffs related to the buffer visible to CPU
+ *		 are also visible to the device.
+ * @sync_from_dev: change the ownership of the buffer from device to CPU; this
+ *                 ensures that all stuffs related to the buffer visible to
+ *                 the device are also visible to the CPU.
  *
  * Required ops for USERPTR types: get_userptr, put_userptr.
  * Required ops for MMAP types: alloc, put, num_users, mmap.
@@ -108,6 +114,10 @@ struct vb2_mem_ops {
 	unsigned int	(*num_users)(void *buf_priv);
 
 	int		(*mmap)(void *buf_priv, struct vm_area_struct *vma);
+	void		(*sync_to_dev)(void *alloc_ctx[], void *privs[],
+					int nplanes, enum v4l2_buf_type type);
+	void		(*sync_from_dev)(void *alloc_ctx[], void *privs[],
+					int nplanes, enum v4l2_buf_type type);
 };
 
 struct vb2_plane {

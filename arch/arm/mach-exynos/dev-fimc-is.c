@@ -97,6 +97,10 @@ void __init exynos4_fimc_is_set_platdata(struct exynos4_platform_fimc_is *pd)
 			npd->clk_on = exynos_fimc_is_clk_on;
 		if (!npd->clk_off)
 			npd->clk_off = exynos_fimc_is_clk_off;
+		if (!npd->clk_get)
+			npd->clk_get = exynos_fimc_is_clk_get;
+		if (!npd->clk_put)
+			npd->clk_put = exynos_fimc_is_clk_put;
 
 		exynos4_device_fimc_is.dev.platform_data = npd;
 	}

@@ -18,7 +18,7 @@
 
 #include <mach/map.h>
 #include <mach/regs-clock.h>
-#include <mach/regs-pmu.h>
+#include <mach/pmu.h>
 #include <mach/cpufreq.h>
 #include <mach/asv.h>
 
@@ -29,9 +29,7 @@
 
 #undef PRINT_DIV_VAL
 
-#define ENABLE_CLKOUT
-
-#define CPUFREQ_VOL_COMP 50000
+#undef ENABLE_CLKOUT
 
 static int max_support_idx;
 static int min_support_idx = (CPUFREQ_LEVEL_END - 1);
@@ -81,7 +79,7 @@ static unsigned int clkdiv_cpu0_4212[CPUFREQ_LEVEL_END][8] = {
 	{ 0, 3, 7, 0, 6, 1, 2, 0 },
 
 	/* ARM L2: 1300Mhz */
-	{ 0, 3, 7, 0, 6, 1, 2, 0 },
+	{ 0, 3, 7, 0, 5, 1, 2, 0 },
 
 	/* ARM L3: 1200Mhz */
 	{ 0, 3, 7, 0, 5, 1, 2, 0 },
@@ -311,37 +309,31 @@ static unsigned int exynos4x12_apll_pms_table[CPUFREQ_LEVEL_END] = {
 
 #define NO_ABB_LIMIT	L8
 
-static const unsigned int asv_voltage_4212[CPUFREQ_LEVEL_END] = {
-	1350000, 1300000, 1300000, 1225000, 1150000, 1100000, 1050000,
-	1012500,  987500,  975000,  962500,  950000,  925000,  900000
+static const unsigned int asv_voltage_4212[CPUFREQ_LEVEL_END][12] = {
+	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
+	{	0, 1300000, 1300000, 1275000, 1300000, 1287500,	1275000, 1250000, 1237500, 1225000, 1225000, 1212500 }, /* L0 */
+	{ 1300000, 1287500, 1250000, 1225000, 1237500, 1237500,	1225000, 1200000, 1187500, 1175000, 1175000, 1162500 }, /* L1 */
+	{ 1237500, 1225000, 1200000, 1175000, 1187500, 1187500,	1162500, 1150000, 1137500, 1125000, 1125000, 1112500 }, /* L2 */
+	{ 1187500, 1175000, 1150000, 1137500, 1150000, 1137500,	1125000, 1100000, 1087500, 1075000, 1075000, 1062500 }, /* L3 */
+	{ 1137500, 1125000, 1112500, 1087500, 1112500, 1112500,	1075000, 1062500, 1050000, 1025000, 1025000, 1012500 }, /* L4 */
+	{ 1100000, 1087500, 1075000, 1050000, 1075000, 1062500,	1037500, 1025000, 1012500, 1000000,  987500,  975000 }, /* L5 */
+	{ 1050000, 1037500, 1025000, 1000000, 1025000, 1025000,	 987500,  975000,  962500,  950000,  937500,  925000 }, /* L6 */
+	{ 1012500, 1000000,  987500,  962500,  987500,	975000,	 962500,  937500,  925000,  912500,  912500,  900000 }, /* L7 */
+	{  962500,  950000,  937500,  912500,  937500,	937500,	 925000,  900000,  900000,  900000,  900000,  900000 }, /* L8 */
+	{  925000,  912500,  912500,  900000,  912500,	900000,	 900000,  900000,  900000,  900000,  900000,  900000 }, /* L9 */
+	{  912500,  900000,  900000,  900000,  900000,	900000,	 900000,  900000,  900000,  900000,  900000,  900000 }, /* L10 */
+	{  912500,  900000,  900000,  900000,  900000,	900000,	 900000,  900000,  900000,  900000,  900000,  900000 }, /* L11 */
+	{  912500,  900000,  900000,  900000,  900000,	900000,	 900000,  900000,  900000,  900000,  900000,  900000 }, /* L12 */
+	{  912500,  900000,  900000,  900000,  900000,	900000,	 900000,  900000,  900000,  900000,  900000,  900000 }, /* L13 */
 };
 
 static const unsigned int asv_voltage_s[CPUFREQ_LEVEL_END] = {
-	1500000, 1375000, 1350000, 1250000, 1200000, 1175000, 1100000,
+	1300000, 1300000, 1300000, 1250000, 1200000, 1175000, 1100000,
 	1050000, 1025000, 1000000, 1000000, 1000000, 950000, 950000
 };
 
 /* ASV table for 12.5mV step */
 #if 0
-/* 20110112 DVFS table version */
-static const unsigned int asv_voltage_step_12_5[CPUFREQ_LEVEL_END][12] = {
-	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
-	{	0,       0,	  0,	   0,	    0,	     0,	      0,       0,       0,       0,	  0,       0 },	/* L0 - Not used */
-	{ 1300000, 1300000, 1300000, 1300000, 1300000, 1287500, 1275000, 1250000, 1250000, 1237500, 1225000, 1212500 },	/* L1 */
-	{ 1300000, 1300000, 1300000, 1300000, 1275000, 1250000, 1237500, 1225000, 1225000, 1225000, 1212500, 1175000 },	/* L2 */
-	{ 1225000, 1212500, 1225000, 1225000, 1200000, 1187500, 1175000, 1150000, 1150000, 1150000, 1137500, 1112500 },	/* L3 */
-	{ 1175000, 1162500, 1150000, 1137500, 1150000, 1137500, 1125000, 1100000, 1100000, 1075000, 1075000, 1062500 },	/* L4 */
-	{ 1125000, 1112500, 1100000, 1087500, 1100000, 1087500, 1075000, 1050000, 1037500, 1025000, 1025000, 1012500 },	/* L5 */
-	{ 1075000, 1062500, 1050000, 1050000, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  987500,  975000 },	/* L6 */
-	{ 1037500, 1025000, 1012500, 1012500, 1012500, 1000000,  987500,  975000,  975000,  975000,  975000,  962500 },	/* L7 */
-	{ 1012500, 1000000,  987500,  987500,  987500,  987500,  975000,  975000,  962500,  962500,  962500,  950000 },	/* L8 */
-	{ 1000000,  987500,  975000,  975000,  975000,  975000,  962500,  962500,  950000,  950000,  950000,  937500 },	/* L9 */
-	{  987500,  975000,  962500,  950000,  962500,  950000,  950000,  950000,  925000,  925000,  925000,  912500 },	/* L10 */
-	{  975000,  962500,  950000,  925000,  950000,  925000,  925000,  925000,  900000,  900000,  900000,  887500 },	/* L11 */
-	{  950000,  937500,  925000,  900000,  925000,  900000,  900000,  900000,  900000,  887500,  875000,  862500 },	/* L12 */
-	{  925000,  912500,  900000,  900000,  900000,  900000,  900000,  900000,  887500,  875000,  875000,  862500 },	/* L13 */
-};
-#else
 /* 20120105 DVFS table version */
 static const unsigned int asv_voltage_step_12_5[CPUFREQ_LEVEL_END][12] = {
 	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
@@ -356,6 +348,25 @@ static const unsigned int asv_voltage_step_12_5[CPUFREQ_LEVEL_END][12] = {
 	{ 1012500, 1000000,  987500,  987500,  987500,  987500,	 975000,  975000,  962500,  962500,  962500,  950000 },
 	{ 1000000,  987500,  975000,  975000,  975000,  975000,	 962500,  962500,  950000,  950000,  950000,  937500 },
 	{  987500,  975000,  962500,  950000,  962500,  950000,	 950000,  950000,  925000,  925000,  925000,  912500 },
+	{  975000,  962500,  950000,  925000,  950000,  925000,	 925000,  925000,  900000,  900000,  900000,  887500 },
+	{  950000,  937500,  925000,  900000,  925000,  900000,	 900000,  900000,  900000,  887500,  875000,  862500 },
+	{  925000,  912500,  900000,  900000,  900000,  900000,	 900000,  900000,  887500,  875000,  875000,  862500 },
+};
+#else
+/* 20120210 DVFS table version */
+static const unsigned int asv_voltage_step_12_5[CPUFREQ_LEVEL_END][12] = {
+	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
+	{	0,       0,	  0,	   0,	    0,	     0,	      0,       0,       0,       0,	  0,       0 },	/* L0 - Not used */
+	{ 1325000, 1312500, 1300000, 1287500, 1300000, 1287500,	1275000, 1250000, 1250000, 1237500, 1225000, 1212500 },
+	{ 1300000, 1275000, 1237500, 1237500, 1250000, 1250000,	1237500, 1212500, 1200000, 1200000, 1187500, 1175000 },
+	{ 1225000, 1212500, 1200000, 1187500, 1200000, 1187500,	1175000, 1150000, 1137500, 1125000, 1125000, 1112500 },
+	{ 1175000, 1162500, 1150000, 1137500, 1150000, 1137500,	1125000, 1100000, 1100000, 1075000, 1075000, 1062500 },
+	{ 1125000, 1112500, 1100000, 1087500, 1100000, 1087500,	1075000, 1050000, 1037500, 1025000, 1025000, 1012500 },
+	{ 1075000, 1062500, 1050000, 1050000, 1050000, 1037500,	1025000, 1012500, 1000000,  987500,  987500,  975000 },
+	{ 1037500, 1025000, 1000000, 1000000, 1000000,  987500,	 975000,  962500,  962500,  962500,  962500,  950000 },
+	{ 1012500, 1000000,  975000,  975000,  975000,  975000,	 962500,  962500,  950000,  950000,  950000,  937500 },
+	{ 1000000,  987500,  962500,  962500,  962500,  962500,	 950000,  950000,  937500,  937500,  937500,  925000 },
+	{  987500,  975000,  950000,  937500,  950000,  937500,	 937500,  937500,  912500,  912500,  912500,  900000 },
 	{  975000,  962500,  950000,  925000,  950000,  925000,	 925000,  925000,  900000,  900000,  900000,  887500 },
 	{  950000,  937500,  925000,  900000,  925000,  900000,	 900000,  900000,  900000,  887500,  875000,  862500 },
 	{  925000,  912500,  900000,  900000,  900000,  900000,	 900000,  900000,  887500,  875000,  875000,  862500 },
@@ -492,15 +503,14 @@ static void exynos4x12_set_frequency(unsigned int old_index,
 			set_clkdiv(new_index);
 		}
 	}
-#if 0
-/* don't use at 20110105 RBB version */
-	if ((exynos_result_of_asv > 3) && (exynos_result_of_asv < 11)) {
-		if (new_index >= NO_ABB_LIMIT)
+
+	/* ABB value is changed in below case */
+	if (soc_is_exynos4412() && (exynos_result_of_asv > 3)) {
+		if (new_index == L13)
 			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_100V);
 		else
 			exynos4x12_set_abb_member(ABB_ARM, ABB_MODE_130V);
 	}
-#endif
 }
 
 static void __init set_volt_table(void)
@@ -551,29 +561,38 @@ static void __init set_volt_table(void)
 
 	pr_info("DVFS : VDD_ARM Voltage table set with %d Group\n", exynos_result_of_asv);
 
-	if (soc_is_exynos4212()) {
+	if (exynos_result_of_asv == 0xff) {
 		for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
-			exynos4x12_volt_table[i] = asv_voltage_4212[i];
-
-	} else if (soc_is_exynos4412()) {
-		if (exynos_result_of_asv == 0xff) {
-			for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
-			exynos4x12_volt_table[i] = asv_voltage_s[i] + CPUFREQ_VOL_COMP;
-		} else {
+			exynos4x12_volt_table[i] = asv_voltage_s[i];
+	} else {
+		if (soc_is_exynos4212()) {
 			for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
 				exynos4x12_volt_table[i] =
-					asv_voltage_step_12_5[i][exynos_result_of_asv] + CPUFREQ_VOL_COMP;
+					asv_voltage_4212[i][exynos_result_of_asv];
+		} else if (soc_is_exynos4412()) {
+			for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)
+				exynos4x12_volt_table[i] =
+					asv_voltage_step_12_5[i][exynos_result_of_asv];
+		} else {
+			pr_err("%s: Can't find SoC type \n", __func__);
 		}
-	} else {
-		for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++) {
-			exynos4x12_volt_table[i] =
-				asv_voltage_step_12_5[i][exynos_result_of_asv] + CPUFREQ_VOL_COMP;
-
-			printk("L%d = %d\n", i, exynos4x12_volt_table[i]);
-		}
-		pr_err("%s: Can't find SoC type \n", __func__);
 	}
 }
+
+/*
+ * The values of the table is not correct.
+ * Copied from C210 as prototype assuming that unmapping 512KiB
+ * requires 128 DMA operations.
+ */
+#ifdef CONFIG_SLP
+static struct dvfs_qos_info exynos4x12_dma_lat_qos[] = {
+	{ 118,	200000, L13 },
+	{ 40,	500000, L10 },
+	{ 24,	800000, L7 },
+	{ 16,	1000000, L5 },
+	{},
+};
+#endif
 
 int exynos4x12_cpufreq_init(struct exynos_dvfs_info *info)
 {
@@ -613,7 +632,8 @@ int exynos4x12_cpufreq_init(struct exynos_dvfs_info *info)
 			EXYNOS4_CLKDIV_CPU0_PERIPH_MASK |
 			EXYNOS4_CLKDIV_CPU0_ATB_MASK |
 			EXYNOS4_CLKDIV_CPU0_PCLKDBG_MASK |
-			EXYNOS4_CLKDIV_CPU0_APLL_MASK);
+			EXYNOS4_CLKDIV_CPU0_APLL_MASK |
+			EXYNOS4_CLKDIV_CPU0_CORE2_MASK);
 
 		if (soc_is_exynos4212()) {
 			tmp |= ((clkdiv_cpu0_4212[i][0] << EXYNOS4_CLKDIV_CPU0_CORE_SHIFT) |
@@ -622,10 +642,9 @@ int exynos4x12_cpufreq_init(struct exynos_dvfs_info *info)
 				(clkdiv_cpu0_4212[i][3] << EXYNOS4_CLKDIV_CPU0_PERIPH_SHIFT) |
 				(clkdiv_cpu0_4212[i][4] << EXYNOS4_CLKDIV_CPU0_ATB_SHIFT) |
 				(clkdiv_cpu0_4212[i][5] << EXYNOS4_CLKDIV_CPU0_PCLKDBG_SHIFT) |
-				(clkdiv_cpu0_4212[i][6] << EXYNOS4_CLKDIV_CPU0_APLL_SHIFT));
+				(clkdiv_cpu0_4212[i][6] << EXYNOS4_CLKDIV_CPU0_APLL_SHIFT) |
+				(clkdiv_cpu0_4212[i][7] << EXYNOS4_CLKDIV_CPU0_CORE2_SHIFT));
 		} else {
-			tmp &= ~EXYNOS4_CLKDIV_CPU0_CORE2_MASK;
-
 			tmp |= ((clkdiv_cpu0_4412[i][0] << EXYNOS4_CLKDIV_CPU0_CORE_SHIFT) |
 				(clkdiv_cpu0_4412[i][1] << EXYNOS4_CLKDIV_CPU0_COREM0_SHIFT) |
 				(clkdiv_cpu0_4412[i][2] << EXYNOS4_CLKDIV_CPU0_COREM1_SHIFT) |
@@ -657,7 +676,27 @@ int exynos4x12_cpufreq_init(struct exynos_dvfs_info *info)
 	}
 
 	info->mpll_freq_khz = rate;
+#ifdef CONFIG_SLP
+	/* S-Boot at 20120406 uses L7 at bootup */
+	info->pm_lock_idx = L7;
+
+	/*
+	 * However, the bootup frequency might get changed anytime.
+	 * Thus, we'd like to get the value at bootup time.
+	 */
+	rate = clk_get_rate(cpu_clk) / 1000;
+	for (i = 0; exynos4x12_freq_table[i].frequency != CPUFREQ_TABLE_END;
+	     i++) {
+		if (exynos4x12_freq_table[i].frequency == rate) {
+			info->pm_lock_idx = exynos4x12_freq_table[i].index;
+			break;
+		}
+	}
+	pr_info("Bootup CPU Frequency = [%d] %dMHz\n", info->pm_lock_idx,
+		rate / 1000);
+#else
 	info->pm_lock_idx = L5;
+#endif
 	info->pll_safe_idx = L7;
 	info->max_support_idx = max_support_idx;
 	info->min_support_idx = min_support_idx;
@@ -666,6 +705,9 @@ int exynos4x12_cpufreq_init(struct exynos_dvfs_info *info)
 	info->freq_table = exynos4x12_freq_table;
 	info->set_freq = exynos4x12_set_frequency;
 	info->need_apll_change = exynos4x12_pms_change;
+#ifdef CONFIG_SLP
+	info->cpu_dma_latency = exynos4x12_dma_lat_qos;
+#endif
 
 #ifdef ENABLE_CLKOUT
 	tmp = __raw_readl(EXYNOS4_CLKOUT_CMU_CPU);
@@ -673,11 +715,7 @@ int exynos4x12_cpufreq_init(struct exynos_dvfs_info *info)
 	tmp |= 0x1904;
 	__raw_writel(tmp, EXYNOS4_CLKOUT_CMU_CPU);
 
-	tmp = __raw_readl(S5P_PMU_DEBUG);
-	tmp &= ~0xf00;
-	tmp |= 0x400;
-	__raw_writel(tmp, S5P_PMU_DEBUG);
-
+	exynos4_pmu_xclkout_set(1, XCLKOUT_CMU_CPU);
 #endif
 
 	return 0;

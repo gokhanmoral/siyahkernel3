@@ -1,0 +1,72 @@
+#
+## S3C Multimedia Mali configuration
+##
+#
+# For Mali
+config VIDEO_MALI400MP_R2P3
+	bool "Enable MALI integration"
+	depends on VIDEO_SAMSUNG
+	default n
+	---help---
+                This enables MALI integration in the multimedia device driver
+
+choice
+	prompt "MALI MEMORY OPTION"
+	depends on VIDEO_MALI400MP_R2P3
+	default MALI_OSMEM_ONLY_R2P3
+
+	config MALI_DED_ONLY_R2P3
+		bool "mali dedicated memory only"
+		---help---
+		  This enables MALI dedicated memory only option
+
+	config MALI_DED_MMU_R2P3
+		bool "mali dedicated memory with mmu enable"
+		---help---
+		  This enables MALI dedicated memory with mmu enable option
+
+	config MALI_OSMEM_ONLY_R2P3
+		bool "mali OS memory only"
+		---help---
+		  This enables MALI OS memory only option
+
+	config MALI_DED_OSMEM_R2P3
+		bool "mali dedicated memory and OS memory"
+		---help---
+		  This enables MALI dedicated memory and OS memory option
+endchoice
+
+config MALI_MEM_SIZE
+	int "Dedicated Memory Size"
+	depends on VIDEO_MALI400MP_R2P3 && (MALI_DED_ONLY_R2P3 || MALI_DED_MMU_R2P3 || MALI_DED_OSMEM_R2P3)
+	default "128"
+	---help---
+	  This value is dedicated memory size of Mali GPU(unit is MByte).
+
+# For DEBUG
+config VIDEO_MALI400MP_DEBUG
+	bool "Enables debug messages"
+	depends on VIDEO_MALI400MP_R2P3
+	default n
+	help
+	  This enables Mali driver debug messages.
+
+config MALI_CLK_DMESG_DEBUG
+	bool "Enables dmesg debug messages for MALI GPU clock change "
+	depends on VIDEO_MALI400MP_R2P3
+	default n
+	help
+	  This enables Mali driver CLK debug messages with dmesg.
+
+config VIDEO_MALI400MP_DVFS
+	bool "Enables DVFS"
+	depends on VIDEO_MALI400MP_R2P3 && PM
+	default y
+	help
+	  This enables Mali driver DVFS.
+
+config VIDEO_MALI400MP_PROFILING
+	bool "Enables Profiling"
+	depends on VIDEO_MALI400MP_R2P3
+	help
+	  This enables Mali driver profiling.

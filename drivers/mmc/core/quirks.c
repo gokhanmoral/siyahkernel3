@@ -33,6 +33,10 @@
 #define SDIO_DEVICE_ID_BRCM_BCM4334	0x4334
 #endif
 
+#ifndef SDIO_DEVICE_ID_BRCM_BCM43241
+#define SDIO_DEVICE_ID_BRCM_BCM43241	0x4324
+#endif
+
 /*
  * This hook just adds a quirk for all sdio devices
  */
@@ -62,6 +66,9 @@ static const struct mmc_fixup mmc_fixup_methods[] = {
 			remove_quirk, MMC_QUIRK_BROKEN_CLK_GATING),
 
 	SDIO_FIXUP(SDIO_VENDOR_ID_BRCM, SDIO_DEVICE_ID_BRCM_BCM4334,
+		   remove_quirk, MMC_QUIRK_BROKEN_CLK_GATING),
+
+	SDIO_FIXUP(SDIO_VENDOR_ID_BRCM, SDIO_DEVICE_ID_BRCM_BCM43241,
 		   remove_quirk, MMC_QUIRK_BROKEN_CLK_GATING),
 
 	END_FIXUP

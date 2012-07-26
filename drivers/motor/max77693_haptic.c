@@ -258,6 +258,10 @@ static int max77693_haptic_probe(struct platform_device *pdev)
 	struct max77693_haptic_data *hap_data;
 
 	pr_debug("[VIB] ++ %s\n", __func__);
+	 if (pdata == NULL) {
+		pr_err("%s: no pdata\n", __func__);
+		return -ENODEV;
+	}
 
 	hap_data = kzalloc(sizeof(struct max77693_haptic_data), GFP_KERNEL);
 	if (!hap_data)
@@ -305,12 +309,14 @@ static int max77693_haptic_probe(struct platform_device *pdev)
 	hap_data->tout_dev.get_time = haptic_get_time;
 	hap_data->tout_dev.enable = haptic_enable;
 
+#ifdef CONFIG_ANDROID_TIMED_OUTPUT
 	error = timed_output_dev_register(&hap_data->tout_dev);
 	if (error < 0) {
 		pr_err("[VIB] Failed to register timed_output : %d\n", error);
 		error = -EFAULT;
 		goto err_timed_output_register;
 	}
+#endif
 
 	pr_debug("[VIB] -- %s\n", __func__);
 
@@ -329,7 +335,9 @@ err_pwm_request:
 static int __devexit max77693_haptic_remove(struct platform_device *pdev)
 {
 	struct max77693_haptic_data *data = platform_get_drvdata(pdev);
+#ifdef CONFIG_ANDROID_TIMED_OUTPUT
 	timed_output_dev_unregister(&data->tout_dev);
+#endif
 	regulator_put(data->regulator);
 	pwm_free(data->pwm);
 	destroy_workqueue(data->workqueue);

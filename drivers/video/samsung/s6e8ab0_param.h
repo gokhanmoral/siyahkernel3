@@ -96,7 +96,6 @@ enum {
 	GAMMA_80CD,
 	GAMMA_90CD,
 	GAMMA_100CD,
-	GAMMA_105CD,
 	GAMMA_110CD,
 	GAMMA_120CD,
 	GAMMA_130CD,
@@ -107,7 +106,6 @@ enum {
 	GAMMA_180CD,
 	GAMMA_190CD,
 	GAMMA_200CD,
-	GAMMA_205CD,
 	GAMMA_210CD,
 	GAMMA_220CD,
 	GAMMA_230CD,
@@ -117,9 +115,9 @@ enum {
 };
 
 static const unsigned int candela_table[GAMMA_MAX] = {
-	 30,  40,  50,  60,  70,  80,  90, 100, 105, 110,
-	120, 130, 140, 150, 160, 170, 180, 190, 200, 205,
-	210, 220, 230, 240, 250
+	 30,  40,  50,  60,  70,  80,  90, 100, 110, 120,
+	130, 140, 150, 160, 170, 180, 190, 200, 210, 220,
+	230, 240, 250
 };
 
 enum {

@@ -31,6 +31,9 @@
 #include <mach/media.h>
 #include <mach/map.h>
 #include "s3cfb_extdsp.h"
+#ifdef CONFIG_BUSFREQ_OPP
+#include <mach/dev.h>
+#endif
 
 #ifdef CONFIG_HAS_WAKELOCK
 #include <linux/wakelock.h>
@@ -121,6 +124,11 @@ static int s3cfb_extdsp_probe(struct platform_device *pdev)
 	s3cfb_extdsp_update_power_state(fbdev[0], 0,
 			FB_BLANK_POWERDOWN);
 
+#ifdef CONFIG_BUSFREQ_OPP
+	/* To lock bus frequency in OPP mode */
+	fbdev[0]->bus_dev = dev_get("exynos-busfreq");
+#endif
+
 #ifdef CONFIG_HAS_WAKELOCK
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	fbdev[0]->early_suspend.suspend = s3cfb_extdsp_early_suspend;
@@ -195,9 +203,9 @@ void s3cfb_extdsp_late_resume(struct early_suspend *h)
 	struct s3cfb_extdsp_window *win;
 	struct s3cfb_extdsp_global *fbdev[2];
 	int j;
-
+/*
 	printk("s3cfb_extdsp_late_resume is called\n");
-
+*/
 	dev_dbg(info->dev, "wake up from suspend\n");
 
 	info->system_state = POWER_ON;
@@ -305,7 +313,11 @@ static void s3cfb_extdsp_unregister(void)
 	platform_driver_unregister(&s3cfb_extdsp_driver);
 }
 
+#if defined(CONFIG_FB_EXYNOS_FIMD_MC) || defined(CONFIG_FB_EXYNOS_FIMD_MC_WB)
+late_initcall(s3cfb_extdsp_register);
+#else
 module_init(s3cfb_extdsp_register);
+#endif
 module_exit(s3cfb_extdsp_unregister);
 
 MODULE_AUTHOR("Jingoo Han <jg1.han@samsung.com>");

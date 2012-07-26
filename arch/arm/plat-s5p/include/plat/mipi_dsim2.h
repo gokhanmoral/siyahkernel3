@@ -303,6 +303,8 @@ struct mipi_dsim_master_ops {
 	void (*trigger)(struct fb_info *info);
 	int (*set_early_blank_mode)(struct mipi_dsim_device *dsim, int power);
 	int (*set_blank_mode)(struct mipi_dsim_device *dsim, int power);
+	void (*set_pms)(struct mipi_dsim_device *dsim, unsigned int p,
+			unsigned int m,	unsigned int s, unsigned int freq_band);
 };
 
 /**
@@ -347,6 +349,7 @@ struct mipi_dsim_lcd_driver {
 	char			*name;
 	int			id;
 
+	int	(*check_mtp)(struct mipi_dsim_lcd_device *dsim_dev);
 	void	(*power_on)(struct mipi_dsim_lcd_device *dsim_dev,
 				unsigned int enable);
 	void	(*set_sequence)(struct mipi_dsim_lcd_device *dsim_dev);

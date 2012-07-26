@@ -11,6 +11,7 @@
 #define __S5C73M3_H
 
 #define CONFIG_CAM_DEBUG	1
+/*#define FEATURE_DEBUG_DUMP*/
 
 #define cam_warn(fmt, ...)	\
 	do { \
@@ -55,6 +56,13 @@
 #define cam_i2c_dbg(fmt, ...)
 #endif
 
+enum s5c73m3_fw_path{
+	S5C73M3_SD_CARD,
+	S5C73M3_IN_DATA,
+	S5C73M3_IN_SYSTEM,
+	S5C73M3_PATH_MAX,
+};
+
 enum s5c73m3_prev_frmsize {
 	S5C73M3_PREVIEW_QCIF,
 	S5C73M3_PREVIEW_QCIF2,
@@ -63,12 +71,15 @@ enum s5c73m3_prev_frmsize {
 	S5C73M3_PREVIEW_VGA,
 	S5C73M3_PREVIEW_D1,
 	S5C73M3_PREVIEW_WVGA,
+	S5C73M3_PREVIEW_704X576,
 	S5C73M3_PREVIEW_880X720,
+	S5C73M3_PREVIEW_960X640,
 	S5C73M3_PREVIEW_960X720,
 	S5C73M3_PREVIEW_1008X672,
 	S5C73M3_PREVIEW_1056X704,
 	S5C73M3_PREVIEW_1184X666,
 	S5C73M3_PREVIEW_720P,
+	S5C73M3_VDIS_720P,
 	S5C73M3_PREVIEW_1080P,
 	S5C73M3_VDIS_1080P,
 	S5C73M3_PREVIEW_HDR,
@@ -88,6 +99,7 @@ enum s5c73m3_cap_frmsize {
 	S5C73M3_CAPTURE_W6MP,	/* 3072 x 1856 */
 	S5C73M3_CAPTURE_7MP,	/* 3072 x 2304 */
 	S5C73M3_CAPTURE_W7MP,	/* WQXGA - 2560 x 1536 */
+	S5C73M3_CAPTURE_3264X2176,	/* 3264 x 2176 */
 	S5C73M3_CAPTURE_8MP,	/* 3264 x 2448 */
 };
 
@@ -113,21 +125,20 @@ struct s5c73m3_frmsizeenum {
 	u8 reg_val;		/* a value for category parameter */
 };
 
+struct s5c73m3_effectenum {
+	unsigned int index;
+	unsigned int reg_val;
+};
+
 struct s5c73m3_isp {
-	wait_queue_head_t wait;
-	unsigned int irq;	/* irq issued by ISP */
-	unsigned int issued;
-	unsigned int int_factor;
 	unsigned int bad_fw:1;
 };
 
-struct s5c73m3_jpeg {
-	int quality;
-	unsigned int main_size;	/* Main JPEG file size */
-	unsigned int thumb_size;	/* Thumbnail file size */
-	unsigned int main_offset;
-	unsigned int thumb_offset;
-	unsigned int postview_offset;
+struct s5c73m3_fw_version {
+	unsigned int index;
+	unsigned int opened;
+	char path[25];
+	char ver[10];
 };
 
 struct s5c73m3_focus {
@@ -137,16 +148,6 @@ struct s5c73m3_focus {
 	unsigned int touch;
 	unsigned int pos_x;
 	unsigned int pos_y;
-};
-
-struct s5c73m3_exif {
-	char unique_id[7];
-	u32 exptime;		/* us */
-	u16 flash;
-	u16 iso;
-	int tv;			/* shutter speed */
-	int bv;			/* brightness */
-	int ebv;		/* exposure bias */
 };
 
 struct s5c73m3_state {
@@ -161,29 +162,34 @@ struct s5c73m3_state {
 	enum v4l2_pix_format_mode format_mode;
 	enum v4l2_sensor_mode sensor_mode;
 	enum v4l2_flash_mode flash_mode;
+	enum v4l2_wb_mode wb_mode;
+	enum v4l2_scene_mode scene_mode;
 	int vt_mode;
-	int beauty_mode;
 	int hdr_mode;
+	int hybrid_mode;
 	int zoom;
 	int stream_enable;
 	int ae_lock;
 	int awb_lock;
+	int fw_index;
+	u32 cal_device;
+	u32 cal_dll;
 
 	unsigned int fps;
 	struct s5c73m3_focus focus;
+	int caf_mode;
 	char isflash;
 
-	struct s5c73m3_jpeg jpeg;
-	struct s5c73m3_exif exif;
-
-	int check_dataline;
-	char *fw_version;
-
+	u32 real_preview_width;
+	u32 real_preview_height;
 	u32 jpeg_width;
 	u32 jpeg_height;
+	u32 sensor_size;
 
 	u8 sensor_fw[10];
 	u8 phone_fw[10];
+
+	u8 sensor_type[15];
 
 #ifdef CONFIG_CAM_DEBUG
 	u8 dbg_level;
@@ -194,6 +200,7 @@ struct s5c73m3_state {
 #define S5C73M3_HDR_OUTPUT	0x0008
 #define S5C73M3_YUV_OUTPUT	0x0009
 #define S5C73M3_INTERLEAVED_OUTPUT	0x000D
+#define S5C73M3_HYBRID_OUTPUT	0x0016
 
 #define S5C73M3_STILL_PRE_FLASH			0x0A00
 #define S5C73M3_STILL_PRE_FLASH_FIRE		0x0000
@@ -214,6 +221,16 @@ struct s5c73m3_state {
 #define S5C73M3_IMAGE_EFFECT_AQUA	0x0003
 #define S5C73M3_IMAGE_EFFECT_SEPIA	0x0004
 #define S5C73M3_IMAGE_EFFECT_MONO	0x0005
+#define S5C73M3_IMAGE_EFFECT_SKETCH	0x0006
+#define S5C73M3_IMAGE_EFFECT_WASHED	0x0007
+#define S5C73M3_IMAGE_EFFECT_VINTAGE_WARM	0x0008
+#define S5C73M3_IMAGE_EFFECT_VINTAGE_COLD	0x0009
+#define S5C73M3_IMAGE_EFFECT_SOLARIZE	0x000A
+#define S5C73M3_IMAGE_EFFECT_POSTERIZE	0x000B
+#define S5C73M3_IMAGE_EFFECT_POINT_BLUE	0x000C
+#define S5C73M3_IMAGE_EFFECT_POINT_RED_YELLOW	0x000D
+#define S5C73M3_IMAGE_EFFECT_POINT_COLOR_3	0x000E
+#define S5C73M3_IMAGE_EFFECT_POINT_GREEN	0x000F
 
 #define S5C73M3_IMAGE_QUALITY		0x0B0C
 #define S5C73M3_IMAGE_QUALITY_SUPERFINE	0x0000
@@ -238,32 +255,6 @@ struct s5c73m3_state {
 #define S5C73M3_CHG_MODE		0x0B10
 #define S5C73M3_YUV_MODE		0x8000
 #define S5C73M3_INTERLEAVED_MODE	0x8000
-#define S5C73M3_CHG_MODE_YUV_320_240	0x8001
-#define S5C73M3_CHG_MODE_YUV_400_300	0x8002
-#define S5C73M3_CHG_MODE_YUV_640_480	0x8003
-#define S5C73M3_CHG_MODE_YUV_800_600	0x8004
-#define S5C73M3_CHG_MODE_YUV_960_720	0x8005
-#define S5C73M3_CHG_MODE_YUV_1280_720	0x8006
-#define S5C73M3_CHG_MODE_YUV_1280_960	0x8007
-#define S5C73M3_CHG_MODE_YUV_1600_1200	0x8008
-#define S5C73M3_CHG_MODE_YUV_1632_1224	0x8009
-#define S5C73M3_CHG_MODE_YUV_1920_1080	0x800A
-#define S5C73M3_CHG_MODE_YUV_1920_1440	0x800B
-#define S5C73M3_CHG_MODE_YUV_2304_1296	0x800C
-#define S5C73M3_CHG_MODE_YUV_2304_1728	0x800D
-#define S5C73M3_CHG_MODE_JPEG_640_480	0x0010
-#define S5C73M3_CHG_MODE_JPEG_800_450	0x0020
-#define S5C73M3_CHG_MODE_JPEG_800_600	0x0030
-#define S5C73M3_CHG_MODE_JPEG_1600_960	0x0040
-#define S5C73M3_CHG_MODE_JPEG_1600_1200	0x0050
-#define S5C73M3_CHG_MODE_JPEG_2048_1152	0x0060
-#define S5C73M3_CHG_MODE_JPEG_2048_1536	0x0070
-#define S5C73M3_CHG_MODE_JPEG_2560_1440	0x0080
-#define S5C73M3_CHG_MODE_JPEG_2560_1920	0x0090
-#define S5C73M3_CHG_MODE_JPEG_3072_1728	0x00A0
-#define S5C73M3_CHG_MODE_JPEG_3264_2304	0x00B0
-#define S5C73M3_CHG_MODE_JPEG_3264_1836	0x00C0
-#define S5C73M3_CHG_MODE_JPEG_3264_2448	0x00D0
 
 
 #define S5C73M3_AF_CON			0x0E00
@@ -280,7 +271,7 @@ struct s5c73m3_state {
 #define S5C73M3_CAF_STATUS_FIND_SEARCHING_DIR	0x0001
 #define S5C73M3_CAF_STATUS_FOCUSING	0x0002
 #define S5C73M3_CAF_STATUS_FOCUSED	0x0003
-#define S5C73M3_CAF_STATUS_INITIALIZE	0x0004
+#define S5C73M3_CAF_STATUS_UNFOCUSED	0x0004
 
 #define S5C73M3_AF_STATUS_INVALID	0x0010
 #define S5C73M3_AF_STATUS_FOCUSING	0x0020
@@ -345,11 +336,23 @@ struct s5c73m3_state {
 #define S5C73M3_WDR_OFF		0x0000
 #define S5C73M3_WDR_ON		0x0001
 
+#define S5C73M3_FLICKER_MODE	0x0C12
+#define S5C73M3_FLICKER_NONE	0x0000
+#define S5C73M3_FLICKER_MANUAL_50HZ	0x0001
+#define S5C73M3_FLICKER_MANUAL_60HZ	0x0002
+#define S5C73M3_FLICKER_AUTO	0x0003
+#define S5C73M3_FLICKER_AUTO_50HZ	0x0004
+#define S5C73M3_FLICKER_AUTO_60HZ	0x0005
+
 #define S5C73M3_AE_MODE	0x0C1E
 #define S5C73M3_AUTO_MODE_AE_SET	0x0000
 #define S5C73M3_FIXED_30FPS	0x0002
 #define S5C73M3_FIXED_20FPS	0x0003
 #define S5C73M3_FIXED_15FPS	0x0004
+#define S5C73M3_FIXED_120FPS	0x0008
+#define S5C73M3_FIXED_7FPS	0x0009
+#define S5C73M3_FIXED_10FPS	0x000A
+#define S5C73M3_ANTI_SHAKE	0x0013
 
 #define S5C73M3_SHARPNESS	0x0C14
 #define S5C73M3_SHARPNESS_0	0x0000
@@ -388,6 +391,8 @@ struct s5c73m3_state {
 #define S5C73M3_SCENE_MODE_TEXT		0x000C
 #define S5C73M3_SCENE_MODE_CANDLE	0x000D
 
+#define S5C73M3_FIREWORK_CAPTURE 0x0C20
+#define S5C73M3_NIGHTSHOT_CAPTURE 0x0C22
 
 #define S5C73M3_AE_AUTO_BRAKET		0x0B14
 #define S5C73M3_AE_AUTO_BRAKET_EV05	0x0080
@@ -411,75 +416,48 @@ struct s5c73m3_state {
 #define S5C73M3_AWB_STOP		0x0000/*LOCK*/
 #define S5C73M3_AWB_START		0x0001/*UNLOCK*/
 
+#define S5C73M3_HYBRID_CAPTURE	0x0996
 
-/* S5C73M3 Sensor Mode */
-#define S5C73M3_SYSINIT_MODE	0x0
-#define S5C73M3_PARMSET_MODE	0x1
-#define S5C73M3_MONITOR_MODE	0x2
-#define S5C73M3_STILLCAP_MODE	0x3
+#define S5C73M3_STATUS			0x5080
+#define BOOT_SUB_MAIN_ENTER		0xFF01
+#define BOOT_SRAM_TIMING_OK		0xFF02
+#define BOOT_INTERRUPTS_ENABLE		0xFF03
+#define BOOT_R_PLL_DONE			0xFF04
+#define BOOT_R_PLL_LOCKTIME_DONE	0xFF05
+#define BOOT_DELAY_COUNT_DONE		0xFF06
+#define BOOT_I_PLL_DONE			0xFF07
+#define BOOT_I_PLL_LOCKTIME_DONE	0xFF08
+#define BOOT_PLL_INIT_OK		0xFF09
+#define BOOT_SENSOR_INIT_OK		0xFF0A
+#define BOOT_GPIO_SETTING_OK		0xFF0B
+#define BOOT_READ_CAL_DATA_OK		0xFF0C
+#define BOOT_STABLE_AE_AWB_OK		0xFF0D
+#define EXCEPTION_OCCURED		0xDEAD
 
-/* Interrupt Factor */
-#define S5C73M3_INT_SOUND		(1 << 7)
-#define S5C73M3_INT_LENS_INIT	(1 << 6)
-#define S5C73M3_INT_FD		(1 << 5)
-#define S5C73M3_INT_FRAME_SYNC	(1 << 4)
-#define S5C73M3_INT_CAPTURE	(1 << 3)
-#define S5C73M3_INT_ZOOM		(1 << 2)
-#define S5C73M3_INT_AF		(1 << 1)
-#define S5C73M3_INT_MODE		(1 << 0)
+#define S5C73M3_I2C_SEQ_STATUS	0x59A6
+#define SEQ_END_PLL		(1<<0x0)
+#define SEQ_END_SENSOR		(1<<0x1)
+#define SEQ_END_GPIO		(1<<0x2)
+#define SEQ_END_FROM		(1<<0x3)
+#define SEQ_END_STABLE_AE_AWB	(1<<0x4)
+#define SEQ_END_READY_I2C_CMD	(1<<0x5)
 
-/* ESD Interrupt */
-#define S5C73M3_INT_ESD		(1 << 0)
+#define S5C73M3_I2C_ERR_STATUS		0x599E
+#define ERR_STATUS_CIS_I2C		(1<<0x0)
+#define ERR_STATUS_AF_INIT		(1<<0x1)
+#define ERR_STATUS_CAL_DATA		(1<<0x2)
+#define ERR_STATUS_FRAME_COUNT		(1<<0x3)
+#define ERR_STATUS_FROM_INIT		(1<<0x4)
+#define ERR_STATUS_I2C_CIS_STREAM_OFF	(1<<0x5)
+#define ERR_STATUS_I2C_N_CMD_OVER	(1<<0x6)
+#define ERR_STATUS_I2C_N_CMD_MISMATCH0	(1<<0x7)
+#define ERR_STATUS_I2C_N_CMD_MISMATCH1	(1<<0x8)
+#define ERR_STATUS_EXCEPTION		(1<<0x9)
 
-static const u32 S5C73M3_INIT[] = {
-0x00500009,
-0x00545000,
-0x0F140B08,
-0x0F140000,
-0x0F140900,
-0x0F140403, /*640MHz*/
-0x00545080,
-0x0F140002
-};
-
-static u32 S5C73M3_OTP_CONTROL[] = {
-0xFCFC3310,
-0x00503800,
-0x0054A004,
-0x0F140000,
-0x0054A000,
-0x0F140004,
-0x0054A0D8,
-0x0F140000,
-0x0054A0DC,
-0x0F140004,
-0x0054A0C4,
-0x0F144000,
-0x0054A0D4,
-0x0F140015,
-0x0054A000,
-0x0F140001,
-0x0054A0B4,
-0x0F149F90,
-0x0054A09C,
-0x0F149A95,
-};
-
-static u32 S5C73M3_OTP_PAGE[] = {
-0x0054A0C4,
-0x0F144800,
-0x0054A0C4,
-0x0F144400,
-0x0054A0C4,
-0x0F144200,
-0x0054A004,
-0x0F1400C0,
-0x0054A000,
-0x0F140001,
-};
 
 #ifdef CONFIG_VIDEO_S5C73M3_SPI
 extern int s5c73m3_spi_write(const u8 *addr, const int len, const int txSize);
+extern int s5c73m3_spi_read(u8 *buf, size_t len, const int rxSize);
 #endif
 
 #endif /* __S5C73M3_H */

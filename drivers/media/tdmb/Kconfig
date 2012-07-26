@@ -12,20 +12,35 @@ config TDMB
 
 choice
 	depends on TDMB
-	prompt "vendor"
-	default TDMB_VENDOR_FCI
-	config TDMB_VENDOR_INC
-		bool "I&C"
-	config TDMB_VENDOR_FCI
-		bool "FCI"
-	config TDMB_VENDOR_RAONTECH
-		bool "Raontech"
-	config TDMB_VENDOR_TELECHIPS
-		bool "Telechips"
-	comment "*"
-	config TDMB_SIMUL
-		bool "Simultaion"
+	depends on TDMB_VENDOR_FCI || TDMB_VENDOR_RAONTECH \
+		|| TDMB_VENDOR_INC || TDMB_VENDOR_TELECHIPS
+	prompt "interface"
+	default TDMB_SPI
+	config TDMB_SPI
+		bool "SPI"
+	config TDMB_EBI
+		bool "EBI"
+	config TDMB_TSIF
+		bool "TSIF"
 endchoice
+
+	config TDMB_VENDOR_FCI
+	depends on TDMB
+		bool "FCI"
+
+choice
+	depends on TDMB && TDMB_VENDOR_FCI
+	prompt "chip"
+	default TDMB_FC8053
+	config TDMB_FC8053
+		bool "FC8053"
+	config TDMB_FC8050
+		bool "FC8050"
+endchoice
+
+config TDMB_VENDOR_INC
+	depends on TDMB
+	bool "I&C"
 
 choice
 	depends on TDMB && TDMB_VENDOR_INC
@@ -41,15 +56,9 @@ choice
 		bool "T3300"
 endchoice
 
-choice
-	depends on TDMB && TDMB_VENDOR_FCI
-	prompt "chip"
-	default TDMB_FC8053
-	config TDMB_FC8053
-		bool "FC8053"
-	config TDMB_FC8050
-		bool "FC8050"
-endchoice
+config TDMB_VENDOR_RAONTECH
+	depends on TDMB
+	bool "Raontech"
 
 choice
 	depends on TDMB && TDMB_VENDOR_RAONTECH
@@ -59,6 +68,10 @@ choice
 		bool "MTV318"
 endchoice
 
+config TDMB_VENDOR_TELECHIPS
+	depends on TDMB
+	bool "Telechips"
+
 choice
 	depends on TDMB && TDMB_VENDOR_TELECHIPS
 	prompt "chip"
@@ -67,14 +80,6 @@ choice
 		bool "TCC3170"
 endchoice
 
-choice
-	depends on TDMB && !TDMB_SIMUL
-	prompt "interface"
-	default TDMB_SPI
-	config TDMB_SPI
-		bool "SPI"
-	config TDMB_EBI
-		bool "EBI"
-	config TDMB_TSIF
-		bool "TSIF"
-endchoice
+config TDMB_SIMUL
+	depends on TDMB
+	bool "Simulation"

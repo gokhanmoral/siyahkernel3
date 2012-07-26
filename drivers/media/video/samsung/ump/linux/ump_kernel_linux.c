@@ -90,7 +90,7 @@ static int ump_file_ioctl(struct inode *inode, struct file *filp, unsigned int c
 #endif
 static int ump_file_mmap(struct file * filp, struct vm_area_struct * vma);
 
-#ifdef CONFIG_VIDEO_MALI400MP
+#ifdef CONFIG_VIDEO_MALI400MP_R2P3
 extern int map_errcode( _mali_osk_errcode_t err );
 #endif
 
@@ -178,7 +178,7 @@ int ump_kernel_device_initialize(void)
 	}
 	else
 	{
-		debugfs_create_file("memory_usage", 0400, ump_debugfs_dir, NULL, &ump_memory_usage_fops);
+		debugfs_create_file("memory_usage", 0444, ump_debugfs_dir, NULL, &ump_memory_usage_fops);
 	}
 
 	if (0 == ump_major)
@@ -351,7 +351,12 @@ static int ump_file_ioctl(struct inode *inode, struct file *filp, unsigned int c
 			err = ump_ion_import_wrapper((u32 __user *)argument, session_data);
 			break;
 #endif
-
+#ifdef CONFIG_DMA_SHARED_BUFFER
+		case UMP_IOC_DMABUF_IMPORT:
+			err = ump_dmabuf_import_wrapper((u32 __user *)argument,
+							session_data);
+			break;
+#endif
 		case UMP_IOC_RELEASE:
 			err = ump_release_wrapper((u32 __user *)argument, session_data);
 			break;
@@ -373,7 +378,9 @@ static int ump_file_ioctl(struct inode *inode, struct file *filp, unsigned int c
 	return err;
 }
 
+#ifndef CONFIG_VIDEO_MALI400MP_R2P3
 #ifndef CONFIG_VIDEO_MALI400MP
+#ifndef CONFIG_VIDEO_MALI400MP_R3P0
 int map_errcode( _mali_osk_errcode_t err )
 {
     switch(err)
@@ -389,6 +396,8 @@ int map_errcode( _mali_osk_errcode_t err )
         default: return -EFAULT;
     }
 }
+#endif
+#endif
 #endif
 
 /*

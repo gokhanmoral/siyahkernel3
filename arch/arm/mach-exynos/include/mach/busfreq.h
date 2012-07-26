@@ -14,6 +14,7 @@
 #define __ASM_ARCH_BUSFREQ_H __FILE__
 
 #include <linux/notifier.h>
+#include <linux/earlysuspend.h>
 
 #include <mach/ppmu.h>
 
@@ -48,10 +49,11 @@ struct busfreq_data {
 	struct notifier_block exynos_buspm_notifier;
 	struct notifier_block exynos_reboot_notifier;
 	struct notifier_block exynos_request_notifier;
+	struct early_suspend busfreq_early_suspend_handler;
 	struct attribute_group busfreq_attr_group;
 	int (*init)	(struct device *dev, struct busfreq_data *data);
 	struct opp *(*monitor)(struct busfreq_data *data);
-	unsigned int (*target)	(unsigned int index);
+	void (*target)	(int mif_index, int int_index);
 	unsigned int (*get_int_volt) (unsigned long freq);
 	unsigned int (*get_table_index) (struct opp *opp);
 	void (*busfreq_prepare) (unsigned int index);
@@ -75,7 +77,7 @@ struct opp *step_down(struct busfreq_data *data, int step);
 
 #if defined(CONFIG_ARCH_EXYNOS5)
 int exynos5250_init(struct device *dev, struct busfreq_data *data);
-unsigned int exynos5250_target(unsigned int index);
+void exynos5250_target(int mif_index, int int_index);
 unsigned int exynos5250_get_int_volt(unsigned long freq);
 unsigned int exynos5250_get_table_index(struct opp *opp);
 struct opp *exynos5250_monitor(struct busfreq_data *data);
@@ -83,97 +85,29 @@ void exynos5250_prepare(unsigned int index);
 void exynos5250_post(unsigned int index);
 void exynos5250_suspend(void);
 void exynos5250_resume(void);
-static inline int exynos4x12_init(struct device *dev, struct busfreq_data *data)
-{
-	return 0;
-}
 
-static inline unsigned int exynos4x12_target(unsigned int index)
-{
-	return 0;
-}
-
-static inline unsigned int exynos4x12_get_int_volt(unsigned long freq)
-{
-	return 0;
-}
-
-static inline unsigned int exynos4x12_get_table_index(struct opp *opp)
-{
-	return 0;
-}
-
-static inline struct opp *exynos4x12_monitor(struct busfreq_data *data)
-{
-	return NULL;
-}
-
-static inline void exynos4x12_prepare(unsigned int index)
-{
-	return;
-}
-
-static inline void exynos4x12_post(unsigned int index)
-{
-	return;
-}
-
-static inline void exynos4x12_suspend(void)
-{
-	return;
-}
-
-static inline void exynos4x12_resume(void)
-{
-	return;
-}
+#define exynos4x12_init NULL
+#define exynos4x12_target NULL
+#define exynos4x12_get_int_volt NULL
+#define exynos4x12_get_table_index NULL
+#define exynos4x12_monitor NULL
+#define exynos4x12_prepare NULL
+#define exynos4x12_post NULL
+#define exynos4x12_suspend NULL
+#define exynos4x12_resume NULL
 #elif defined(CONFIG_ARCH_EXYNOS4)
-static inline int exynos5250_init(struct device *dev, struct busfreq_data *data)
-{
-	return 0;
-}
+#define exynos5250_init NULL
+#define exynos5250_target NULL
+#define exynos5250_get_int_volt NULL
+#define exynos5250_get_table_index NULL
+#define exynos5250_monitor NULL
+#define exynos5250_prepare NULL
+#define exynos5250_post NULL
+#define exynos5250_suspend NULL
+#define exynos5250_resume NULL
 
-static inline unsigned int exynos5250_target(unsigned int index)
-{
-	return 0;
-}
-
-static inline unsigned int exynos5250_get_int_volt(unsigned long freq)
-{
-	return 0;
-}
-
-static inline unsigned int exynos5250_get_table_index(struct opp *opp)
-{
-	return 0;
-}
-
-static inline struct opp *exynos5250_monitor(struct busfreq_data *data)
-{
-	return NULL;
-}
-
-static inline void exynos5250_prepare(unsigned int index)
-{
-	return;
-}
-
-static inline void exynos5250_post(unsigned int index)
-{
-	return;
-}
-
-static inline void exynos5250_suspend(void)
-{
-	return;
-}
-
-static inline void exynos5250_resume(void)
-{
-	return;
-}
 int exynos4x12_init(struct device *dev, struct busfreq_data *data);
-unsigned int exynos4x12_target(unsigned int index);
+void exynos4x12_target(int mif_index, int int_index);
 unsigned int exynos4x12_get_int_volt(unsigned long freq);
 unsigned int exynos4x12_get_table_index(struct opp *opp);
 struct opp *exynos4x12_monitor(struct busfreq_data *data);

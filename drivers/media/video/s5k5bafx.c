@@ -19,7 +19,7 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-subdev.h>
 #ifdef CONFIG_VIDEO_SAMSUNG_V4L2
-#include <linux/videodev2_samsung.h>
+#include <linux/videodev2_exynos_camera.h>
 #endif
 #include <media/s5k5bafx_platform.h>
 
@@ -31,11 +31,11 @@
 
 #define S5K5BAFX_BURST_MODE
 
+#include <linux/slab.h>
 #ifdef CONFIG_LOAD_FILE
 #include <linux/vmalloc.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
-#include <linux/slab.h>
 #include <asm/uaccess.h>
 
 struct test {

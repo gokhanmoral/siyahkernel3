@@ -7,8 +7,8 @@
  * (at your option) any later version.
  */
 
-#ifndef __S5C73M3_H
-#define __S5C73M3_H
+#ifndef __SLP_S5C73M3_H
+#define __SLP_S5C73M3_H
 
 #define CONFIG_CAM_DEBUG	1
 
@@ -58,10 +58,6 @@
 #define cam_i2c_dbg(fmt, ...)
 #endif
 
-#if 0
-#define S5C73M3_POSTVIEW_SUPPORT
-#endif
-
 enum s5c73m3_prev_frmsize {
 	S5C73M3_PREVIEW_QCIF,
 	S5C73M3_PREVIEW_QCIF2,
@@ -72,9 +68,11 @@ enum s5c73m3_prev_frmsize {
 	S5C73M3_PREVIEW_WVGA,
 	S5C73M3_PREVIEW_880X720,
 	S5C73M3_PREVIEW_960X720,
+	S5C73M3_PREVIEW_1008X672,
 	S5C73M3_PREVIEW_1056X704,
 	S5C73M3_PREVIEW_1184X666,
 	S5C73M3_PREVIEW_720P,
+	S5C73M3_VDIS_720P,
 	S5C73M3_PREVIEW_1080P,
 	S5C73M3_VDIS_1080P,
 	S5C73M3_PREVIEW_HDR,
@@ -83,16 +81,18 @@ enum s5c73m3_prev_frmsize {
 enum s5c73m3_cap_frmsize {
 	S5C73M3_CAPTURE_VGA,	/* 640 x 480 */
 	S5C73M3_CAPTURE_WVGA,	/* 800 x 480 */
+	S5C73M3_CAPTURE_1024X768,	/* 1024 x 768 */
 	S5C73M3_CAPTURE_HD,	/* 1280 x 720 */
 	S5C73M3_CAPTURE_W1MP,	/* 1600 x 960 */
 	S5C73M3_CAPTURE_2MP,	/* UXGA - 1600 x 1200 */
 	S5C73M3_CAPTURE_W2MP,	/* 2048 x 1232 */
 	S5C73M3_CAPTURE_3MP,	/* QXGA - 2048 x 1536 */
-	S5C73M3_CAPTURE_W4MP,	/* WQXGA - 2560 x 1536 */
+	S5C73M3_CAPTURE_W4MP,	/* WQXGA - 2560 x 1440 */
 	S5C73M3_CAPTURE_5MP,	/* 2560 x 1920 */
 	S5C73M3_CAPTURE_W6MP,	/* 3072 x 1856 */
 	S5C73M3_CAPTURE_7MP,	/* 3072 x 2304 */
 	S5C73M3_CAPTURE_W7MP,	/* WQXGA - 2560 x 1536 */
+	S5C73M3_CAPTURE_3264X2176,	/* 3264 x 2176 */
 	S5C73M3_CAPTURE_8MP,	/* 3264 x 2448 */
 };
 
@@ -116,10 +116,6 @@ struct s5c73m3_frmsizeenum {
 	unsigned int width;
 	unsigned int height;
 	u8 reg_val;		/* a value for category parameter */
-#ifdef S5C73M3_POSTVIEW_SUPPORT
-	/* Wide resolution is set to 1 : height / width < 0.65 */
-	u8 wide_res;
-#endif
 };
 
 struct s5c73m3_isp {
@@ -146,10 +142,12 @@ struct s5c73m3_focus {
 	unsigned int touch;
 	unsigned int pos_x;
 	unsigned int pos_y;
+
+	/* rectangle type values */
+	unsigned int left;
+	unsigned int top;
 	unsigned int width;
 	unsigned int height;
-	bool focusing;
-	bool needed;
 };
 
 struct s5c73m3_exif {
@@ -160,6 +158,11 @@ struct s5c73m3_exif {
 	int tv;			/* shutter speed */
 	int bv;			/* brightness */
 	int ebv;		/* exposure bias */
+	int effect;		/* effect(colorfx) */
+	int saturation;
+	int sharpness;
+	int metering;
+	int wdr;
 };
 
 struct s5c73m3_state {
@@ -170,25 +173,27 @@ struct s5c73m3_state {
 
 	const struct s5c73m3_frmsizeenum *preview;
 	const struct s5c73m3_frmsizeenum *capture;
-	u8 wide_res;
 
 	enum v4l2_pix_format_mode format_mode;
 	enum v4l2_sensor_mode sensor_mode;
 	enum v4l2_flash_mode flash_mode;
+	enum v4l2_wb_mode wb_mode;
+	enum v4l2_scene_mode scene_mode;
 	int vt_mode;
 	int beauty_mode;
 	int hdr_mode;
+	int hybrid_mode;
 	int zoom;
 	int stream_enable;
 	int ae_lock;
 	int awb_lock;
 
+	int cal_device;
+	int cal_dll;
+
 	unsigned int fps;
-	bool need_setfps;
-	u32 fps_reg;
-
 	struct s5c73m3_focus focus;
-
+	int caf_mode;
 	char isflash;
 
 	struct s5c73m3_jpeg jpeg;
@@ -203,17 +208,18 @@ struct s5c73m3_state {
 	u8 sensor_fw[10];
 	u8 phone_fw[10];
 
+	u8 sensor_type[15];
+
 #ifdef CONFIG_CAM_DEBUG
 	u8 dbg_level;
 #endif
 };
 
-#define is_focus(__mode)		(state->focus.mode == __mode)
-
 #define S5C73M3_IMG_OUTPUT	0x0902
 #define S5C73M3_HDR_OUTPUT	0x0008
 #define S5C73M3_YUV_OUTPUT	0x0009
 #define S5C73M3_INTERLEAVED_OUTPUT	0x000D
+#define S5C73M3_HYBRID_OUTPUT	0x0016
 
 #define S5C73M3_STILL_PRE_FLASH			0x0A00
 #define S5C73M3_STILL_PRE_FLASH_FIRE		0x0000
@@ -300,7 +306,7 @@ struct s5c73m3_state {
 #define S5C73M3_CAF_STATUS_FIND_SEARCHING_DIR	0x0001
 #define S5C73M3_CAF_STATUS_FOCUSING	0x0002
 #define S5C73M3_CAF_STATUS_FOCUSED	0x0003
-#define S5C73M3_CAF_STATUS_INITIALIZE	0x0004
+#define S5C73M3_CAF_STATUS_UNFOCUSED	0x0004
 
 #define S5C73M3_AF_STATUS_INVALID	0x0010
 #define S5C73M3_AF_STATUS_FOCUSING	0x0020
@@ -318,6 +324,9 @@ struct s5c73m3_state {
 #define S5C73M3_AF_MODE_MOVIE_CAF_STOP		0x0003
 #define S5C73M3_AF_MODE_PREVIEW_CAF_START	0x0004
 #define S5C73M3_AF_MODE_PREVIEW_CAF_STOP	0x0005
+
+#define S5C73M3_AF_SOFTLANDING		0x0E16
+#define S5C73M3_AF_SOFTLANDING_ON	0x0000
 
 #define S5C73M3_FACE_DET		0x0E0C
 #define S5C73M3_FACE_DET_OFF		0x0000
@@ -353,12 +362,10 @@ struct s5c73m3_state {
 #define S5C73M3_EV_P20		0x0008
 
 #define S5C73M3_METER		0x0C06
-#define S5C73M3_METER_MULTI	0x0000
-#define S5C73M3_METER_CENTER	0x0001
-#define S5C73M3_METER_SPOT	0x0002
-#define S5C73M3_METER_AVERAGE	0x0003
-#define S5C73M3_METER_CENTER_YG	0x0004
-#define S5C73M3_METER_MULTI_YG	0x0005
+#define S5C73M3_METER_CENTER	0x0000
+#define S5C73M3_METER_SPOT	0x0001
+#define S5C73M3_METER_AVERAGE	0x0002
+#define S5C73M3_METER_SMART	0x0003
 
 #define S5C73M3_WDR		0x0C08
 #define S5C73M3_WDR_OFF		0x0000
@@ -369,6 +376,9 @@ struct s5c73m3_state {
 #define S5C73M3_FIXED_30FPS	0x0002
 #define S5C73M3_FIXED_20FPS	0x0003
 #define S5C73M3_FIXED_15FPS	0x0004
+#define S5C73M3_FIXED_120FPS	0x0008
+#define S5C73M3_FIXED_7FPS	0x0009
+#define S5C73M3_ANTI_SHAKE	0x0013
 
 #define S5C73M3_SHARPNESS	0x0C14
 #define S5C73M3_SHARPNESS_0	0x0000
@@ -407,6 +417,7 @@ struct s5c73m3_state {
 #define S5C73M3_SCENE_MODE_TEXT		0x000C
 #define S5C73M3_SCENE_MODE_CANDLE	0x000D
 
+#define S5C73M3_FIREWORK_CAPTURE 0x0C20
 
 #define S5C73M3_AE_AUTO_BRAKET		0x0B14
 #define S5C73M3_AE_AUTO_BRAKET_EV05	0x0080
@@ -430,6 +441,7 @@ struct s5c73m3_state {
 #define S5C73M3_AWB_STOP		0x0000/*LOCK*/
 #define S5C73M3_AWB_START		0x0001/*UNLOCK*/
 
+#define S5C73M3_HYBRID_CAPTURE	0x0996
 
 /* S5C73M3 Sensor Mode */
 #define S5C73M3_SYSINIT_MODE	0x0
@@ -461,48 +473,44 @@ static const u32 S5C73M3_INIT[] = {
 0x0F140002
 };
 
-static u32 S5C73M3_YUV_PREVIEW[] = {
-0x00500009,
-0x00545000,
-0x0F140B08,
+static u32 S5C73M3_OTP_CONTROL[] = {
+0xFCFC3310,
+0x00503800,
+0x0054A004,
 0x0F140000,
-0x0F140900,
-0x0F140403, /*640MHz*/
-0x0F140902,
-0x0F140009,
-0x0F140B10,
-0x0F148004, /*YUV 960x720*/
-0x0F140E02,
+0x0054A000,
 0x0F140004,
-0x0F14090A,
+0x0054A0D8,
+0x0F140000,
+0x0054A0DC,
+0x0F140004,
+0x0054A0C4,
+0x0F144000,
+0x0054A0D4,
+0x0F140015,
+0x0054A000,
 0x0F140001,
-0x00545080,
-0x0F140006
+0x0054A0B4,
+0x0F149F90,
+0x0054A09C,
+0x0F149A95,
 };
 
-static u32 S5C73M3_INTERLEAVED_PREVIEW[] = {
-0x00500009,
-0x00545000,
-0x0F140B08,
-0x0F140000,
-0x0F140900,
-0x0F140403, /*640MHz*/
-0x0F140902,
-0x0F14000D,
-0x0F140B10,
-0x0F148014,  /*YUV 960x720 JPEG VGA*/
-0x0F140E02,
-0x0F140004,
-0x0F14090A,
+static u32 S5C73M3_OTP_PAGE[] = {
+0x0054A0C4,
+0x0F144800,
+0x0054A0C4,
+0x0F144400,
+0x0054A0C4,
+0x0F144200,
+0x0054A004,
+0x0F1400C0,
+0x0054A000,
 0x0F140001,
-0x00545080,
-0x0F140006
 };
 
 #ifdef CONFIG_VIDEO_S5C73M3_SPI
 extern int s5c73m3_spi_write(const u8 *addr, const int len, const int txSize);
 #endif
 
-#endif				/* __S5C73M3_H */
-
-
+#endif /* __SLP_S5C73M3_H */

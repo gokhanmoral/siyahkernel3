@@ -70,7 +70,7 @@ struct acc_con_info {
 	enum dock_type current_dock;
 	int accessory_irq;
 	int dock_irq;
-#ifdef CONFIG_MHL_SII9234
+#if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 	int mhl_irq;
 	bool mhl_pwr_state;
 #endif
@@ -79,13 +79,44 @@ struct acc_con_info {
 	struct mutex lock;
 };
 
+#if defined(CONFIG_STMPE811_ADC)
+#ifdef CONFIG_MACH_P4NOTE
+#define ACCESSORY_ID_ADC_CH 7
+#else
+#define ACCESSORY_ID_ADC_CH 0
+#endif
+#else
 #define ACCESSORY_ID_ADC_CH 4
+#endif
 
+#ifdef CONFIG_SAMSUNG_MHL_9290
+static BLOCKING_NOTIFIER_HEAD(acc_notifier);
+
+int acc_register_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&acc_notifier, nb);
+}
+
+int acc_unregister_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&acc_notifier, nb);
+}
+
+static int acc_notify(int event)
+{
+	pr_info("notifier: mhl callback\n");
+	return blocking_notifier_call_chain(&acc_notifier, event, NULL);
+}
+#endif
 static int acc_get_adc_accessroy_id(struct s3c_adc_client *padc)
 {
 	int adc_data;
 
+#if defined(CONFIG_STMPE811_ADC)
+	adc_data = stmpe811_get_adc_data(ACCESSORY_ID_ADC_CH);
+#else
 	adc_data = s3c_adc_read(padc, ACCESSORY_ID_ADC_CH);
+#endif
 /*	ACC_CONDEV_DBG("[ACC] adc_data = %d..\n",adc_data); */
 	return adc_data;
 }
@@ -99,7 +130,7 @@ static int acc_get_accessory_id(struct acc_con_info *acc)
 	u32 adc_min = 0;
 	u32 adc_max = 0;
 
-	if (!acc || !acc->padc) {
+	if (!acc) {
 		pr_err("adc client is not registered!\n");
 		return -1;
 	}
@@ -125,8 +156,8 @@ static int acc_get_accessory_id(struct acc_con_info *acc)
 }
 
 #ifdef CONFIG_MHL_SII9234
-static ssize_t MHD_check_read(struct device *dev,
-				struct device_attribute *attr, char *buf)
+static ssize_t MHD_check_read(struct class *class,
+	struct class_attribute *attr, char *buf)
 {
 	int count;
 	int res;
@@ -145,16 +176,40 @@ static ssize_t MHD_check_read(struct device *dev,
 	return count;
 }
 
-static ssize_t MHD_check_write(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t size)
+static ssize_t MHD_check_write(struct class *class,
+		struct class_attribute *attr, const char *buf, size_t size)
 {
 	printk(KERN_INFO"input data --> %s\n", buf);
 
 	return size;
 }
 
-static DEVICE_ATTR(MHD_file, S_IRUGO, MHD_check_read, MHD_check_write);
+static CLASS_ATTR(test_result, S_IRUGO, MHD_check_read, MHD_check_write);
 #endif /* CONFIG_MHL_SII9234 */
+
+static ssize_t acc_read_acc_id(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct acc_con_info *acc  = dev_get_drvdata(dev);
+	int adc_val = 0 ;
+	int jig_uart_off = 0 ;
+	int count = 0 ;
+	adc_val = acc_get_accessory_id(acc);
+
+	if ((3540 < adc_val) && (adc_val < 3920))
+		jig_uart_off = 28 ;
+	else
+		jig_uart_off = 0 ;
+
+	ACC_CONDEV_DBG("jig_uart_off : %d", jig_uart_off);
+
+	count = sprintf(buf, "%x\n", jig_uart_off);
+
+	return count;
+}
+
+static DEVICE_ATTR(adc, S_IRUGO, acc_read_acc_id, NULL);
+
 
 void acc_accessory_uevent(struct acc_con_info *acc, int acc_adc)
 {
@@ -284,10 +339,14 @@ static void acc_check_dock_detection(struct acc_con_info *acc)
 			switch_set_state(&acc->dock_switch, UEVENT_DOCK_DESK);
 			acc->current_dock = DOCK_DESK;
 
-#ifdef CONFIG_MHL_SII9234
+#if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 			mutex_lock(&acc->lock);
 			if (!acc->mhl_pwr_state) {
+#if defined(CONFIG_MHL_SII9234)
 				sii9234_tpi_init();
+#elif defined(CONFIG_SAMSUNG_MHL_9290)
+				acc_notify(1);
+#endif
 				acc->mhl_pwr_state = true;
 			}
 			mutex_unlock(&acc->lock);
@@ -303,10 +362,14 @@ static void acc_check_dock_detection(struct acc_con_info *acc)
 		if (acc->pdata->check_keyboard)
 			acc->pdata->check_keyboard(false);
 #endif
-#ifdef CONFIG_MHL_SII9234
+#if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 		/*call MHL deinit */
 		if (acc->mhl_pwr_state) {
+#if defined(CONFIG_MHL_SII9234)
 			MHD_HW_Off();
+#elif defined(CONFIG_SAMSUNG_MHL_9290)
+			acc_notify(0);
+#endif
 			acc->mhl_pwr_state = false;
 		}
 #endif
@@ -319,7 +382,9 @@ static void acc_check_dock_detection(struct acc_con_info *acc)
 static irqreturn_t acc_dock_isr(int irq, void *ptr)
 {
 	struct acc_con_info *acc = ptr;
+	wake_lock(&acc->wake_lock);
 	acc_check_dock_detection(acc);
+	wake_unlock(&acc->wake_lock);
 	return IRQ_HANDLED;
 }
 
@@ -438,7 +503,9 @@ static int acc_con_probe(struct platform_device *pdev)
 	struct regulator *vadc_regulator;
 
 	int	retval;
-
+#ifdef CONFIG_MHL_SII9234
+	struct class *sec_mhl;
+#endif
 	ACC_CONDEV_DBG("");
 
 	if (pdata == NULL) {
@@ -447,6 +514,7 @@ static int acc_con_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_REGULATOR
+#ifndef CONFIG_MACH_P4NOTE
 		/* LDO1 regulator ON */
 		vadc_regulator = regulator_get(&pdev->dev, "vadc_3.3v");
 		if (IS_ERR(vadc_regulator)) {
@@ -456,6 +524,7 @@ static int acc_con_probe(struct platform_device *pdev)
 		}
 		regulator_enable(vadc_regulator);
 #endif
+#endif
 
 	acc = kzalloc(sizeof(*acc), GFP_KERNEL);
 	if (!acc)
@@ -464,7 +533,7 @@ static int acc_con_probe(struct platform_device *pdev)
 	acc->pdata = pdata;
 	acc->current_dock = DOCK_NONE;
 	acc->current_accessory = ACCESSORY_NONE;
-#ifdef CONFIG_MHL_SII9234
+#if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 	acc->mhl_irq = gpio_to_irq(pdata->mhl_irq_gpio);
 	acc->mhl_pwr_state = false;
 #endif
@@ -475,7 +544,11 @@ static int acc_con_probe(struct platform_device *pdev)
 	acc->acc_dev = &pdev->dev;
 
 	/* Register adc client */
+#if defined(CONFIG_STMPE811_ADC)
+	/* Do nothing */
+#elif defined(CONFIG_S3C_ADC)
 	acc->padc = s3c_adc_register(pdev, NULL, NULL, 0);
+#endif
 
 #ifdef CONFIG_MHL_SII9234
 	retval = i2c_add_driver(&SII9234A_i2c_driver);
@@ -526,10 +599,26 @@ static int acc_con_probe(struct platform_device *pdev)
 	schedule_delayed_work(&acc->acc_dwork, msecs_to_jiffies(10000));
 	INIT_DELAYED_WORK(&acc->acc_id_dwork, acc_dwork_accessory_detect);
 #ifdef CONFIG_MHL_SII9234
-	if (device_create_file(acc->acc_dev, &dev_attr_MHD_file) < 0)
-		pr_err("Failed to create device file(%s)!\n",
-			dev_attr_MHD_file.attr.name);
+	sec_mhl = class_create(THIS_MODULE, "mhl");
+	if (IS_ERR(sec_mhl)) {
+		pr_err("Failed to create class(sec_mhl)!\n");
+		retval = -ENOMEM;
+	}
+
+	retval = class_create_file(sec_mhl, &class_attr_test_result);
+	if (retval) {
+		pr_err("Failed to create device file in sysfs entries!\n");
+		retval = -ENOMEM;
+	}
 #endif
+
+#ifndef CONFIG_MACH_P10
+	if (device_create_file(sec_switch_dev, &dev_attr_adc) < 0)
+		pr_err("Failed to create device file(%s)!\n",
+			dev_attr_adc  .attr.name);
+	dev_set_drvdata(sec_switch_dev, acc);
+#endif
+
 	return 0;
 
 #ifndef CONFIG_SEC_KEYBOARD_DOCK
@@ -581,10 +670,14 @@ static int acc_con_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct acc_con_info *acc = platform_get_drvdata(pdev);
 	ACC_CONDEV_DBG("");
-#ifdef CONFIG_MHL_SII9234
+#if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 	if (acc->mhl_pwr_state) {
 		pr_err("%s::MHL off\n", __func__);
+#if defined(CONFIG_MHL_SII9234)
 		MHD_HW_Off();
+#elif defined(CONFIG_SAMSUNG_MHL_9290)
+		acc_notify(0);
+#endif
 		acc->mhl_pwr_state = false;
 	}
 #endif
@@ -597,10 +690,14 @@ static int acc_con_resume(struct platform_device *pdev)
 	ACC_CONDEV_DBG("");
 
 	mutex_lock(&acc->lock);
-#ifdef CONFIG_MHL_SII9234
+#if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 	if (acc->current_dock == DOCK_DESK && !acc->mhl_pwr_state) {
 		pr_err("%s::MHL init\n", __func__);
+#if defined(CONFIG_MHL_SII9234)
 		sii9234_tpi_init();  /* call MHL init */
+#elif defined(CONFIG_SAMSUNG_MHL_9290)
+		acc_notify(1);
+#endif
 		acc->mhl_pwr_state = true;
 	}
 #endif

@@ -202,7 +202,10 @@ static int egalax_cdev_open(struct inode *inode, struct file *filp)
 		wakeup_controller(p_egalax_i2c_dev->client->irq);
 
 	EGALAX_DBG(DBG_CDEV, " CDev open done!\n");
-	try_module_get(THIS_MODULE);
+	if (!try_module_get(THIS_MODULE)) {
+		EGALAX_DBG(DBG_CDEV, "%s: can't get owner\n", __func__);
+		return -EINVAL;
+	}
 	return 0;
 }
 

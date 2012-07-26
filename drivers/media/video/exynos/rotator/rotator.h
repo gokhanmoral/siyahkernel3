@@ -1,7 +1,6 @@
-/* linux/drivers/media/video/exynos/rotator/rotator.h
- *
- * Copyright (c) 2011 Samsung Electronics Co., Ltd.
- *		http://www.samsung.com/
+/*
+ * Copyright (c) 2012 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
  *
  * Header file for Exynos Rotator driver
  *
@@ -19,11 +18,10 @@
 #include <linux/types.h>
 #include <linux/videodev2.h>
 #include <linux/io.h>
-#include <linux/pm_runtime.h>
 #include <media/videobuf2-core.h>
+#include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-mem2mem.h>
-#include <media/v4l2-mediabus.h>
 
 #include "rotator-regs.h"
 
@@ -33,54 +31,19 @@
 #include <media/videobuf2-ion.h>
 #endif
 
-/* debug macro */
-enum rot_log {
-	ROT_LOG_DEBUG	= 1000,
-	ROT_LOG_INFO	= 100,
-	ROT_LOG_WARN	= 10,
-	ROT_LOG_ERR	= 1,
-};
+extern int log_level;
 
-#define ROT_LOG_DEFAULT	(ROT_LOG_INFO | ROT_LOG_WARN | ROT_LOG_ERR)
-static enum rot_log log_level = ROT_LOG_DEFAULT;
-
-#define ROT_DEBUG(fmt, ...)						\
+#define rot_dbg(fmt, args...)						\
 	do {								\
-		if (log_level & ROT_LOG_DEBUG)			\
+		if (log_level)						\
 			printk(KERN_DEBUG "[%s:%d] "			\
-			fmt, __func__, __LINE__, ##__VA_ARGS__);	\
+			fmt, __func__, __LINE__, ##args);		\
 	} while (0)
-
-#define ROT_INFO(fmt, ...)						\
-	do {								\
-		if (log_level & ROT_LOG_INFO)			\
-			pr_info("[%s:%d] "				\
-			fmt, __func__, __LINE__ , ##__VA_ARGS__);	\
-	} while (0)
-
-#define ROT_WARN(fmt, ...)						\
-	do {								\
-		if (log_level & ROT_LOG_WARN)			\
-			pr_warn("[%s:%d] "				\
-			fmt, __func__, __LINE__ , ##__VA_ARGS__);	\
-	} while (0)
-
-#define ROT_ERR(fmt, ...)						\
-	do {								\
-		if (log_level & ROT_LOG_ERR)				\
-			pr_err("[%s:%d] "				\
-			fmt, __func__, __LINE__ , ##__VA_ARGS__);	\
-	} while (0)
-
-#define rot_dbg(fmt, ...)		ROT_DEBUG(fmt, ##__VA_ARGS__)
-#define rot_info(fmt, ...)		ROT_INFO(fmt, ##__VA_ARGS__)
-#define rot_warn(fmt, ...)		ROT_WARN(fmt, ##__VA_ARGS__)
-#define rot_err(fmt, ...)		ROT_ERR(fmt, ##__VA_ARGS__)
 
 /* Time to wait for frame done interrupt */
-#define ROT_TIMEOUT		(20*HZ)
+#define ROT_TIMEOUT		(2 * HZ)
 #define ROT_WDT_CNT		5
-#define MODULE_NAME		"rotator"
+#define MODULE_NAME		"exynos-rot"
 #define ROT_MAX_DEVS		1
 
 /* Address index */
@@ -89,11 +52,6 @@ static enum rot_log log_level = ROT_LOG_DEFAULT;
 #define ROT_ADDR_CB		1
 #define ROT_ADDR_CBCR		1
 #define ROT_ADDR_CR		2
-
-/* Driver version */
-#define MAJOR_VERSION		0
-#define MINOR_VERSION		1
-#define RELEASE_VERSION		1
 
 /* Rotator flip direction */
 #define ROT_NOFLIP	(1 << 0)
@@ -109,9 +67,8 @@ static enum rot_log log_level = ROT_LOG_DEFAULT;
 #define CTX_STREAMING	(1 << 1)
 #define CTX_RUN		(1 << 2)
 #define CTX_ABORT	(1 << 3)
-#define CTX_SUSPEND	(1 << 4)
-#define CTX_SRC		(1 << 5)
-#define CTX_DST		(1 << 6)
+#define CTX_SRC		(1 << 4)
+#define CTX_DST		(1 << 5)
 
 enum rot_irq_src {
 	ISR_PEND_DONE = 8,
@@ -125,6 +82,10 @@ enum rot_status {
 	ROT_RUNNING_REMAIN,
 };
 
+enum rot_clk_status {
+	ROT_CLK_ON,
+	ROT_CLK_OFF,
+};
 /*
  * struct exynos_rot_size_limit - Rotator variant size  information
  *
@@ -165,14 +126,14 @@ struct exynos_rot_driverdata {
  * @name: format description
  * @pixelformat: the fourcc code for this format, 0 if not applicable
  * @num_planes: number of physically non-contiguous data planes
- * @nr_comp: number of color components(ex. RGB, Y, Cb, Cr)
+ * @num_comp: number of color components(ex. RGB, Y, Cb, Cr)
  * @bitperpixel: bits per pixel
  */
 struct rot_fmt {
 	char	*name;
 	u32	pixelformat;
 	u16	num_planes;
-	u16	nr_comp;
+	u16	num_comp;
 	u32	bitperpixel[VIDEO_MAX_PLANES];
 };
 
@@ -188,7 +149,6 @@ struct rot_addr {
  * @crop:	image size / position
  * @addr:	buffer start address(access using ROT_ADDR_XXX)
  * @bytesused:	image size in bytes (w x h x bpp)
- * @cacheable:	cache property for image address
  */
 struct rot_frame {
 	struct rot_fmt			*rot_fmt;
@@ -196,7 +156,6 @@ struct rot_frame {
 	struct v4l2_rect		crop;
 	struct rot_addr			addr;
 	unsigned long			bytesused[VIDEO_MAX_PLANES];
-	bool				cacheable;
 };
 
 /*
@@ -204,25 +163,13 @@ struct rot_frame {
  * @v4l2_dev: v4l2 device
  * @vfd: the video device node
  * @m2m_dev: v4l2 memory-to-memory device data
- * @ctx: hardware context data
  * @in_use: the open count
  */
 struct rot_m2m_device {
 	struct v4l2_device	v4l2_dev;
 	struct video_device	*vfd;
 	struct v4l2_m2m_dev	*m2m_dev;
-	struct rot_ctx		*ctx;
 	atomic_t		in_use;
-};
-
-/*
- * struct rot_irq - Rotator irq information
- * @num:	Rotator interrupt number
- * @wait:	interrupt handler waitqueue
- */
-struct rot_irq {
-	int			num;
-	wait_queue_head_t	wait;
 };
 
 struct rot_wdt {
@@ -235,7 +182,7 @@ struct rot_vb2;
 
 /*
  * struct rot_dev - the abstraction for Rotator device
- * @pdev:	pointer to the Rotator platform device
+ * @dev:	pointer to the Rotator device
  * @pdata:	pointer to the device platform data
  * @variant:	the IP variant information
  * @m2m:	memory-to-memory V4L2 device information
@@ -243,18 +190,18 @@ struct rot_vb2;
  * @clock:	clock required for Rotator operation
  * @regs:	the mapped hardware registers
  * @regs_res:	the resource claimed for IO registers
- * @irq:	irq information
+ * @wait:	interrupt handler waitqueue
  * @ws:		work struct
- * @wq:		workqueue
  * @state:	device state flags
  * @alloc_ctx:	videobuf2 memory allocator context
  * @rot_vb2:	videobuf2 memory allocator callbacks
  * @slock:	the spinlock protecting this data structure
  * @lock:	the mutex protecting this data structure
  * @wdt:	watchdog timer information
+ * @clk_cnt:	rotator clock on/off count
  */
 struct rot_dev {
-	struct platform_device		*pdev;
+	struct device			*dev;
 	struct exynos_platform_rot	*pdata;
 	struct exynos_rot_variant	*variant;
 	struct rot_m2m_device		m2m;
@@ -262,15 +209,14 @@ struct rot_dev {
 	struct clk			*clock;
 	void __iomem			*regs;
 	struct resource			*regs_res;
-	struct rot_irq			irq;
-	struct work_struct		ws;
-	struct workqueue_struct		*wq;
+	wait_queue_head_t		wait;
 	unsigned long			state;
 	struct vb2_alloc_ctx		*alloc_ctx;
 	const struct rot_vb2		*vb2;
 	spinlock_t			slock;
 	struct mutex			lock;
 	struct rot_wdt			wdt;
+	atomic_t			clk_cnt;
 };
 
 /*
@@ -278,21 +224,25 @@ struct rot_dev {
  * @rot_dev:		the Rotator device this context applies to
  * @m2m_ctx:		memory-to-memory device context
  * @frame:		source frame properties
+ * @ctrl_handler:	v4l2 controls handler
+ * @fh:			v4l2 file handle
  * @rotation:		image clockwise rotation in degrees
  * @flip:		image flip mode
  * @state:		context state flags
  * @slock:		spinlock protecting this data structure
  */
 struct rot_ctx {
-	struct rot_dev		*rot_dev;
-	struct v4l2_m2m_ctx	*m2m_ctx;
-	struct rot_frame	s_frame;
-	struct rot_frame	d_frame;
-	int			rotation;
-	u32			flip;
-	unsigned long		flags;
-	spinlock_t		slock;
-	bool			cacheable;
+	struct rot_dev			*rot_dev;
+	struct v4l2_m2m_ctx		*m2m_ctx;
+	struct rot_frame		s_frame;
+	struct rot_frame		d_frame;
+	struct v4l2_ctrl_handler	ctrl_handler;
+	struct v4l2_fh			fh;
+	int				rotation;
+	u32				flip;
+	unsigned long			flags;
+	spinlock_t			slock;
+	bool				cacheable;
 };
 
 struct rot_vb2 {
@@ -302,12 +252,11 @@ struct rot_vb2 {
 
 	unsigned long (*plane_addr)(struct vb2_buffer *vb, u32 plane_no);
 
-	void (*resume)(void *alloc_ctx);
+	int (*resume)(void *alloc_ctx);
 	void (*suspend)(void *alloc_ctx);
 
 	int (*cache_flush)(struct vb2_buffer *vb, u32 num_planes);
 	void (*set_cacheable)(void *alloc_ctx, bool cacheable);
-	void (*set_sharable)(void *alloc_ctx, bool sharable);
 };
 
 static inline struct rot_frame *ctx_get_frame(struct rot_ctx *ctx,
@@ -321,14 +270,16 @@ static inline struct rot_frame *ctx_get_frame(struct rot_ctx *ctx,
 		else
 			frame = &ctx->d_frame;
 	} else {
-		rot_err("Wrong V4L2 buffer type %d\n", type);
+		dev_err(ctx->rot_dev->dev,
+				"Wrong V4L2 buffer type %d\n", type);
 		return ERR_PTR(-EINVAL);
 	}
 
 	return frame;
 }
 
-/* rotator-reg.c */
+#define fh_to_rot_ctx(__fh)	container_of(__fh, struct rot_ctx, fh)
+
 void rot_hwset_irq_frame_done(struct rot_dev *rot, u32 enable);
 void rot_hwset_irq_illegal_config(struct rot_dev *rot, u32 enable);
 int rot_hwset_image_format(struct rot_dev *rot, u32 pixelformat);
@@ -344,7 +295,7 @@ void rot_hwset_dst_crop(struct rot_dev *rot, struct v4l2_rect *rect);
 void rot_hwget_irq_src(struct rot_dev *rot, enum rot_irq_src *irq);
 void rot_hwset_irq_clear(struct rot_dev *rot, enum rot_irq_src *irq);
 void rot_hwget_status(struct rot_dev *rot, enum rot_status *state);
-void rot_dump_register(struct rot_dev *rot);
+void rot_dump_registers(struct rot_dev *rot);
 
 #if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
 extern const struct rot_vb2 rot_vb2_cma;

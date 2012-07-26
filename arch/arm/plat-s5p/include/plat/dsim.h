@@ -326,5 +326,5 @@ struct mipi_dsim_lcd_driver {
 extern int s5p_dsim_part_reset(struct mipi_dsim_device *dsim);
 extern int s5p_dsim_init_d_phy(struct mipi_dsim_device *dsim,
 	unsigned int enable);
-
+extern void s5p_dsim_set_platdata(struct s5p_platform_mipi_dsim * pd);
 #endif /* _DSIM_H */

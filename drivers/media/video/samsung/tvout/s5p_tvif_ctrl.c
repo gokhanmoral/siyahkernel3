@@ -46,7 +46,7 @@
 #include <linux/err.h>
 
 #include <plat/clock.h>
-#if defined(CONFIG_BUSFREQ_OPP)
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 #include <mach/dev.h>
 #endif
 
@@ -1420,7 +1420,7 @@ static struct s5p_hdmi_o_params s5p_hdmi_output[] = {
 		{0x00, 0x00, 0x00, 0x00, 0x00},
 	}, {
 		{0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02, 0x04},
-		{0x40, 0x00, 0x02, 0x00, 0x00},
+		{0x40, 0x00, 0x02, 0x40, 0x00},
 	}, {
 		{0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02, 0x04},
 		{0x00, 0x00, 0x02, 0x20, 0x00},
@@ -1449,12 +1449,13 @@ static struct s5p_hdmi_ctrl_private_data s5p_hdmi_ctrl_private = {
 
 	.video = {
 		.color_r = {
-			.y_min = 1,
-			.y_max = 254,
-			.c_min = 1,
-			.c_max = 254,
+			.y_min = 0x10,
+			.y_max = 0xeb,
+			.c_min = 0x10,
+			.c_max = 0xf0,
 		},
 		.depth	= HDMI_CD_24,
+		.q_range = HDMI_Q_LIMITED_RANGE,
 	},
 
 	.packet = {
@@ -1480,7 +1481,7 @@ static struct s5p_hdmi_ctrl_private_data s5p_hdmi_ctrl_private = {
 #if defined(CONFIG_VIDEO_TVOUT_2CH_AUDIO)
 		.channel = 2,
 #else
-		.channel = 5,
+		.channel = 6,
 #endif
 	},
 
@@ -1525,6 +1526,147 @@ static struct s5p_tvif_ctrl_private_data s5p_tvif_ctrl_private = {
 
 	.running = false
 };
+
+#ifdef CONFIG_ANALOG_TVENC
+struct s5p_sdo_ctrl_private_data {
+	struct s5p_sdo_vscale_cfg		video_scale_cfg;
+	struct s5p_sdo_vbi			vbi;
+	struct s5p_sdo_offset_gain		offset_gain;
+	struct s5p_sdo_delay			delay;
+	struct s5p_sdo_bright_hue_saturation	bri_hue_sat;
+	struct s5p_sdo_cvbs_compensation	cvbs_compen;
+	struct s5p_sdo_component_porch		compo_porch;
+	struct s5p_sdo_ch_xtalk_cancellat_coeff	xtalk_cc;
+	struct s5p_sdo_closed_caption		closed_cap;
+	struct s5p_sdo_525_data			wss_525;
+	struct s5p_sdo_625_data			wss_625;
+	struct s5p_sdo_525_data			cgms_525;
+	struct s5p_sdo_625_data			cgms_625;
+
+	bool			color_sub_carrier_phase_adj;
+
+	bool			running;
+
+	struct s5p_tvout_clk_info	clk[SDO_NO_OF_CLK];
+	char			*pow_name;
+	struct reg_mem_info	reg_mem;
+};
+
+static struct s5p_sdo_ctrl_private_data s5p_sdo_ctrl_private = {
+	.clk[SDO_PCLK] = {
+		.name			= "tvenc",
+		.ptr			= NULL
+	},
+	.clk[SDO_MUX] = {
+		.name			= "sclk_dac",
+		.ptr			= NULL
+	},
+		.pow_name		= "tv_enc_pd",
+	.reg_mem = {
+		.name			= "s5p-sdo",
+		.res			= NULL,
+		.base			= NULL
+	},
+
+	.running			= false,
+
+	.color_sub_carrier_phase_adj	= false,
+
+	.vbi = {
+		.wss_cvbs		= true,
+		.caption_cvbs		= SDO_INS_OTHERS
+	},
+
+	.offset_gain = {
+		.offset			= 0,
+		.gain			= 0x800
+	},
+
+	.delay = {
+		.delay_y		= 0x00,
+		.offset_video_start	= 0xfa,
+		.offset_video_end	= 0x00
+	},
+
+	.bri_hue_sat = {
+		.bright_hue_sat_adj	= false,
+		.gain_brightness	= 0x80,
+		.offset_brightness	= 0x00,
+		.gain0_cb_hue_sat	= 0x00,
+		.gain1_cb_hue_sat	= 0x00,
+		.gain0_cr_hue_sat	= 0x00,
+		.gain1_cr_hue_sat	= 0x00,
+		.offset_cb_hue_sat	= 0x00,
+		.offset_cr_hue_sat	= 0x00
+	},
+
+	.cvbs_compen = {
+		.cvbs_color_compen	= false,
+		.y_lower_mid		= 0x200,
+		.y_bottom		= 0x000,
+		.y_top			= 0x3ff,
+		.y_upper_mid		= 0x200,
+		.radius			= 0x1ff
+	},
+
+	.compo_porch = {
+		.back_525		= 0x8a,
+		.front_525		= 0x359,
+		.back_625		= 0x96,
+		.front_625		= 0x35c
+	},
+
+	.xtalk_cc = {
+		.coeff2			= 0,
+		.coeff1			= 0
+	},
+
+	.closed_cap = {
+		.display_cc		= 0,
+		.nondisplay_cc		= 0
+	},
+
+	.wss_525 = {
+		.copy_permit		= SDO_525_COPY_PERMIT,
+		.mv_psp			= SDO_525_MV_PSP_OFF,
+		.copy_info		= SDO_525_COPY_INFO,
+		.analog_on		= false,
+		.display_ratio		= SDO_525_4_3_NORMAL
+	},
+
+	.wss_625 = {
+		.surround_sound		= false,
+		.copyright		= false,
+		.copy_protection	= false,
+		.text_subtitles		= false,
+		.open_subtitles		= SDO_625_NO_OPEN_SUBTITLES,
+		.camera_film		= SDO_625_CAMERA,
+		.color_encoding		= SDO_625_NORMAL_PAL,
+		.helper_signal		= false,
+		.display_ratio		= SDO_625_4_3_FULL_576
+	},
+
+	.cgms_525 = {
+		.copy_permit		= SDO_525_COPY_PERMIT,
+		.mv_psp			= SDO_525_MV_PSP_OFF,
+		.copy_info		= SDO_525_COPY_INFO,
+		.analog_on		= false,
+		.display_ratio		= SDO_525_4_3_NORMAL
+	},
+
+	.cgms_625 = {
+		.surround_sound		= false,
+		.copyright		= false,
+		.copy_protection	= false,
+		.text_subtitles		= false,
+		.open_subtitles		= SDO_625_NO_OPEN_SUBTITLES,
+		.camera_film		= SDO_625_CAMERA,
+		.color_encoding		= SDO_625_NORMAL_PAL,
+		.helper_signal		= false,
+		.display_ratio		= SDO_625_4_3_FULL_576
+	},
+};
+#endif
 
 /****************************************
  * Functions for sdo ctrl class
@@ -1616,6 +1758,8 @@ static void s5p_sdo_ctrl_clock(bool on)
 #ifdef CONFIG_ARCH_EXYNOS4
 		s5p_tvout_pm_runtime_get();
 #endif
+		// Restore sdo_base address
+		s5p_sdo_init(s5p_sdo_ctrl_private.reg_mem.base);
 
 		clk_enable(s5p_sdo_ctrl_private.clk[SDO_PCLK].ptr);
 	} else {
@@ -1626,6 +1770,9 @@ static void s5p_sdo_ctrl_clock(bool on)
 #endif
 
 		clk_disable(s5p_sdo_ctrl_private.clk[SDO_MUX].ptr);
+
+		// Set sdo_base address to NULL
+		s5p_sdo_init(NULL);
 	}
 
 	mdelay(50);
@@ -1764,6 +1911,7 @@ void s5p_sdo_ctrl_destructor(void)
 				clk_disable(s5p_sdo_ctrl_private.clk[i].ptr);
 			clk_put(s5p_sdo_ctrl_private.clk[i].ptr);
 	}
+	s5p_sdo_init(NULL);
 }
 #endif
 
@@ -1944,12 +2092,33 @@ static void s5p_hdmi_set_avi(
 
 	frame = s5p_hdmi_v_fmt[mode].frame;
 	avi[0] = param.reg.pxl_fmt;
+	avi[2] &= (u8)((~0x3) << 2);
+	avi[4] &= (u8)((~0x3) << 6);
 
 	/* RGB or YCbCr */
-	if (s5p_tvif_ctrl_private.curr_if == TVOUT_HDMI_RGB)
+	if (s5p_tvif_ctrl_private.curr_if == TVOUT_HDMI_RGB) {
 		avi[0] |= (0x1 << 4);
-	else
+		avi[4] |= frame.repetition;
+		if (s5p_tvif_ctrl_private.curr_std == TVOUT_480P_60_4_3) {
+			avi[2] |= HDMI_Q_DEFAULT << 2;
+			avi[4] |= HDMI_AVI_YQ_FULL_RANGE << 6;
+		} else {
+			avi[2] |= HDMI_Q_DEFAULT << 2;
+			avi[4] |= HDMI_AVI_YQ_LIMITED_RANGE << 6;
+		}
+	} else {
 		avi[0] |= (0x5 << 4);
+		avi[4] |= frame.repetition;
+		if (video->q_range == HDMI_Q_FULL_RANGE) {
+			tvout_dbg("Q_Range : %d\n", video->q_range);
+			avi[2] |= HDMI_Q_DEFAULT << 2;
+			avi[4] |= HDMI_AVI_YQ_FULL_RANGE << 6;
+		} else {
+			tvout_dbg("Q_Range : %d\n", video->q_range);
+			avi[2] |= HDMI_Q_DEFAULT << 2;
+			avi[4] |= HDMI_AVI_YQ_LIMITED_RANGE << 6;
+		}
+	}
 
 	avi[1] = video->colorimetry;
 	avi[1] |= video->aspect << 4;
@@ -1961,18 +2130,25 @@ static void s5p_hdmi_set_avi(
 	avi[3] = (video->aspect == HDMI_PIC_RATIO_16_9) ?
 				frame.vic_16_9 : frame.vic;
 #endif
-	avi[4] = frame.repetition;
+	if (s5p_tvif_ctrl_private.curr_std == TVOUT_480P_60_4_3)
+		avi[3] = 0x1;
+
+	tvout_dbg(KERN_INFO "AVI BYTE 1 : 0x%x\n", avi[0]);
+	tvout_dbg(KERN_INFO "AVI BYTE 2 : 0x%x\n", avi[1]);
+	tvout_dbg(KERN_INFO "AVI BYTE 3 : 0x%x\n", avi[2]);
+	tvout_dbg(KERN_INFO "AVI BYTE 4 : %d\n", avi[3]);
+	tvout_dbg(KERN_INFO "AVI BYTE 5 : 0x%x\n", avi[4]);
 }
 
 static void s5p_hdmi_set_aui(struct s5p_hdmi_audio *audio, u8 *aui)
 {
-	aui[0] = audio->channel;
+	aui[0] = audio->channel - 1;
 	if (audio->channel == 2) {
-		aui[1] = ((audio->type == HDMI_60958_AUDIO) ?
-				0 : audio->freq << 2) | 0;
+		aui[1] = 0x0;
 		aui[2] = 0;
+		aui[3] = 0x0;
 	} else {
-		aui[1] = 0x09;
+		aui[1] = 0x0;
 		aui[2] = 0;
 		aui[3] = 0x0b;
 	}
@@ -2200,9 +2376,10 @@ int s5p_hdmi_ctrl_phy_power(bool on)
 	if (on) {
 		/* on */
 		clk_enable(s5ptv_status.i2c_phy_clk);
+		// Restore i2c_hdmi_phy_base address
+		s5p_hdmi_phy_init(s5p_hdmi_ctrl_private.reg_mem[HDMI_PHY].base);
 
 		s5p_hdmi_phy_power(true);
-
 
 	} else {
 		/*
@@ -2221,6 +2398,8 @@ int s5p_hdmi_ctrl_phy_power(bool on)
 		s5p_hdmi_phy_power(false);
 
 		clk_disable(s5ptv_status.i2c_phy_clk);
+		// Set i2c_hdmi_phy_base to NULL
+		s5p_hdmi_phy_init(NULL);
 	}
 
 	return 0;
@@ -2238,8 +2417,10 @@ void s5p_hdmi_ctrl_clock(bool on)
 #ifdef CONFIG_ARCH_EXYNOS4
 		s5p_tvout_pm_runtime_get();
 #endif
-
 		clk_enable(clk[HDMI_PCLK].ptr);
+
+		// Restore hdmi_base address
+		s5p_hdmi_init(s5p_hdmi_ctrl_private.reg_mem[HDMI].base);
 	} else {
 		clk_disable(clk[HDMI_PCLK].ptr);
 
@@ -2248,6 +2429,9 @@ void s5p_hdmi_ctrl_clock(bool on)
 #endif
 
 		clk_disable(clk[HDMI_MUX].ptr);
+
+		// Set hdmi_base to NULL
+		s5p_hdmi_init(NULL);
 	}
 }
 
@@ -2321,14 +2505,14 @@ int s5p_hdmi_ctrl_start(
 
 	s5p_hdmi_ctrl_set_reg(mode, out);
 
+	if (ctrl->hdcp_en)
+		s5p_hdcp_start();
+
 	s5p_hdmi_reg_enable(true);
 
 #ifdef CONFIG_HDMI_HPD
 	s5p_hpd_set_hdmiint();
 #endif
-
-	if (ctrl->hdcp_en)
-		s5p_hdcp_start();
 
 	return 0;
 
@@ -2371,6 +2555,9 @@ int s5p_hdmi_ctrl_constructor(struct platform_device *pdev)
 		goto err_on_irq;
 	}
 
+	s5p_hdmi_init(reg_mem[HDMI].base);
+	s5p_hdmi_phy_init(reg_mem[HDMI_PHY].base);
+
 	ret = request_irq(irq->no, irq->handler, IRQF_DISABLED,
 			irq->name, NULL);
 	if (ret) {
@@ -2379,7 +2566,6 @@ int s5p_hdmi_ctrl_constructor(struct platform_device *pdev)
 	}
 
 	s5p_hdmi_ctrl_init_private();
-	s5p_hdmi_init(reg_mem[HDMI].base, reg_mem[HDMI_PHY].base);
 
 	/* set initial state of HDMI PHY power to off */
 	s5p_hdmi_ctrl_phy_power(1);
@@ -2428,6 +2614,9 @@ void s5p_hdmi_ctrl_destructor(void)
 				clk_disable(clk[i].ptr);
 			clk_put(clk[i].ptr);
 		}
+
+	s5p_hdmi_phy_init(NULL);
+	s5p_hdmi_init(NULL);
 }
 
 void s5p_hdmi_ctrl_suspend(void)
@@ -2465,7 +2654,7 @@ static void s5p_tvenc_src_to_hdmiphy_off(void)
  ***************************************/
 static void s5p_tvif_ctrl_init_private(struct platform_device *pdev)
 {
-#if defined(CONFIG_BUSFREQ_OPP)
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	/* add bus device ptr for using bus frequency with opp */
 	s5p_tvif_ctrl_private.bus_dev = dev_get("exynos-busfreq");
 #endif
@@ -2575,6 +2764,26 @@ void s5p_tvif_audio_channel(int channel)
 	ctrl->audio.channel = channel;
 }
 
+void s5p_tvif_q_color_range(int range)
+{
+	struct s5p_hdmi_ctrl_private_data	*ctrl = &s5p_hdmi_ctrl_private;
+	if (range)
+		ctrl->video.q_range = HDMI_Q_FULL_RANGE;
+	else
+		ctrl->video.q_range = HDMI_Q_LIMITED_RANGE;
+	tvout_dbg("%s: Set Q range : %d\n", __func__, ctrl->video.q_range);
+}
+
+int s5p_tvif_get_q_range(void)
+{
+	struct s5p_hdmi_ctrl_private_data	*ctrl = &s5p_hdmi_ctrl_private;
+	tvout_dbg("%s: Get Q range : %d\n", __func__, ctrl->video.q_range);
+	if (ctrl->video.q_range == HDMI_Q_FULL_RANGE)
+		return 1;
+	else
+		return 0;
+}
+
 int s5p_tvif_ctrl_set_av_mute(bool en)
 {
 	switch (s5p_tvif_ctrl_private.curr_if) {
@@ -2609,12 +2818,18 @@ int s5p_tvif_ctrl_start(
 		enum s5p_tvout_disp_mode std, enum s5p_tvout_o_mode inf)
 {
 	tvout_dbg("\n");
-#if defined(CONFIG_BUSFREQ_OPP)
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	if ((std == TVOUT_1080P_60) || (std == TVOUT_1080P_59)
 			|| (std == TVOUT_1080P_50)) {
 		dev_lock(s5p_tvif_ctrl_private.bus_dev,
 				s5p_tvif_ctrl_private.dev, BUSFREQ_400MHZ);
 	}
+#if defined(CONFIG_MACH_MIDAS)
+	else {
+		dev_lock(s5p_tvif_ctrl_private.bus_dev,
+			 s5p_tvif_ctrl_private.dev, BUSFREQ_133MHZ);
+	}
+#endif
 #endif
 	if (s5p_tvif_ctrl_private.running &&
 			(std == s5p_tvif_ctrl_private.curr_std) &&
@@ -2667,7 +2882,7 @@ void s5p_tvif_ctrl_stop(void)
 
 		s5p_tvif_ctrl_private.running = false;
 	}
-#if defined(CONFIG_BUSFREQ_OPP)
+#if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
 	dev_unlock(s5p_tvif_ctrl_private.bus_dev, s5p_tvif_ctrl_private.dev);
 #endif
 }
@@ -2700,12 +2915,9 @@ void s5p_tvif_ctrl_destructor(void)
 
 void s5p_tvif_ctrl_suspend(void)
 {
-	unsigned long spin_flags;
 	tvout_dbg("\n");
 	if (s5p_tvif_ctrl_private.running) {
-		spin_lock_irqsave(&s5ptv_status.tvout_lock, spin_flags);
 		s5p_tvif_ctrl_internal_stop();
-		spin_unlock_irqrestore(&s5ptv_status.tvout_lock, spin_flags);
 #ifdef CONFIG_VCM
 		s5p_tvout_vcm_deactivate();
 #endif

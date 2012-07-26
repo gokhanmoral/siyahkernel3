@@ -432,15 +432,19 @@ __v7_setup:
 #endif
 #endif
 #ifdef CONFIG_ARM_ERRATA_763722
-	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
-	orr	r10, r10, #15 << 25		@ set [28:25] bit
+	teq	r6, #0x0			@ present in r0p0
+	teqne	r6, #0x1			@ present in r0p1
+	teqne	r6, #0x2			@ present in r0p2
+	teqne	r6, #0x3			@ present in r0p3
+	mrceq	p15, 0, r10, c1, c0, 1		@ read aux control register
+	orreq	r10, r10, #15 << 25		@ set [28:25] bit
 #ifdef CONFIG_ARM_TRUSTZONE
-	ldr	r0, =SMC_CMD_REG
-	ldr	r1, =SMC_REG_ID_CP15(1, 0, 0, 1)
-	mov	r2, r10
-	smc	0
+	ldreq	r0, =SMC_CMD_REG
+	ldreq	r1, =SMC_REG_ID_CP15(1, 0, 0, 1)
+	moveq	r2, r10
+	smceq	0
 #else
-	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
+	mcreq	p15, 0, r10, c1, c0, 1		@ write aux control register
 #endif
 #endif
 #ifdef CONFIG_ARM_TRUSTZONE

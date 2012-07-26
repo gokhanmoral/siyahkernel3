@@ -21,7 +21,9 @@
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS
    SOFTWARE IS DISCLAIMED.
 */
-
+#ifdef CONFIG_BT_MGMT
+#include "hci_core_mgmt.h"
+#else
 #ifndef __HCI_CORE_H
 #define __HCI_CORE_H
 
@@ -908,3 +910,5 @@ void hci_le_ltk_reply(struct hci_conn *conn, u8 ltk[16]);
 void hci_le_ltk_neg_reply(struct hci_conn *conn);
 
 #endif /* __HCI_CORE_H */
+
+#endif /* BT_MGMT */

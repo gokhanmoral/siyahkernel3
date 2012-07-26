@@ -1209,9 +1209,6 @@ out:
 	 */
 	kfree(sshdr);
 	retval = sdp->changed ? DISK_EVENT_MEDIA_CHANGE : 0;
-#ifdef CONFIG_USB_HOST_NOTIFY
-	sdkp->previous_state = retval;
-#endif
 	sdp->changed = 0;
 	return retval;
 }
@@ -2554,27 +2551,35 @@ exit:
 	while ((part = disk_part_iter_next(&piter)))
 		kobject_uevent(&part_to_dev(part)->kobj, KOBJ_ADD);
 	disk_part_iter_exit(&piter);
+
+	sdkp->async_end = 1;
+	wake_up_interruptible(&sdkp->delay_wait);
 }
 
 static int sd_media_scan_thread(void *__sdkp)
 {
 	struct scsi_disk *sdkp = __sdkp;
 	int ret;
-	sdkp->media_scan = sdkp->previous_state;
-
+	sdkp->async_end = 1;
+	sdkp->device->changed = 0;
 	while (!kthread_should_stop()) {
 		wait_event_interruptible_timeout(sdkp->delay_wait,
-			sdkp->thread_remove, 3*HZ);
-		if (sdkp->thread_remove)
+			(sdkp->thread_remove && sdkp->async_end), 3*HZ);
+		if (sdkp->thread_remove && sdkp->async_end)
 			break;
 		ret = sd_check_events(sdkp->disk, 0);
-		if (ret != sdkp->media_scan) {
+
+		if (sdkp->prv_media_present
+				!= sdkp->media_present) {
 			sd_printk(KERN_NOTICE, sdkp,
-				"sd_media_changed ret=%d\n", ret);
+				"sd_check_ret=%d prv_media=%d media=%d\n",
+					ret, sdkp->prv_media_present
+							, sdkp->media_present);
 			sdkp->disk->media_present = 0;
+			sdkp->async_end = 0;
 			async_schedule(sd_scanpartition_async, sdkp);
+			sdkp->prv_media_present = sdkp->media_present;
 		}
-		sdkp->media_scan = ret;
 	}
 	sd_printk(KERN_NOTICE, sdkp, "sd_media_scan_thread exit\n");
 	complete_and_exit(&sdkp->scanning_done, 0);
@@ -2626,8 +2631,16 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 		gd->flags |= GENHD_FL_REMOVABLE;
 		gd->events |= DISK_EVENT_MEDIA_CHANGE;
 	}
+#ifdef CONFIG_USB_HOST_NOTIFY
+	if (sdp->host->by_usb)
+		gd->interfaces = GENHD_IF_USB;
+	msleep(500);
+#endif
 
 	add_disk(gd);
+#ifdef CONFIG_USB_HOST_NOTIFY
+	sdkp->prv_media_present = sdkp->media_present;
+#endif
 	sd_dif_config_host(sdkp);
 
 	sd_revalidate_disk(gd);
@@ -2734,8 +2747,6 @@ static int sd_probe(struct device *dev)
 	dev_set_drvdata(dev, sdkp);
 
 #ifdef CONFIG_USB_HOST_NOTIFY
-	sdkp->previous_state = 1;
-
 	if (sdp->host->by_usb) {
 		init_waitqueue_head(&sdkp->delay_wait);
 		init_completion(&sdkp->scanning_done);

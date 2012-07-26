@@ -380,6 +380,29 @@ void s5p_mixer_set_bg_color(enum s5p_mixer_bg_color_num colornum,
 		break;
 	}
 }
+void s5p_mixer_set_video_limiter(u32 y_min, u32 y_max,
+		u32 c_min, u32 c_max, bool enable)
+{
+	u32 reg_value;
+
+	reg_value = readl(mixer_base + S5P_MXR_VIDEO_CFG)
+		& (~S5P_MXR_VIDEO_CFG_LIMITER_EN) ;
+
+	if (enable)
+		reg_value |= S5P_MXR_VIDEO_CFG_LIMITER_EN;
+	else
+		reg_value |= S5P_MXR_VIDEO_CFG_LIMITER_DIS;
+
+	writel(reg_value, mixer_base + S5P_MXR_VIDEO_CFG);
+
+	reg_value = S5P_MXR_VIDEO_LIMITER_PARA_Y_UPPER(y_max) |
+		S5P_MXR_VIDEO_LIMITER_PARA_Y_LOWER(y_min) |
+		S5P_MXR_VIDEO_LIMITER_PARA_C_UPPER(c_max) |
+		S5P_MXR_VIDEO_LIMITER_PARA_C_LOWER(c_min);
+
+	writel(reg_value, mixer_base + S5P_MXR_VIDEO_LIMITER_PARA_CFG);
+
+}
 
 void s5p_mixer_init_status_reg(enum s5p_mixer_burst_mode burst,
 				enum s5p_tvout_endian endian)
@@ -410,7 +433,8 @@ void s5p_mixer_init_status_reg(enum s5p_mixer_burst_mode burst,
 }
 
 int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
-				enum s5p_tvout_o_mode output_mode)
+				enum s5p_tvout_o_mode output_mode,
+				enum s5p_mixer_rgb rgb_type)
 {
 	u32 temp_reg = readl(mixer_base + S5P_MXR_CFG);
 
@@ -440,7 +464,6 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		temp_reg &= ~S5P_MXR_CFG_HD;
 		temp_reg &= ~S5P_MXR_CFG_PAL;
 		temp_reg |= S5P_MXR_CFG_PROGRASSIVE;
-		temp_reg |= MIXER_RGB601_16_235<<9;
 		break;
 
 	case TVOUT_576P_50_16_9:
@@ -448,7 +471,6 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		temp_reg &= ~S5P_MXR_CFG_HD;
 		temp_reg |= S5P_MXR_CFG_PAL;
 		temp_reg |= S5P_MXR_CFG_PROGRASSIVE;
-		temp_reg |= MIXER_RGB601_16_235<<9;
 		break;
 
 	case TVOUT_720P_50:
@@ -457,7 +479,6 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		temp_reg |= S5P_MXR_CFG_HD;
 		temp_reg &= ~S5P_MXR_CFG_HD_1080I;
 		temp_reg |= S5P_MXR_CFG_PROGRASSIVE;
-		temp_reg |= MIXER_RGB709_16_235<<9;
 		break;
 
 #ifdef CONFIG_HDMI_14A_3D
@@ -467,7 +488,6 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		temp_reg |= S5P_MXR_CFG_HD;
 		temp_reg &= ~S5P_MXR_CFG_HD_1080I;
 		temp_reg |= S5P_MXR_CFG_PROGRASSIVE;
-		temp_reg |= MIXER_RGB709_16_235<<9;
 		break;
 #endif
 
@@ -477,7 +497,6 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		temp_reg |= S5P_MXR_CFG_HD;
 		temp_reg |= S5P_MXR_CFG_HD_1080I;
 		temp_reg &= S5P_MXR_CFG_INTERLACE;
-		temp_reg |= MIXER_RGB709_16_235<<9;
 		break;
 
 	case TVOUT_1080P_50:
@@ -487,7 +506,6 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		temp_reg |= S5P_MXR_CFG_HD;
 		temp_reg |= S5P_MXR_CFG_HD_1080P;
 		temp_reg |= S5P_MXR_CFG_PROGRASSIVE;
-		temp_reg |= MIXER_RGB709_16_235<<9;
 		break;
 
 #ifdef CONFIG_HDMI_14A_3D
@@ -496,7 +514,6 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		temp_reg |= S5P_MXR_CFG_HD;
 		temp_reg |= S5P_MXR_CFG_HD_1080P;
 		temp_reg |= S5P_MXR_CFG_PROGRASSIVE;
-		temp_reg |= MIXER_RGB709_16_235<<9;
 		break;
 #endif
 	default:
@@ -529,6 +546,12 @@ int s5p_mixer_init_display_mode(enum s5p_tvout_disp_mode mode,
 		return -1;
 	}
 
+	if (0 <= rgb_type  && rgb_type <= 3)
+		temp_reg |= rgb_type<<9;
+	else
+		printk(KERN_INFO "Wrong rgb type!!\n");
+
+	tvout_dbg(KERN_INFO "Color range RGB Type : %x\n", rgb_type);
 	writel(temp_reg, mixer_base + S5P_MXR_CFG);
 
 	return 0;
@@ -655,12 +678,12 @@ void s5p_mixer_init_bg_dither_enable(bool cr_dither_enable,
 
 }
 
-void s5p_mixer_init_csc_coef_default(enum s5p_mixer_csc_type csc_type)
+void s5p_mixer_init_csc_coef_default(enum s5p_mixer_rgb csc_type)
 {
 	tvout_dbg("%d\n", csc_type);
 
 	switch (csc_type) {
-	case MIXER_CSC_601_LR:
+	case MIXER_RGB601_16_235:
 		writel((0 << 30) | (153 << 20) | (300 << 10) | (58 << 0),
 			mixer_base + S5P_MXR_CM_COEFF_Y);
 		writel((936 << 20) | (851 << 10) | (262 << 0),
@@ -669,16 +692,16 @@ void s5p_mixer_init_csc_coef_default(enum s5p_mixer_csc_type csc_type)
 			mixer_base + S5P_MXR_CM_COEFF_CR);
 		break;
 
-	case MIXER_CSC_601_FR:
+	case MIXER_RGB601_0_255:
 		writel((1 << 30) | (132 << 20) | (258 << 10) | (50 << 0),
 			mixer_base + S5P_MXR_CM_COEFF_Y);
-		writel((948 << 20) | (875 << 10) | (225 << 0),
+		writel((949 << 20) | (876 << 10) | (225 << 0),
 			mixer_base + S5P_MXR_CM_COEFF_CB);
 		writel((225 << 20) | (836 << 10) | (988 << 0),
 			mixer_base + S5P_MXR_CM_COEFF_CR);
 		break;
 
-	case MIXER_CSC_709_LR:
+	case MIXER_RGB709_16_235:
 		writel((0 << 30) | (109 << 20) | (366 << 10) | (36 << 0),
 			mixer_base + S5P_MXR_CM_COEFF_Y);
 		writel((964 << 20) | (822 << 10) | (216 << 0),
@@ -687,7 +710,7 @@ void s5p_mixer_init_csc_coef_default(enum s5p_mixer_csc_type csc_type)
 			mixer_base + S5P_MXR_CM_COEFF_CR);
 		break;
 
-	case MIXER_CSC_709_FR:
+	case MIXER_RGB709_0_255:
 		writel((1 << 30) | (94 << 20) | (314 << 10) | (32 << 0),
 			mixer_base + S5P_MXR_CM_COEFF_Y);
 		writel((972 << 20) | (851 << 10) | (225 << 0),

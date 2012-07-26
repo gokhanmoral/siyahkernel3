@@ -1,22 +1,12 @@
 
 menu "Motion Sensors Support"
 
-choice
-    bool "Motion Processing Unit"
-    default MPU_NONE
-
 config MPU_NONE
     bool "None"
-
-config MPU_SENSORS_MPU3050
-    tristate "MPU3050"
-    depends on I2C
 
 config MPU_SENSORS_MPU6000
     tristate "MPU6000"
     depends on I2C
-
-endchoice
 
 choice
     prompt "Accelerometer Type"

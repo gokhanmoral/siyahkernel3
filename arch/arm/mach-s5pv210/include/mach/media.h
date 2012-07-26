@@ -22,8 +22,5 @@
 #define S5P_MDEV_FIMG2D		7
 #define S5P_MDEV_TEXSTREAM	8
 
-#define S5P_MDEV_PMEM		9
-#define S5P_MDEV_PMEM_GPU1	10
-
 #define S5P_RANGE_MFC		SZ_256M
 #endif

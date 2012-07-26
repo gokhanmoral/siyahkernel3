@@ -23,7 +23,7 @@
 
 #define MAX_GRADATION		300
 #define PANEL_ID_MAX		3
-#define GAMMA_300CD_MAX	13
+#define GAMMA_300CD_MAX		16
 
 
 enum {
@@ -59,6 +59,14 @@ enum {
 	AD_IVMAX,
 };
 
+#ifdef CONFIG_AID_DIMMING
+enum {
+	G_21,
+	G_215,
+	G_22,
+	G_MAX,
+};
+#endif
 
 struct str_voltage_entry {
 	u32 v[CI_MAX];
@@ -91,14 +99,28 @@ struct str_smart_dim {
 	struct str_table_info t_info[IV_TABLE_MAX];
 	const struct str_flookup_table *flooktbl;
 	const u32 *g22_tbl;
+#ifdef CONFIG_AID_DIMMING
+	const u32 *gamma_table[G_MAX];
+#endif
 	const u32 *g300_gra_tbl;
 	u32 adjust_volt[CI_MAX][AD_IVMAX];
+};
+
+struct rgb_offset_info {
+	unsigned int	candela_idx;
+	unsigned int	gray;
+	unsigned int	rgb;
+	int		offset;
 };
 
 
 int init_table_info(struct str_smart_dim *smart);
 u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp);
+#ifdef CONFIG_AID_DIMMING
+u32 calc_gamma_table(struct str_smart_dim *smart, u32 gv, u8 result[], u8 gamma_curve);
+u32 calc_gamma_table_215_190(struct str_smart_dim *smart, u32 gv, u8 result[]);
+#else
 u32 calc_gamma_table(struct str_smart_dim *smart, u32 gv, u8 result[]);
-
+#endif
 
 #endif

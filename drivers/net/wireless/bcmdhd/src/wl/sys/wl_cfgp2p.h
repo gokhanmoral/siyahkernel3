@@ -123,21 +123,21 @@ enum wl_cfgp2p_status {
 #define CFGP2P_ERR(args)									\
 	do {										\
 		if (wl_dbg_level & WL_DBG_ERR) {				\
-			printk(KERN_ERR "CFGP2P-ERROR) %s : ", __func__);	\
+			printk(KERN_INFO "CFGP2P-INFO2) %s : ", __func__);	\
 			printk args;						\
 		}									\
 	} while (0)
 #define	CFGP2P_INFO(args)									\
 	do {										\
 		if (wl_dbg_level & WL_DBG_INFO) {				\
-			printk(KERN_ERR "CFGP2P-INFO) %s : ", __func__);	\
+			printk(KERN_INFO "CFGP2P-INFO) %s : ", __func__);	\
 			printk args;						\
 		}									\
 	} while (0)
 #define	CFGP2P_DBG(args)								\
 	do {									\
 		if (wl_dbg_level & WL_DBG_DBG) {			\
-			printk(KERN_ERR "CFGP2P-DEBUG) %s :", __func__);	\
+			printk(KERN_DEBUG "CFGP2P-DEBUG) %s :", __func__);	\
 			printk args;							\
 		}									\
 	} while (0)
@@ -171,6 +171,8 @@ wl_cfgp2p_set_p2p_mode(struct wl_priv *wl, u8 mode,
 extern s32
 wl_cfgp2p_ifadd(struct wl_priv *wl, struct ether_addr *mac, u8 if_type,
             chanspec_t chspec);
+extern s32
+wl_cfgp2p_ifdisable(struct wl_priv *wl, struct ether_addr *mac);
 extern s32
 wl_cfgp2p_ifdel(struct wl_priv *wl, struct ether_addr *mac);
 extern s32
@@ -279,7 +281,7 @@ wl_cfgp2p_unregister_ndev(struct wl_priv *wl);
 #define SOCIAL_CHAN_2 6
 #define SOCIAL_CHAN_3 11
 #define SOCIAL_CHAN_CNT 3
-#define AF_PEER_SEARCH_CNT (SOCIAL_CHAN_CNT + 1)
+#define AF_PEER_SEARCH_CNT 2
 #define WL_P2P_WILDCARD_SSID "DIRECT-"
 #define WL_P2P_WILDCARD_SSID_LEN 7
 #define WL_P2P_INTERFACE_PREFIX "p2p"
@@ -298,5 +300,5 @@ wl_cfgp2p_unregister_ndev(struct wl_priv *wl);
 							(subtype == P2P_PAF_INVITE_RSP) || \
 							(subtype == P2P_PAF_PROVDIS_RSP)))
 #define IS_P2P_SOCIAL(ch) ((ch == SOCIAL_CHAN_1) || (ch == SOCIAL_CHAN_2) || (ch == SOCIAL_CHAN_3))
-#define IS_P2P_SSID(ssid) (memcmp(ssid, WL_P2P_WILDCARD_SSID, WL_P2P_WILDCARD_SSID_LEN) == 0)
+#define IS_P2P_SSID(ssid, len) (!memcmp(ssid, WL_P2P_WILDCARD_SSID, WL_P2P_WILDCARD_SSID_LEN) && (len == WL_P2P_WILDCARD_SSID_LEN))
 #endif				/* _wl_cfgp2p_h_ */

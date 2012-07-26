@@ -1,9 +1,8 @@
-/* linux/drivers/media/video/exynos/rotator/rotator-core.c
+/*
+ * Copyright (c) 2012 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
  *
- * Copyright (c) 2011 Samsung Electronics Co., Ltd.
- *		http://www.samsung.com/
- *
- * Core file for Samsung Exynos Image Rotator driver
+ * Core file for Samsung EXYNOS Image Rotator driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -11,7 +10,6 @@
 */
 
 #include <linux/version.h>
-#include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
@@ -19,12 +17,14 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/videodev2.h>
+#include <linux/videodev2_exynos_media.h>
 #include <media/v4l2-dev.h>
 #include <media/v4l2-ioctl.h>
 #include <mach/videonode.h>
 
 #include "rotator.h"
 
+int log_level;
 module_param_named(log_level, log_level, uint, 0644);
 
 static struct rot_fmt rot_formats[] = {
@@ -32,70 +32,37 @@ static struct rot_fmt rot_formats[] = {
 		.name		= "RGB565",
 		.pixelformat	= V4L2_PIX_FMT_RGB565,
 		.num_planes	= 1,
-		.nr_comp	= 1,
+		.num_comp	= 1,
 		.bitperpixel	= { 16 },
 	}, {
-		.name		= "XRGB-8888, 32 bps",
+		.name		= "XRGB-8888, 32 bpp",
 		.pixelformat	= V4L2_PIX_FMT_RGB32,
 		.num_planes	= 1,
-		.nr_comp	= 1,
+		.num_comp	= 1,
 		.bitperpixel	= { 32 },
 	}, {
 		.name		= "YUV 4:2:2 packed, YCbYCr",
 		.pixelformat	= V4L2_PIX_FMT_YUYV,
 		.num_planes	= 1,
-		.nr_comp	= 1,
+		.num_comp	= 1,
 		.bitperpixel	= { 16 },
 	}, {
 		.name		= "YUV 4:2:0 non-contiguous 2-planar, Y/CbCr",
 		.pixelformat	= V4L2_PIX_FMT_NV12M,
 		.num_planes	= 2,
-		.nr_comp	= 2,
+		.num_comp	= 2,
 		.bitperpixel	= { 8, 4 },
 	}, {
 		.name		= "YUV 4:2:0 non-contiguous 3-planar, Y/Cb/Cr",
 		.pixelformat	= V4L2_PIX_FMT_YUV420M,
 		.num_planes	= 3,
-		.nr_comp	= 3,
+		.num_comp	= 3,
 		.bitperpixel	= { 8, 2, 2 },
 	},
 };
 
-static struct v4l2_queryctrl rot_ctrls[] = {
-	{
-		.id		= V4L2_CID_HFLIP,
-		.type		= V4L2_CTRL_TYPE_BOOLEAN,
-		.name		= "Horizontal flip",
-		.minimum	= 0,
-		.maximum	= 1,
-		.default_value	= 0,
-	}, {
-		.id		= V4L2_CID_VFLIP,
-		.type		= V4L2_CTRL_TYPE_BOOLEAN,
-		.name		= "Vertical flip",
-		.minimum	= 0,
-		.maximum	= 1,
-		.default_value	= 0,
-	}, {
-		.id		= V4L2_CID_ROTATE,
-		.type		= V4L2_CTRL_TYPE_INTEGER,
-		.name		= "Rotation",
-		.minimum	= 0,
-		.maximum	= 270,
-		.step		= 90,
-		.default_value	= 0,
-	}, {
-		.id		= V4L2_CID_CACHEABLE,
-		.type		= V4L2_CTRL_TYPE_INTEGER,
-		.name		= "Enable cache configuration",
-		.minimum	= 0,
-		.maximum	= 1,
-		.default_value	= 1,
-	},
-};
-
 /* Find the matches format */
-struct rot_fmt *rot_find_format(struct v4l2_format *f)
+static struct rot_fmt *rot_find_format(struct v4l2_format *f)
 {
 	struct rot_fmt *rot_fmt;
 	unsigned int i;
@@ -109,19 +76,7 @@ struct rot_fmt *rot_find_format(struct v4l2_format *f)
 	return NULL;
 }
 
-static struct v4l2_queryctrl *rot_find_ctrl(int id)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(rot_ctrls); ++i) {
-		if (id == rot_ctrls[i].id)
-			return &rot_ctrls[i];
-	}
-
-	return NULL;
-}
-
-void rot_bound_align_image(struct rot_ctx *ctx, struct rot_fmt *rot_fmt,
+static void rot_bound_align_image(struct rot_ctx *ctx, struct rot_fmt *rot_fmt,
 			   u32 *width, u32 *height)
 {
 	struct exynos_rot_variant *variant = ctx->rot_dev->variant;
@@ -144,7 +99,9 @@ void rot_bound_align_image(struct rot_ctx *ctx, struct rot_fmt *rot_fmt,
 		limit = &variant->limit_rgb888;
 		break;
 	default:
-		break;
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev,
+				"not supported format values\n");
+		return;
 	}
 
 	/* Bound an image to have width and height in limit */
@@ -153,7 +110,7 @@ void rot_bound_align_image(struct rot_ctx *ctx, struct rot_fmt *rot_fmt,
 			limit->max_y, limit->align, 0);
 }
 
-void rot_adjust_pixminfo(struct rot_ctx *ctx, struct rot_frame *frame,
+static void rot_adjust_pixminfo(struct rot_ctx *ctx, struct rot_frame *frame,
 			 struct v4l2_pix_format_mplane *pixm)
 {
 	struct rot_frame *rot_frame;
@@ -173,56 +130,26 @@ void rot_adjust_pixminfo(struct rot_ctx *ctx, struct rot_frame *frame,
 	}
 }
 
-void rot_adjust_cropinfo(struct rot_ctx *ctx, struct rot_frame *frame,
-			 struct v4l2_rect *crop)
-{
-	struct rot_frame *rot_frame;
-
-	if (frame == &ctx->s_frame) {
-		if (test_bit(CTX_DST, &ctx->flags)) {
-			rot_frame = &ctx->d_frame;
-			crop->width  = rot_frame->crop.height;
-			crop->height = rot_frame->crop.width;
-		}
-		set_bit(CTX_SRC, &ctx->flags);
-	} else if (frame == &ctx->d_frame) {
-		if (test_bit(CTX_SRC, &ctx->flags)) {
-			rot_frame = &ctx->s_frame;
-			crop->width  = rot_frame->crop.height;
-			crop->height = rot_frame->crop.width;
-		}
-		set_bit(CTX_DST, &ctx->flags);
-	}
-}
-
-static int rot_v4l2_querycap(struct file *file, void *priv,
+static int rot_v4l2_querycap(struct file *file, void *fh,
 			     struct v4l2_capability *cap)
 {
-	struct rot_ctx *ctx = file->private_data;
-	struct rot_dev *rot = ctx->rot_dev;
-
-	strncpy(cap->driver, rot->pdev->name, sizeof(cap->driver) - 1);
-	strncpy(cap->card, rot->pdev->name, sizeof(cap->card) - 1);
+	strncpy(cap->driver, MODULE_NAME, sizeof(cap->driver) - 1);
+	strncpy(cap->card, MODULE_NAME, sizeof(cap->card) - 1);
 
 	cap->bus_info[0] = 0;
-	cap->version = KERNEL_VERSION(MAJOR_VERSION,
-				      MINOR_VERSION,
-				      RELEASE_VERSION);
 	cap->capabilities = V4L2_CAP_STREAMING |
 		V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_VIDEO_OUTPUT_MPLANE;
 
 	return 0;
 }
 
-int rot_v4l2_enum_fmt_mplane(struct file *file, void *priv,
+static int rot_v4l2_enum_fmt_mplane(struct file *file, void *fh,
 			     struct v4l2_fmtdesc *f)
 {
 	struct rot_fmt *rot_fmt;
 
-	if (f->index >= ARRAY_SIZE(rot_formats)) {
-		rot_err("invalid number of format\n");
+	if (f->index >= ARRAY_SIZE(rot_formats))
 		return -EINVAL;
-	}
 
 	rot_fmt = &rot_formats[f->index];
 	strncpy(f->description, rot_fmt->name, sizeof(f->description) - 1);
@@ -231,10 +158,10 @@ int rot_v4l2_enum_fmt_mplane(struct file *file, void *priv,
 	return 0;
 }
 
-int rot_v4l2_g_fmt_mplane(struct file *file, void *priv,
+static int rot_v4l2_g_fmt_mplane(struct file *file, void *fh,
 			  struct v4l2_format *f)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	struct rot_fmt *rot_fmt;
 	struct rot_frame *frame;
 	struct v4l2_pix_format_mplane *pixm = &f->fmt.pix_mp;
@@ -259,30 +186,33 @@ int rot_v4l2_g_fmt_mplane(struct file *file, void *priv,
 		pixm->plane_fmt[i].sizeimage = pixm->plane_fmt[i].bytesperline
 				* pixm->height;
 
-		rot_dbg("[%d] plane: bytesperline %d, sizeimage %d\n", i,
-				pixm->plane_fmt[i].bytesperline,
+		v4l2_dbg(1, log_level, &ctx->rot_dev->m2m.v4l2_dev,
+				"[%d] plane: bytesperline %d, sizeimage %d\n",
+				i, pixm->plane_fmt[i].bytesperline,
 				pixm->plane_fmt[i].sizeimage);
 	}
 
 	return 0;
 }
 
-int rot_v4l2_try_fmt_mplane(struct file *file, void *priv,
+static int rot_v4l2_try_fmt_mplane(struct file *file, void *fh,
 			    struct v4l2_format *f)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	struct rot_fmt *rot_fmt;
 	struct v4l2_pix_format_mplane *pixm = &f->fmt.pix_mp;
 	int i;
 
 	if (!V4L2_TYPE_IS_MULTIPLANAR(f->type)) {
-		rot_err("not supported format type\n");
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev,
+				"not supported v4l2 type\n");
 		return -EINVAL;
 	}
 
 	rot_fmt = rot_find_format(f);
 	if (!rot_fmt) {
-		rot_err("not supported format values\n");
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev,
+				"not supported format type\n");
 		return -EINVAL;
 	}
 
@@ -297,31 +227,30 @@ int rot_v4l2_try_fmt_mplane(struct file *file, void *priv,
 		pixm->plane_fmt[i].sizeimage = pixm->plane_fmt[i].bytesperline
 				* pixm->height;
 
-		rot_dbg("[%d] plane: bytesperline %d, sizeimage %d\n", i,
-				pixm->plane_fmt[i].bytesperline,
+		v4l2_dbg(1, log_level, &ctx->rot_dev->m2m.v4l2_dev,
+				"[%d] plane: bytesperline %d, sizeimage %d\n",
+				i, pixm->plane_fmt[i].bytesperline,
 				pixm->plane_fmt[i].sizeimage);
 	}
 
 	return 0;
 }
 
-static int rot_v4l2_s_fmt_mplane(struct file *file, void *priv,
+static int rot_v4l2_s_fmt_mplane(struct file *file, void *fh,
 				 struct v4l2_format *f)
 {
-	struct rot_ctx *ctx = priv;
-	struct vb2_queue *vq;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
+	struct vb2_queue *vq = v4l2_m2m_get_vq(ctx->m2m_ctx, f->type);
 	struct rot_frame *frame;
 	struct v4l2_pix_format_mplane *pixm = &f->fmt.pix_mp;
 	int i, ret = 0;
 
-	vq = v4l2_m2m_get_vq(ctx->m2m_ctx, f->type);
-
 	if (vb2_is_streaming(vq)) {
-		rot_err("device is busy\n");
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev, "device is busy\n");
 		return -EBUSY;
 	}
 
-	ret = rot_v4l2_try_fmt_mplane(file, priv, f);
+	ret = rot_v4l2_try_fmt_mplane(file, fh, f);
 	if (ret < 0)
 		return ret;
 
@@ -333,7 +262,8 @@ static int rot_v4l2_s_fmt_mplane(struct file *file, void *priv,
 
 	frame->rot_fmt = rot_find_format(f);
 	if (!frame->rot_fmt) {
-		rot_err("not supported format values\n");
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev,
+				"not supported format values\n");
 		return -EINVAL;
 	}
 
@@ -357,10 +287,10 @@ static int rot_v4l2_s_fmt_mplane(struct file *file, void *priv,
 	return 0;
 }
 
-static int rot_v4l2_reqbufs(struct file *file, void *priv,
+static int rot_v4l2_reqbufs(struct file *file, void *fh,
 			    struct v4l2_requestbuffers *reqbufs)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	struct rot_dev *rot = ctx->rot_dev;
 	struct rot_frame *frame;
 
@@ -373,148 +303,50 @@ static int rot_v4l2_reqbufs(struct file *file, void *priv,
 	else if (frame == &ctx->d_frame)
 		clear_bit(CTX_DST, &ctx->flags);
 
-	frame->cacheable = ctx->cacheable;
-	rot->vb2->set_cacheable(rot->alloc_ctx, frame->cacheable);
+	rot->vb2->set_cacheable(rot->alloc_ctx, ctx->cacheable);
 
 	return v4l2_m2m_reqbufs(file, ctx->m2m_ctx, reqbufs);
 }
 
-static int rot_v4l2_querybuf(struct file *file, void *priv,
+static int rot_v4l2_querybuf(struct file *file, void *fh,
 			     struct v4l2_buffer *buf)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	return v4l2_m2m_querybuf(file, ctx->m2m_ctx, buf);
 }
 
-static int rot_v4l2_qbuf(struct file *file, void *priv,
+static int rot_v4l2_qbuf(struct file *file, void *fh,
 			 struct v4l2_buffer *buf)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	return v4l2_m2m_qbuf(file, ctx->m2m_ctx, buf);
 }
 
-static int rot_v4l2_dqbuf(struct file *file, void *priv,
+static int rot_v4l2_dqbuf(struct file *file, void *fh,
 			  struct v4l2_buffer *buf)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	return v4l2_m2m_dqbuf(file, ctx->m2m_ctx, buf);
 }
 
-static int rot_v4l2_streamon(struct file *file, void *priv,
+static int rot_v4l2_streamon(struct file *file, void *fh,
 			     enum v4l2_buf_type type)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	return v4l2_m2m_streamon(file, ctx->m2m_ctx, type);
 }
 
-static int rot_v4l2_streamoff(struct file *file, void *priv,
+static int rot_v4l2_streamoff(struct file *file, void *fh,
 			      enum v4l2_buf_type type)
 {
-	struct rot_ctx *ctx = priv;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	return v4l2_m2m_streamoff(file, ctx->m2m_ctx, type);
-}
-
-int rot_v4l2_queryctrl(struct file *file, void *priv,
-		       struct v4l2_queryctrl *qc)
-{
-	struct v4l2_queryctrl *c;
-
-	c = rot_find_ctrl(qc->id);
-	if (!c) {
-		rot_err("not supported control id\n");
-		return -EINVAL;
-	}
-	*qc = *c;
-
-	return 0;
-}
-
-int rot_v4l2_g_ctrl(struct file *file, void *priv,
-		    struct v4l2_control *ctrl)
-{
-	struct rot_ctx *ctx = priv;
-
-	switch (ctrl->id) {
-	case V4L2_CID_VFLIP:
-		ctrl->value = (ROT_VFLIP & ctx->flip) ? 1 : 0;
-		break;
-	case V4L2_CID_HFLIP:
-		ctrl->value = (ROT_HFLIP & ctx->flip) ? 1 : 0;
-		break;
-	case V4L2_CID_ROTATE:
-		ctrl->value = ctx->rotation;
-		break;
-	case V4L2_CID_CACHEABLE:
-		ctrl->value = (int)ctx->cacheable;
-		break;
-	default:
-		rot_err("invalid control id\n");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-int rot_check_ctrl_val(struct rot_ctx *ctx,  struct v4l2_control *ctrl)
-{
-	struct v4l2_queryctrl *c;
-
-	c = rot_find_ctrl(ctrl->id);
-	if (!c) {
-		rot_err("not supported control id\n");
-		return -EINVAL;
-	}
-
-	if (ctrl->value < c->minimum || ctrl->value > c->maximum
-		|| ((c->step != 0) && (ctrl->value % c->step != 0))) {
-		rot_err("not supported control value\n");
-		return -ERANGE;
-	}
-
-	return 0;
-}
-
-int rot_v4l2_s_ctrl(struct file *file, void *priv,
-		    struct v4l2_control *ctrl)
-{
-	struct rot_ctx *ctx = file->private_data;
-	int ret;
-
-	ret = rot_check_ctrl_val(ctx, ctrl);
-	if (ret)
-		return ret;
-
-	switch (ctrl->id) {
-	case V4L2_CID_VFLIP:
-		if (ctrl->value)
-			ctx->flip |= ROT_VFLIP;
-		else
-			ctx->flip &= ~ROT_VFLIP;
-		break;
-	case V4L2_CID_HFLIP:
-		if (ctrl->value)
-			ctx->flip |= ROT_HFLIP;
-		else
-			ctx->flip &= ~ROT_HFLIP;
-		break;
-	case V4L2_CID_ROTATE:
-		ctx->rotation = ctrl->value;
-		break;
-	case V4L2_CID_CACHEABLE:
-		ctx->cacheable = (bool)ctrl->value;
-		break;
-	default:
-		rot_err("invalid control id\n");
-		return -EINVAL;
-	}
-
-	return 0;
 }
 
 static int rot_v4l2_cropcap(struct file *file, void *fh,
 			    struct v4l2_cropcap *cr)
 {
-	struct rot_ctx *ctx = fh;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	struct rot_frame *frame;
 
 	frame = ctx_get_frame(ctx, cr->type);
@@ -532,7 +364,7 @@ static int rot_v4l2_cropcap(struct file *file, void *fh,
 
 static int rot_v4l2_g_crop(struct file *file, void *fh, struct v4l2_crop *cr)
 {
-	struct rot_ctx *ctx = fh;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	struct rot_frame *frame;
 
 	frame = ctx_get_frame(ctx, cr->type);
@@ -546,7 +378,7 @@ static int rot_v4l2_g_crop(struct file *file, void *fh, struct v4l2_crop *cr)
 
 static int rot_v4l2_s_crop(struct file *file, void *fh, struct v4l2_crop *cr)
 {
-	struct rot_ctx *ctx = fh;
+	struct rot_ctx *ctx = fh_to_rot_ctx(fh);
 	struct rot_frame *frame;
 	struct v4l2_pix_format_mplane *pixm;
 	int i;
@@ -556,29 +388,32 @@ static int rot_v4l2_s_crop(struct file *file, void *fh, struct v4l2_crop *cr)
 		return PTR_ERR(frame);
 
 	if (!test_bit(CTX_PARAMS, &ctx->flags)) {
-		rot_err("color format is not set\n");
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev,
+				"color format is not set\n");
 		return -EINVAL;
 	}
 
 	if (cr->c.left < 0 || cr->c.top < 0 ||
 			cr->c.width < 0 || cr->c.height < 0) {
-		rot_err("crop value is negative\n");
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev,
+				"crop value is negative\n");
 		return -EINVAL;
 	}
 
 	pixm = &frame->pix_mp;
-	rot_adjust_cropinfo(ctx, frame, &cr->c);
 	rot_bound_align_image(ctx, frame->rot_fmt, &cr->c.width, &cr->c.height);
 
 	/* Adjust left/top if cropping rectangle is out of bounds */
 	if (cr->c.left + cr->c.width > pixm->width) {
-		rot_warn("out of bound left cropping size:left %d, width %d\n",
-				cr->c.left, cr->c.width);
+		dev_warn(ctx->rot_dev->dev,
+			"out of bound left cropping size:left %d, width %d\n",
+			cr->c.left, cr->c.width);
 		cr->c.left = pixm->width - cr->c.width;
 	}
 	if (cr->c.top + cr->c.height > pixm->height) {
-		rot_warn("out of bound top cropping size:top %d, height %d\n",
-				cr->c.top, cr->c.height);
+		dev_warn(ctx->rot_dev->dev,
+			"out of bound top cropping size:top %d, height %d\n",
+			cr->c.top, cr->c.height);
 		cr->c.top = pixm->height - cr->c.height;
 	}
 
@@ -615,10 +450,6 @@ static const struct v4l2_ioctl_ops rot_v4l2_ioctl_ops = {
 	.vidioc_streamon		= rot_v4l2_streamon,
 	.vidioc_streamoff		= rot_v4l2_streamoff,
 
-	.vidioc_queryctrl		= rot_v4l2_queryctrl,
-	.vidioc_g_ctrl			= rot_v4l2_g_ctrl,
-	.vidioc_s_ctrl			= rot_v4l2_s_ctrl,
-
 	.vidioc_g_crop			= rot_v4l2_g_crop,
 	.vidioc_s_crop			= rot_v4l2_s_crop,
 	.vidioc_cropcap			= rot_v4l2_cropcap
@@ -636,12 +467,12 @@ static int rot_ctx_stop_req(struct rot_ctx *ctx)
 
 	set_bit(CTX_ABORT, &ctx->flags);
 
-	ret = wait_event_timeout(rot->irq.wait,
+	ret = wait_event_timeout(rot->wait,
 			!test_bit(CTX_RUN, &ctx->flags), ROT_TIMEOUT);
 
 	/* TODO: How to handle case of timeout event */
-	if (!ret) {
-		rot_err("device failed to stop request\n");
+	if (ret == 0) {
+		dev_err(rot->dev, "device failed to stop request\n");
 		ret = -EBUSY;
 	}
 
@@ -686,7 +517,7 @@ static int rot_vb2_buf_prepare(struct vb2_buffer *vb)
 			vb2_set_plane_payload(vb, i, frame->bytesused[i]);
 	}
 
-	if (frame->cacheable)
+	if (ctx->cacheable)
 		ctx->rot_dev->vb2->cache_flush(vb, frame->rot_fmt->num_planes);
 
 	return 0;
@@ -728,15 +559,15 @@ static int rot_vb2_stop_streaming(struct vb2_queue *vq)
 
 	ret = rot_ctx_stop_req(ctx);
 	if (ret < 0)
-		rot_err("wait timeout\n");
+		dev_err(ctx->rot_dev->dev, "wait timeout\n");
 
 	clear_bit(CTX_STREAMING, &ctx->flags);
 	v4l2_m2m_get_next_job(rot->m2m.m2m_dev, ctx->m2m_ctx);
 
-	return 0;
+	return ret;
 }
 
-struct vb2_ops rot_vb2_ops = {
+static struct vb2_ops rot_vb2_ops = {
 	.queue_setup		 = rot_vb2_queue_setup,
 	.buf_prepare		 = rot_vb2_buf_prepare,
 	.buf_queue		 = rot_vb2_buf_queue,
@@ -775,48 +606,140 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	return vb2_queue_init(dst_vq);
 }
 
-static int rot_open(struct file *file)
+static int rot_s_ctrl(struct v4l2_ctrl *ctrl)
 {
-	struct rot_dev *rot = video_drvdata(file);
-	struct rot_ctx *ctx = NULL;
+	struct rot_ctx *ctx;
 
-	ctx = kzalloc(sizeof *ctx, GFP_KERNEL);
-	if (!ctx) {
-		rot_err("no memory for open context\n");
-		return -ENOMEM;
-	}
+	rot_dbg("ctrl ID:%d, value:%d\n", ctrl->id, ctrl->val);
+	ctx = container_of(ctrl->handler, struct rot_ctx, ctrl_handler);
 
-	atomic_inc(&rot->m2m.in_use);
-
-	file->private_data = ctx;
-	ctx->rot_dev = rot;
-	/* Default color format */
-	ctx->s_frame.rot_fmt = &rot_formats[0];
-	ctx->d_frame.rot_fmt = &rot_formats[0];
-	spin_lock_init(&ctx->slock);
-
-	/* Setup the device context for mem2mem mode. */
-	ctx->m2m_ctx = v4l2_m2m_ctx_init(rot->m2m.m2m_dev, ctx, queue_init);
-	if (IS_ERR(ctx->m2m_ctx)) {
-		kfree(ctx);
-		atomic_dec(&rot->m2m.in_use);
-		return PTR_ERR(ctx->m2m_ctx);
+	switch (ctrl->id) {
+	case V4L2_CID_VFLIP:
+		if (ctrl->val)
+			ctx->flip |= ROT_VFLIP;
+		else
+			ctx->flip &= ~ROT_VFLIP;
+		break;
+	case V4L2_CID_HFLIP:
+		if (ctrl->val)
+			ctx->flip |= ROT_HFLIP;
+		else
+			ctx->flip &= ~ROT_HFLIP;
+		break;
+	case V4L2_CID_ROTATE:
+		ctx->rotation = ctrl->val;
+		break;
+	case V4L2_CID_CACHEABLE:
+		ctx->cacheable = (bool)ctrl->val;
+		break;
 	}
 
 	return 0;
 }
 
+static const struct v4l2_ctrl_ops rot_ctrl_ops = {
+	.s_ctrl = rot_s_ctrl,
+};
+
+static const struct v4l2_ctrl_config rot_custom_ctrl[] = {
+	{
+		.ops = &rot_ctrl_ops,
+		.id = V4L2_CID_CACHEABLE,
+		.name = "set cacheable",
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.flags = V4L2_CTRL_FLAG_SLIDER,
+		.max = 1,
+		.def = true,
+	}
+};
+
+static int rot_add_ctrls(struct rot_ctx *ctx)
+{
+	v4l2_ctrl_handler_init(&ctx->ctrl_handler, 4);
+	v4l2_ctrl_new_std(&ctx->ctrl_handler, &rot_ctrl_ops,
+			V4L2_CID_VFLIP, 0, 1, 1, 0);
+	v4l2_ctrl_new_std(&ctx->ctrl_handler, &rot_ctrl_ops,
+			V4L2_CID_HFLIP, 0, 1, 1, 0);
+	v4l2_ctrl_new_std(&ctx->ctrl_handler, &rot_ctrl_ops,
+			V4L2_CID_ROTATE, 0, 270, 90, 0);
+	v4l2_ctrl_new_custom(&ctx->ctrl_handler, &rot_custom_ctrl[0], NULL);
+
+	if (ctx->ctrl_handler.error) {
+		int err = ctx->ctrl_handler.error;
+		v4l2_err(&ctx->rot_dev->m2m.v4l2_dev,
+				"v4l2_ctrl_handler_init failed\n");
+		v4l2_ctrl_handler_free(&ctx->ctrl_handler);
+		return err;
+	}
+
+	v4l2_ctrl_handler_setup(&ctx->ctrl_handler);
+
+	return 0;
+}
+
+static int rot_open(struct file *file)
+{
+	struct rot_dev *rot = video_drvdata(file);
+	struct rot_ctx *ctx;
+	int ret;
+
+	ctx = kzalloc(sizeof *ctx, GFP_KERNEL);
+	if (!ctx) {
+		dev_err(rot->dev, "no memory for open context\n");
+		return -ENOMEM;
+	}
+
+	atomic_inc(&rot->m2m.in_use);
+	ctx->rot_dev = rot;
+
+	v4l2_fh_init(&ctx->fh, rot->m2m.vfd);
+	ret = rot_add_ctrls(ctx);
+	if (ret)
+		goto err_fh;
+
+	ctx->fh.ctrl_handler = &ctx->ctrl_handler;
+	file->private_data = &ctx->fh;
+	v4l2_fh_add(&ctx->fh);
+
+	/* Default color format */
+	ctx->s_frame.rot_fmt = &rot_formats[0];
+	ctx->d_frame.rot_fmt = &rot_formats[0];
+	init_waitqueue_head(&rot->wait);
+	spin_lock_init(&ctx->slock);
+
+	/* Setup the device context for mem2mem mode. */
+	ctx->m2m_ctx = v4l2_m2m_ctx_init(rot->m2m.m2m_dev, ctx, queue_init);
+	if (IS_ERR(ctx->m2m_ctx)) {
+		ret = -EINVAL;
+		goto err_ctx;
+	}
+
+	return 0;
+
+err_ctx:
+	v4l2_fh_del(&ctx->fh);
+err_fh:
+	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
+	v4l2_fh_exit(&ctx->fh);
+	atomic_dec(&rot->m2m.in_use);
+	kfree(ctx);
+
+	return ret;
+}
+
 static int rot_release(struct file *file)
 {
-	struct rot_ctx *ctx = file->private_data;
+	struct rot_ctx *ctx = fh_to_rot_ctx(file->private_data);
 	struct rot_dev *rot = ctx->rot_dev;
 
 	rot_dbg("refcnt= %d", atomic_read(&rot->m2m.in_use));
 
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
-	kfree(ctx);
-
+	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
+	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_exit(&ctx->fh);
 	atomic_dec(&rot->m2m.in_use);
+	kfree(ctx);
 
 	return 0;
 }
@@ -824,14 +747,14 @@ static int rot_release(struct file *file)
 static unsigned int rot_poll(struct file *file,
 			     struct poll_table_struct *wait)
 {
-	struct rot_ctx *ctx = file->private_data;
+	struct rot_ctx *ctx = fh_to_rot_ctx(file->private_data);
 
 	return v4l2_m2m_poll(file, ctx->m2m_ctx, wait);
 }
 
 static int rot_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	struct rot_ctx *ctx = file->private_data;
+	struct rot_ctx *ctx = fh_to_rot_ctx(file->private_data);
 
 	return v4l2_m2m_mmap(file, ctx->m2m_ctx, vma);
 }
@@ -845,22 +768,50 @@ static const struct v4l2_file_operations rot_v4l2_fops = {
 	.mmap		= rot_mmap,
 };
 
-void rot_work(struct work_struct *work)
+static void rot_clock_gating(struct rot_dev *rot, enum rot_clk_status status)
 {
-	struct rot_dev *rot = container_of(work, struct rot_dev, ws);
+	int clk_cnt;
+
+	if (status == ROT_CLK_ON) {
+		clk_cnt = atomic_inc_return(&rot->clk_cnt);
+		if (clk_cnt == 1) {
+			clk_enable(rot->clock);
+			rot->vb2->resume(rot->alloc_ctx);
+		}
+	} else if (status == ROT_CLK_OFF) {
+		clk_cnt = atomic_dec_return(&rot->clk_cnt);
+		if (clk_cnt == 0) {
+			rot->vb2->suspend(rot->alloc_ctx);
+			clk_disable(rot->clock);
+		} else if (clk_cnt < 0) {
+			dev_err(rot->dev, "rotator clock control is wrong!!\n");
+			atomic_set(&rot->clk_cnt, 0);
+		}
+	}
+}
+
+static void rot_watchdog(unsigned long arg)
+{
+	struct rot_dev *rot = (struct rot_dev *)arg;
 	struct rot_ctx *ctx;
 	unsigned long flags;
 	struct vb2_buffer *src_vb, *dst_vb;
 
-	spin_lock_irqsave(&rot->slock, flags);
-
+	rot_dbg("timeout watchdog\n");
 	if (atomic_read(&rot->wdt.cnt) >= ROT_WDT_CNT) {
+		rot_clock_gating(rot, ROT_CLK_OFF);
+
 		rot_dbg("wakeup blocked process\n");
+		atomic_set(&rot->wdt.cnt, 0);
+		clear_bit(DEV_RUN, &rot->state);
+
 		ctx = v4l2_m2m_get_curr_priv(rot->m2m.m2m_dev);
 		if (!ctx || !ctx->m2m_ctx) {
-			rot_err("current ctx is NULL\n");
-			goto wq_unlock;
+			dev_err(rot->dev, "current ctx is NULL\n");
+			return;
 		}
+		spin_lock_irqsave(&rot->slock, flags);
+		clear_bit(CTX_RUN, &ctx->flags);
 		src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
 		dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
 
@@ -870,34 +821,18 @@ void rot_work(struct work_struct *work)
 
 			v4l2_m2m_job_finish(rot->m2m.m2m_dev, ctx->m2m_ctx);
 		}
-		rot->m2m.ctx = NULL;
-		atomic_set(&rot->wdt.cnt, 0);
-		clear_bit(DEV_RUN, &rot->state);
-		clear_bit(CTX_RUN, &ctx->flags);
+		spin_unlock_irqrestore(&rot->slock, flags);
+		return;
 	}
 
-wq_unlock:
-	spin_unlock_irqrestore(&rot->slock, flags);
-
-	pm_runtime_put(&rot->pdev->dev);
-}
-
-void rot_watchdog(unsigned long arg)
-{
-	struct rot_dev *rot = (struct rot_dev *)arg;
-
-	rot_dbg("timeout watchdog\n");
 	if (test_bit(DEV_RUN, &rot->state)) {
 		atomic_inc(&rot->wdt.cnt);
-		rot_err("rotator is still running\n");
+		dev_err(rot->dev, "rotator is still running\n");
 		rot->wdt.timer.expires = jiffies + ROT_TIMEOUT;
 		add_timer(&rot->wdt.timer);
 	} else {
 		rot_dbg("rotator finished job\n");
 	}
-
-	if (atomic_read(&rot->wdt.cnt) >= ROT_WDT_CNT)
-		queue_work(rot->wq, &rot->ws);
 }
 
 static irqreturn_t rot_irq_handler(int irq, void *priv)
@@ -917,21 +852,22 @@ static irqreturn_t rot_irq_handler(int irq, void *priv)
 	rot_hwset_irq_clear(rot, &irq_src);
 
 	if (irq_src != ISR_PEND_DONE) {
-		rot_err("####################\n");
-		rot_err("set SFR illegally\n");
-		rot_err("maybe the result is wrong\n");
-		rot_err("####################\n");
-		rot_dump_register(rot);
+		dev_err(rot->dev, "####################\n");
+		dev_err(rot->dev, "Illegal SFR configuration\n");
+		dev_err(rot->dev, "The result might be wrong\n");
+		dev_err(rot->dev, "####################\n");
+		rot_dump_registers(rot);
 	}
+
+	rot_clock_gating(rot, ROT_CLK_OFF);
 
 	ctx = v4l2_m2m_get_curr_priv(rot->m2m.m2m_dev);
 	if (!ctx || !ctx->m2m_ctx) {
-		rot_err("current ctx is NULL\n");
+		dev_err(rot->dev, "current ctx is NULL\n");
 		goto isr_unlock;
 	}
 
 	clear_bit(CTX_RUN, &ctx->flags);
-	rot->m2m.ctx = NULL;
 
 	src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
 	dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
@@ -942,18 +878,16 @@ static irqreturn_t rot_irq_handler(int irq, void *priv)
 
 		if (test_bit(DEV_SUSPEND, &rot->state)) {
 			rot_dbg("wake up blocked process by suspend\n");
-			wake_up(&rot->irq.wait);
+			wake_up(&rot->wait);
 		} else {
 			v4l2_m2m_job_finish(rot->m2m.m2m_dev, ctx->m2m_ctx);
 		}
 
 		/* Wake up from CTX_ABORT state */
 		if (test_and_clear_bit(CTX_ABORT, &ctx->flags))
-			wake_up(&rot->irq.wait);
-
-		queue_work(rot->wq, &rot->ws);
+			wake_up(&rot->wait);
 	} else {
-		rot_err("failed to get the buffer done\n");
+		dev_err(rot->dev, "failed to get the buffer done\n");
 	}
 
 isr_unlock:
@@ -962,7 +896,7 @@ isr_unlock:
 	return IRQ_HANDLED;
 }
 
-void rot_get_bufaddr(struct rot_dev *rot, struct vb2_buffer *vb,
+static void rot_get_bufaddr(struct rot_dev *rot, struct vb2_buffer *vb,
 		     struct rot_frame *frame, struct rot_addr *addr)
 {
 	unsigned int pix_size;
@@ -973,7 +907,7 @@ void rot_get_bufaddr(struct rot_dev *rot, struct vb2_buffer *vb,
 	addr->cb = 0;
 	addr->cr = 0;
 
-	switch (frame->rot_fmt->nr_comp) {
+	switch (frame->rot_fmt->num_comp) {
 	case 2:
 		if (frame->rot_fmt->num_planes == 1)
 			addr->cb = addr->y + pix_size;
@@ -991,7 +925,7 @@ void rot_get_bufaddr(struct rot_dev *rot, struct vb2_buffer *vb,
 	}
 }
 
-void rot_set_frame_addr(struct rot_ctx *ctx)
+static void rot_set_frame_addr(struct rot_ctx *ctx)
 {
 	struct vb2_buffer *vb;
 	struct rot_frame *s_frame, *d_frame;
@@ -1017,7 +951,7 @@ void rot_set_frame_addr(struct rot_ctx *ctx)
 	rot_hwset_dst_addr(rot, d_frame->addr.cr, ROT_ADDR_CR);
 }
 
-void rot_mapping_flip(struct rot_ctx *ctx, u32 *degree, u32 *flip)
+static void rot_mapping_flip(struct rot_ctx *ctx, u32 *degree, u32 *flip)
 {
 	*degree = ctx->rotation;
 	*flip = ctx->flip;
@@ -1046,7 +980,7 @@ static void rot_m2m_device_run(void *priv)
 	struct rot_ctx *ctx = priv;
 	struct rot_frame *s_frame, *d_frame;
 	struct rot_dev *rot;
-	unsigned long flags, tmp;
+	unsigned long flags;
 	u32 degree = 0, flip = 0;
 
 	spin_lock_irqsave(&ctx->slock, flags);
@@ -1054,12 +988,12 @@ static void rot_m2m_device_run(void *priv)
 	rot = ctx->rot_dev;
 
 	if (test_bit(DEV_RUN, &rot->state)) {
-		rot_err("Rotate is already in progress\n");
+		dev_err(rot->dev, "Rotator is already in progress\n");
 		goto run_unlock;
 	}
 
 	if (test_bit(DEV_SUSPEND, &rot->state)) {
-		rot_err("Rotate is in suspend state\n");
+		dev_err(rot->dev, "Rotator is in suspend state\n");
 		goto run_unlock;
 	}
 
@@ -1068,10 +1002,7 @@ static void rot_m2m_device_run(void *priv)
 		goto run_unlock;
 	}
 
-	pm_runtime_get_sync(&ctx->rot_dev->pdev->dev);
-
-	if (rot->m2m.ctx != ctx)
-		rot->m2m.ctx = ctx;
+	rot_clock_gating(rot, ROT_CLK_ON);
 
 	s_frame = &ctx->s_frame;
 	d_frame = &ctx->d_frame;
@@ -1081,12 +1012,6 @@ static void rot_m2m_device_run(void *priv)
 	rot_mapping_flip(ctx, &degree, &flip);
 	rot_hwset_flip(rot, flip);
 	rot_hwset_rotation(rot, degree);
-
-	if (ctx->rotation == 90 || ctx->rotation == 270) {
-		tmp                     = d_frame->pix_mp.height;
-		d_frame->pix_mp.height  = d_frame->pix_mp.width;
-		d_frame->pix_mp.width   = tmp;
-	}
 
 	rot_hwset_src_imgsize(rot, s_frame);
 	rot_hwset_dst_imgsize(rot, d_frame);
@@ -1125,7 +1050,7 @@ static void rot_m2m_job_abort(void *priv)
 
 	ret = rot_ctx_stop_req(ctx);
 	if (ret < 0)
-		rot_err("wait timeout\n");
+		dev_err(ctx->rot_dev->dev, "wait timeout\n");
 
 	v4l2_m2m_get_next_job(rot->m2m.m2m_dev, ctx->m2m_ctx);
 }
@@ -1138,44 +1063,42 @@ static struct v4l2_m2m_ops rot_m2m_ops = {
 static int rot_register_m2m_device(struct rot_dev *rot)
 {
 	struct v4l2_device *v4l2_dev;
-	struct platform_device *pdev;
+	struct device *dev;
 	struct video_device *vfd;
 	int ret = 0;
 
 	if (!rot)
 		return -ENODEV;
 
-	pdev = rot->pdev;
+	dev = rot->dev;
 	v4l2_dev = &rot->m2m.v4l2_dev;
 
-	/* Set name to "device name.m2m" if it is empty */
-	if (!v4l2_dev->name[0])
-		snprintf(v4l2_dev->name, sizeof(v4l2_dev->name),
-			"%s.m2m", dev_name(&pdev->dev));
+	snprintf(v4l2_dev->name, sizeof(v4l2_dev->name), "%s.m2m",
+			MODULE_NAME);
 
-	ret = v4l2_device_register(&pdev->dev, v4l2_dev);
+	ret = v4l2_device_register(dev, v4l2_dev);
 	if (ret) {
-		rot_err("failed to register v4l2 device\n");
+		dev_err(rot->dev, "failed to register v4l2 device\n");
 		return ret;
 	}
 
 	vfd = video_device_alloc();
 	if (!vfd) {
-		rot_err("failed to allocate video device\n");
+		dev_err(rot->dev, "failed to allocate video device\n");
 		goto err_v4l2_dev;
 	}
 
 	vfd->fops	= &rot_v4l2_fops;
 	vfd->ioctl_ops	= &rot_v4l2_ioctl_ops;
 	vfd->release	= video_device_release;
+	snprintf(vfd->name, sizeof(vfd->name), "%s:m2m", MODULE_NAME);
 
 	video_set_drvdata(vfd, rot);
-	platform_set_drvdata(pdev, rot);
 
 	rot->m2m.vfd = vfd;
 	rot->m2m.m2m_dev = v4l2_m2m_init(&rot_m2m_ops);
 	if (IS_ERR(rot->m2m.m2m_dev)) {
-		rot_err("failed to initialize v4l2-m2m device\n");
+		dev_err(rot->dev, "failed to initialize v4l2-m2m device\n");
 		ret = PTR_ERR(rot->m2m.m2m_dev);
 		goto err_dev_alloc;
 	}
@@ -1183,7 +1106,7 @@ static int rot_register_m2m_device(struct rot_dev *rot)
 	ret = video_register_device(vfd, VFL_TYPE_GRABBER,
 						EXYNOS_VIDEONODE_ROTATOR);
 	if (ret) {
-		rot_err("failed to register video device\n");
+		dev_err(rot->dev, "failed to register video device\n");
 		goto err_m2m_dev;
 	}
 
@@ -1201,76 +1124,24 @@ err_v4l2_dev:
 
 static int rot_suspend(struct device *dev)
 {
-	struct platform_device *pdev;
-	struct rot_dev *rot;
-	struct rot_ctx *ctx;
-	int ret = 0;
-
-	pdev = to_platform_device(dev);
-	rot = (struct rot_dev *)platform_get_drvdata(pdev);
+	struct rot_dev *rot = dev_get_drvdata(dev);
+	int ret;
 
 	set_bit(DEV_SUSPEND, &rot->state);
 
-	ret = wait_event_timeout(rot->irq.wait,
-		!test_bit(DEV_RUN, &rot->state),
-		ROT_TIMEOUT);
-	if (!ret)
-		rot_err("wait timeout\n");
+	ret = wait_event_timeout(rot->wait,
+			!test_bit(DEV_RUN, &rot->state), ROT_TIMEOUT);
+	if (ret == 0)
+		dev_err(rot->dev, "wait timeout\n");
 
-	ctx = rot->m2m.ctx;
-	if (ctx != NULL)
-		set_bit(CTX_SUSPEND, &ctx->flags);
-
-	return ret;
+	return 0;
 }
 
 static int rot_resume(struct device *dev)
 {
-	struct platform_device *pdev;
-	struct rot_dev *rot;
-	struct rot_ctx *ctx;
-
-	pdev = to_platform_device(dev);
-	rot = (struct rot_dev *)platform_get_drvdata(pdev);
+	struct rot_dev *rot = dev_get_drvdata(dev);
 
 	clear_bit(DEV_SUSPEND, &rot->state);
-
-	ctx = rot->m2m.ctx;
-	if (ctx != NULL) {
-		clear_bit(CTX_SUSPEND, &ctx->flags);
-		rot->m2m.ctx = NULL;
-		v4l2_m2m_job_finish(rot->m2m.m2m_dev, ctx->m2m_ctx);
-	}
-
-	return 0;
-}
-
-static int rot_runtime_suspend(struct device *dev)
-{
-	struct rot_dev *rot;
-	struct platform_device *pdev;
-
-	pdev = to_platform_device(dev);
-	rot = (struct rot_dev *)platform_get_drvdata(pdev);
-
-	rot->vb2->suspend(rot->alloc_ctx);
-
-	clk_disable(rot->clock);
-
-	return 0;
-}
-
-static int rot_runtime_resume(struct device *dev)
-{
-	struct rot_dev *rot;
-	struct platform_device *pdev;
-
-	pdev = to_platform_device(dev);
-	rot = (struct rot_dev *)platform_get_drvdata(pdev);
-
-	clk_enable(rot->clock);
-
-	rot->vb2->resume(rot->alloc_ctx);
 
 	return 0;
 }
@@ -1278,8 +1149,6 @@ static int rot_runtime_resume(struct device *dev)
 static const struct dev_pm_ops rot_pm_ops = {
 	.suspend		= rot_suspend,
 	.resume			= rot_resume,
-	.runtime_suspend	= rot_runtime_suspend,
-	.runtime_resume		= rot_runtime_resume,
 };
 
 static int rot_probe(struct platform_device *pdev)
@@ -1289,23 +1158,22 @@ static int rot_probe(struct platform_device *pdev)
 	struct resource *res;
 	int variant_num, ret = 0;
 
-	printk(KERN_INFO "++%s\n", __func__);
-
+	dev_info(&pdev->dev, "++%s\n", __func__);
 	drv_data = (struct exynos_rot_driverdata *)
 			platform_get_device_id(pdev)->driver_data;
 
 	if (pdev->id >= drv_data->nr_dev) {
-		pr_err("Invalid platform device id\n");
+		dev_err(&pdev->dev, "Invalid platform device id\n");
 		return -EINVAL;
 	}
 
-	rot = kzalloc(sizeof(struct rot_dev), GFP_KERNEL);
+	rot = devm_kzalloc(&pdev->dev, sizeof(struct rot_dev), GFP_KERNEL);
 	if (!rot) {
-		pr_err("no memory for rotator device\n");
+		dev_err(&pdev->dev, "no memory for rotator device\n");
 		return -ENOMEM;
 	}
 
-	rot->pdev = pdev;
+	rot->dev = &pdev->dev;
 	rot->id = pdev->id;
 	variant_num = (rot->id < 0) ? 0 : rot->id;
 	rot->variant = drv_data->variant[variant_num];
@@ -1315,22 +1183,21 @@ static int rot_probe(struct platform_device *pdev)
 	/* Get memory resource and map SFR region. */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
-		rot_err("failed to find the registers\n");
-		ret = -ENOENT;
-		goto err_dev;
+		dev_err(&pdev->dev, "failed to find the registers\n");
+		return -ENXIO;
+
 	}
 
 	rot->regs_res = request_mem_region(res->start, resource_size(res),
 			dev_name(&pdev->dev));
 	if (!rot->regs_res) {
-		rot_err("failed to claim register region\n");
-		ret = -ENOENT;
-		goto err_dev;
+		dev_err(&pdev->dev, "failed to claim register region\n");
+		return -ENOENT;
 	}
 
 	rot->regs = ioremap(res->start, resource_size(res));
 	if (!rot->regs) {
-		rot_err("failed to map register\n");
+		dev_err(&pdev->dev, "failed to map register\n");
 		ret = -ENXIO;
 		goto err_req_region;
 	}
@@ -1338,32 +1205,26 @@ static int rot_probe(struct platform_device *pdev)
 	/* Get IRQ resource and register IRQ handler. */
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
-		rot_err("failed to get IRQ resource\n");
+		dev_err(&pdev->dev, "failed to get IRQ resource\n");
 		ret = -ENXIO;
 		goto err_ioremap;
 	}
-	rot->irq.num = res->start;
 
-	ret = request_irq(rot->irq.num, rot_irq_handler, 0,
+	ret = devm_request_irq(&pdev->dev, res->start, rot_irq_handler, 0,
 			pdev->name, rot);
 	if (ret) {
-		rot_err("failed to install irq(%d)\n", ret);
+		dev_err(&pdev->dev, "failed to install irq\n");
 		goto err_ioremap;
 	}
-
-	rot->wq = create_singlethread_workqueue(MODULE_NAME);
-	if (rot->wq == NULL) {
-		rot_err("failed to create workqueue for rotator\n");
-		goto err_irq;
-	}
-	INIT_WORK(&rot->ws, rot_work);
 
 	atomic_set(&rot->wdt.cnt, 0);
 	setup_timer(&rot->wdt.timer, rot_watchdog, (unsigned long)rot);
 
-	rot->clock = clk_get(&rot->pdev->dev, "rotator");
-	if (IS_ERR(rot->clock))
-		goto err_wq;
+	rot->clock = clk_get(rot->dev, "rotator");
+	if (IS_ERR(rot->clock)) {
+		dev_err(&pdev->dev, "failed to get clock for rotator\n");
+		goto err_ioremap;
+	}
 
 #if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
 	rot->vb2 = &rot_vb2_cma;
@@ -1372,95 +1233,77 @@ static int rot_probe(struct platform_device *pdev)
 #endif
 
 	rot->alloc_ctx = rot->vb2->init(rot);
+	platform_set_drvdata(pdev, rot);
+
 	ret = rot_register_m2m_device(rot);
-	if (ret)
-		goto err_irq;
-
-#ifdef CONFIG_PM_RUNTIME
-	pm_runtime_enable(&pdev->dev);
-#else
-	rot_runtime_resume(&pdev->dev);
-#endif
-
-	rot_info("rotator registered successfully\n");
-	printk(KERN_INFO "--%s\n", __func__);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to register m2m device\n");
+		ret = -EPERM;
+		goto err_clk;
+	}
+	dev_info(&pdev->dev, "rotator registered successfully\n");
 
 	return 0;
 
-err_wq:
-	destroy_workqueue(rot->wq);
-err_irq:
-	free_irq(rot->irq.num, rot);
+err_clk:
+	clk_put(rot->clock);
 err_ioremap:
 	iounmap(rot->regs);
 err_req_region:
 	release_mem_region(rot->regs_res->start,
 			resource_size(rot->regs_res));
-err_dev:
-	kfree(rot);
-
 	return ret;
 }
 
 static int rot_remove(struct platform_device *pdev)
 {
-	struct rot_dev *rot = (struct rot_dev *)platform_get_drvdata(pdev);
+	struct rot_dev *rot = platform_get_drvdata(pdev);
 
-	free_irq(rot->irq.num, rot);
 	clk_put(rot->clock);
-#ifdef CONFIG_PM_RUNTIME
-	pm_runtime_disable(&pdev->dev);
-#else
-	rot_runtime_suspend(&pdev->dev);
-#endif
 
 	if (timer_pending(&rot->wdt.timer))
 		del_timer(&rot->wdt.timer);
 
-	destroy_workqueue(rot->wq);
-	iounmap(rot->regs);
 	release_mem_region(rot->regs_res->start,
 			resource_size(rot->regs_res));
-
-	kfree(rot);
 
 	return 0;
 }
 
-struct exynos_rot_variant rot_variant_exynos = {
+static struct exynos_rot_variant rot_variant_exynos = {
 	.limit_rgb565 = {
 		.min_x = 16,
 		.min_y = 16,
-		.max_x = SZ_32K,
-		.max_y = SZ_32K,
+		.max_x = SZ_16K,
+		.max_y = SZ_16K,
 		.align = 2,
 	},
 	.limit_rgb888 = {
 		.min_x = 8,
 		.min_y = 8,
-		.max_x = SZ_16K,
-		.max_y = SZ_16K,
+		.max_x = SZ_8K,
+		.max_y = SZ_8K,
 		.align = 2,
 	},
 	.limit_yuv422 = {
 		.min_x = 16,
 		.min_y = 16,
-		.max_x = SZ_32K,
-		.max_y = SZ_32K,
+		.max_x = SZ_16K,
+		.max_y = SZ_16K,
 		.align = 2,
 	},
 	.limit_yuv420_2p = {
 		.min_x = 32,
 		.min_y = 32,
-		.max_x = SZ_64K,
-		.max_y = SZ_64K,
+		.max_x = SZ_32K,
+		.max_y = SZ_32K,
 		.align = 3,
 	},
 	.limit_yuv420_3p = {
 		.min_x = 64,
 		.min_y = 32,
-		.max_x = SZ_64K,
-		.max_y = SZ_64K,
+		.max_x = SZ_32K,
+		.max_y = SZ_32K,
 		.align = 4,
 	},
 };
@@ -1474,7 +1317,7 @@ static struct exynos_rot_driverdata rot_drvdata_exynos = {
 
 static struct platform_device_id rot_driver_ids[] = {
 	{
-		.name		= "exynos-rot",
+		.name		= MODULE_NAME,
 		.driver_data	= (unsigned long)&rot_drvdata_exynos,
 	},
 	{},
@@ -1493,10 +1336,7 @@ static struct platform_driver rot_driver = {
 
 static int __init rot_init(void)
 {
-	int ret = platform_driver_register(&rot_driver);
-	if (ret)
-		pr_err("platform driver register failed\n");
-	return ret;
+	return platform_driver_register(&rot_driver);
 }
 
 static void __exit rot_exit(void)

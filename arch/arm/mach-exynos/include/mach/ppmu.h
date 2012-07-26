@@ -63,13 +63,22 @@ enum ppmu_ch {
 	DMC1,
 };
 
+enum ppmu_type {
+	PPMU_MIF,
+	PPMU_INT,
+	PPMU_TYPE_END,
+};
+
 enum exynos4_ppmu {
 	PPMU_DMC0,
 	PPMU_DMC1,
 	PPMU_CPU,
+#ifdef CONFIG_ARCH_EXYNOS5
 	PPMU_DDR_C,
 	PPMU_DDR_R1,
 	PPMU_DDR_L,
+	PPMU_RIGHT0_BUS,
+#endif
 	PPMU_END,
 };
 

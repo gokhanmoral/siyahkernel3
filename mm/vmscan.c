@@ -178,6 +178,12 @@ static unsigned long zone_nr_lru_pages(struct zone *zone,
 	return zone_page_state(zone, NR_LRU_BASE + lru);
 }
 
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+extern int swap_inactive_pagelist(unsigned int page_swap_cluster);
+static unsigned int timer_counter = 0;
+#define COMPCACHE_DELAY_COUNTER 500
+#define COMPCACHE_GOOD_TIME 10000
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
 
 /*
  * Add a shrinker callback to be called from the vm
@@ -717,7 +723,10 @@ static noinline_for_stack void free_page_list(struct list_head *free_pages)
 /*
  * shrink_page_list() returns the number of reclaimed pages
  */
-static unsigned long shrink_page_list(struct list_head *page_list,
+#ifndef CONFIG_ZRAM_FOR_ANDROID
+static
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
+unsigned long shrink_page_list(struct list_head *page_list,
 				      struct zone *zone,
 				      struct scan_control *sc)
 {
@@ -1177,7 +1186,10 @@ static unsigned long isolate_pages_global(unsigned long nr,
  * clear_active_flags() is a helper for shrink_active_list(), clearing
  * any active bits from the pages in the list.
  */
-static unsigned long clear_active_flags(struct list_head *page_list,
+#ifndef CONFIG_ZRAM_FOR_ANDROID
+static
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
+unsigned long clear_active_flags(struct list_head *page_list,
 					unsigned int *count)
 {
 	int nr_active = 0;
@@ -1408,7 +1420,9 @@ shrink_inactive_list(unsigned long nr_to_scan, struct zone *zone,
 	unsigned long nr_taken;
 	unsigned long nr_anon;
 	unsigned long nr_file;
-
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+	struct timeval start, end;
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
 	while (unlikely(too_many_isolated(zone, file, sc))) {
 		congestion_wait(BLK_RW_ASYNC, HZ/10);
 
@@ -1416,6 +1430,34 @@ shrink_inactive_list(unsigned long nr_to_scan, struct zone *zone,
 		if (fatal_signal_pending(current))
 			return SWAP_CLUSTER_MAX;
 	}
+
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+	/*
+	  use optimized compcache to swap pages firstly
+	*/
+	if (timer_counter == 0) {
+		long long  swap_time = 0;
+		do_gettimeofday(&start);
+		nr_reclaimed = swap_inactive_pagelist(SWAP_CLUSTER_MAX);
+		do_gettimeofday(&end);
+		swap_time = (long long)
+				((end.tv_sec - start.tv_sec) * USEC_PER_SEC +
+				 (end.tv_usec - start.tv_usec));
+		/*
+		  if the used time of optimized compcache is too long,
+		  delay to use optimzed, use original one for sometime
+		*/
+		if (swap_time > COMPCACHE_GOOD_TIME)
+			timer_counter = COMPCACHE_DELAY_COUNTER;
+		if (nr_reclaimed >= SWAP_CLUSTER_MAX)
+			return nr_reclaimed;
+		/* if there is no background application can be swapped,
+		   use original one for sometime */
+		else
+			timer_counter = COMPCACHE_DELAY_COUNTER;
+	} else
+		timer_counter--;
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
 
 	set_reclaim_mode(priority, sc, false);
 	lru_add_drain();
@@ -1478,6 +1520,44 @@ shrink_inactive_list(unsigned long nr_to_scan, struct zone *zone,
 		trace_shrink_flags(file, sc->reclaim_mode));
 	return nr_reclaimed;
 }
+
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+unsigned long
+zone_id_shrink_pagelist(struct zone *zone, struct list_head *page_list)
+{
+	unsigned long nr_reclaimed = 0;
+	unsigned long nr_anon;
+	unsigned long nr_file;
+
+	struct scan_control sc = {
+		.gfp_mask = GFP_USER,
+		.may_writepage = 1,
+		.nr_to_reclaim = SWAP_CLUSTER_MAX,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.swappiness = vm_swappiness,
+		.order = 0,
+		.mem_cgroup = NULL,
+		.nodemask = NULL,
+	};
+
+	spin_lock_irq(&zone->lru_lock);
+
+	update_isolated_counts(zone, &sc, &nr_anon, &nr_file, page_list);
+
+	spin_unlock_irq(&zone->lru_lock);
+
+	nr_reclaimed = shrink_page_list(page_list, zone, &sc);
+
+	__count_zone_vm_events(PGSTEAL, zone, nr_reclaimed);
+
+	putback_lru_pages(zone, &sc, nr_anon, nr_file, page_list);
+
+	return nr_reclaimed;
+}
+
+EXPORT_SYMBOL(zone_id_shrink_pagelist);
+#endif /* CONFIG_ZRAM_FOR_ANDROID */
 
 /*
  * This moves pages from the active list to the inactive list.
@@ -2878,7 +2958,11 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 	struct reclaim_state reclaim_state;
 	struct scan_control sc = {
 		.gfp_mask = GFP_HIGHUSER_MOVABLE,
+#if defined(CONFIG_SLP) && defined(CONFIG_FULL_PAGE_RECLAIM)
+		.may_swap = 0,
+#else
 		.may_swap = 1,
+#endif
 		.may_unmap = 1,
 		.may_writepage = 1,
 		.nr_to_reclaim = nr_to_reclaim,

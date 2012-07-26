@@ -49,22 +49,22 @@
 
 #define mfc_plane_cookie(v, n)	vb2_cma_phys_plane_paddr(v, n)
 
-static inline void *s5p_mfc_mem_alloc(void *a, unsigned int s)
+static inline void *s5p_mfc_mem_allocate(void *a, unsigned int s)
 {
 	return vb2_cma_phys_memops.alloc(a, s);
 }
 
-static inline size_t s5p_mfc_mem_cookie(void *a, void *b)
+static inline size_t s5p_mfc_mem_dma_addr(void *b)
 {
 	return (size_t)vb2_cma_phys_memops.cookie(b);
 }
 
-static inline void s5p_mfc_mem_put(void *a, void *b)
+static inline void s5p_mfc_mem_free(void *b)
 {
 	vb2_cma_phys_memops.put(b);
 }
 
-static inline void *s5p_mfc_mem_vaddr(void *a, void *b)
+static inline void *s5p_mfc_mem_vaddr(void *b)
 {
 	return vb2_cma_phys_memops.vaddr(b);
 }
@@ -115,40 +115,52 @@ static inline void *s5p_mfc_mem_vaddr(void *a, void *b)
 #define MFC_CMA_BANK2_ALLOC_CTX MFC_BANK_B_ALLOC_CTX
 #define MFC_CMA_FW_ALLOC_CTX	MFC_BANK_A_ALLOC_CTX
 
-#define mfc_plane_cookie(v, n)	vb2_ion_plane_dvaddr(v, n)
-
-static inline void *s5p_mfc_mem_alloc(void *a, unsigned int s)
+static inline unsigned long mfc_plane_cookie(
+					struct vb2_buffer *v, unsigned int n)
 {
-	return vb2_ion_memops.alloc(a, s);
+	void *cookie = vb2_plane_cookie(v, n);
+	dma_addr_t dva;
+
+	WARN_ON(vb2_ion_dma_address(cookie, &dva) != 0);
+	return (unsigned long)dva;
 }
 
-static inline size_t s5p_mfc_mem_cookie(void *a, void *b)
+static inline void *s5p_mfc_mem_allocate(void *alloc_ctx, unsigned int size)
 {
-	return (size_t)vb2_ion_memops.cookie(b);
+	return vb2_ion_private_alloc(alloc_ctx, size);
 }
 
-static inline void s5p_mfc_mem_put(void *a, void *b)
+static inline dma_addr_t s5p_mfc_mem_dma_addr(void *cookie)
 {
-	vb2_ion_memops.put(b);
+	dma_addr_t dva = 0;
+
+	WARN_ON(vb2_ion_dma_address(cookie, &dva) != 0);
+
+	return dva;
 }
 
-static inline void *s5p_mfc_mem_vaddr(void *a, void *b)
+static inline void s5p_mfc_mem_free(void *cookie)
 {
-	return vb2_ion_memops.vaddr(b);
+	vb2_ion_private_free(cookie);
+}
+
+static inline void *s5p_mfc_mem_vaddr(void *cookie)
+{
+	return vb2_ion_private_vaddr(cookie);
 }
 #endif
 
 struct vb2_mem_ops *s5p_mfc_mem_ops(void);
 void **s5p_mfc_mem_init_multi(struct device *dev, unsigned int ctx_num);
-void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes);
+void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes, unsigned int ctx_num);
 
-void s5p_mfc_cache_clean(void *alloc_ctx);
-void s5p_mfc_cache_inv(void *alloc_ctx);
+void s5p_mfc_cache_clean_fw(void *cookie);
+void s5p_mfc_cache_clean(struct vb2_buffer *vb, int plane_no);
+void s5p_mfc_cache_inv(struct vb2_buffer *vb, int plane_no);
 
 void s5p_mfc_mem_suspend(void *alloc_ctx);
-void s5p_mfc_mem_resume(void *alloc_ctx);
+int s5p_mfc_mem_resume(void *alloc_ctx);
 
 void s5p_mfc_mem_set_cacheable(void *alloc_ctx, bool cacheable);
-void s5p_mfc_mem_get_cacheable(void *alloc_ctx);
 int s5p_mfc_mem_cache_flush(struct vb2_buffer *vb, u32 plane_no);
 #endif /* __S5P_MFC_MEM_H_ */

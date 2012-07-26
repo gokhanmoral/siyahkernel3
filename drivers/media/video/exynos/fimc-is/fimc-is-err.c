@@ -39,6 +39,10 @@ void fimc_is_print_param_err_name(u32 err)
 		printk(KERN_ERR
 		"ERROR_COMMON_SETFILE_ADJUST : Setfile isn't adjusted!!\n");
 		break;
+	case ERROR_COMMON_SETFILE_INDEX:
+		printk(KERN_ERR
+		"ERROR_COMMON_SETFILE_INDEX : Index of setfile is not valid (0~MAX_SETFILE_NUM-1)!!\n");
+		break;
 	case ERROR_COMMON_INPUT_PATH:
 		printk(KERN_ERR
 		"ERROR_COMMON_INPUT_PATH : Input path can be changed in ready state!!\n");
@@ -46,6 +50,10 @@ void fimc_is_print_param_err_name(u32 err)
 	case ERROR_COMMON_INPUT_INIT:
 		printk(KERN_ERR
 		"ERROR_COMMON_INPUT_INIT : IP can not start if input path is not set!!\n");
+		break;
+	case ERROR_COMMON_OUTPUT_PATH:
+		printk(KERN_ERR
+		"ERROR_COMMON_OUTPUT_PATH : Output path can be changed in ready state (stop)!!\n");
 		break;
 	case ERROR_COMMON_OUTPUT_INIT:
 		printk(KERN_ERR
@@ -296,9 +304,6 @@ void fimc_is_print_err_number(u32 num_err)
 
 	switch (num_err) {
 	/* General */
-	case IS_ERROR_INVALID_PARAMETER:
-		printk(KERN_ERR "IS_ERROR_INVALID_PARAMETER !!\n");
-		break;
 	case IS_ERROR_INVALID_COMMAND:
 		printk(KERN_ERR "IS_ERROR_INVALID_COMMAND !!\n");
 		break;
@@ -311,8 +316,14 @@ void fimc_is_print_err_number(u32 num_err)
 	case IS_ERROR_INVALID_SENSORID:
 		printk(KERN_ERR "IS_ERROR_INVALID_SENSORID !!\n");
 		break;
-	case IS_ERROR_INVALID_STATE:
-		printk(KERN_ERR "IS_ERROR_INVALID_STATE !!\n");
+	case IS_ERROR_INVALID_MODE_CHANGE:
+		printk(KERN_ERR "IS_ERROR_INVALID_MODE_CHANGE !!\n");
+		break;
+	case IS_ERROR_INVALID_MAGIC_NUMBER:
+		printk(KERN_ERR "IS_ERROR_INVALID_MAGIC_NUMBER !!\n");
+		break;
+	case IS_ERROR_INVALID_SETFILE_HDR:
+		printk(KERN_ERR "IS_ERROR_INVALID_SETFILE_HDR !!\n");
 		break;
 	case IS_ERROR_BUSY:
 		printk(KERN_ERR "IS_ERROR_BUSY !!\n");

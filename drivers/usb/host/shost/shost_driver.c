@@ -255,6 +255,7 @@ static int s5pc110_stop_otg(void)
 	if (otgdata && otgdata->phy_exit && otgdata->pdev) {
 		pr_info("otg phy_off\n");
 		otgdata->phy_exit(0);
+		clk_disable(otgdata->clk);
 	}
 
 	/* 3. workqueue */
@@ -291,6 +292,14 @@ static int s5pc110_otg_drv_probe(struct platform_device *pdev)
 	struct sec_otghost_data *otg_data = dev_get_platdata(&pdev->dev);
 	g_pdev = pdev;
 
+	otg_data->clk = clk_get(&pdev->dev, "usbotg");
+
+	if (IS_ERR(otg_data->clk)) {
+		otg_err(OTG_DBG_OTGHCDI_DRIVER,
+			"Failed to get clock\n");
+		return PTR_RET(otg_data->clk);
+	}
+
 	pr_info("otg host_probe start %p\n", s5pc110_start_otg);
 	otg_data->start = s5pc110_start_otg;
 	otg_data->stop = s5pc110_stop_otg;
@@ -319,6 +328,9 @@ static int s5pc110_otg_drv_probe(struct platform_device *pdev)
 
 static int s5pc110_otg_drv_remove(struct platform_device *pdev)
 {
+	struct sec_otghost_data *otg_data = dev_get_platdata(&pdev->dev);
+
+	clk_put(otg_data->clk);
 	return USB_ERR_SUCCESS;
 }
 

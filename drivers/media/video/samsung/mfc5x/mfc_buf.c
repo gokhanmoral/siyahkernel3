@@ -37,7 +37,11 @@ static struct list_head mfc_alloc_head[MFC_MAX_MEM_PORT_NUM];
 /* The free node list sorted by real address */
 static struct list_head mfc_free_head[MFC_MAX_MEM_PORT_NUM];
 
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 static enum MFC_BUF_ALLOC_SCHEME buf_alloc_scheme = MBS_FIRST_FIT;
+#else
+static enum MFC_BUF_ALLOC_SCHEME buf_alloc_scheme = MBS_BEST_FIT;
+#endif
 
 /* FIXME: test locking, add locking mechanisim */
 /*
@@ -109,7 +113,7 @@ void mfc_print_buf(void)
 #endif
 }
 
-static int mfc_put_free_buf(unsigned int addr, int size, int port)
+static int mfc_put_free_buf(unsigned long addr, unsigned int size, int port)
 {
 	struct list_head *pos, *nxt;
 	struct mfc_free_buffer *free;
@@ -118,7 +122,10 @@ static int mfc_put_free_buf(unsigned int addr, int size, int port)
 	/* 0x00: not merged, 0x01: prev merged, 0x02: next merged */
 	int merged = 0x00;
 
-	mfc_dbg("addr: 0x%08x, size: %d, port: %d\n", addr, size, port);
+	if ((!size) || (port >= MFC_MAX_MEM_PORT_NUM))
+		return -EINVAL;
+
+	mfc_dbg("addr: 0x%08lx, size: %d, port: %d\n", addr, size, port);
 
 	list_for_each_safe(pos, nxt, &mfc_free_head[port]) {
 		next = list_entry(pos, struct mfc_free_buffer, list);
@@ -185,13 +192,13 @@ static int mfc_put_free_buf(unsigned int addr, int size, int port)
 	return 0;
 }
 
-static unsigned int mfc_get_free_buf(int size, int align, int port)
+static unsigned long mfc_get_free_buf(unsigned int size, int align, int port)
 {
 	struct list_head *pos, *nxt;
 	struct mfc_free_buffer *free;
 	struct mfc_free_buffer *match = NULL;
 	int align_size = 0;
-	unsigned int addr = 0;
+	unsigned long addr = 0;
 
 	mfc_dbg("size: %d, align: %d, port: %d\n",
 			size, align, port);
@@ -271,27 +278,43 @@ static unsigned int mfc_get_free_buf(int size, int align, int port)
 
 int mfc_init_buf(void)
 {
-#ifndef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
+#ifndef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 	int port;
 #endif
 	int ret = 0;
 
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 	INIT_LIST_HEAD(&mfc_alloc_head[0]);
 	INIT_LIST_HEAD(&mfc_free_head[0]);
 
-	ret = mfc_put_free_buf(mfc_mem_data_base(0),
-		mfc_mem_data_size(0), 0);
+	if (mfc_put_free_buf(mfc_mem_data_base(0),
+		mfc_mem_data_size(0), 0) < 0)
+		mfc_err("failed to add free buffer: [0x%08lx: %d]\n",
+			mfc_mem_data_base(0), mfc_mem_data_size(0));
 
-	ret = mfc_put_free_buf(mfc_mem_data_base(1),
-		mfc_mem_data_size(1), 0);
+	if (mfc_put_free_buf(mfc_mem_data_base(1),
+		mfc_mem_data_size(1), 0) < 0)
+		mfc_dbg("failed to add free buffer: [0x%08lx: %d]\n",
+			mfc_mem_data_base(1), mfc_mem_data_size(1));
+
+	if (list_empty(&mfc_free_head[0]))
+		ret = -1;
+
 #else
 	for (port = 0; port < mfc_mem_count(); port++) {
 		INIT_LIST_HEAD(&mfc_alloc_head[port]);
 		INIT_LIST_HEAD(&mfc_free_head[port]);
 
-		ret = mfc_put_free_buf(mfc_mem_data_base(port),
-			mfc_mem_data_size(port), port);
+		if (mfc_put_free_buf(mfc_mem_data_base(port),
+			mfc_mem_data_size(port), port) < 0)
+			mfc_err("failed to add free buffer: [0x%08lx: %d]\n",
+				mfc_mem_data_base(port),
+				mfc_mem_data_size(port));
+	}
+
+	for (port = 0; port < mfc_mem_count(); port++) {
+		if (list_empty(&mfc_free_head[port]))
+			ret = -1;
 	}
 #endif
 
@@ -432,9 +455,9 @@ void mfc_merge_buf(void)
 
 /* FIXME: port auto select, return values */
 struct mfc_alloc_buffer *_mfc_alloc_buf(
-	struct mfc_inst_ctx *ctx, int size, int align, int flag)
+	struct mfc_inst_ctx *ctx, unsigned int size, int align, int flag)
 {
-	unsigned int addr;
+	unsigned long addr;
 	struct mfc_alloc_buffer *alloc;
 	int port = flag & 0xFFFF;
 #if defined(CONFIG_VIDEO_MFC_VCM_UMP)
@@ -447,7 +470,7 @@ struct mfc_alloc_buffer *_mfc_alloc_buf(
 	unsigned long flags;
 	*/
 
-	if (size <= 0)
+	if (!size)
 		return NULL;
 
 	alloc = (struct mfc_alloc_buffer *)
@@ -466,7 +489,7 @@ struct mfc_alloc_buffer *_mfc_alloc_buf(
 
 	addr = mfc_get_free_buf(size, align, port);
 
-	mfc_dbg("mfc_get_free_buf: 0x%08x\n", addr);
+	mfc_dbg("mfc_get_free_buf: 0x%08lx\n", addr);
 
 	if (!addr) {
 		mfc_dbg("cannot get suitable free buffer\n");
@@ -600,7 +623,8 @@ unsigned int mfc_vcm_bind_from_others(struct mfc_inst_ctx *ctx,
 				struct mfc_buf_alloc_arg *args, int flag)
 {
 	int ret;
-	unsigned int addr, size;
+	unsigned long addr;
+	unsigned int size;
 	unsigned int secure_id = args->secure_id;
 	int port = flag & 0xFFFF;
 
@@ -638,7 +662,7 @@ unsigned int mfc_vcm_bind_from_others(struct mfc_inst_ctx *ctx,
 		mfc_dbg("cannot get suitable free buffer\n");
 		goto err_ret_alloc;
 	}
-	mfc_dbg("mfc_get_free_buf: 0x%08x\n", addr);
+	mfc_dbg("mfc_get_free_buf: 0x%08lx\n", addr);
 
 	s_res = kzalloc(sizeof(struct vcm_mmu_res), GFP_KERNEL);
 	if (!s_res) {

@@ -47,9 +47,12 @@ extern int onedram_rel_sem(void);
 extern int onedram_read_sem(void);
 extern void onedram_get_vbase(void **);
 
+#if !defined(CONFIG_MACH_Q1_BD)
+extern unsigned int lpcharge;
+#endif
 
 #define ONEDRAM_GET_AUTH _IOW('o', 0x20, u32)
-#define ONEDRAM_PUT_AUTH _IO('o', 0x21)
+#define ONEDRAM_CP_CRASH _IO('o', 0x21)
 #define ONEDRAM_REL_SEM _IO('o', 0x22)
 #define ONEDRAM_SEMA_INIT _IO('o', 0x23)
 

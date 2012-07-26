@@ -22,6 +22,7 @@
 #endif
 #include <plat/fb-s5p.h>
 #endif
+#include <mach/cpufreq.h>
 
 #define S3CFB_NAME		"s3cfb"
 #define S3CFB_AVALUE(r, g, b)	(((r & 0xf) << 8) | \
@@ -36,10 +37,14 @@
 #else
 #define FIMD_MAX		1
 #endif
-#define MAX_BUFFER_NUM		3
+#define MAX_BUFFER_NUM	3
 
 #define POWER_ON		1
 #define POWER_OFF		0
+
+#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD)
+#define FEATURE_BUSFREQ_LOCK /* Now, this feature only avaliable in 4210 */
+#endif
 
 enum s3cfb_data_path_t {
 	DATA_PATH_FIFO = 0,
@@ -159,8 +164,13 @@ struct s3cfb_fimd_desc {
 struct s3cfb_global {
 	void __iomem		*regs;
 	void __iomem		*regs_org;
+	void __iomem		*ielcd_regs;
+	void			*data;
 	struct mutex		lock;
 	struct device		*dev;
+#ifdef CONFIG_BUSFREQ_OPP
+	struct device           *bus_dev;
+#endif
 	struct clk		*clock;
 	int			irq;
 	wait_queue_head_t	wq;
@@ -175,6 +185,10 @@ struct s3cfb_global {
 #ifdef CONFIG_HAS_WAKELOCK
 	struct early_suspend	early_suspend;
 	struct wake_lock	idle_lock;
+#endif
+#ifdef FEATURE_BUSFREQ_LOCK
+	atomic_t		busfreq_lock_cnt;	/* Bus frequency Lock count */
+	int			busfreq_flag;		/* context bus frequency flag*/
 #endif
 };
 
@@ -213,6 +227,10 @@ struct s3cfb_user_chroma {
 	unsigned char	blue;
 };
 
+#define BLENDING_NONE			0x0100
+#define BLENDING_PREMULT		0x0105
+#define BLENDING_COVERAGE		0x0405
+
 /* IOCTL commands */
 #define S3CFB_WIN_POSITION		_IOW('F', 203, \
 						struct s3cfb_user_window)
@@ -237,6 +255,7 @@ struct s3cfb_user_chroma {
 #if defined(CONFIG_CPU_EXYNOS4210)
 #define S3CFB_SET_WIN_MEM_START		_IOW('F', 312, u32)
 #endif
+#define S3CFB_SET_ALPHA_MODE		_IOW('F', 313, unsigned int)
 
 extern struct fb_ops			s3cfb_ops;
 extern inline struct s3cfb_global	*get_fimd_global(int id);
@@ -305,6 +324,8 @@ extern int s3cfb_window_off(struct s3cfb_global *ctrl, int id);
 extern int s3cfb_win_map_on(struct s3cfb_global *ctrl, int id, int color);
 extern int s3cfb_win_map_off(struct s3cfb_global *ctrl, int id);
 extern int s3cfb_set_window_control(struct s3cfb_global *ctrl, int id);
+extern int s3cfb_set_alpha_mode(struct s3cfb_global *ctrl, int id, unsigned int mode);
+extern int s3cfb_set_alpha_value_width(struct s3cfb_global *ctrl, int id);
 extern int s3cfb_set_alpha_blending(struct s3cfb_global *ctrl, int id);
 extern int s3cfb_set_alpha_value(struct s3cfb_global *ctrl, int value);
 extern int s3cfb_set_window_position(struct s3cfb_global *ctrl, int id);
@@ -315,12 +336,11 @@ extern int s3cfb_set_buffer_size(struct s3cfb_global *ctrl, int id);
 extern int s3cfb_set_chroma_key(struct s3cfb_global *ctrl, int id);
 extern int s3cfb_channel_localpath_on(struct s3cfb_global *ctrl, int id);
 extern int s3cfb_channel_localpath_off(struct s3cfb_global *ctrl, int id);
-#ifdef CONFIG_FB_S5P_MIPI_DSIM
-extern void s3cfb_set_trigger(struct s3cfb_global *ctrl);
-extern void s3cfb_trigger(void);
-#endif
 extern int s3cfb_check_vsync_status(struct s3cfb_global *ctrl);
+extern int s3cfb_set_dualrgb(struct s3cfb_global *ctrl, int mode);
+#ifdef CONFIG_FB_S5P_MIPI_DSIM
 extern int s3cfb_vsync_status_check(void);
+#endif
 
 #ifdef CONFIG_HAS_WAKELOCK
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -335,12 +355,17 @@ extern void s3cfb_set_lcd_info(struct s3cfb_global *ctrl);
 #ifdef CONFIG_FB_S5P_MIPI_DSIM
 extern void s5p_dsim_early_suspend(void);
 extern void s5p_dsim_late_resume(void);
+#ifdef CONFIG_FB_S5P_S6E63M0
+extern void s6e63m0_early_suspend(void);
+extern void s6e63m0_late_resume(void);
+#else
 extern void s6e8ax0_early_suspend(void);
 extern void s6e8ax0_late_resume(void);
+#endif
 extern int s5p_dsim_fifo_clear(void);
-extern void s5p_dsim_frame_done_interrupt_enable(u8 enable);
 extern void set_dsim_hs_clk_toggle_count(u8 count);
-extern void set_dsim_lcd_enabled(void);
+extern void set_dsim_lcd_enabled(u8 enable);
+extern u32 read_dsim_register(u32 num);
 #endif
 
 
@@ -352,5 +377,12 @@ extern void ams369fg06_gpio_cfg(void);
 #elif defined(CONFIG_FB_S5P_LMS501KF03)
 extern void lms501kf03_ldi_disable(void);
 #endif
+
+#if defined(CONFIG_FB_S5P_S6C1372) || defined(CONFIG_FB_S5P_S6F1202A)
+extern void s5c1372_ldi_enable(void);
+extern void s5c1372_ldi_disable(void);
+#endif
+
+extern int lcdfreq_init(struct fb_info *fb);
 
 #endif /* _S3CFB_H */

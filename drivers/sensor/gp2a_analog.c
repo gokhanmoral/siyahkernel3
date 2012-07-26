@@ -18,13 +18,10 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/i2c.h>
-#include <linux/fs.h>
 #include <linux/errno.h>
 #include <linux/device.h>
-#include <linux/delay.h>
 #include <linux/miscdevice.h>
 #include <linux/platform_device.h>
-#include <linux/leds.h>
 #include <linux/gpio.h>
 #include <linux/wakelock.h>
 #include <linux/slab.h>
@@ -53,7 +50,6 @@
 #define gp2a_dbgmsg(str, args...) pr_debug("%s: " str, __func__, ##args)
 
 #define ADC_BUFFER_NUM		6
-#define LIGHT_BUFFER_NUM	5
 
 /* ADDSEL is LOW */
 #define REGS_PROX		0x0 /* Read  Only */
@@ -70,13 +66,6 @@
 #if defined(CONFIG_MACH_Q1_BD)
 /* light sensor adc channel */
 #define ALS_IOUT_ADC		2
-
-static const int adc_table[4] = {
-	360,
-	930,
-	1476,
-	2010,
-};
 #endif
 
 static u8 reg_defaults[5] = {
@@ -115,8 +104,6 @@ struct gp2a_data {
 	struct workqueue_struct *wq;
 	struct mutex adc_lock;
 	char val_state;
-	int light_count;
-	int light_buffer;
 	struct s3c_adc_client *padc;
 	struct platform_device *pdev_gp2a_adc;
 };
@@ -154,8 +141,6 @@ static void gp2a_light_enable(struct gp2a_data *gp2a)
 {
 	gp2a_dbgmsg("starting poll timer, delay %lldns\n",
 		    ktime_to_ns(gp2a->light_poll_delay));
-	gp2a->light_count = 0;
-	gp2a->light_buffer = 0;
 	hrtimer_start(&gp2a->timer, gp2a->light_poll_delay, HRTIMER_MODE_REL);
 }
 
@@ -383,7 +368,6 @@ static int lightsensor_get_adcvalue(struct gp2a_data *gp2a)
 
 static void gp2a_work_func_light(struct work_struct *work)
 {
-	int i;
 	struct gp2a_data *gp2a = container_of(work, struct gp2a_data,
 					      work_light);
 	int adc = 0;
@@ -391,20 +375,9 @@ static void gp2a_work_func_light(struct work_struct *work)
 	mutex_lock(&gp2a->adc_lock);
 	adc = lightsensor_get_adcvalue(gp2a);
 	mutex_unlock(&gp2a->adc_lock);
-	for (i = 0; ARRAY_SIZE(adc_table); i++)
-		if (adc <= adc_table[i])
-			break;
 
-	if (gp2a->light_buffer == i) {
-		if (gp2a->light_count++ == LIGHT_BUFFER_NUM) {
-			input_report_abs(gp2a->light_input_dev, ABS_MISC, adc);
-			input_sync(gp2a->light_input_dev);
-			gp2a->light_count = 0;
-		}
-	} else {
-		gp2a->light_buffer = i;
-		gp2a->light_count = 0;
-	}
+	input_report_abs(gp2a->light_input_dev, ABS_MISC, adc);
+	input_sync(gp2a->light_input_dev);
 }
 
 /* This function is for light sensor.  It operates every a few seconds.

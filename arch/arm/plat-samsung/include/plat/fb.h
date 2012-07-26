@@ -36,6 +36,7 @@
 
 #define S3CFB_GET_ION_USER_HANDLE	_IOWR('F', 208, \
 						struct s3c_fb_user_ion_client)
+#define S3CFB_PAN_DISPLAY_INDEX		_IOW('F', 209, __u32)
 
 #endif
 /**

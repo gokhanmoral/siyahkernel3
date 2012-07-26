@@ -63,6 +63,29 @@ struct s3c_pwm_pdata {
 };
 
 struct s3c_pwm_pdata pwm_data[] = {
+#ifdef CONFIG_ARCH_EXYNOS5
+	{
+		.gpio_no = EXYNOS5_GPB2(0),
+		.gpio_name = "GPB",
+		.gpio_set_value = GPD0_0_TOUT,
+	}, {
+		.gpio_no = EXYNOS5_GPB2(1),
+		.gpio_name = "GPB",
+		.gpio_set_value = GPD0_1_TOUT,
+	}, {
+		.gpio_no = EXYNOS5_GPB2(2),
+		.gpio_name = "GPB",
+		.gpio_set_value = GPD0_2_TOUT,
+	}, {
+		.gpio_no = EXYNOS5_GPB2(3),
+		.gpio_name = "GPB",
+		.gpio_set_value = GPD0_3_TOUT,
+	}, {
+		.gpio_no = 0,
+		.gpio_name = NULL,
+		.gpio_set_value = 0,
+	}
+#else
 	{
 		.gpio_no = EXYNOS4_GPD0(0),
 		.gpio_name = "GPD",
@@ -84,6 +107,7 @@ struct s3c_pwm_pdata pwm_data[] = {
 		.gpio_name = NULL,
 		.gpio_set_value = 0,
 	}
+#endif
 };
 
 struct platform_device s3c_device_timer[] = {

@@ -20,19 +20,22 @@
 
 int init_shm(struct mfc_inst_ctx *ctx)
 {
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 	struct mfc_dev *dev = ctx->dev;
 	struct mfc_alloc_buffer *alloc;
 
-	if (dev->drm_playback) {
-		ctx->shm = dev->drm_info.addr + MFC_SHM_OFS_DRM;
-		ctx->shmofs = mfc_mem_base_ofs(dev->drm_info.base + MFC_SHM_OFS_DRM);
+	if (ctx->drm_flag) {
+		ctx->shm = (unsigned char *)(dev->drm_info.addr + MFC_SHM_OFS_DRM
+			+ MFC_SHM_SIZE*ctx->id);
+		ctx->shmofs = mfc_mem_ext_ofs(dev->drm_info.base + MFC_SHM_OFS_DRM
+			+ MFC_SHM_SIZE*ctx->id, MFC_SHM_SIZE, PORT_A);
 
-		memset((void *)ctx->shm, 0, MFC_SHM_SIZE);
+		if (ctx->shmofs >= 0) {
+			memset((void *)ctx->shm, 0, MFC_SHM_SIZE);
+			mfc_mem_cache_clean((void *)ctx->shm, MFC_SHM_SIZE);
 
-		mfc_mem_cache_clean((void *)ctx->shm, MFC_SHM_SIZE);
-
-		return 0;
+			return 0;
+		}
 	} else {
 		alloc = _mfc_alloc_buf(ctx, MFC_SHM_SIZE, ALIGN_4B, MBT_SHM | PORT_A);
 
@@ -41,7 +44,6 @@ int init_shm(struct mfc_inst_ctx *ctx)
 			ctx->shmofs = mfc_mem_base_ofs(alloc->real);
 
 			memset((void *)ctx->shm, 0, MFC_SHM_SIZE);
-
 			mfc_mem_cache_clean((void *)ctx->shm, MFC_SHM_SIZE);
 
 			return 0;
@@ -57,13 +59,11 @@ int init_shm(struct mfc_inst_ctx *ctx)
 		ctx->shmofs = mfc_mem_base_ofs(alloc->real);
 
 		memset((void *)ctx->shm, 0, MFC_SHM_SIZE);
-
 		mfc_mem_cache_clean((void *)ctx->shm, MFC_SHM_SIZE);
 
 		return 0;
 	}
 #endif
-
 	mfc_err("failed alloc shared memory buffer\n");
 
 	ctx->shm = NULL;

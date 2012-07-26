@@ -14,17 +14,18 @@
 #ifndef FIMC_IS_ERR_H_
 #define FIMC_IS_ERR_H_
 
-#define IS_ERROR_VER 010 /* IS ERROR VERSION 0.10 */
+#define IS_ERROR_VER 011 /* IS ERROR VERSION 0.11 */
 
 #define IS_ERROR_SUCCESS		0
 /* General 1 ~ 100 */
-#define IS_ERROR_INVALID_PARAMETER	(IS_ERROR_SUCCESS + 1)
-#define IS_ERROR_INVALID_COMMAND	(IS_ERROR_INVALID_PARAMETER + 1)
+#define IS_ERROR_INVALID_COMMAND	(IS_ERROR_SUCCESS + 1)
 #define IS_ERROR_REQUEST_FAIL		(IS_ERROR_INVALID_COMMAND + 1)
 #define IS_ERROR_INVALID_SCENARIO	(IS_ERROR_REQUEST_FAIL + 1)
 #define IS_ERROR_INVALID_SENSORID	(IS_ERROR_INVALID_SCENARIO+1)
-#define IS_ERROR_INVALID_STATE		(IS_ERROR_INVALID_SENSORID+1)
-#define IS_ERROR_BUSY			(IS_ERROR_INVALID_STATE + 1)
+#define IS_ERROR_INVALID_MODE_CHANGE    (IS_ERROR_INVALID_SENSORID+1)
+#define IS_ERROR_INVALID_MAGIC_NUMBER	(IS_ERROR_INVALID_MODE_CHANGE+1)
+#define IS_ERROR_INVALID_SETFILE_HDR	(IS_ERROR_INVALID_MAGIC_NUMBER+1)
+#define IS_ERROR_BUSY			(IS_ERROR_INVALID_SETFILE_HDR + 1)
 #define IS_ERROR_SET_PARAMETER		(IS_ERROR_BUSY + 1)
 #define IS_ERROR_INVALID_PATH		(IS_ERROR_SET_PARAMETER + 1)
 #define IS_ERROR_OPEN_SENSOR_FAIL	(IS_ERROR_INVALID_PATH + 1)
@@ -123,27 +124,32 @@ enum error {
 	ERROR_COMMON_SETFILE_LOAD	= 3,
 	/* setfile is not Adjusted before runnng. */
 	ERROR_COMMON_SETFILE_ADJUST	= 4,
+	/* Index of setfile is not valid (0~MAX_SETFILE_NUM-1) */
+	ERROR_COMMON_SETFILE_INDEX	= 5,
 	/* Input path can be changed in ready state(stop) */
-	ERROR_COMMON_INPUT_PATH		= 5,
+	ERROR_COMMON_INPUT_PATH		= 6,
 	/* IP can not start if input path is not set */
-	ERROR_COMMON_INPUT_INIT		= 6,
+	ERROR_COMMON_INPUT_INIT		= 7,
 	/* Output path can be changed in ready state (stop) */
-	ERROR_COMMON_OUTPUT_PATH	= 7,
+	ERROR_COMMON_OUTPUT_PATH	= 8,
 	/* IP can not start if output path is not set */
-	ERROR_COMMON_OUTPUT_INIT	= 8,
+	ERROR_COMMON_OUTPUT_INIT	= 9,
 
 	ERROR_CONTROL_NO		= ERROR_COMMON_NO,
 	ERROR_CONTROL_BYPASS		= 11,	/* Enable or Disable */
 
 	ERROR_OTF_INPUT_NO		= ERROR_COMMON_NO,
+	ERROR_OTF_INPUT_CMD		= 21,
 	/* invalid format  (DRC: YUV444, FD: YUV444, 422, 420) */
-	ERROR_OTF_INPUT_FORMAT		= 21,
+	ERROR_OTF_INPUT_FORMAT		= 22,
 	/* invalid width (DRC: 128~8192, FD: 32~8190) */
-	ERROR_OTF_INPUT_WIDTH		= 22,
+	ERROR_OTF_INPUT_WIDTH		= 23,
 	/* invalid height (DRC: 64~8192, FD: 16~8190) */
-	ERROR_OTF_INPUT_HEIGHT		= 23,
+	ERROR_OTF_INPUT_HEIGHT		= 24,
 	/* invalid bit-width (DRC: 8~12bits, FD: 8bit) */
-	ERROR_OTF_INPUT_BIT_WIDTH	= 24,
+	ERROR_OTF_INPUT_BIT_WIDTH	= 25,
+	/* invalid FrameTime for ISP */
+	ERROR_OTF_INPUT_USER_FRAMETIIME	= 26,
 
 	ERROR_DMA_INPUT_NO		= ERROR_COMMON_NO,
 	/* invalid width (DRC: 128~8192, FD: 32~8190) */
@@ -226,8 +232,18 @@ enum error {
 	ERROR_FD_RESULT			= 414,	/* PARAM_FdResultStr can
 						be only applied in ready-state
 						or stream off */
-	ERROR_FD_MODE			= 415	/* PARAM_FdModeStr can be only
+	ERROR_FD_MODE			= 415,	/* PARAM_FdModeStr can be only
 						applied in ready-state or
 						stream off */
+	/* Scaler Error  (500 ~ 599) */
+	ERROR_SCALER_NO					= ERROR_COMMON_NO,
+	ERROR_SCALER_DMA_OUTSEL				= 501,
+	ERROR_SCALER_H_RATIO				= 502,
+	ERROR_SCALER_V_RATIO				= 503,
+
+	ERROR_SCALER_IMAGE_EFFECT			= 510,
+
+	ERROR_SCALER_ROTATE				= 520,
+	ERROR_SCALER_FLIP				= 521,
 };
 #endif

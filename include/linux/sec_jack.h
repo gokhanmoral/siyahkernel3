@@ -55,6 +55,11 @@ struct sec_jack_platform_data {
 	bool det_active_high;
 	bool send_end_active_high;
 };
+
+#if defined(CONFIG_STMPE811_ADC)
+u16 stmpe811_get_adc_data(u8 channel);
+#endif
+
 #endif
 
 #endif

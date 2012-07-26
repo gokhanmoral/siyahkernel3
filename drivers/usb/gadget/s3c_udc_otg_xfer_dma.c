@@ -52,15 +52,21 @@ static u8 test_pkt[TEST_PKT_SIZE] __attribute__((aligned(8))) = {
 
 static void s3c_udc_ep_set_stall(struct s3c_ep *ep);
 
-#if defined(CONFIG_BATTERY_SAMSUNG) || defined(CONFIG_BATTERY_SAMSUNG_S2PLUS)
+#if defined(CONFIG_BATTERY_SAMSUNG)
+u32 cable_connected;
+
 void s3c_udc_cable_connect(struct s3c_udc *dev)
 {
 	samsung_cable_check_status(1);
+	cable_connected = 1;
 }
 
 void s3c_udc_cable_disconnect(struct s3c_udc *dev)
 {
-	samsung_cable_check_status(0);
+	if (cable_connected) {
+		samsung_cable_check_status(0);
+		cable_connected = 0;
+	}
 }
 #endif
 
@@ -162,7 +168,6 @@ static int setdma_tx(struct s3c_ep *ep, struct s3c_request *req)
 		pktcnt = (length - 1)/(ep->ep.maxpacket) + 1;
 
 #ifdef DED_TX_FIFO
-
 	/* Write the FIFO number to be used for this endpoint */
 	ctrl = __raw_readl(udc->regs + S3C_UDC_OTG_DIEPCTL(ep_num));
 	ctrl &= ~DEPCTL_TXFNUM_MASK;;
@@ -505,6 +510,16 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 		DEBUG_ISR("\tReset interrupt - (GOTGCTL):0x%x\n", usb_status);
 		__raw_writel(INT_RESET, dev->regs + S3C_UDC_OTG_GINTSTS);
 
+#if defined(CONFIG_MACH_M0_CMCC)
+		pr_info("[YSJ][%s] intr_status=0x%x, "
+					"gintmsk=0x%x, "
+					"usb_status=0x%x\n",
+					__func__,
+					intr_status,
+					gintmsk,
+					usb_status);
+#endif
+
 		set_conf_done = 0;
 
 		if ((usb_status & 0xc0000) == (0x3 << 18)) {
@@ -530,14 +545,21 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 			if (dev->driver) {
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 				cdev = get_gadget_data(&dev->gadget);
-				if (cdev != NULL)
+				if (cdev != NULL) {
 					cdev->mute_switch = 0;
+					cdev->force_disconnect = 1;
+				}
 #endif
 				spin_unlock(&dev->lock);
+#if defined(CONFIG_MACH_M0_CMCC)
+				pr_info("[YSJ][%s] disconnect gadget",
+					__func__);
+#endif
 				dev->driver->disconnect(&dev->gadget);
 				spin_lock(&dev->lock);
 			}
-#if defined(CONFIG_BATTERY_SAMSUNG) || defined(CONFIG_BATTERY_SAMSUNG_S2PLUS)
+
+#if defined(CONFIG_BATTERY_SAMSUNG)
 			s3c_udc_cable_disconnect(dev);
 #endif
 		}
@@ -822,7 +844,7 @@ static int s3c_udc_get_status(struct s3c_udc *dev,
 		break;
 
 	case USB_RECIP_DEVICE:
-		g_status = 0x1; /* Self powered */
+		g_status = 0x0;
 		DEBUG_SETUP("\tGET_STATUS: USB_RECIP_DEVICE,"
 			"g_stauts = %d\n", g_status);
 		break;
@@ -1324,7 +1346,7 @@ static void s3c_ep0_setup(struct s3c_udc *dev)
 			reset_available = 1;
 			dev->req_config = 1;
 		}
-#if defined(CONFIG_BATTERY_SAMSUNG) || defined(CONFIG_BATTERY_SAMSUNG_S2PLUS)
+#if defined(CONFIG_BATTERY_SAMSUNG)
 		s3c_udc_cable_connect(dev);
 #endif
 		break;
@@ -1386,7 +1408,6 @@ static void s3c_ep0_setup(struct s3c_udc *dev)
 			if (dev->req_config) {
 				DEBUG_SETUP("\tconfig change 0x%02x fail %d?\n",
 					(u32)usb_ctrl->bRequest, i);
-				return;
 			}
 
 			/* setup processing failed, force stall */

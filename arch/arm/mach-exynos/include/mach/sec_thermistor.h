@@ -39,6 +39,7 @@ struct sec_therm_platform_data {
 	unsigned int adc_arr_size;
 	struct sec_therm_adc_table *adc_table;
 	unsigned int polling_interval;
+	int (*get_siop_level)(int);
 };
 
 #endif /* __MACH_SEC_THERMISTOR_H */

@@ -74,7 +74,7 @@ void s3c_sdhci2_set_platdata(struct s3c_sdhci_platdata *pd)
 	set->pm_flags = pd->pm_flags;
 
 	if (pd->vmmc_name)
-		strncpy(set->vmmc_name, pd->vmmc_name, MAX_VMMC_NAME);
+		set->vmmc_name = pd->vmmc_name;
 	if (pd->max_width)
 		set->max_width = pd->max_width;
 	if (pd->cfg_gpio)

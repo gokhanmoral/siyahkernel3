@@ -41,6 +41,22 @@ config SENSORS_PAS2M110
 	tristate "PAS2M110 ambient light and proximity input device"
 	default n
 
+config SENSORS_BMA254
+	tristate "BMA254 Acceleration Sensor Driver"
+	depends on I2C
+	default n
+	help
+	  If you say yes here you get support for Bosch-Sensortec's
+	  BMA254 Acceleration Sensor.
+
+config SENSORS_TAOS
+	depends on I2C
+	tristate "TAOS driver"
+	default n
+	help
+	  If you say yes here you get support for TAOS's
+	  TMD27723 proximity & light sensor using taos driver.
+
 config SENSORS_GP2A
 	depends on I2C
 	tristate "GP2AP020A00F driver"
@@ -65,6 +81,17 @@ config SENSORS_CM36651
 	  Capella cm36651 device driver.
 
 	  Say N here if you do not use cm36651.
+
+config SENSORS_BH1721
+	depends on I2C
+	tristate "BH1721 driver"
+	default n
+	help
+	  Say Y here if you use BH1721.
+	  This option enables light sensor using
+	  ROHM BH1721 device driver.
+
+	  Say N here if you do not use BH1721.
 
 config SENSORS_K3DH
 	tristate "K3DH acceleration sensor support"

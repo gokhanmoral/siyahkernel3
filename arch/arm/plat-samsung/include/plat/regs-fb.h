@@ -32,7 +32,21 @@
 
 #define VIDCON0					(0x00)
 #define VIDCON0_INTERLACE			(1 << 29)
-#define VIDCON0_VIDOUT_MASK			(0x3 << 26)
+
+#ifdef CONFIG_FB_EXYNOS_FIMD_V8
+#define VIDOUT_CON_VIDOUT_UP_MASK		(0x1 << 16)
+#define VIDOUT_CON_VIDOUT_UP_SHIFT		(16)
+#define VIDOUT_CON_VIDOUT_UP_ALWAYS		(0x0 << 16)
+#define VIDOUT_CON_VIDOUT_UP_START_FRAME	(0x1 << 16)
+#define VIDOUT_CON_VIDOUT_F_MASK		(0x7 << 8)
+#define VIDOUT_CON_VIDOUT_F_SHIFT		(8)
+#define VIDOUT_CON_VIDOUT_F_RGB			(0x0 << 8)
+#define VIDOUT_CON_VIDOUT_F_I80_LDI0		(0x2 << 8)
+#define VIDOUT_CON_VIDOUT_F_I80_LDI1		(0x3 << 8)
+#define VIDOUT_CON_VIDOUT_F_WB			(0x4 << 8)
+#endif
+
+#define VIDCON0_VIDOUT_MASK			(0x7 << 26)
 #define VIDCON0_VIDOUT_SHIFT			(26)
 #define VIDCON0_VIDOUT_RGB			(0x0 << 26)
 #define VIDCON0_VIDOUT_TV			(0x1 << 26)
@@ -83,7 +97,12 @@
 #define VIDCON0_ENVID_F				(1 << 0)
 
 #ifdef CONFIG_FB_EXYNOS_FIMD_V8
-#define VIDCON1					(0x20004)
+#define VIDOUT_CON                              (0x20000)
+#define VIDCON1                                 (0x20004)
+#define REG_TIME2INIT                           (0x01b4)
+#define REG_TIME2SNP                            (0x01b8)
+#define DP_MIE_CLKCON                           (0x027c)
+#define FREERUNCON                              (0x005c)
 #else
 #define VIDCON1					(0x04)
 #endif
@@ -110,6 +129,11 @@
 /* VIDCON2 */
 
 #define VIDCON2				(0x08)
+#define VIDCON2_WB_SKIP_1_2			(1 << 0)
+#define VIDCON2_WB_SKIP_1_3			(1 << 1)
+#define VIDCON2_WB_SKIP_1_4			(3 << 0)
+#define VIDCON2_WB_SKIP_1_5			(1 << 2)
+#define VIDCON2_WB_SKIP_MASK		(0x1f << 0)
 #define VIDCON2_EN601			(1 << 23)
 #define VIDCON2_WB_DISABLE		(0 << 15)
 #define VIDCON2_WB_ENABLE		(1 << 15)
@@ -409,6 +433,11 @@
 #define WPALCON_W0PAL_18BPP			(0x4 << 0)
 #define WPALCON_W0PAL_16BPP_A555		(0x5 << 0)
 #define WPALCON_W0PAL_16BPP_565			(0x6 << 0)
+
+/* Clock gate mode control */
+#define REG_CLKGATE_MODE			(0x1b0)
+#define REG_CLKGATE_MODE_AUTO_CLOCK_GATE	(0 << 0)
+#define REG_CLKGATE_MODE_NON_CLOCK_GATE		(1 << 0)
 
 /* Blending equation control */
 #define BLENDCON				(0x260)

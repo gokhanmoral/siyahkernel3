@@ -83,6 +83,10 @@ void __cpuinit platform_secondary_init(unsigned int cpu)
 	void __iomem *cpu_base = S5P_VA_GIC_CPU +
 				(gic_bank_offset * cpu);
 
+	/* Enable the full line of zero */
+	if (soc_is_exynos4210() || soc_is_exynos4212() || soc_is_exynos4412())
+		enable_cache_foz();
+
 	/*
 	 * if any interrupts are already enabled for the primary
 	 * core (e.g. timer irq), then they will not have been enabled
@@ -134,16 +138,6 @@ static int exynos_power_up_cpu(unsigned int cpu)
 	return 0;
 }
 
-static void enable_foz(void)
-{
-	u32 val;
-	asm volatile(
-	"mrc   p15, 0, %0, c1, c0, 1\n"
-	"orr   %0, %0, #(1 << 3)\n"
-	"mcr   p15, 0, %0, c1, c0, 1"
-	: "=r" (val));
-}
-
 int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	unsigned long timeout;
@@ -169,14 +163,6 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 	}
 
 	/*
-	* Enable write full line for zeros mode
-	*/
-	if (soc_is_exynos4210() || soc_is_exynos4212() || soc_is_exynos4412()) {
-		enable_foz();
-		smp_call_function((void (*)(void *))enable_foz, NULL, 0);
-	}
-
-	/*
 	 * The secondary processor is waiting to be released from
 	 * the holding pen - release it, then wait for it to flag
 	 * that it has been released by resetting pen_release.
@@ -195,15 +181,15 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 	while (time_before(jiffies, timeout)) {
 		smp_rmb();
 
+		__raw_writel(BSYM(virt_to_phys(exynos_secondary_startup)),
+			cpu_boot_info[cpu].boot_base);
+
 #ifdef CONFIG_ARM_TRUSTZONE
 		if (soc_is_exynos4412())
 			exynos_smc(SMC_CMD_CPU1BOOT, cpu, 0, 0);
 		else
 			exynos_smc(SMC_CMD_CPU1BOOT, 0, 0, 0);
 #endif
-		__raw_writel(BSYM(virt_to_phys(exynos_secondary_startup)),
-			     cpu_boot_info[cpu].boot_base);
-
 		smp_send_reschedule(cpu);
 
 		if (pen_release == -1)
@@ -292,7 +278,7 @@ void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 		else
 			cpu_boot_info[i].boot_base = S5P_VA_SYSRAM;
 #endif
-		if (soc_is_exynos4212() || soc_is_exynos4412())
+		if (soc_is_exynos4412())
 			cpu_boot_info[i].boot_base += (0x4 * i);
 		cpu_boot_info[i].power_base = S5P_ARM_CORE_CONFIGURATION(i);
 	}

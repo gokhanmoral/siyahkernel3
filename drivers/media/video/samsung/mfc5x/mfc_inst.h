@@ -130,7 +130,7 @@ struct mfc_inst_ctx {
 	unsigned int width;
 	unsigned int height;
 	volatile unsigned char *shm;
-	unsigned int shmofs;
+	long shmofs;
 	unsigned int ctxbufofs;
 	unsigned int ctxbufsize;
 	unsigned int descbufofs;	/* FIXME: move to decoder context */
@@ -151,13 +151,29 @@ struct mfc_inst_ctx {
 #ifdef SYSMMU_MFC_ON
 	unsigned long pgd;
 #endif
-#if defined(CONFIG_BUSFREQ) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
+#if defined(CONFIG_BUSFREQ)
 	int busfreq_flag;		/* context bus frequency flag */
+#endif
+
+#if defined(CONFIG_CPU_EXYNOS4210) && defined(CONFIG_EXYNOS4_CPUFREQ)
+	int cpufreq_flag; /* context CPU frequency flag*/
+#endif
+
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+	int drm_flag;
+#endif
+
+#ifdef CONFIG_BUSFREQ_OPP
+	int dmcthreshold_flag;  /* context dmc max threshold flag */
+#endif
+
+#if SUPPORT_SLICE_ENCODING
+	int slice_flag;
 #endif
 };
 
 struct mfc_inst_ctx *mfc_create_inst(void);
-void mfc_destroy_inst(struct mfc_inst_ctx* ctx);
+void mfc_destroy_inst(struct mfc_inst_ctx *ctx);
 int mfc_set_inst_state(struct mfc_inst_ctx *ctx, enum instance_state state);
 int mfc_chk_inst_state(struct mfc_inst_ctx *ctx, enum instance_state state);
 int mfc_set_inst_cfg(struct mfc_inst_ctx *ctx, int type, void *arg);

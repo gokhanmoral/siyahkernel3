@@ -14,7 +14,7 @@
 #ifndef FIMC_IS_PARAMS_H_
 #define FIMC_IS_PARAMS_H_
 
-#define IS_REGION_VER 118  /* IS REGION VERSION 1.18 */
+#define IS_REGION_VER 122  /* IS REGION VERSION 1.22 */
 
 /* MACROs */
 #define IS_SET_PARAM_BIT(dev, num) \
@@ -69,18 +69,12 @@
 		(dev->is_p_region->parameter.isp.otf_input.crop_width = x)
 #define IS_ISP_SET_PARAM_OTF_INPUT_CROP_HEIGHT(dev, x) \
 		(dev->is_p_region->parameter.isp.otf_input.crop_height = x)
+#define IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MIN(dev, x) \
+		(dev->is_p_region->parameter.isp.otf_input.frametime_min = x)
+#define IS_ISP_SET_PARAM_OTF_INPUT_FRAMETIME_MAX(dev, x) \
+		(dev->is_p_region->parameter.isp.otf_input.frametime_max = x)
 #define IS_ISP_SET_PARAM_OTF_INPUT_ERR(dev, x) \
 		(dev->is_p_region->parameter.isp.otf_input.err = x)
-#define IS_ISP_SET_PARAM_OTF_INPUT_RESERVED0(dev, x) \
-		(dev->is_p_region->parameter.isp.otf_input.reserved[0] = x)
-#define IS_ISP_SET_PARAM_OTF_INPUT_RESERVED1(dev, x) \
-		(dev->is_p_region->parameter.isp.otf_input.reserved[1] = x)
-#define IS_ISP_SET_PARAM_OTF_INPUT_RESERVED2(dev, x) \
-		(dev->is_p_region->parameter.isp.otf_input.reserved[2] = x)
-#define IS_ISP_SET_PARAM_OTF_INPUT_RESERVED3(dev, x) \
-		(dev->is_p_region->parameter.isp.otf_input.reserved[3] = x)
-#define IS_ISP_SET_PARAM_OTF_INPUT_RESERVED4(dev, x) \
-		(dev->is_p_region->parameter.isp.otf_input.reserved[4] = x)
 
 #define IS_ISP_SET_PARAM_DMA_INPUT1_CMD(dev, x) \
 		(dev->is_p_region->parameter.isp.dma1_input.cmd = x)
@@ -185,10 +179,6 @@
 		(dev->is_p_region->parameter.isp.adjust.brightness = x)
 #define IS_ISP_SET_PARAM_ADJUST_HUE(dev, x) \
 		(dev->is_p_region->parameter.isp.adjust.hue = x)
-#define IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MIN(dev, x) \
-		(dev->is_p_region->parameter.isp.adjust.shutter_time_min = x)
-#define IS_ISP_SET_PARAM_ADJUST_SHUTTER_TIME_MAX(dev, x) \
-		(dev->is_p_region->parameter.isp.adjust.shutter_time_max = x)
 #define IS_ISP_SET_PARAM_ADJUST_ERR(dev, x) \
 		(dev->is_p_region->parameter.isp.adjust.err = x)
 
@@ -245,6 +235,8 @@
 		(dev->is_p_region->parameter.isp.dma1_output.buffer_number = x)
 #define IS_ISP_SET_PARAM_DMA_OUTPUT1_BUFFER_ADDRESS(dev, x) \
 	(dev->is_p_region->parameter.isp.dma1_output.buffer_address = x)
+#define IS_ISP_SET_PARAM_DMA_OUTPUT1_NODIFY_DMA_DONE(dev, x) \
+	(dev->is_p_region->parameter.isp.dma1_output.notify_dma_done = x)
 #define IS_ISP_SET_PARAM_DMA_OUTPUT1_ERR(dev, x) \
 		(dev->is_p_region->parameter.isp.dma1_output.err = x)
 
@@ -266,6 +258,8 @@
 		(dev->is_p_region->parameter.isp.dma2_output.buffer_number = x)
 #define IS_ISP_SET_PARAM_DMA_OUTPUT2_BUFFER_ADDRESS(dev, x) \
 		(dev->is_p_region->parameter.isp.dma2_output.buffer_address = x)
+#define IS_ISP_SET_PARAM_DMA_OUTPUT2_NODIFY_DMA_DONE(dev, x) \
+	(dev->is_p_region->parameter.isp.dma2_output.notify_dma_done = x)
 #define IS_ISP_SET_PARAM_DMA_OUTPUT2_ERR(dev, x) \
 		(dev->is_p_region->parameter.isp.dma2_output.err = x)
 
@@ -399,6 +393,15 @@
 #define IS_FD_SET_PARAM_FD_CONFIG_ERR(dev, x) \
 	(dev->is_p_region->parameter.fd.config.err = x)
 
+#define IS_SENSOR_SET_TUNE_EXPOSURE(dev, x) \
+	(dev->is_p_region->tune.sensor.exposure = x)
+#define IS_SENSOR_SET_TUNE_ANALOG_GAIN(dev, x) \
+	(dev->is_p_region->tune.sensor.analog_gain = x)
+#define IS_SENSOR_SET_TUNE_FRAME_RATE(dev, x) \
+	(dev->is_p_region->tune.sensor.frame_rate = x)
+#define IS_SENSOR_SET_TUNE_ACTUATOR_POSITION(dev, x) \
+	(dev->is_p_region->tune.sensor.actuator_position = x)
+
 #ifndef BIT0
 #define  BIT0     0x00000001
 #define  BIT1     0x00000002
@@ -518,8 +521,8 @@ enum is_param_set_bit {
 	PARAM_SCALERC_CONTROL,
 	PARAM_SCALERC_OTF_INPUT,
 	PARAM_SCALERC_IMAGE_EFFECT,
-	PARAM_SCALERC_CROP,
-	PARAM_SCALERC_SCALING = 30,
+	PARAM_SCALERC_INPUT_CROP,
+	PARAM_SCALERC_OUTPUT_CROP = 30,
 	PARAM_SCALERC_OTF_OUTPUT,
 	PARAM_SCALERC_DMA_OUTPUT = 32,
 	PARAM_ODC_CONTROL,
@@ -536,8 +539,8 @@ enum is_param_set_bit {
 	PARAM_SCALERP_CONTROL,
 	PARAM_SCALERP_OTF_INPUT,
 	PARAM_SCALERP_IMAGE_EFFECT,
-	PARAM_SCALERP_CROP,
-	PARAM_SCALERP_SCALING,
+	PARAM_SCALERP_INPUT_CROP,
+	PARAM_SCALERP_OUTPUT_CROP,
 	PARAM_SCALERP_ROTATION,
 	PARAM_SCALERP_FLIP = 50,
 	PARAM_SCALERP_OTF_OUTPUT,
@@ -589,9 +592,9 @@ enum is_param_set_bit {
 #define PARAM_SCALERC_CONTROL		INC_NUM(PARAM_DRC_OTF_OUTPUT)
 #define PARAM_SCALERC_OTF_INPUT		INC_NUM(PARAM_SCALERC_CONTROL)
 #define PARAM_SCALERC_IMAGE_EFFECT	INC_NUM(PARAM_SCALERC_OTF_INPUT)
-#define PARAM_SCALERC_CROP		INC_NUM(PARAM_SCALERC_IMAGE_EFFECT)
-#define PARAM_SCALERC_SCALING		INC_NUM(PARAM_SCALERC_CROP)
-#define PARAM_SCALERC_OTF_OUTPUT	INC_NUM(PARAM_SCALERC_SCALING)
+#define PARAM_SCALERC_INPUT_CROP	INC_NUM(PARAM_SCALERC_IMAGE_EFFECT)
+#define PARAM_SCALERC_OUTPUT_CROP	INC_NUM(PARAM_SCALERC_INPUT_CROP)
+#define PARAM_SCALERC_OTF_OUTPUT	INC_NUM(PARAM_SCALERC_OUTPUT_CROP)
 
 /* 32~63 */
 #define PARAM_SCALERC_DMA_OUTPUT	INC_NUM(PARAM_SCALERC_OTF_OUTPUT)
@@ -609,9 +612,9 @@ enum is_param_set_bit {
 #define PARAM_SCALERP_CONTROL		INC_NUM(PARAM_TDNR_DMA_OUTPUT)
 #define PARAM_SCALERP_OTF_INPUT		INC_NUM(PARAM_SCALERP_CONTROL)
 #define PARAM_SCALERP_IMAGE_EFFECT	INC_NUM(PARAM_SCALERP_OTF_INPUT)
-#define PARAM_SCALERP_CROP		INC_NUM(PARAM_SCALERP_IMAGE_EFFECT)
-#define PARAM_SCALERP_SCALING		INC_NUM(PARAM_SCALERP_CROP)
-#define PARAM_SCALERP_ROTATION		INC_NUM(PARAM_SCALERP_SCALING)
+#define PARAM_SCALERP_INPUT_CROP	INC_NUM(PARAM_SCALERP_IMAGE_EFFECT)
+#define PARAM_SCALERP_OUTPUT_CROP	INC_NUM(PARAM_SCALERP_INPUT_CROP)
+#define PARAM_SCALERP_ROTATION		INC_NUM(PARAM_SCALERP_OUTPUT_CROP)
 #define PARAM_SCALERP_FLIP		INC_NUM(PARAM_SCALERP_ROTATION)
 #define PARAM_SCALERP_OTF_OUTPUT	INC_NUM(PARAM_SCALERP_FLIP)
 #define PARAM_SCALERP_DMA_OUTPUT	INC_NUM(PARAM_SCALERP_OTF_OUTPUT)
@@ -647,6 +650,15 @@ enum is_param_set_bit {
 /* Enumerations
 *
 */
+/* ----------------------  INTR map-------------------------------- */
+enum interrupt_map {
+	INTR_GENERAL = 0,
+	INTR_FRAME_DONE_ISP = 1,
+	INTR_FRAME_DONE_SCALERC = 2,
+	INTR_FRAME_DONE_TDNR = 3,
+	INTR_FRAME_DONE_SCALERP = 4
+};
+
 /* ----------------------  Input  ----------------------------------- */
 enum control_command {
 	CONTROL_COMMAND_STOP	= 0,
@@ -967,8 +979,14 @@ enum iso_error {
 
 /* --------------------------  Adjust  ----------------------------------- */
 enum iso_adjust_command {
-	ISP_ADJUST_COMMAND_AUTO		= 0,
-	ISP_ADJUST_COMMAND_MANUAL	= 1
+	ISP_ADJUST_COMMAND_AUTO			= 0,
+	ISP_ADJUST_COMMAND_MANUAL_CONTRAST	= (1 << 0),
+	ISP_ADJUST_COMMAND_MANUAL_SATURATION	= (1 << 1),
+	ISP_ADJUST_COMMAND_MANUAL_SHARPNESS	= (1 << 2),
+	ISP_ADJUST_COMMAND_MANUAL_EXPOSURE	= (1 << 3),
+	ISP_ADJUST_COMMAND_MANUAL_BRIGHTNESS	= (1 << 4),
+	ISP_ADJUST_COMMAND_MANUAL_HUE		= (1 << 5),
+	ISP_ADJUST_COMMAND_MANUAL_ALL		= 0x7F,
 };
 
 enum isp_adjust_error {
@@ -1025,12 +1043,11 @@ enum isp_afc_error {
 /* --------------------------  Scaler  --------------------------------- */
 enum scaler_imageeffect_command {
 	SCALER_IMAGE_EFFECT_COMMNAD_DISABLE	= 0,
-	SCALER_IMAGE_EFFECT_COMMNAD_SEPIA_CB	= 1,
-	SCALER_IMAGE_EFFECT_COMMAND_SEPIA_CR	= 2,
-	SCALER_IMAGE_EFFECT_COMMAND_NEGATIVE	= 3,
-	SCALER_IMAGE_EFFECT_COMMAND_ARTFREEZE	= 4,
-	SCALER_IMAGE_EFFECT_COMMAND_EMBOSSING	= 5,
-	SCALER_IMAGE_EFFECT_COMMAND_SILHOUETTE	= 6
+	SCALER_IMAGE_EFFECT_COMMNAD_ARBITRARY	= 1,
+	SCALER_IMAGE_EFFECT_COMMAND_NEGATIVE	= 2,
+	SCALER_IMAGE_EFFECT_COMMAND_ARTFREEZE	= 3,
+	SCALER_IMAGE_EFFECT_COMMAND_EMBOSSING	= 4,
+	SCALER_IMAGE_EFFECT_COMMAND_SILHOUETTE	= 5
 };
 
 enum scaler_imageeffect_error {
@@ -1050,6 +1067,12 @@ enum scaler_scaling_command {
 	SCALER_SCALING_COMMNAD_DISABLE		= 0,
 	SCALER_SCALING_COMMAND_UP		= 1,
 	SCALER_SCALING_COMMAND_DOWN		= 2
+};
+
+enum scaler_dma_out_sel {
+	SCALER_DMA_OUT_IMAGE_EFFECT		= 0,
+	SCALER_DMA_OUT_SCALED			= 1,
+	SCALER_DMA_OUT_UNSCALED			= 2
 };
 
 enum scaler_scaling_error {
@@ -1145,7 +1168,10 @@ enum fd_config_orientation {
 struct param_control {
 	u32	cmd;
 	u32	bypass;
-	u32	reserved[PARAMETER_MAX_MEMBER-3];
+	u32	buffer_address;
+	u32	buffer_size;
+	u32	first_drop_frames; /* only valid at ISP */
+	u32	reserved[PARAMETER_MAX_MEMBER-6];
 	u32	err;
 };
 
@@ -1160,7 +1186,9 @@ struct param_otf_input {
 	u32	crop_offset_y;
 	u32	crop_width;
 	u32	crop_height;
-	u32	reserved[PARAMETER_MAX_MEMBER-11];
+	u32	frametime_min;
+	u32	frametime_max;
+	u32	reserved[PARAMETER_MAX_MEMBER-13];
 	u32	err;
 };
 
@@ -1266,9 +1294,7 @@ struct param_isp_adjust {
 	s32	exposure;
 	s32	brightness;
 	s32	hue;
-	s32	shutter_time_min;
-	s32	shutter_time_max;
-	u32	reserved[PARAMETER_MAX_MEMBER-10];
+	u32	reserved[PARAMETER_MAX_MEMBER-8];
 	u32	err;
 };
 
@@ -1291,22 +1317,34 @@ struct param_isp_afc {
 
 struct param_scaler_imageeffect {
 	u32	cmd;
-	u32	reserved[PARAMETER_MAX_MEMBER-2];
-	u32	err;
-};
-
-struct param_scaler_crop {
-	u32	cmd;
-	u32	pos_x;
-	u32	pos_y;
+	u32	arbitrary_cb;
+	u32	arbitrary_cr;
 	u32	reserved[PARAMETER_MAX_MEMBER-4];
 	u32	err;
 };
 
-struct param_scaler_scaling {
+struct param_scaler_input_crop {
 	u32	cmd;
-	u32	ratio;
-	u32	reserved[PARAMETER_MAX_MEMBER-3];
+	u32	crop_offset_x;
+	u32	crop_offset_y;
+	u32	crop_width;
+	u32	crop_height;
+	u32	in_width;
+	u32	in_height;
+	u32	out_width;
+	u32	out_height;
+	u32	reserved[PARAMETER_MAX_MEMBER-10];
+	u32	err;
+};
+
+struct param_scaler_output_crop {
+	u32	cmd;
+	u32	crop_offset_x;
+	u32	crop_offset_y;
+	u32	crop_width;
+	u32	crop_height;
+	u32	out_format;
+	u32	reserved[PARAMETER_MAX_MEMBER-7];
 	u32	err;
 };
 
@@ -1386,13 +1424,13 @@ struct drc_param {
 };
 
 struct scalerc_param {
-	struct param_control		control;
-	struct param_otf_input		otf_input;
-	struct param_scaler_imageeffect	effect;
-	struct param_scaler_crop	crop;
-	struct param_scaler_scaling	scale;
-	struct param_otf_output		otf_output;
-	struct param_dma_output		dma_output;
+	struct param_control			control;
+	struct param_otf_input			otf_input;
+	struct param_scaler_imageeffect		effect;
+	struct param_scaler_input_crop		input_crop;
+	struct param_scaler_output_crop		output_crop;
+	struct param_otf_output			otf_output;
+	struct param_dma_output			dma_output;
 };
 
 struct odc_param {
@@ -1419,8 +1457,8 @@ struct scalerp_param {
 	struct param_control			control;
 	struct param_otf_input			otf_input;
 	struct param_scaler_imageeffect		effect;
-	struct param_scaler_crop		crop;
-	struct param_scaler_scaling		scale;
+	struct param_scaler_input_crop		input_crop;
+	struct param_scaler_output_crop		output_crop;
 	struct param_scaler_rotation		rotation;
 	struct param_scaler_flip		flip;
 	struct param_otf_output			otf_output;
@@ -1571,8 +1609,8 @@ struct is_face_marker {
 	u32	roll_angle;
 	u32	yaw_angle;
 	u32	confidence;
-	u32	smile_level;
-	u32	blink_level;
+	s32	smile_level;
+	s32	blink_level;
 };
 
 #define MAX_FRAME_COUNT		8
@@ -1607,6 +1645,7 @@ struct is_debug_frame_descriptor {
 };
 
 #define MAX_FRAMEDESCRIPTOR_CONTEXT_NUM	(30*20)	/* 600 frames */
+#define MAX_VERSION_DISPLAY_BUF	32
 
 struct is_share_region {
 	u32	frame_time;
@@ -1635,6 +1674,11 @@ struct is_share_region {
 
 	u32	chip_id;
 	u32	chip_rev_no;
+	u8	isp_fw_ver_no[MAX_VERSION_DISPLAY_BUF];
+	u8	isp_fw_ver_date[MAX_VERSION_DISPLAY_BUF];
+	u8	sirc_sdk_ver_no[MAX_VERSION_DISPLAY_BUF];
+	u8	sirc_sdk_rev_no[MAX_VERSION_DISPLAY_BUF];
+	u8	sirc_sdk_rev_date[MAX_VERSION_DISPLAY_BUF];
 };
 
 struct is_debug_control {
@@ -1642,5 +1686,16 @@ struct is_debug_control {
 	u32 assert_flag;	/* 0: Not invoked, 1: Invoked */
 	u32 pabort_flag;	/* 0: Not invoked, 1: Invoked */
 	u32 dabort_flag;	/* 0: Not invoked, 1: Invoked */
+};
+
+struct sensor_open_extended {
+	u32 actuator_type;
+	u32 mclk;
+	u32 mipi_lane_num;
+	u32 mipi_speed;
+	/* Skip setfile loading when fast_open_sensor is not 0 */
+	u32 fast_open_sensor;
+	/* Activatiing sensor self calibration mode (6A3) */
+	u32 self_calibration_mode;
 };
 #endif

@@ -22,6 +22,7 @@
 #include <linux/gpio.h>
 #include <linux/regulator/consumer.h>
 #include <linux/videodev2.h>
+#include <linux/videodev2_exynos_media.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-subdev.h>
@@ -113,6 +114,7 @@ static const struct m5mols_format m5mols_formats[] = {
 		.colorspace	= V4L2_COLORSPACE_JPEG,
 	},
 };
+
 static const struct m5mols_resolution m5mols_resolutions[] = {
 	/* monitor size */
 	{ 0x01, M5MOLS_RES_MON, 128, 96 },	/* SUB-QCIF */
@@ -1424,7 +1426,7 @@ static int m5mols_init_formats(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh
 	memset(&format, 0, sizeof(format));
 	format.pad = 0;
 	format.which = fh ? V4L2_SUBDEV_FORMAT_TRY : V4L2_SUBDEV_FORMAT_ACTIVE;
-	format.format.code = V4L2_MBUS_FMT_YUYV8_2X8;
+	format.format.code = m5mols_formats[M5MOLS_RES_MON].code;
 	format.format.width = DEFAULT_SENSOR_WIDTH;
 	format.format.height = DEFAULT_SENSOR_HEIGHT;
 

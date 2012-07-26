@@ -90,9 +90,9 @@
 #define UPDATE_ON_PROBE   1
 #define READ_FW_FROM_HEADER	0
 #define FOR_DEBUGGING_TEST_DOWNLOADFW_BIN 0
-#define ITDEV	1
-#define SHOW_COORDINATE	1
-#define DEBUG_INFO	1
+#define ITDEV	0
+#define SHOW_COORDINATE	0
+#define DEBUG_INFO	0
 #define USE_ADJUST_FRCCALRATIO	0
 /*#######################################*/
 
@@ -118,7 +118,7 @@ static uint16_t sum_size;
 /* Firmware */
 #if READ_FW_FROM_HEADER
 static u8 firmware_mXT[] = {
-/*	#include "mXT768E-V2.0.AA.h"*/
+
 };
 #endif
 
@@ -483,7 +483,7 @@ uint8_t calibrate_chip_e(void)
 	/* set flag for calibration lockup
 	recovery if cal command was successful */
 	if (!ret)
-		pr_info("calibration success!!!\n");
+		pr_info("sucess sending calibration cmd!!!\n");
 	return ret;
 }
 
@@ -566,14 +566,7 @@ static void treat_error_status(void)
 
 	if (ta_status) {
 		get_object_info(data,
-			GEN_POWERCONFIG_T7, &size, &obj_address);
-		/* 1:ACTVACQINT */
-		error = change_config(data, obj_address, 1, 255);
-
-		get_object_info(data,
 			GEN_ACQUISITIONCONFIG_T8, &size, &obj_address);
-		/* 0:CHRGTIME */
-		error |= change_config(data, obj_address, 0, 64);
 #if !(USE_ADJUST_FRCCALRATIO)
 		/* 8:ATCHFRCCALTHR*/
 		error |= change_config(data, obj_address, 8, 50);
@@ -595,36 +588,18 @@ static void treat_error_status(void)
 
 		get_object_info(data,
 			PROCG_NOISESUPPRESSION_T48, &size, &obj_address);
-		/* 2:CALCFG */
-		error |= change_config(data, obj_address, 2, 114);
-		/* 3:BASEFREQ */
-		error |= change_config(data, obj_address, 3, 15);
-		/* 8:MFFREQ[0] */
-		error |= change_config(data, obj_address, 8, 3);
-		/* 9:MFFREQ[1] */
-		error |= change_config(data, obj_address, 9, 5);
-		/* 10:NLGAIN*/
-		error |= change_config(data, obj_address, 10, 96);
-		/* 11:NLTHR*/
-		error |= change_config(data, obj_address, 11, 30);
 		/* 17:GCMAXADCSPERX */
 		error |= change_config(data, obj_address, 17, 100);
-		/* 34:BLEN[0] */
-		error |= change_config(data, obj_address, 34, 80);
+		/* 22:MFINVLDDIFFTHR */
+		error |= change_config(data, obj_address, 22, 30);
 		/* 35:TCHTHR[0] */
-		error |= change_config(data, obj_address, 35, 40);
-		/* 36:TCHDI[0] */
-		error |= change_config(data, obj_address, 36, 2);
+		error |= change_config(data, obj_address, 35, 50);
 		/* 39:MOVFILTER[0] */
 		error |= change_config(data, obj_address, 39, 65);
 		/* 41:MRGHYST[0] */
 		error |= change_config(data, obj_address, 41, 40);
 		/* 42:MRGTHR[0] */
 		error |= change_config(data, obj_address, 42, 50);
-		/* 43:XLOCLIP[0] */
-		error |= change_config(data, obj_address, 43, 5);
-		/* 44:XHICLIP[0] */
-		error |= change_config(data, obj_address, 44, 5);
 		/* 51:JUMPLIMIT[0] */
 		error |= change_config(data, obj_address, 51, 25);
 		/* 52:TCHHYST[0] */
@@ -634,14 +609,7 @@ static void treat_error_status(void)
 			pr_err("failed to write error status\n");
 	} else {
 		get_object_info(data,
-			GEN_POWERCONFIG_T7, &size, &obj_address);
-		/* 1:ACTVACQINT */
-		error = change_config(data, obj_address, 1, 255);
-
-		get_object_info(data,
 			GEN_ACQUISITIONCONFIG_T8, &size, &obj_address);
-		/* 0:CHRGTIME */
-		error |= change_config(data, obj_address, 0, 64);
 #if !(USE_ADJUST_FRCCALRATIO)
 		/* 8:ATCHFRCCALTHR*/
 		error |= change_config(data, obj_address, 8, 50);
@@ -661,30 +629,18 @@ static void treat_error_status(void)
 		get_object_info(data,
 			SPT_CTECONFIG_T46, &size, &obj_address);
 		/* 2:IDLESYNCSPERX */
-		error |= change_config(data, obj_address, 2, 48);
+		error |= change_config(data, obj_address, 2, 32);
 		/* 3:ACTVSYNCSPERX */
-		error |= change_config(data, obj_address, 3, 48);
+		error |= change_config(data, obj_address, 3, 32);
 
 		get_object_info(data,
 			PROCG_NOISESUPPRESSION_T48, &size, &obj_address);
-		/* 2:CALCFG */
-		error |= change_config(data, obj_address, 2, 242);
-		/* 3:BASEFREQ */
-		error |= change_config(data, obj_address, 3, 15);
-		/* 8:MFFREQ[0] */
-		error |= change_config(data, obj_address, 8, 3);
-		/* 9:MFFREQ[1] */
-		error |= change_config(data, obj_address, 9, 5);
-		/* 10:NLGAIN*/
-		error |= change_config(data, obj_address, 10, 112);
-		/* 11:NLTHR*/
-		error |= change_config(data, obj_address, 11, 25);
 		/* 17:GCMAXADCSPERX */
-		error |= change_config(data, obj_address, 17, 100);
-		/* 34:BLEN[0] */
-		error |= change_config(data, obj_address, 34, 112);
+		error |= change_config(data, obj_address, 17, 64);
+		/* 22:MFINVLDDIFFTHR */
+		error |= change_config(data, obj_address, 22, 100);
 		/* 35:TCHTHR[0] */
-		error |= change_config(data, obj_address, 35, 40);
+		error |= change_config(data, obj_address, 35, 45);
 		/* 41:MRGHYST[0] */
 		error |= change_config(data, obj_address, 41, 40);
 		/* 42:MRGTHR[0] */
@@ -692,7 +648,7 @@ static void treat_error_status(void)
 		/* 51:JUMPLIMIT[0] */
 		error |= change_config(data, obj_address, 51, 25);
 		/* 52:TCHHYST[0] */
-		error |= change_config(data, obj_address, 52, 15);
+		error |= change_config(data, obj_address, 52, 12);
 
 		if (error < 0)
 			pr_err("failed to write error status\n");
@@ -779,7 +735,7 @@ static void mxt_check_medianfilter_error(struct work_struct *work)
 
 	if (tchcount_aft_median_error
 		>= CNTLMTTCH_AFT_MEDIAN_ERROR) {
-		calibrate_chip_e();
+		/*calibrate_chip_e();*/
 	}
 	tchcount_aft_median_error = 0;
 }
@@ -1257,7 +1213,6 @@ static irqreturn_t mxt_irq_thread(int irq, void *ptr)
 	int error;
 	u8 object_type, instance;
 
-
 	do {
 		touch_message_flag = 0;
 		if (read_mem(data, data->msg_proc, sizeof(msg), msg)) {
@@ -1277,7 +1232,12 @@ static irqreturn_t mxt_irq_thread(int irq, void *ptr)
 
 		object_type = reportid_to_type(data, msg[0] , &instance);
 
-		if (object_type == GEN_COMMANDPROCESSOR_T6) {
+		if (object_type == RESERVED_T0)
+			continue;
+
+		switch (object_type) {
+		case GEN_COMMANDPROCESSOR_T6:
+		{
 			if (msg[1] == 0x00) /* normal mode */
 				pr_info("normal mode\n");
 			if ((msg[1]&0x04) == 0x04) /* I2C checksum error */
@@ -1296,75 +1256,15 @@ static irqreturn_t mxt_irq_thread(int irq, void *ptr)
 			if ((msg[1]&0x80) == 0x80) /* reset */
 				pr_info("reset is ongoing\n");
 		}
-
-		if (object_type == PROCI_TOUCHSUPPRESSION_T42) {
-			get_object_info(data, GEN_ACQUISITIONCONFIG_T8,
-							&size, &obj_address);
-			if ((msg[1] & 0x01) == 0x00) {
-				/* Palm release */
-				pr_info("palm touch released\n");
-
-				cancel_delayed_work(
-					&data->check_abnormal_palm_dwork);
-				touch_is_pressed = 0;
-			} else if ((msg[1] & 0x01) == 0x01) {
-				/* Palm Press */
-				pr_info("palm touch detected\n");
-
-				cancel_delayed_work(
-					&data->check_abnormal_palm_dwork);
-				schedule_delayed_work(
-					&data->check_abnormal_palm_dwork,
-					HZ*TIME_FOR_RECAL_ABNMAL_PALM);
-				touch_is_pressed = 1;
-				touch_message_flag = 1;
-			}
-		}
-
-		if (object_type == PROCG_NOISESUPPRESSION_T48) {
-			/* pr_info("T48 [STATUS]:%#02x"
-				"[ADCSPERX]:%#02x[FRQ]:%#02x"
-				"[STATE]:%#02x[NLEVEL]:%#02x\n"
-				, msg[1], msg[2], msg[3], msg[4], msg[5]);*/
-
-			if (msg[4] == 5) { /* Median filter error */
-				pr_info("Median filter error\n");
-				if ((data->family_id == 0xA1)
-					&& ((data->tsp_version == 0x13)
-					|| (data->tsp_version == 0x20))) {
-					if (data->read_ta_status)
-						treat_error_status();
-				} else {
-					get_object_info(data,
-						PROCG_NOISESUPPRESSION_T48,
-						&size, &obj_address);
-					value = data->calcfg_batt;
-					error = write_mem(data,
-						obj_address+2, 1, &value);
-					msleep(20);
-					value |= 0x20;
-					error |= write_mem(data,
-						obj_address+2, 1, &value);
-					if (error)
-						pr_err("failed to"
-							"reenable CHRGON\n");
-				}
-			}
-		}
-
-#if USE_SUMSIZE
-		if (object_type == SPT_GENERICDATA_T57) {
-			sum_size = msg[1];
-			sum_size +=  (msg[2]<<8);
-		}
-#endif
-
-		if (object_type == TOUCH_MULTITOUCHSCREEN_T9) {
+			break;
+		case TOUCH_MULTITOUCHSCREEN_T9:
+		{
 			id = msg[0] - data->finger_type;
 
 			/* If not a touch event, then keep going */
 			if (id < 0 || id >= data->num_fingers)
-					continue;
+				continue;
+
 			if (data->finger_mask & (1U << id))
 				report_input_data(data);
 
@@ -1420,6 +1320,77 @@ static irqreturn_t mxt_irq_thread(int irq, void *ptr)
 				continue;
 			}
 		}
+			break;
+		case PROCI_TOUCHSUPPRESSION_T42:
+		{
+			get_object_info(data, GEN_ACQUISITIONCONFIG_T8,
+							&size, &obj_address);
+			if ((msg[1] & 0x01) == 0x00) {
+				/* Palm release */
+				pr_info("palm touch released\n");
+
+				cancel_delayed_work(
+					&data->check_abnormal_palm_dwork);
+				touch_is_pressed = 0;
+			} else if ((msg[1] & 0x01) == 0x01) {
+				/* Palm Press */
+				pr_info("palm touch detected\n");
+
+				cancel_delayed_work(
+					&data->check_abnormal_palm_dwork);
+				schedule_delayed_work(
+					&data->check_abnormal_palm_dwork,
+					HZ*TIME_FOR_RECAL_ABNMAL_PALM);
+				touch_is_pressed = 1;
+				touch_message_flag = 1;
+			}
+		}
+			break;
+		case PROCG_NOISESUPPRESSION_T48:
+		{
+			/* pr_info("T48 [STATUS]:%#02x"
+				"[ADCSPERX]:%#02x[FRQ]:%#02x"
+				"[STATE]:%#02x[NLEVEL]:%#02x\n"
+				, msg[1], msg[2], msg[3], msg[4], msg[5]);*/
+
+			if (msg[4] == 5) { /* Median filter error */
+				pr_info("Median filter error\n");
+				if ((data->family_id == 0xA1)
+					&& ((data->tsp_version == 0x13)
+					|| (data->tsp_version == 0x20))) {
+					if (data->read_ta_status)
+						treat_error_status();
+				} else {
+					get_object_info(data,
+						PROCG_NOISESUPPRESSION_T48,
+						&size, &obj_address);
+					value = data->calcfg_batt;
+					error = write_mem(data,
+						obj_address+2, 1, &value);
+					msleep(20);
+					value |= 0x20;
+					error |= write_mem(data,
+						obj_address+2, 1, &value);
+					if (error)
+						pr_err("failed to"
+							"reenable CHRGON\n");
+				}
+			}
+		}
+			break;
+#if USE_SUMSIZE
+		case SPT_GENERICDATA_T57:
+		{
+			sum_size = msg[1];
+			sum_size +=  (msg[2]<<8);
+		}
+			break;
+#endif
+		default:
+			pr_info("Untreated Report ID[%d], %#02x, %#02x\n",
+				object_type, msg[0], msg[1]);
+			break;
+		}
 	} while (!gpio_get_value(data->gpio_read_done));
 
 	if (data->finger_mask) {
@@ -1453,7 +1424,6 @@ static irqreturn_t mxt_irq_thread(int irq, void *ptr)
 			t9_sum_size = 0;
 			sum_size = 0;
 		} else {
-			/* case of recovery configuration */
 			report_input_data(data);
 		}
 #else
@@ -1546,7 +1516,6 @@ static void mxt_late_resume(struct early_suspend *h)
 		first_touch_aftcal_detected = 0;
 		treat_median_error_status = 0;
 		tchcount_aft_median_error = 0;
-		calibrate_chip_e();
 
 		enable_irq(data->client->irq);
 	} else

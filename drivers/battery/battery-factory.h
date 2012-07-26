@@ -19,8 +19,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <linux/gpio.h>
-#include <linux/power_supply.h>
 #include <linux/battery/samsung_battery.h>
 
 #ifdef CONFIG_SYSFS
@@ -33,5 +31,10 @@ extern void battery_update_info(struct battery_info *info);
 extern void battery_control_info(struct battery_info *info,
 					enum power_supply_property property,
 					int intval);
+extern void battery_event_control(struct battery_info *info);
 #endif /* CONFIG_SYSFS */
 
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+extern int battery_info_proc(char *buf, char **start,
+			off_t offset, int count, int *eof, void *data);
+#endif

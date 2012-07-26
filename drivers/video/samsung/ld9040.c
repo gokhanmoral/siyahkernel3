@@ -318,7 +318,7 @@ static int get_backlight_level_from_brightness(unsigned int brightness)
 		backlightlevel = GAMMA_30CD;
 		break;
 	case 30 ... 39:
-		backlightlevel = GAMMA_40CD;
+		backlightlevel = GAMMA_30CD;
 		break;
 	case 40 ... 49:
 		backlightlevel = GAMMA_40CD;
@@ -720,7 +720,9 @@ static int ld9040_get_power(struct lcd_device *ld)
 
 static int ld9040_get_brightness(struct backlight_device *bd)
 {
-	return bd->props.brightness;
+	struct lcd_info *lcd = bl_get_data(bd);
+
+	return candela_table[lcd->bl];
 }
 
 static int ld9040_set_brightness(struct backlight_device *bd)

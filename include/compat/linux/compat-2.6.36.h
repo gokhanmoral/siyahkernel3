@@ -142,6 +142,8 @@ extern struct workqueue_struct *system_nrt_wq;
 void compat_system_workqueue_create(void);
 void compat_system_workqueue_destroy(void);
 
+#define br_port_exists(dev)	(dev->br_port)
+
 #else
 
 static inline void compat_system_workqueue_create(void)
@@ -151,6 +153,19 @@ static inline void compat_system_workqueue_create(void)
 static inline void compat_system_workqueue_destroy(void)
 {
 }
+
+/*
+ * This is not part of The 2.6.37 kernel yet but we
+ * we use it to optimize the backport code we
+ * need to implement. Instead of using ifdefs
+ * to check what version of the check we use
+ * we just replace all checks on current code
+ * with this. I'll submit this upstream too, that
+ * way all we'd have to do is to implement this
+ * for older kernels, then we would not have to
+ * edit the upstrema code for backport efforts.
+ */
+#define br_port_exists(dev)	(dev->priv_flags & IFF_BRIDGE_PORT)
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)) */
 

@@ -34,7 +34,9 @@ int dev_add(struct device_domain *domain, struct device *device);
 struct device *dev_get(const char *name);
 void dev_put(const char *name);
 int dev_lock(struct device *device, struct device *dev, unsigned long freq);
+int dev_lock_fix(struct device *device, struct device *dev, unsigned long freq);
 int dev_unlock(struct device *device, struct device *dev);
+void dev_unlock_fix(struct device *device, struct device *dev);
 unsigned long dev_max_freq(struct device *device);
 int dev_lock_list(struct device *dev, char *buf);
 

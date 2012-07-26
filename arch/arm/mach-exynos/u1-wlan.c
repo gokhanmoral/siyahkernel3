@@ -53,9 +53,9 @@ static void *brcm_wlan_mem_prealloc(int section, unsigned long size)
 	if (section == PREALLOC_WLAN_SEC_NUM)
 		return wlan_static_skb;
 	if (section == WLAN_STATIC_SCAN_BUF0)
-		return wlan_static_scan_buf0;	
+		return wlan_static_scan_buf0;
 	if (section == WLAN_STATIC_SCAN_BUF1)
-		return wlan_static_scan_buf1;	
+		return wlan_static_scan_buf1;
 	if ((section < 0) || (section > PREALLOC_WLAN_SEC_NUM))
 		return NULL;
 
@@ -93,14 +93,13 @@ static int brcm_init_wlan_mem(void)
 		if (!wlan_mem_array[i].mem_ptr)
 			goto err_mem_alloc;
 	}
-	wlan_static_scan_buf0 = kmalloc (65536, GFP_KERNEL);
-	if(!wlan_static_scan_buf0)		
+	wlan_static_scan_buf0 = kmalloc(65536, GFP_KERNEL);
+	if (!wlan_static_scan_buf0)
 		goto err_mem_alloc;
-	wlan_static_scan_buf1 = kmalloc (65536, GFP_KERNEL);
-	if(!wlan_static_scan_buf1)		
+	wlan_static_scan_buf1 = kmalloc(65536, GFP_KERNEL);
+	if (!wlan_static_scan_buf1)
 		goto err_mem_alloc;
-
-	printk("%s: WIFI MEM Allocated\n", __FUNCTION__);
+	printk(KERN_INFO"%s: WIFI MEM Allocated\n", __func__);
 	return 0;
 
  err_mem_alloc:
@@ -210,7 +209,7 @@ ARRAY_SIZE(wlan_sdio_off_table), wlan_sdio_off_table); }
 
 	udelay(200);
 
-	sdhci_s3c_force_presence_change(&s3c_device_hsmmc3);
+	mmc_force_presence_change(&s3c_device_hsmmc3);
 	msleep(500); /* wait for carddetect */
 	return 0;
 }
@@ -290,7 +289,11 @@ static struct resource brcm_wlan_resources[] = {
 		.name	= "bcmdhd_wlan_irq",
 		.start	= IRQ_EINT(21),
 		.end	= IRQ_EINT(21),
+#ifdef CONFIG_MACH_Q1_BD
+		.flags  = IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL | IORESOURCE_IRQ_SHAREABLE,
+#else
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_LOWEDGE,
+#endif
 	},
 };
 

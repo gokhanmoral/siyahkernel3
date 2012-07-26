@@ -25,6 +25,3 @@ obj-$(CONFIG_HDMI_HPD) +=	s5p_tvout_hpd.o
 obj-$(CONFIG_HDMI_CEC) +=	s5p_tvout_cec.o
 
 obj-$(CONFIG_VIDEO_TVOUT) += hw_if/
-
-#MHL driver
-obj-$(CONFIG_SAMSUNG_MHL)	+= mhl/

@@ -28,7 +28,10 @@
 #include <linux/slab.h>
 #include <linux/opp.h>
 #include <linux/clk.h>
-#include <mach/busfreq.h>
+#include <linux/cpufreq.h>
+#include <linux/pm_qos_params.h>
+
+#include <mach/busfreq_exynos4.h>
 
 #include <asm/mach-types.h>
 
@@ -39,21 +42,27 @@
 #include <mach/regs-mem.h>
 #include <mach/dev.h>
 #include <mach/asv.h>
+#include <mach/smc.h>
 
 #include <plat/map-s5p.h>
 #include <plat/gpio-cfg.h>
 #include <plat/cpu.h>
 
 #define UP_THRESHOLD			30
-#define EXYNOS4412_DMC_MAX_THRESHOLD	30
-#define EXYNOS4212_DMC_MAX_THRESHOLD	30
-#define PPMU_THRESHOLD			5
 #define IDLE_THRESHOLD			4
 #define UP_CPU_THRESHOLD		11
 #define MAX_CPU_THRESHOLD		20
 #define CPU_SLOPE_SIZE			7
+#define PPMU_THRESHOLD                 5
 
-static unsigned int dmc_max_threshold;
+unsigned int up_threshold        = UP_THRESHOLD;
+unsigned int ppmu_threshold      = PPMU_THRESHOLD;
+unsigned int idle_threshold      = IDLE_THRESHOLD;
+unsigned int up_cpu_threshold    = UP_CPU_THRESHOLD;
+unsigned int max_cpu_threshold   = MAX_CPU_THRESHOLD;
+unsigned int cpu_slope_size      = CPU_SLOPE_SIZE;
+unsigned int dmc_max_threshold;
+unsigned int load_history_size   = LOAD_HISTORY_SIZE;
 
 /* To save/restore DMC_PAUSE_CTRL register */
 static unsigned int dmc_pause_ctrl;
@@ -65,79 +74,112 @@ enum busfreq_level_idx {
 	LV_3,
 	LV_4,
 	LV_5,
+	LV_6,
 	LV_END
 };
 
 static struct busfreq_table exynos4_busfreq_table[] = {
-	{LV_0, 400200, 1100000, 0, 0, 0}, /* MIF : 400MHz INT : 200MHz */
-	{LV_1, 267200, 1000000, 0, 0, 0}, /* MIF : 267MHz INT : 200MHz */
-	{LV_2, 267160, 1000000, 0, 0, 0}, /* MIF : 267MHz INT : 160MHz */
-	{LV_3, 160160, 950000, 0, 0, 0},  /* MIF : 160MHz INT : 160MHz */
-	{LV_4, 133133, 950000, 0, 0, 0},  /* MIF : 133MHz INT : 133MHz */
-	{LV_5, 100100, 950000, 0, 0, 0},  /* MIF : 100MHz INT : 100MHz */
+	{LV_0, 400266, 1100000, 0, 0, 0}, /* MIF : 400MHz INT : 200MHz */
+	{LV_1, 400200, 1100000, 0, 0, 0}, /* MIF : 400MHz INT : 200MHz */
+	{LV_2, 267200, 1000000, 0, 0, 0}, /* MIF : 267MHz INT : 200MHz */
+	{LV_3, 267160, 1000000, 0, 0, 0}, /* MIF : 267MHz INT : 160MHz */
+	{LV_4, 160160, 950000, 0, 0, 0},  /* MIF : 160MHz INT : 160MHz */
+	{LV_5, 133133, 950000, 0, 0, 0},  /* MIF : 133MHz INT : 133MHz */
+	{LV_6, 100100, 950000, 0, 0, 0},  /* MIF : 100MHz INT : 100MHz */
 };
 
-static unsigned int exynos4_qos_value[LV_END][4] = {
-	{0x00, 0x00, 0x00, 0x00},
-	{0x00, 0x00, 0x00, 0x00},
-	{0x00, 0x00, 0x00, 0x00},
-	{0x06, 0x03, 0x06, 0x0e},
-	{0x06, 0x03, 0x06, 0x0e},
-	{0x03, 0x0B, 0x00, 0x00},
+enum busfreq_qos_target {
+	BUS_QOS_0,
+	BUS_QOS_1,
+	BUS_QOS_MAX,
 };
+
+static enum busfreq_qos_target busfreq_qos = BUS_QOS_0;
+
+#if defined(CONFIG_BUSFREQ_QOS_1280X800) /* P4NOTE */
+static unsigned int exynos4_qos_value[BUS_QOS_MAX][LV_END][4] = {
+	{
+		{0x00, 0x00, 0x00, 0x00},
+		{0x00, 0x00, 0x00, 0x00},
+		{0x06, 0x03, 0x06, 0x0e},
+		{0x06, 0x03, 0x06, 0x0e},
+		{0x03, 0x03, 0x03, 0x0e},
+		{0x03, 0x03, 0x03, 0x0e},
+		{0x02, 0x0B, 0x00, 0x00},
+	},
+	{
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x03, 0x06, 0x0e},
+		{0x04, 0x03, 0x04, 0x0e},
+		{0x02, 0x0b, 0x00, 0x00},
+	},
+};
+#else
+static unsigned int exynos4_qos_value[BUS_QOS_MAX][LV_END][4] = {
+	{
+		{0x00, 0x00, 0x00, 0x00},
+		{0x00, 0x00, 0x00, 0x00},
+		{0x00, 0x00, 0x00, 0x00},
+		{0x00, 0x00, 0x00, 0x00},
+		{0x06, 0x03, 0x06, 0x0e},
+		{0x04, 0x03, 0x04, 0x0e},
+		{0x03, 0x0B, 0x00, 0x00},
+	},
+	{
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x0b, 0x06, 0x0f},
+		{0x06, 0x03, 0x06, 0x0e},
+		{0x04, 0x03, 0x04, 0x0e},
+		{0x03, 0x0b, 0x00, 0x00},
+	},
+};
+#endif
 
 #define ASV_GROUP	12
-#define BUSFREQ_VOL_COMP 50000
 
 static unsigned int asv_group_index;
 
 static unsigned int (*exynos4_mif_volt)[LV_END];
 static unsigned int (*exynos4_int_volt)[LV_END];
 
-static unsigned int exynos4212_mif_volt[1][LV_END] = {
-	/* 400      267      267      160     133     100 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV0 */
+static unsigned int exynos4212_mif_volt[ASV_GROUP][LV_END] = {
+	/* 400      400      267      267      160     133     100 */
+	{1012500, 1012500, 962500,  962500,  912500, 912500, 912500}, /* RESERVED */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV1 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV2 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV3 */
+	{1050000, 1050000, 1000000,  1000000,  900000, 900000, 900000}, /* ASV4 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV5 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV6 */
+	{950000, 950000, 900000,  900000,  900000, 900000, 900000}, /* ASV7 */
+	{950000, 950000, 900000,  900000,  900000, 900000, 850000}, /* ASV8 */
+	{950000, 950000, 900000,  900000,  900000, 900000, 850000}, /* ASV9 */
+	{950000, 950000, 900000,  900000,  900000, 850000, 850000}, /* ASV10 */
+	{937500, 937500, 887500,  887500,  887500, 850000, 850000}, /* RESERVED */
 };
 
-static unsigned int exynos4212_int_volt[1][LV_END] = {
-	/* 200      200     160    160      133     100 */
-	{1050000, 1050000, 950000, 950000, 900000, 875000}, /* ASV0 */
+static unsigned int exynos4212_int_volt[ASV_GROUP][LV_END] = {
+	/* 266      200       200     160    160      133     100 */
+	{1300000, 1250000, 1250000, 950000, 950000, 912500, 887500}, /* RESERVED */
+	{1062500, 1012500, 1012500, 937500, 937500, 900000, 875000}, /* ASV1 */
+	{1050000, 1000000, 1000000, 925000, 925000, 887500, 875000}, /* ASV2 */
+	{1050000, 1000000, 1000000, 912500, 912500, 887500, 875000}, /* ASV3 */
+	{1062500, 1012500, 1012500, 925000, 925000, 900000, 875000}, /* ASV4 */
+	{1050000, 1000000, 1000000, 925000, 925000, 887500, 875000}, /* ASV5 */
+	{1050000, 1000000, 1000000, 912500, 912500, 887500, 875000}, /* ASV6 */
+	{1037500, 987500, 987500, 912500, 912500, 875000, 875000}, /* ASV7 */
+	{1037500, 987500, 987500, 900000, 900000, 875000, 875000}, /* ASV8 */
+	{1037500, 987500, 987500, 900000, 900000, 875000, 875000}, /* ASV9 */
+	{1037500, 987500, 987500, 900000, 900000, 862500, 850000}, /* ASV10 */
+	{1035000, 975000, 975000, 887500, 887500, 850000, 850000}, /* RESERVED */
 };
 #if 0
-/* 20110112 DVFS table */
-static unsigned int exynos4412_mif_volt[ASV_GROUP][LV_END] = {
-	/* 400      267      267      160     133     100 */
-	{1100000, 1000000, 1000000, 950000, 950000, 950000}, /* ASV0 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV1 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV2 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV3 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV4 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV5 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV6 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV7 */
-	{1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV8 */
-	{1050000, 950000,  950000,  900000, 900000, 850000}, /* ASV9 */
-	{1050000, 900000,  900000,  900000, 900000, 850000}, /* ASV10 */
-	{1000000, 900000,  900000,  900000, 900000, 850000}, /* ASV11 */
-};
-
-static unsigned int exynos4412_int_volt[ASV_GROUP][LV_END] = {
-	/* 200      200     160    160      133     100 */
-	{1062500, 1062500, 975000, 975000, 925000, 900000}, /* ASV0 */
-	{1050000, 1050000, 962500, 962500, 912500, 887500}, /* ASV1 */
-	{1037500, 1037500, 950000, 950000, 900000, 875000}, /* ASV2 */
-	{1025000, 1025000, 950000, 950000, 887500, 862500}, /* ASV3 */
-	{1025000, 1025000, 937500, 937500, 875000, 862500}, /* ASV4 */
-	{1012500, 1012500, 937500, 937500, 862500, 850000}, /* ASV5 */
-	{1012500, 1012500, 925000, 925000, 862500, 850000}, /* ASV6 */
-	{1000000, 1000000, 925000, 925000, 850000, 850000}, /* ASV7 */
-	{1000000, 1000000, 912500, 912500, 850000, 850000}, /* ASV8 */
-	{1000000, 1000000, 912500, 912500, 850000, 850000}, /* ASV9 */
-	{1000000, 1000000, 912500, 912500, 850000, 850000}, /* ASV10 */
-	{987500,  987500,  900000, 900000, 837500, 837500}, /* ASV11 */
-};
-#else
-/* 20110105 DVFS table */
+/* 20120105 DVFS table */
 static unsigned int exynos4412_mif_volt[ASV_GROUP][LV_END] = {
 	/* 400      267      267      160     133     100 */
 	{1100000, 1000000, 1000000, 950000, 950000, 950000}, /* ASV 0 */
@@ -170,9 +212,43 @@ static unsigned int exynos4412_int_volt[ASV_GROUP][LV_END] = {
 	{ 987500,  987500, 900000, 900000, 837500, 837500}, /* ASV11 */
 
 };
+#else
+/* 20120210 DVFS table */
+static unsigned int exynos4412_mif_volt[ASV_GROUP][LV_END] = {
+	/* 400      400      267      267      160     133     100 */
+	{1100000, 1100000, 1000000, 1000000, 950000, 950000, 950000}, /* RESERVED */
+	{1050000, 1050000, 950000,  950000,  900000, 900000, 900000}, /* RESERVED */
+	{1050000, 1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV2 */
+	{1050000, 1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV3 */
+	{1050000, 1050000, 950000,  950000,  900000, 900000, 900000}, /* ASV4 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV5 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV6 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV7 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 900000}, /* ASV8 */
+	{1000000, 1000000, 950000,  950000,  900000, 900000, 850000}, /* ASV9 */
+	{1000000, 1000000, 900000,  900000,  900000, 900000, 850000}, /* ASV10 */
+	{1000000, 1000000, 900000,  900000,  900000, 900000, 850000}, /* RESERVED */
+};
+
+static unsigned int exynos4412_int_volt[ASV_GROUP][LV_END] = {
+  /* GDR : 266       200      200     160    160      133     100 */
+	{1112500, 1062500, 1062500, 975000, 975000, 937500, 900000}, /* RESERVED */
+	{1100000, 1050000, 1050000, 962500, 962500, 925000, 887500}, /* RESERVED */
+	{1075000, 1025000, 1025000, 937500, 937500, 912500, 875000}, /* ASV2 */
+	{1062500, 1012500, 1012500, 937500, 937500, 900000, 862500}, /* ASV3 */
+	{1062500, 1012500, 1012500, 925000, 925000, 900000, 862500}, /* ASV4 */
+	{1050000, 1000000, 1000000, 925000, 925000, 887500, 850000}, /* ASV5 */
+	{1050000, 1000000, 1000000, 912500, 912500, 875000, 850000}, /* ASV6 */
+	{1037500,  987500,  987500, 912500, 912500, 862500, 850000}, /* ASV7 */
+	{1037500,  987500,  987500, 900000, 900000, 862500, 850000}, /* ASV8 */
+	{1037500,  987500,  987500, 900000, 900000, 862500, 850000}, /* ASV9 */
+	{1037500,  987500,  987500, 900000, 900000, 862500, 850000}, /* ASV10 */
+	{1025000,  975000,  975000, 887500, 887500, 850000, 850000}, /* RESERVED */
+};
+
 #endif
 static unsigned int exynos4x12_timingrow[LV_END] = {
-	0x34498691, 0x24488490, 0x24488490, 0x154882D0, 0x154882D0, 0x0D488210
+	0x34498691, 0x34498691, 0x24488490, 0x24488490, 0x154882D0, 0x154882D0, 0x0D488210
 };
 
 static unsigned int clkdiv_dmc0[LV_END][6] = {
@@ -185,19 +261,22 @@ static unsigned int clkdiv_dmc0[LV_END][6] = {
 	/* DMC L0: 400MHz */
 	{3, 1, 1, 1, 1, 1},
 
-	/* DMC L1: 266.7MHz */
-	{4, 1, 1, 2, 1, 1},
+	/* DMC L1: 400MHz */
+	{3, 1, 1, 1, 1, 1},
 
 	/* DMC L2: 266.7MHz */
 	{4, 1, 1, 2, 1, 1},
 
-	/* DMC L3: 160MHz */
+	/* DMC L3: 266.7MHz */
+	{4, 1, 1, 2, 1, 1},
+
+	/* DMC L4: 160MHz */
 	{5, 1, 1, 4, 1, 1},
 
-	/* DMC L4: 133MHz */
+	/* DMC L5: 133MHz */
 	{5, 1, 1, 5, 1, 1},
 
-	/* DMC L5: 100MHz */
+	/* DMC L6: 100MHz */
 	{7, 1, 1, 7, 1, 1},
 };
 
@@ -210,19 +289,22 @@ static unsigned int clkdiv_dmc1[LV_END][6] = {
 	/* DMC L0: 400MHz */
 	{3, 1, 1},
 
-	/* DMC L1: 266.7MHz */
-	{4, 2, 1},
+	/* DMC L1: 400MHz */
+	{3, 1, 1},
 
 	/* DMC L2: 266.7MHz */
 	{4, 2, 1},
 
-	/* DMC L3: 160MHz */
+	/* DMC L3: 266.7MHz */
+	{4, 2, 1},
+
+	/* DMC L4: 160MHz */
 	{5, 4, 1},
 
-	/* DMC L4: 133MHz */
+	/* DMC L5: 133MHz */
 	{5, 5, 1},
 
-	/* DMC L5: 100MHz */
+	/* DMC L6: 100MHz */
 	{7, 7, 1},
 };
 
@@ -233,47 +315,81 @@ static unsigned int clkdiv_top[LV_END][5] = {
 		DIVACLK133, DIVONENAND }
 	 */
 
-	/* ACLK_GDL/R L0: 200MHz */
+	/* ACLK_GDL/R L0: 266MHz */
 	{2, 7, 4, 5, 1},
 
 	/* ACLK_GDL/R L1: 200MHz */
 	{2, 7, 4, 5, 1},
 
-	/* ACLK_GDL/R L2: 160MHz */
-	{4, 7, 5, 7, 1},
+	/* ACLK_GDL/R L2: 200MHz */
+	{2, 7, 4, 5, 1},
 
 	/* ACLK_GDL/R L3: 160MHz */
 	{4, 7, 5, 7, 1},
 
-	/* ACLK_GDL/R L4: 133MHz */
+	/* ACLK_GDL/R L4: 160MHz */
+	{4, 7, 5, 7, 1},
+
+	/* ACLK_GDL/R L5: 133MHz */
 	{5, 7, 5, 7, 1},
 
-	/* ACLK_GDL/R L5: 100MHz */
+	/* ACLK_GDL/R L6: 100MHz */
 	{7, 7, 7, 7, 1},
 };
 
-static unsigned int clkdiv_lr_bus[LV_END][2] = {
+static unsigned int clkdiv_l_bus[LV_END][2] = {
 	/*
 	 * Clock divider value for following
-	 * { DIVGDL/R, DIVGPL/R }
+	 * { DIVGDL, DIVGPL }
 	 */
 
-	/* ACLK_GDL/R L0: 200MHz */
+	/* ACLK_GDL L0: 200MHz */
 	{3, 1},
 
-	/* ACLK_GDL/R L1: 200MHz */
+	/* ACLK_GDL L1: 200MHz */
 	{3, 1},
 
-	/* ACLK_GDL/R L2: 160MHz */
+	/* ACLK_GDL L2: 200MHz */
+	{3, 1},
+
+	/* ACLK_GDL L3: 160MHz */
 	{4, 1},
 
-	/* ACLK_GDL/R L3: 160MHz */
+	/* ACLK_GDL L4: 160MHz */
 	{4, 1},
 
-	/* ACLK_GDL/R L4: 133MHz */
+	/* ACLK_GDL L5: 133MHz */
 	{5, 1},
 
-	/* ACLK_GDL/R L5: 100MHz */
+	/* ACLK_GDL L6: 100MHz */
+	{7, 1},
+};
+
+static unsigned int clkdiv_r_bus[LV_END][2] = {
+	/*
+	 * Clock divider value for following
+	 * { DIVGDR, DIVGPR }
+	 */
+
+	/* ACLK_GDR L0: 266MHz */
+	{2, 1},
+
+	/* ACLK_GDR L1: 200MHz */
+	{3, 1},
+
+	/* ACLK_GDR L2: 200MHz */
+	{3, 1},
+
+	/* ACLK_GDR L3: 160MHz */
+	{4, 1},
+
+	/* ACLK_GDR L4: 160MHz */
+	{4, 1},
+
+	/* ACLK_GDR L5: 133MHz */
+	{5, 1},
+
+	/* ACLK_GDR L6: 100MHz */
 	{7, 1},
 };
 
@@ -282,6 +398,9 @@ static unsigned int clkdiv_sclkip[LV_END][3] = {
 	 * Clock divider value for following
 	 * { DIVMFC, DIVJPEG, DIVFIMC0~3}
 	 */
+
+	/* SCLK_MFC: 200MHz */
+	{3, 3, 4},
 
 	/* SCLK_MFC: 200MHz */
 	{3, 3, 4},
@@ -308,24 +427,24 @@ static void exynos4x12_set_bus_volt(void)
 
 	asv_group_index = exynos_result_of_asv;
 
-	if (asv_group_index == 0xff || soc_is_exynos4212())
+	if (asv_group_index == 0xff)
 		asv_group_index = 0;
 
 	printk(KERN_INFO "DVFS : VDD_INT Voltage table set with %d Group\n", asv_group_index);
 
 	for (i = 0 ; i < LV_END ; i++)
 		exynos4_busfreq_table[i].volt =
-			exynos4_mif_volt[asv_group_index][i] + BUSFREQ_VOL_COMP;
+			exynos4_mif_volt[asv_group_index][i];
 
 	return;
 }
 
-unsigned int exynos4x12_target(unsigned int div_index)
+void exynos4x12_target(int index)
 {
 	unsigned int tmp;
 
 	/* Change Divider - DMC0 */
-	tmp = exynos4_busfreq_table[div_index].clk_dmc0div;
+	tmp = exynos4_busfreq_table[index].clk_dmc0div;
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_DMC0);
 
@@ -340,9 +459,9 @@ unsigned int exynos4x12_target(unsigned int div_index)
 		EXYNOS4_CLKDIV_DMC1_C2C_MASK |
 		EXYNOS4_CLKDIV_DMC1_C2CACLK_MASK);
 
-	tmp |= ((clkdiv_dmc1[div_index][0] << EXYNOS4_CLKDIV_DMC1_G2D_ACP_SHIFT) |
-		(clkdiv_dmc1[div_index][1] << EXYNOS4_CLKDIV_DMC1_C2C_SHIFT) |
-		(clkdiv_dmc1[div_index][2] << EXYNOS4_CLKDIV_DMC1_C2CACLK_SHIFT));
+	tmp |= ((clkdiv_dmc1[index][0] << EXYNOS4_CLKDIV_DMC1_G2D_ACP_SHIFT) |
+		(clkdiv_dmc1[index][1] << EXYNOS4_CLKDIV_DMC1_C2C_SHIFT) |
+		(clkdiv_dmc1[index][2] << EXYNOS4_CLKDIV_DMC1_C2CACLK_SHIFT));
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_DMC1);
 
@@ -359,11 +478,11 @@ unsigned int exynos4x12_target(unsigned int div_index)
 		EXYNOS4_CLKDIV_TOP_ACLK133_MASK |
 		EXYNOS4_CLKDIV_TOP_ONENAND_MASK);
 
-	tmp |= ((clkdiv_top[div_index][0] << EXYNOS4_CLKDIV_TOP_ACLK266_GPS_SHIFT) |
-		(clkdiv_top[div_index][1] << EXYNOS4_CLKDIV_TOP_ACLK100_SHIFT) |
-		(clkdiv_top[div_index][2] << EXYNOS4_CLKDIV_TOP_ACLK160_SHIFT) |
-		(clkdiv_top[div_index][3] << EXYNOS4_CLKDIV_TOP_ACLK133_SHIFT) |
-		(clkdiv_top[div_index][4] << EXYNOS4_CLKDIV_TOP_ONENAND_SHIFT));
+	tmp |= ((clkdiv_top[index][0] << EXYNOS4_CLKDIV_TOP_ACLK266_GPS_SHIFT) |
+		(clkdiv_top[index][1] << EXYNOS4_CLKDIV_TOP_ACLK100_SHIFT) |
+		(clkdiv_top[index][2] << EXYNOS4_CLKDIV_TOP_ACLK160_SHIFT) |
+		(clkdiv_top[index][3] << EXYNOS4_CLKDIV_TOP_ACLK133_SHIFT) |
+		(clkdiv_top[index][4] << EXYNOS4_CLKDIV_TOP_ONENAND_SHIFT));
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_TOP);
 
@@ -376,8 +495,8 @@ unsigned int exynos4x12_target(unsigned int div_index)
 
 	tmp &= ~(EXYNOS4_CLKDIV_BUS_GDLR_MASK | EXYNOS4_CLKDIV_BUS_GPLR_MASK);
 
-	tmp |= ((clkdiv_lr_bus[div_index][0] << EXYNOS4_CLKDIV_BUS_GDLR_SHIFT) |
-		(clkdiv_lr_bus[div_index][1] << EXYNOS4_CLKDIV_BUS_GPLR_SHIFT));
+	tmp |= ((clkdiv_l_bus[index][0] << EXYNOS4_CLKDIV_BUS_GDLR_SHIFT) |
+		(clkdiv_l_bus[index][1] << EXYNOS4_CLKDIV_BUS_GPLR_SHIFT));
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_LEFTBUS);
 
@@ -390,8 +509,8 @@ unsigned int exynos4x12_target(unsigned int div_index)
 
 	tmp &= ~(EXYNOS4_CLKDIV_BUS_GDLR_MASK | EXYNOS4_CLKDIV_BUS_GPLR_MASK);
 
-	tmp |= ((clkdiv_lr_bus[div_index][0] << EXYNOS4_CLKDIV_BUS_GDLR_SHIFT) |
-		(clkdiv_lr_bus[div_index][1] << EXYNOS4_CLKDIV_BUS_GPLR_SHIFT));
+	tmp |= ((clkdiv_r_bus[index][0] << EXYNOS4_CLKDIV_BUS_GDLR_SHIFT) |
+		(clkdiv_r_bus[index][1] << EXYNOS4_CLKDIV_BUS_GPLR_SHIFT));
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_RIGHTBUS);
 
@@ -404,7 +523,7 @@ unsigned int exynos4x12_target(unsigned int div_index)
 
 	tmp &= ~(EXYNOS4_CLKDIV_MFC_MASK);
 
-	tmp |= ((clkdiv_sclkip[div_index][0] << EXYNOS4_CLKDIV_MFC_SHIFT));
+	tmp |= ((clkdiv_sclkip[index][0] << EXYNOS4_CLKDIV_MFC_SHIFT));
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_MFC);
 
@@ -417,7 +536,7 @@ unsigned int exynos4x12_target(unsigned int div_index)
 
 	tmp &= ~(EXYNOS4_CLKDIV_CAM1_JPEG_MASK);
 
-	tmp |= ((clkdiv_sclkip[div_index][1] << EXYNOS4_CLKDIV_CAM1_JPEG_SHIFT));
+	tmp |= ((clkdiv_sclkip[index][1] << EXYNOS4_CLKDIV_CAM1_JPEG_SHIFT));
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_CAM1);
 
@@ -431,10 +550,10 @@ unsigned int exynos4x12_target(unsigned int div_index)
 	tmp &= ~(EXYNOS4_CLKDIV_CAM_FIMC0_MASK | EXYNOS4_CLKDIV_CAM_FIMC1_MASK |
 		EXYNOS4_CLKDIV_CAM_FIMC2_MASK | EXYNOS4_CLKDIV_CAM_FIMC3_MASK);
 
-	tmp |= ((clkdiv_sclkip[div_index][2] << EXYNOS4_CLKDIV_CAM_FIMC0_SHIFT) |
-		(clkdiv_sclkip[div_index][2] << EXYNOS4_CLKDIV_CAM_FIMC1_SHIFT) |
-		(clkdiv_sclkip[div_index][2] << EXYNOS4_CLKDIV_CAM_FIMC2_SHIFT) |
-		(clkdiv_sclkip[div_index][2] << EXYNOS4_CLKDIV_CAM_FIMC3_SHIFT));
+	tmp |= ((clkdiv_sclkip[index][2] << EXYNOS4_CLKDIV_CAM_FIMC0_SHIFT) |
+		(clkdiv_sclkip[index][2] << EXYNOS4_CLKDIV_CAM_FIMC1_SHIFT) |
+		(clkdiv_sclkip[index][2] << EXYNOS4_CLKDIV_CAM_FIMC2_SHIFT) |
+		(clkdiv_sclkip[index][2] << EXYNOS4_CLKDIV_CAM_FIMC3_SHIFT));
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_CAM);
 
@@ -442,7 +561,15 @@ unsigned int exynos4x12_target(unsigned int div_index)
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_CAM1);
 	} while (tmp & 0x1111);
 
-	return div_index;
+	if (soc_is_exynos4412() && (exynos_result_of_asv > 3)) {
+		if (index == LV_6) { /* MIF:100 / INT:100 */
+			exynos4x12_set_abb_member(ABB_INT, ABB_MODE_100V);
+			exynos4x12_set_abb_member(ABB_MIF, ABB_MODE_100V);
+		} else {
+			exynos4x12_set_abb_member(ABB_INT, ABB_MODE_130V);
+			exynos4x12_set_abb_member(ABB_MIF, ABB_MODE_130V);
+		}
+	}
 }
 
 unsigned int exynos4x12_get_table_index(struct opp *opp)
@@ -458,39 +585,65 @@ unsigned int exynos4x12_get_table_index(struct opp *opp)
 
 void exynos4x12_prepare(unsigned int index)
 {
-	unsigned int timing0;
+	unsigned int timing0 = 0;
 
+#ifdef CONFIG_ARM_TRUSTZONE
+	exynos_smc_readsfr(EXYNOS4_PA_DMC0_4212 + TIMINGROW_OFFSET, &timing0);
+	timing0 |= exynos4x12_timingrow[index];
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC0_4212 + TIMINGROW_OFFSET),
+			timing0, 0);
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC0_4212 + TIMINGROW_OFFSET),
+			exynos4x12_timingrow[index], 0);
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC1_4212 + TIMINGROW_OFFSET),
+			timing0, 0);
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC1_4212 + TIMINGROW_OFFSET),
+			exynos4x12_timingrow[index], 0);
+#else
 	timing0 = __raw_readl(S5P_VA_DMC0 + TIMINGROW_OFFSET);
 	timing0 |= exynos4x12_timingrow[index];
 	__raw_writel(timing0, S5P_VA_DMC0 + TIMINGROW_OFFSET);
 	__raw_writel(exynos4x12_timingrow[index], S5P_VA_DMC0 + TIMINGROW_OFFSET);
 	__raw_writel(timing0, S5P_VA_DMC1 + TIMINGROW_OFFSET);
 	__raw_writel(exynos4x12_timingrow[index], S5P_VA_DMC1 + TIMINGROW_OFFSET);
+#endif
 }
 
 void exynos4x12_post(unsigned int index)
 {
-	unsigned int timing0;
+	unsigned int timing0 = 0;
 
+#ifdef CONFIG_ARM_TRUSTZONE
+	exynos_smc_readsfr(EXYNOS4_PA_DMC0_4212 + TIMINGROW_OFFSET, &timing0);
+	timing0 |= exynos4x12_timingrow[index];
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC0_4212 + TIMINGROW_OFFSET),
+			timing0, 0);
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC0_4212 + TIMINGROW_OFFSET),
+			exynos4x12_timingrow[index], 0);
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC1_4212 + TIMINGROW_OFFSET),
+			timing0, 0);
+	exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(EXYNOS4_PA_DMC1_4212 + TIMINGROW_OFFSET),
+			exynos4x12_timingrow[index], 0);
+#else
 	timing0 = __raw_readl(S5P_VA_DMC0 + TIMINGROW_OFFSET);
 	timing0 |= exynos4x12_timingrow[index];
 	__raw_writel(timing0, S5P_VA_DMC0 + TIMINGROW_OFFSET);
 	__raw_writel(exynos4x12_timingrow[index], S5P_VA_DMC0 + TIMINGROW_OFFSET);
 	__raw_writel(timing0, S5P_VA_DMC1 + TIMINGROW_OFFSET);
 	__raw_writel(exynos4x12_timingrow[index], S5P_VA_DMC1 + TIMINGROW_OFFSET);
+#endif
 }
 
 void exynos4x12_set_qos(unsigned int index)
 {
-	__raw_writel(exynos4_qos_value[index][0], S5P_VA_GDL + 0x400);
-	__raw_writel(exynos4_qos_value[index][1], S5P_VA_GDL + 0x404);
-	__raw_writel(exynos4_qos_value[index][2], S5P_VA_GDR + 0x400);
-	__raw_writel(exynos4_qos_value[index][3], S5P_VA_GDR + 0x404);
+	__raw_writel(exynos4_qos_value[busfreq_qos][index][0], S5P_VA_GDL + 0x400);
+	__raw_writel(exynos4_qos_value[busfreq_qos][index][1], S5P_VA_GDL + 0x404);
+	__raw_writel(exynos4_qos_value[busfreq_qos][index][2], S5P_VA_GDR + 0x400);
+	__raw_writel(exynos4_qos_value[busfreq_qos][index][3], S5P_VA_GDR + 0x404);
 }
 
 void exynos4x12_suspend(void)
 {
-	exynos4x12_post(LV_0);
+	/* Nothing to do */
 }
 
 void exynos4x12_resume(void)
@@ -498,9 +651,43 @@ void exynos4x12_resume(void)
 	__raw_writel(dmc_pause_ctrl, EXYNOS4_DMC_PAUSE_CTRL);
 }
 
+/**
+ * exynos4x12_find_busfreq_by_volt - find busfreq by requested
+ * voltage.
+ *
+ * This function finds the busfreq to set for voltage above req_volt
+ * and return its value.
+ */
+int exynos4x12_find_busfreq_by_volt(unsigned int req_volt, unsigned int *freq)
+{
+	unsigned int volt_cmp;
+	int i;
+
+	/* check if req_volt has value or not */
+	if (!req_volt) {
+		pr_err("%s: req_volt has no value.\n", __func__);
+		return -EINVAL;
+	}
+
+	/* find busfreq level in busfreq_table */
+	for (i = LV_END - 1; i >= 0; i--) {
+		volt_cmp = min(exynos4_int_volt[asv_group_index][i],
+				exynos4_mif_volt[asv_group_index][i]);
+
+		if (volt_cmp >= req_volt) {
+			*freq = exynos4_busfreq_table[i].mem_clk;
+			return 0;
+		}
+	}
+	pr_err("%s: %u volt can't support\n", __func__, req_volt);
+
+	return -EINVAL;
+}
+EXPORT_SYMBOL_GPL(exynos4x12_find_busfreq_by_volt);
+
 unsigned int exynos4x12_get_int_volt(unsigned long index)
 {
-	return exynos4_int_volt[asv_group_index][index] + BUSFREQ_VOL_COMP;
+	return exynos4_int_volt[asv_group_index][index];
 }
 
 struct opp *exynos4x12_monitor(struct busfreq_data *data)
@@ -531,25 +718,26 @@ struct opp *exynos4x12_monitor(struct busfreq_data *data)
 	dmc1_load = div64_u64(ppmu_load[PPMU_DMC1] * currfreq, maxfreq);
 
 	cpu_load_slope = cpu_load -
-		data->load_history[PPMU_CPU][data->index ? data->index - 1 : LOAD_HISTORY_SIZE - 1];
+		data->load_history[PPMU_CPU]
+		[data->index ? data->index - 1 : load_history_size - 1];
 
 	data->load_history[PPMU_CPU][data->index] = cpu_load;
 	data->load_history[PPMU_DMC0][data->index] = dmc0_load;
 	data->load_history[PPMU_DMC1][data->index++] = dmc1_load;
 
-	if (data->index >= LOAD_HISTORY_SIZE)
+	if (data->index >= load_history_size)
 		data->index = 0;
 
-	for (i = 0; i < LOAD_HISTORY_SIZE; i++) {
+	for (i = 0; i < load_history_size; i++) {
 		cpu_load_average += data->load_history[PPMU_CPU][i];
 		dmc0_load_average += data->load_history[PPMU_DMC0][i];
 		dmc1_load_average += data->load_history[PPMU_DMC1][i];
 	}
 
 	/* Calculate average Load */
-	cpu_load_average /= LOAD_HISTORY_SIZE;
-	dmc0_load_average /= LOAD_HISTORY_SIZE;
-	dmc1_load_average /= LOAD_HISTORY_SIZE;
+	cpu_load_average /= load_history_size;
+	dmc0_load_average /= load_history_size;
+	dmc1_load_average /= load_history_size;
 
 	if (dmc0_load >= dmc1_load) {
 		dmc_load = dmc0_load;
@@ -559,11 +747,11 @@ struct opp *exynos4x12_monitor(struct busfreq_data *data)
 		dmc_load_average = dmc1_load_average;
 	}
 
-	if (cpu_load >= UP_CPU_THRESHOLD) {
+	if (cpu_load >= up_cpu_threshold) {
 		cpufreq = opp_get_freq(data->max_opp);
-		if (cpu_load < MAX_CPU_THRESHOLD) {
+		if (cpu_load < max_cpu_threshold) {
 			opp = data->curr_opp;
-			if (cpu_load_slope > CPU_SLOPE_SIZE) {
+			if (cpu_load_slope > cpu_slope_size) {
 				cpufreq--;
 				opp = opp_find_freq_floor(data->dev, &cpufreq);
 			}
@@ -573,8 +761,8 @@ struct opp *exynos4x12_monitor(struct busfreq_data *data)
 
 	if (dmc_load >= dmc_max_threshold) {
 		dmcfreq = opp_get_freq(data->max_opp);
-	} else if (dmc_load < IDLE_THRESHOLD) {
-		if (dmc_load_average < IDLE_THRESHOLD)
+	} else if (dmc_load < idle_threshold) {
+		if (dmc_load_average < idle_threshold)
 			opp = step_down(data, 1);
 		else
 			opp = data->curr_opp;
@@ -605,11 +793,50 @@ struct opp *exynos4x12_monitor(struct busfreq_data *data)
 	return opp;
 }
 
+static int exynos4x12_bus_qos_notifiy(struct notifier_block *nb,
+		unsigned long l, void *v)
+{
+	struct busfreq_data *bus_data = container_of(nb, struct busfreq_data,
+			exynos_busqos_notifier);
+
+	busfreq_qos = (int)l;
+	exynos4x12_set_qos(bus_data->get_table_index(bus_data->curr_opp));
+
+	return NOTIFY_OK;
+}
+
+static inline void exynos4x12_bus_qos_notifier_init(struct notifier_block *n)
+{
+	pm_qos_add_notifier(PM_QOS_BUS_QOS, n);
+}
+
+#define ARM_INT_CORRECTION 160160
+
+static int exynos4x12_busfreq_cpufreq_transition(struct notifier_block *nb,
+					    unsigned long val, void *data)
+{
+	struct cpufreq_freqs *freqs = (struct cpufreq_freqs *)data;
+	struct busfreq_data *bus_data = container_of(nb, struct busfreq_data,
+			exynos_cpufreq_notifier);
+
+	switch (val) {
+	case CPUFREQ_PRECHANGE:
+		if (freqs->new > 900000 && freqs->old < 1000000)
+			dev_lock(bus_data->dev, bus_data->dev, ARM_INT_CORRECTION);
+		break;
+	case CPUFREQ_POSTCHANGE:
+		if (freqs->old > 900000 && freqs->new < 1000000)
+			dev_unlock(bus_data->dev, bus_data->dev);
+		break;
+	}
+	return NOTIFY_DONE;
+}
+
 int exynos4x12_init(struct device *dev, struct busfreq_data *data)
 {
 	unsigned int i;
 	unsigned int tmp;
-	unsigned long maxfreq = ULONG_MAX;
+	unsigned long maxfreq = 400200;
 	unsigned long minfreq = 0;
 	unsigned long freq;
 	struct clk *sclk_dmc;
@@ -665,7 +892,7 @@ int exynos4x12_init(struct device *dev, struct busfreq_data *data)
 	}
 
 	/* Disable MIF 267 INT 200 Level */
-	//opp_disable(dev, 267200);
+	/* opp_disable(dev, 267200); */
 
 	data->table = exynos4_busfreq_table;
 	data->table_size = LV_END;
@@ -697,6 +924,16 @@ int exynos4x12_init(struct device *dev, struct busfreq_data *data)
 		regulator_put(data->vdd_int);
 		return -ENODEV;
 	}
+
+	data->exynos_cpufreq_notifier.notifier_call =
+				exynos4x12_busfreq_cpufreq_transition;
+
+	if (cpufreq_register_notifier(&data->exynos_cpufreq_notifier,
+	   CPUFREQ_TRANSITION_NOTIFIER))
+		pr_err("Falied to register cpufreq notifier\n");
+
+	data->exynos_busqos_notifier.notifier_call = exynos4x12_bus_qos_notifiy;
+	exynos4x12_bus_qos_notifier_init(&data->exynos_busqos_notifier);
 
 	return 0;
 }

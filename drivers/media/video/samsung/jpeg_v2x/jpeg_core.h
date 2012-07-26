@@ -21,6 +21,7 @@
 #include <linux/sched.h>
 
 #include <linux/videodev2.h>
+#include <linux/videodev2_exynos_media.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-mem2mem.h>
 #include <media/v4l2-mediabus.h>
@@ -58,6 +59,7 @@ enum jpeg_result {
 	ERR_DEC_INVALID_FORMAT,
 	ERR_MULTI_SCAN,
 	ERR_FRAME,
+	ERR_TIME_OUT,
 	ERR_UNKNOWN,
 };
 
@@ -81,12 +83,14 @@ enum jpeg_frame_format {
 	YCRCB_422_2P,
 	YCBYCR_422_3P,
 	YCBCR_420_3P,
+	YCRCB_420_3P,
 	YCBCR_420_2P,
 	YCRCB_420_2P,
 	YCBCR_420_2P_M,
 	YCRCB_420_2P_M,
 	RGB_565,
 	RGB_888,
+	BGR_888,
 	GRAY,
 };
 
@@ -181,7 +185,7 @@ struct jpeg_vb2 {
 
 	unsigned long (*plane_addr)(struct vb2_buffer *vb, u32 plane_no);
 
-	void (*resume)(void *alloc_ctx);
+	int (*resume)(void *alloc_ctx);
 	void (*suspend)(void *alloc_ctx);
 
 	int (*cache_flush)(struct vb2_buffer *vb, u32 num_planes);

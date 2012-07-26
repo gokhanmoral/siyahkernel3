@@ -27,8 +27,10 @@ static struct resource s3c_adc_resource[] = {
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
+#if defined(CONFIG_TOUCHSCREEN_S3C2410)
 		.start = IRQ_TC,
 		.end   = IRQ_TC,
+#endif
 		.flags = IORESOURCE_IRQ,
 	},
 	[2] = {

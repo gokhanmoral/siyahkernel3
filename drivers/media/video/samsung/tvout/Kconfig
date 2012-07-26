@@ -52,6 +52,16 @@ config HDMI_HPD
 	  This is a HDMI HPD driver for Samsung S5P platform.
 	  Check dev node (major 10, minor 243)
 
+config HDMI_CONTROLLED_BY_EXT_IC
+	bool "External HDMI related IC support"
+	depends on HDMI_HPD
+	default n
+	---help---
+	  Say y here if the H/W has external IC to control HDMI hpd and
+	  it needs to be controlled by HPD interrupt.
+	  For example, the H/W has HDMI level shifter then it should be turned
+	  on when HPD interrupt comes.
+
 config HDMI_SWITCH_HPD
 	bool "HDMI HPD switch uevent driver support"
 	depends on HDMI_HPD
@@ -114,6 +124,15 @@ config TV_FB_NUM
 	default 5
 	---help---
 
+config LSI_HDMI_AUDIO_CH_EVENT
+	bool "Support uevent of multi-channel audio info for hdmi"
+	default n
+	---help---
+	  receive audio channel info from platform using ioctl.
+	  	#define AUDIO_CH_SET_STATE _IOR('H', 101, unsigned int)
+	  and send this to platform using uevent
+	  	audio_ch_switch.name = "hdmi_audio_ch";
+
 config TV_DEBUG
 	bool "TVOUT driver debug message"
 	depends on VIDEO_TVOUT
@@ -153,5 +172,3 @@ config HPD_DEBUG
 	bool "HPD debug message"
 	depends on TV_DEBUG
 	default n
-
-source "drivers/media/video/samsung/tvout/mhl/Kconfig"

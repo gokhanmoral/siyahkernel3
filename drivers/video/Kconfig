@@ -2065,7 +2065,7 @@ config FB_EXYNOS_FIMD_V8
 config FB_EYYNOS_TRACE_UNDERRUN
 	bool "Framebuffer FIFO underrun trace"
 	depends on FB_S3C && ARCH_EXYNOS5
-	default n
+	default y
 	---help---
 
 config FB_EXYNOS_FIMD_MC
@@ -2089,7 +2089,7 @@ config FB_S3C_DEBUG_REGWRITE
 config VIDEO_SAMSUNG_MEMSIZE_FIMD
 	int "Memory size in kbytes for FIMD0"
 	depends on FB_S3C
-	default "100000"
+	default "102400"
 
 config FB_S3C2410
 	tristate "S3C2410 LCD framebuffer support"

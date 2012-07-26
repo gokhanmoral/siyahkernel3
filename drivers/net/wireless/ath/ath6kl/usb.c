@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007-2011 Atheros Communications Inc.
+ * Copyright (c) 2011-2012 Qualcomm Atheros, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +20,6 @@
 
 #include "debug.h"
 #include "core.h"
-#include "dbglog.h"
 
 /* usb device object */
 struct ath6kl_usb {
@@ -410,13 +410,11 @@ static struct usb_driver ath6kl_usb_driver = {
 static int ath6kl_usb_init(void)
 {
 	usb_register(&ath6kl_usb_driver);
-	ath6kl_dbglog_init();
 	return 0;
 }
 
 static void ath6kl_usb_exit(void)
 {
-	ath6kl_dbglog_deinit();
 	usb_deregister(&ath6kl_usb_driver);
 }
 

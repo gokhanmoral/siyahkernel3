@@ -153,12 +153,14 @@
 #define MFC_ENC_SI_CH1_CUR_Y_ADR	S5P_MFCREG(0x2050) /* current Luma addr */
 #define MFC_ENC_SI_CH1_CUR_C_ADR	S5P_MFCREG(0x2054) /* current Chroma addr */
 #define MFC_ENC_SI_CH1_FRAME_INS	S5P_MFCREG(0x2058) /* frame insertion control register */
+#define MFC_ENC_SI_CH1_INPUT_FLUSH	S5P_MFCREG(0x2068) /* flusing input buffer */
 
 #define MFC_ENC_SI_CH2_SB_ADR		S5P_MFCREG(0x2084) /* addr of stream buf */
 #define MFC_ENC_SI_CH2_SB_SIZE		S5P_MFCREG(0x208c) /* size of stream buf */
 #define MFC_ENC_SI_CH2_CUR_Y_ADR	S5P_MFCREG(0x2090) /* current Luma addr */
 #define MFC_ENC_SI_CH2_CUR_C_ADR	S5P_MFCREG(0x2094) /* current Chroma addr */
 #define MFC_ENC_SI_CH2_FRAME_INS	S5P_MFCREG(0x2098) /* frame insertion control register */
+#define MFC_ENC_SI_CH2_INPUT_FLUSH	S5P_MFCREG(0x20A8) /* flusing input buffer */
 
 #define MFC_ENC_PIC_TYPE_CTRL		S5P_MFCREG(0xc504) /* pic type level control */
 #define MFC_ENC_B_RECON_WRITE_ON	S5P_MFCREG(0xc508) /* B frame recon data write cotrl */

@@ -46,11 +46,12 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/composite.h>
 #include <linux/usb/gadget.h>
+#include <linux/ioctl.h>
+#include <linux/printk.h>
 
 #include <linux/sched.h>
 #include <asm-generic/siginfo.h>
 
-#include "f_mtp.h"
 #include "gadget_chips.h"
 
 /*-------------------------------------------------------------------------*/
@@ -88,19 +89,41 @@
 #endif
 /*-------------------------------------------------------------------------*/
 
-#define BULK_BUFFER_SIZE	 4096
+#define MTP_BULK_BUFFER_SIZE	 4096
 
 /* number of rx and tx requests to allocate */
-#define RX_REQ_MAX		 4
-#define TX_REQ_MAX		 4
+#define MTP_RX_REQ_MAX		 4
+#define MTP_TX_REQ_MAX		 4
 
-#define DRIVER_NAME		 "usb_mtp_gadget"
+#define MTP_DRIVER_NAME		 "usb_mtp_gadget"
+
+#define MTP_MAX_PACKET_LEN_FROM_APP 22
+
+#define MTP_IOCTL_LETTER	'Z'
+#define GET_HIGH_FULL_SPEED	_IOR(MTP_IOCTL_LETTER, 1, int)
+#define MTP_DISABLE			_IO(MTP_IOCTL_LETTER, 2)
+#define MTP_CLEAR_HALT		_IO(MTP_IOCTL_LETTER, 3)
+#define MTP_WRITE_INT_DATA	_IOW(MTP_IOCTL_LETTER, 4, char *)
+#define SET_MTP_USER_PID	_IOW(MTP_IOCTL_LETTER, 5, int)
+#define GET_SETUP_DATA		_IOR(MTP_IOCTL_LETTER, 6, char *)
+#define SET_SETUP_DATA		_IOW(MTP_IOCTL_LETTER, 7, char *)
+#define SEND_RESET_ACK		_IO(MTP_IOCTL_LETTER, 8)
+#define SET_ZLP_DATA		_IO(MTP_IOCTL_LETTER, 9)
+#define SIG_SETUP			44
+
+/*PIMA15740-2000 spec*/
+#define USB_PTPREQUEST_CANCELIO   0x64    /* Cancel request */
+#define USB_PTPREQUEST_GETEVENT   0x65    /* Get extened event data */
+#define USB_PTPREQUEST_RESET      0x66    /* Reset Device */
+#define USB_PTPREQUEST_GETSTATUS  0x67    /* Get Device Status */
+#define USB_PTPREQUEST_CANCELIO_SIZE 6
+#define USB_PTPREQUEST_GETSTATUS_SIZE 12
 
 static const char mtp_longname[] = "mtp";
 
 static DEFINE_MUTEX(mtp_lock);
-static const char mtp_shortname[] = DRIVER_NAME;
-static int mtp_pid;
+static const char mtp_shortname[] = MTP_DRIVER_NAME;
+static pid_t mtp_pid;
 
 struct mtp_ep_descs {
 	struct usb_endpoint_descriptor *bulk_in;
@@ -122,7 +145,6 @@ struct f_mtp {
 
 	struct list_head bulk_in_q;
 	struct list_head bulk_out_q;
-
 };
 
 /* MTP Device Structure*/
@@ -152,6 +174,10 @@ struct mtpg_dev {
 
 	char cancel_io_buf[USB_PTPREQUEST_CANCELIO_SIZE + 1];
 
+};
+
+struct usb_mtp_ctrlrequest {
+	struct usb_ctrlrequest	setup;
 };
 
 static inline struct f_mtp *func_to_mtp(struct usb_function *f)
@@ -345,7 +371,7 @@ static int mtp_send_signal(int value)
 	rcu_read_lock();
 	t = find_task_by_vpid(mtp_pid);
 	if (t == NULL) {
-		printk(KERN_ERR "no such pid\n");
+		pr_err("no such pid\n");
 		rcu_read_unlock();
 		return -ENODEV;
 	}
@@ -353,7 +379,7 @@ static int mtp_send_signal(int value)
 	rcu_read_unlock();
 	ret = send_sig_info(SIG_SETUP, &info, t);
 	if (ret < 0) {
-		printk(KERN_ERR "error sending signal !!!!!!!!\n");
+		pr_err("error sending signal !!!!!!!!\n");
 		return ret;
 	}
 	return 0;
@@ -365,7 +391,7 @@ static int mtpg_open(struct inode *ip, struct file *fp)
 	DEBUG_MTPB("[%s] \tline = [%d]\n", __func__, __LINE__);
 
 	if (_mtp_lock(&the_mtpg->open_excl)) {
-		printk(KERN_ERR "mtpg_open fn -- mtpg device busy\n");
+		pr_err("mtpg_open fn -- mtpg device busy\n");
 		return -EBUSY;
 	}
 
@@ -391,7 +417,7 @@ static ssize_t mtpg_read(struct file *fp, char __user *buf,
 	DEBUG_MTPR("*******[%s] and count = (%d)\n", __func__, count);
 
 	if (_mtp_lock(&dev->read_excl)) {
-		printk(KERN_ERR "mtpg_read fn -- mtpg device busy\n");
+		pr_err("mtpg_read fn -- mtpg device busy\n");
 		return -EBUSY;
 	}
 
@@ -412,7 +438,7 @@ static ssize_t mtpg_read(struct file *fp, char __user *buf,
 
 		if (dev->error) {
 			r = -EIO;
-			printk(KERN_ERR "*******[%s]\t%d: dev->error so break r=%d\n",
+			pr_err("*******[%s]\t%d: dev->error so break r=%d\n",
 				__func__, __LINE__, r);
 			break;
 		}
@@ -424,7 +450,7 @@ static ssize_t mtpg_read(struct file *fp, char __user *buf,
 			if (!dev->mtp_func)
 				ret = -ENODEV;
 			else {
-				req->length = BULK_BUFFER_SIZE;
+				req->length = MTP_BULK_BUFFER_SIZE;
 				ret = usb_ep_queue(dev->mtp_func->bulk_out,
 							req, GFP_ATOMIC);
 			}
@@ -550,8 +576,8 @@ static ssize_t mtpg_write(struct file *fp, const char __user *buf,
 		}
 
 		if (req) {
-			if (count > BULK_BUFFER_SIZE)
-				xfer = BULK_BUFFER_SIZE;
+			if (count > MTP_BULK_BUFFER_SIZE)
+				xfer = MTP_BULK_BUFFER_SIZE;
 			else
 				xfer = count;
 
@@ -600,41 +626,42 @@ static ssize_t mtpg_write(struct file *fp, const char __user *buf,
 /*Fixme for Interrupt Transfer*/
 static void interrupt_complete(struct usb_ep *ep, struct usb_request *req)
 {
-	printk(KERN_INFO "******** Finished Writing Interrupt Data\n");
+	pr_info("******** Finished Writing Interrupt Data\n");
 }
 
-static ssize_t interrupt_write(struct file *fd, const char __user * buf,
+static ssize_t interrupt_write(struct mtpg_dev *dev, const char __user * buf,
 			       size_t count)
 {
-	struct mtpg_dev *dev = fd->private_data;
 	struct usb_request *req;
+	struct usb_ep *int_in;
 	int ret;
 
 	DEBUG_MTPB("[%s] \tline = [%d]\n", __func__, __LINE__);
 	req = dev->mtp_func->notify_req;
+	int_in = dev->mtp_func->int_in;
 
-	if (!req)
-		printk(KERN_ERR "Alloc has failed\n");
+	if (!req || !int_in->driver_data) {
+		pr_err("Notify_req checking failed\n");
+		return -ENODEV;
+	}
 
 	if (_mtp_lock(&dev->wintfd_excl)) {
-		printk(KERN_ERR "write failed on interrupt endpoint\n");
+		pr_err("wintfd_excl lock failed for interrupt_write\n");
 		return -EBUSY;
 	}
 
 	if (copy_from_user(req->buf, buf, count)) {
-		printk(KERN_ERR "copy from user has failed\n");
+		pr_err("copy from user has failed\n");
+		_mtp_unlock(&dev->wintfd_excl);
 		return -EIO;
 	}
 
 	req->length = count;
 	req->complete = interrupt_complete;
 
-	ret = usb_ep_queue(dev->mtp_func->int_in, req, GFP_ATOMIC);
-
-	if (ret < 0)
-		return -EIO;
-
+	ret = usb_ep_queue(int_in, req, GFP_ATOMIC);
 	_mtp_unlock(&dev->wintfd_excl);
+
 	return ret;
 }
 
@@ -645,54 +672,62 @@ static long mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 	struct mtpg_dev *dev = fd->private_data;
 	struct usb_composite_dev *cdev;
 	struct usb_request *req;
+	struct usb_ep *bulk_in;
+	struct usb_ep *bulk_out;
 	int status = 0;
 	int size = 0;
-	int ret_value = 0;
-	int max_pkt = 0;
-
-	char *buf_ptr = NULL;
+	void __user *ubuf = (void __user *)arg;
 	char buf[USB_PTPREQUEST_GETSTATUS_SIZE + 1] = { 0 };
 
-	DEBUG_MTPB("[%s] \tline = [%d]\n", __func__, __LINE__);
+	DEBUG_MTPB("[%s] with cmd:[%04x]\n", __func__, code);
 
 	if (code == SET_MTP_USER_PID) {
-		mtp_pid = arg;
-		DEBUG_MTPB("[%s] SET_MTP_USER_PID; pid = %d \tline = [%d]\n",
+		if (copy_from_user(&mtp_pid, ubuf, sizeof(mtp_pid)))
+			status = -EFAULT;
+		else
+			pr_info("[%s] SET_MTP_USER_PID; pid = %d \tline = [%d]\n",
 			   __func__, mtp_pid, __LINE__);
 		return status;
 	}
 
 	mutex_lock(&mtp_lock);
 	if (!dev->mtp_func) {
-		DEBUG_MTPB("mtpg_ioctl fail, usb not yet enabled for MTP\n");
+		pr_info("mtpg_ioctl fail, usb not yet enabled for MTP\n");
 		mutex_unlock(&mtp_lock);
 		return -ENODEV;
 	}
 	cdev = dev->mtp_func->function.config->cdev;
 	req = cdev->req;
+	bulk_in = dev->mtp_func->bulk_in;
+	bulk_out = dev->mtp_func->bulk_out;
 
 	switch (code) {
+	case MTP_DISABLE:
+		if (cdev && cdev->gadget) {
+			pr_info("mtpg_ioctl for MTP_DISABLE, usb_gadget_dicon/connect!!\n");
+			usb_gadget_disconnect(cdev->gadget);
+			mdelay(5);
+			usb_gadget_connect(cdev->gadget);
+		}
+		break;
+
 	case MTP_CLEAR_HALT:
-		status = usb_ep_clear_halt(dev->mtp_func->bulk_in);
-		status = usb_ep_clear_halt(dev->mtp_func->bulk_out);
+		status = usb_ep_clear_halt(bulk_in);
+		if (!status)
+			status = usb_ep_clear_halt(bulk_out);
 		break;
 
 	case MTP_WRITE_INT_DATA:
-		ret_value = interrupt_write(fd, (const char *)arg,
+		status = interrupt_write(dev, (const char *)arg,
 						MTP_MAX_PACKET_LEN_FROM_APP);
-
-		if (ret_value < 0)
-			status = -EIO;
-		else
-			status = MTP_MAX_PACKET_LEN_FROM_APP;
 		break;
 
 	case GET_SETUP_DATA:
-		buf_ptr = (char *)arg;
-		if (copy_to_user(buf_ptr, dev->cancel_io_buf,
+		if (copy_to_user(ubuf, dev->cancel_io_buf,
 		     USB_PTPREQUEST_CANCELIO_SIZE))
 			status = -EIO;
 		break;
+
 	case SEND_RESET_ACK:
 		req->length = 0;
 		status = usb_ep_queue(cdev->gadget->ep0, req, GFP_ATOMIC);
@@ -700,9 +735,9 @@ static long mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 			DEBUG_MTPB("[%s] Error at usb_ep_queue\tline = [%d]\n",
 				   __func__, __LINE__);
 		break;
+
 	case SET_SETUP_DATA:
-		buf_ptr = (char *)arg;
-		if (copy_from_user(buf, buf_ptr,
+		if (copy_from_user(buf, ubuf,
 				USB_PTPREQUEST_GETSTATUS_SIZE)) {
 			status = -EIO;
 			DEBUG_MTPR("*****[%s]\t%d: copy-from-user failed!!!!\n",
@@ -710,9 +745,8 @@ static long mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 			break;
 		}
 		size = buf[0];
-		DEBUG_MTPB
-		    ("[%s] SET_SETUP_DATA; data size = %d\tline = [%d]\n",
-		     __func__, size, __LINE__);
+		DEBUG_MTPB("[SET_SETUP_DATA]check data(%d):%x, %x, %x, %x\n",
+				size, buf[0], buf[1], buf[2], buf[3]);
 		memcpy(req->buf, buf, size);
 		req->zero = 0;
 		req->length = size;
@@ -721,32 +755,32 @@ static long mtpg_ioctl(struct file *fd, unsigned int code, unsigned long arg)
 			DEBUG_MTPB("[%s] Error at usb_ep_queue\tline = [%d]\n",
 				   __func__, __LINE__);
 		break;
+
 	case SET_ZLP_DATA:
 		status = wait_event_interruptible(dev->write_wq,
 				(!!(req = mtp_req_get(dev, dev->tx_idle))
 				 || dev->error));
 		if (status < 0 || dev->error == 1) {
-			printk(KERN_ERR "***** [%s]\t%d status = %d !!!!!\n",
+			pr_err("***** [%s]\t%d status = %d !!!!!\n",
 						__func__, __LINE__, status);
 			break;
 		}
 		req->length = 0;
-		status = usb_ep_queue(dev->mtp_func->bulk_in, req, GFP_ATOMIC);
+		status = usb_ep_queue(bulk_in, req, GFP_ATOMIC);
 		if (status < 0)
-			printk(KERN_ERR "[%s] Error at usb_ep_queue\tline = [%d]\n",
+			pr_err("[%s] Error at usb_ep_queue\tline = [%d]\n",
 			       __func__, __LINE__);
-		else
-			status = 20;
 		break;
-	case GET_HIGH_FULL_SPEED:
-		printk(KERN_INFO "[%s] GET_HIGH_FULL_SPEED and \tline = [%d]\n",
-		       __func__, __LINE__);
-		max_pkt = dev->mtp_func->bulk_in->maxpacket;
-		if (max_pkt == 64)
-			status = 64;
-		else
-			status = 512;
 
+	case GET_HIGH_FULL_SPEED:
+		if (!bulk_in->driver_data) {
+			pr_info("USB speed does not negotiate with host\n");
+			status = -ENODEV;
+		} else {
+			int maxpacket = bulk_in->maxpacket;
+			if (copy_to_user(ubuf, &maxpacket, sizeof(int)))
+				status = -EIO;
+		}
 		break;
 
 	default:
@@ -820,7 +854,7 @@ static struct usb_request *mtpg_request_new(struct usb_ep *ep, int buffer_size)
 	DEBUG_MTPB("[%s] \tline = [%d]\n", __func__, __LINE__);
 
 	if (!req) {
-		printk(KERN_ERR "******* %s \t line %d ERROR !!!\n",
+		pr_err("******* %s \t line %d ERROR !!!\n",
 			__func__, __LINE__);
 		return NULL;
 	}
@@ -870,8 +904,8 @@ static void mtpg_complete_out(struct usb_ep *ep, struct usb_request *req)
 	wake_up(&dev->read_wq);
 }
 
-/* create_bulk_endpoints() must be used after function binded */
-static int create_bulk_endpoints(struct f_mtp *mtp_func,
+/* mtp_create_bulk_endpoints() must be used after function binded */
+static int mtp_create_bulk_endpoints(struct f_mtp *mtp_func,
 				 struct usb_endpoint_descriptor *in_desc,
 				 struct usb_endpoint_descriptor *out_desc,
 				 struct usb_endpoint_descriptor *intr_desc)
@@ -884,8 +918,7 @@ static int create_bulk_endpoints(struct f_mtp *mtp_func,
 
 	ep = usb_ep_autoconfig(cdev->gadget, in_desc);
 	if (!ep) {
-		printk(KERN_ERR
-		       "Error in usb_ep_autoconfig for IN DESC Failed !!!!!!!!!!\n");
+		pr_err("Error in usb_ep_autoconfig for IN DESC Failed !!!!!!!!!!\n");
 		return -ENODEV;
 	}
 	ep->driver_data = cdev;	/* claim the endpoint */
@@ -893,8 +926,7 @@ static int create_bulk_endpoints(struct f_mtp *mtp_func,
 
 	ep = usb_ep_autoconfig(cdev->gadget, out_desc);
 	if (!ep) {
-		printk(KERN_ERR
-		       "Error in usb_ep_autoconfig for OUT DESC Failed !!!!!!!!!!\n");
+		pr_err("Error in usb_ep_autoconfig for OUT DESC Failed !!!!!!!!!!\n");
 		return -ENODEV;
 	}
 	ep->driver_data = cdev;	/* claim the endpoint */
@@ -903,8 +935,7 @@ static int create_bulk_endpoints(struct f_mtp *mtp_func,
 	/* Interrupt Support for MTP */
 	ep = usb_ep_autoconfig(cdev->gadget, intr_desc);
 	if (!ep) {
-		printk(KERN_ERR
-		       "Error in usb_ep_autoconfig for INT IN DESC Failed !!!!!!!!!!\n");
+		pr_err("Error in usb_ep_autoconfig for INT IN DESC Failed !!!!!!!!!!\n");
 		return -ENODEV;
 	}
 	ep->driver_data = cdev;
@@ -915,16 +946,17 @@ static int create_bulk_endpoints(struct f_mtp *mtp_func,
 	if (!mtp_func->notify_req)
 		return -ENOMEM;
 
-	for (i = 0; i < RX_REQ_MAX; i++) {
-		req = mtpg_request_new(mtp_func->bulk_out, BULK_BUFFER_SIZE);
+	for (i = 0; i < MTP_RX_REQ_MAX; i++) {
+		req = mtpg_request_new(mtp_func->bulk_out,
+					MTP_BULK_BUFFER_SIZE);
 		if (!req)
 			goto ep_alloc_fail_out;
 		req->complete = mtpg_complete_out;
 		mtp_req_put(dev, &mtp_func->bulk_out_q, req);
 	}
 
-	for (i = 0; i < TX_REQ_MAX; i++) {
-		req = mtpg_request_new(mtp_func->bulk_in, BULK_BUFFER_SIZE);
+	for (i = 0; i < MTP_TX_REQ_MAX; i++) {
+		req = mtpg_request_new(mtp_func->bulk_in, MTP_BULK_BUFFER_SIZE);
 		if (!req)
 			goto ep_alloc_fail_all;
 		req->complete = mtpg_complete_in;
@@ -1002,17 +1034,17 @@ static int mtpg_function_bind(struct usb_configuration *c,
 
 	id = usb_interface_id(c, f);
 	if (id < 0) {
-		printk(KERN_ERR "Error in usb_string_id Failed !!!\n");
+		pr_err("Error in usb_string_id Failed !!!\n");
 		return id;
 	}
 
 	mtpg_interface_desc.bInterfaceNumber = id;
 	mtp_func->allocated_intf_num = id;
 
-	rc = create_bulk_endpoints(mtp_func, &fs_mtpg_in_desc,
+	rc = mtp_create_bulk_endpoints(mtp_func, &fs_mtpg_in_desc,
 				   &fs_mtpg_out_desc, &int_fs_notify_desc);
 	if (rc) {
-		printk(KERN_ERR "mtpg unable to autoconfigure all endpoints\n");
+		pr_err("mtpg unable to autoconfigure all endpoints\n");
 		return rc;
 	}
 
@@ -1082,6 +1114,8 @@ static int mtpg_function_set_alt(struct usb_function *f,
 				mtp_func->fs.int_in));
 		if (ret) {
 			usb_ep_disable(mtp_func->int_in);
+			pr_err("[%s] Enable Int-In EP error!!!(%d)\n",
+			       __func__, ret);
 			return ret;
 		}
 		mtp_func->int_in->driver_data = mtp_func;
@@ -1094,8 +1128,8 @@ static int mtpg_function_set_alt(struct usb_function *f,
 				mtp_func->fs.bulk_in));
 		if (ret) {
 			usb_ep_disable(mtp_func->bulk_in);
-			printk(KERN_ERR "[%s] Enable Bulk-Out EP error!!! %d\n",
-			       __func__, __LINE__);
+			pr_err("[%s] Enable Bulk-In EP error!!!(%d)\n",
+			       __func__, ret);
 			return ret;
 		}
 		mtp_func->bulk_in->driver_data = mtp_func;
@@ -1105,11 +1139,11 @@ static int mtpg_function_set_alt(struct usb_function *f,
 
 		ret = usb_ep_enable(mtp_func->bulk_out, ep_choose(cdev->gadget,
 				mtp_func->hs.bulk_out,
-				mtp_func->fs.bulk_in));
+				mtp_func->fs.bulk_out));
 		if (ret) {
 			usb_ep_disable(mtp_func->bulk_out);
-			printk(KERN_ERR "[%s] Enable Bulk-In EP error!!! %d\n",
-			       __func__, __LINE__);
+			pr_err("[%s] Enable Bulk-Out EP error!!!(%d)\n",
+			       __func__, ret);
 			return ret;
 		}
 		mtp_func->bulk_out->driver_data = mtp_func;
@@ -1124,7 +1158,7 @@ static int mtpg_function_set_alt(struct usb_function *f,
 
 		return 0;
 	} else {
-		printk(KERN_ERR "[%s] error , intf = %u , alt = %u",
+		pr_err("[%s] error , intf = %u , alt = %u",
 			__func__, intf, alt);
 		return -EINVAL;
 	}
@@ -1249,13 +1283,13 @@ static int mtp_bind_config(struct usb_configuration *c)
 	DEBUG_MTPB("[%s] \tline = [%d]\n", __func__, __LINE__);
 
 	if (!the_mtpg) {
-		printk(KERN_ERR "Error There is no the_mtpg!!\n");
+		pr_err("Error There is no the_mtpg!!\n");
 		return -ENODEV;
 	}
 
 	mtp_func = kzalloc(sizeof(*mtp_func), GFP_KERNEL);
 	if (!mtp_func) {
-		printk(KERN_ERR "mtp_func memory alloc failed !!!\n");
+		pr_err("mtp_func memory alloc failed !!!\n");
 		return -ENOMEM;
 	}
 
@@ -1273,7 +1307,7 @@ static int mtp_bind_config(struct usb_configuration *c)
 
 	rc = usb_add_function(c, &mtp_func->function);
 	if (rc != 0)
-		printk(KERN_ERR "Error in usb_add_function Failed !!!\n");
+		pr_err("Error in usb_add_function Failed !!!\n");
 
 	return rc;
 }
@@ -1285,7 +1319,7 @@ static int mtp_setup(struct usb_composite_dev *cdev)
 
 	mtpg = kzalloc(sizeof(*mtpg), GFP_KERNEL);
 	if (!mtpg) {
-		printk(KERN_ERR "mtpg_dev_alloc memory  failed !!!\n");
+		pr_err("mtpg_dev_alloc memory  failed !!!\n");
 		return -ENOMEM;
 	}
 
@@ -1315,7 +1349,7 @@ static int mtp_setup(struct usb_composite_dev *cdev)
 
 	status = misc_register(&mtpg_device);
 	if (status != 0) {
-		printk(KERN_ERR "Error in misc_register of mtpg_device Failed !!!\n");
+		pr_err("Error in misc_register of mtpg_device Failed !!!\n");
 		kfree(mtpg);
 		the_mtpg = NULL;
 	}

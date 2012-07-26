@@ -55,7 +55,10 @@ void *fimc_cma_init(struct fimc_dev *fimc)
 	return vb2_cma_phys_init(&fimc->pdev->dev, NULL, 0, false);
 }
 
-void fimc_cma_resume(void *alloc_ctx){}
+int fimc_cma_resume(void *alloc_ctx)
+{
+	return 1;
+}
 void fimc_cma_suspend(void *alloc_ctx){}
 void fimc_cma_set_cacheable(void *alloc_ctx, bool cacheable){}
 

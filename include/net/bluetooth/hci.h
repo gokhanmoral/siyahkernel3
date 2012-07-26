@@ -21,7 +21,9 @@
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS
    SOFTWARE IS DISCLAIMED.
 */
-
+#ifdef CONFIG_BT_MGMT
+#include "hci_mgmt.h"
+#else
 #ifndef __HCI_H
 #define __HCI_H
 
@@ -51,6 +53,7 @@
 #define HCI_RS232	4
 #define HCI_PCI		5
 #define HCI_SDIO	6
+#define HCI_SMD		7
 
 /* HCI controller types */
 #define HCI_BREDR	0x00
@@ -159,8 +162,16 @@ enum {
 
 #define SCO_ESCO_MASK	(ESCO_HV1 | ESCO_HV2 | ESCO_HV3)
 #define EDR_ESCO_MASK	(ESCO_2EV3 | ESCO_3EV3 | ESCO_2EV5 | ESCO_3EV5)
-#define ALL_ESCO_MASK	(SCO_ESCO_MASK | ESCO_EV3 | ESCO_EV4 | ESCO_EV5 | \
-			EDR_ESCO_MASK)
+/* SS_BLUETOOTH(is80.hwang) 2012.03.02 */
+/* change applied EDR ESCO packet */
+#ifdef CONFIG_BT_CSR8811
+#define ALL_ESCO_MASK (SCO_ESCO_MASK | ESCO_EV3 | ESCO_EV4 | ESCO_EV5 | \
+   ESCO_2EV3 /*EDR_ESCO_MASK*/)
+#else
+#define ALL_ESCO_MASK (SCO_ESCO_MASK | ESCO_EV3 | ESCO_EV4 | ESCO_EV5 | \
+   EDR_ESCO_MASK)
+#endif
+/* SS_BLUEZ_BT(is80.hwang) End */
 
 /* ACL flags */
 #define ACL_START_NO_FLUSH	0x00
@@ -1305,3 +1316,5 @@ struct hci_inquiry_req {
 #define IREQ_CACHE_FLUSH 0x0001
 
 #endif /* __HCI_H */
+
+#endif /* BT_MGMT */

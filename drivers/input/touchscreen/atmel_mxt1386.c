@@ -70,6 +70,12 @@
 #include <linux/reboot.h>
 #include <linux/input/mt.h>
 
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
+#include <mach/cpufreq.h>
+#include <mach/dev.h>
+#define SEC_DVFS_LOCK_TIMEOUT 3
+#endif
+
 /*
  * This is a driver for the Atmel maXTouch Object Protocol
  *
@@ -146,7 +152,6 @@ static int debug = DEBUG_TRACE;  /* for debugging*/
 /*
 #define ITDEV
 */
-#define SEC_DVFS_LOCK
 
 #ifdef ITDEV
 static int driver_paused;
@@ -154,41 +159,40 @@ static int debug_enabled;
 #endif
 
 #define MXT_MESSAGE_LENGTH 8
-#ifdef SEC_DVFS_LOCK
-#include <mach/cpufreq.h>
-#define SEC_DVFS_LOCK_TIMEOUT 3
-static struct delayed_work dvfs_dwork;
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
 static void free_dvfs_lock(struct work_struct *work)
 {
+	struct mxt_data *mxt =
+		container_of(work, struct mxt_data, dvfs_dwork.work);
+
+	exynos4_busfreq_lock_free(DVFS_LOCK_ID_TSP);
 	exynos_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
+	mxt->dvfs_lock_status = false;
 }
-static void set_dvfs_lock(bool on)
+static void set_dvfs_lock(struct mxt_data *mxt, bool on)
 {
-	static bool enable;
+	if (0 == mxt->cpufreq_level)
+		exynos_cpufreq_get_level(800000,
+			&mxt->cpufreq_level);
 
 	if (on) {
-		cancel_delayed_work(&dvfs_dwork);
-		if (!enable) {
-			unsigned int cpufreq_level;
-			if (!exynos_cpufreq_get_level(500000, &cpufreq_level)) {
-				exynos_cpufreq_lock(DVFS_LOCK_ID_TSP,
-					cpufreq_level);
-				enable = true;
-			}
+		cancel_delayed_work(&mxt->dvfs_dwork);
+		if (!mxt->dvfs_lock_status) {
+			exynos4_busfreq_lock(DVFS_LOCK_ID_TSP, BUS_L1);
+			exynos_cpufreq_lock(DVFS_LOCK_ID_TSP,
+				mxt->cpufreq_level);
+			mxt->dvfs_lock_status = true;
 		}
 	} else {
-		if (enable)
-			schedule_delayed_work(&dvfs_dwork,
+		if (mxt->dvfs_lock_status)
+			schedule_delayed_work(&mxt->dvfs_dwork,
 				SEC_DVFS_LOCK_TIMEOUT * HZ);
-		enable = false;
 	}
 }
 #endif
 
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Activate debugging output");
-
-extern struct class *sec_class;
 
 #define I2C_RETRY_COUNT 5
 
@@ -206,8 +210,7 @@ object_type_name[REPORT_ID_TO_OBJECT(rid)]
 #define	T6_REG(x) (MXT_BASE_ADDR(MXT_GEN_COMMANDPROCESSOR_T6) + (x))
 #define	T37_REG(x) (MXT_BASE_ADDR(MXT_DEBUG_DIAGNOSTICS_T37) +  (x))
 
-/* ADD TRACKING_ID */
-#define REPORT_MT(touch_number, x, y, amplitude, size) \
+#define REPORT_MT(x, y, amplitude, size) \
 do {     \
 	input_report_abs(mxt->input, ABS_MT_POSITION_X, x);             \
 	input_report_abs(mxt->input, ABS_MT_POSITION_Y, y);             \
@@ -280,9 +283,6 @@ static void mxt_forced_release(struct mxt_data *mxt)
 	int i;
 	printk(KERN_DEBUG "[TSP] %s has been called", __func__);
 	for (i = 0; i < MXT_MAX_NUM_TOUCHES; ++i) {
-		if (TSP_STATE_INACTIVE == mxt->mtouch_info[i].status)
-			continue;
-
 		input_mt_slot(mxt->input, i);
 		input_mt_report_slot_state(mxt->input,
 			MT_TOOL_FINGER, 0);
@@ -290,8 +290,8 @@ static void mxt_forced_release(struct mxt_data *mxt)
 		mxt->mtouch_info[i].status = TSP_STATE_INACTIVE;
 	}
 	input_sync(mxt->input);
-#ifdef SEC_DVFS_LOCK
-	set_dvfs_lock(false);
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
+	set_dvfs_lock(mxt, false);
 #endif
 }
 
@@ -345,6 +345,8 @@ static void mxt_ta_worker(struct work_struct *work)
 		blen = mxt->pdata->touchscreen_config.blen;
 		jumplimit = mxt->pdata->touchscreen_config.jumplimit;
 		freqscale = mxt->pdata->noise_suppression_config.freqhopscale;
+		if (!mxt->set_mode_for_ta)
+			return ;
 	}
 
 	for (i = 0; i < 5; i++)
@@ -1014,8 +1016,7 @@ static void process_T9_message(struct mxt_data *mxt, u8 *message)
 	u16 xpos = 0xFFFF;
 	u16 ypos = 0xFFFF;
 	static int prev_touch_id = -1;
-	int i;
-#ifdef SEC_DVFS_LOCK
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
 	bool tsp_boost = false;
 #endif
 
@@ -1025,7 +1026,7 @@ static void process_T9_message(struct mxt_data *mxt, u8 *message)
 	touch_id = report_id - 2;
 
 	if (touch_id >= MXT_MAX_NUM_TOUCHES) {
-		pr_err("Invalid touch_id (toud_id=%d)", touch_id);
+		pr_err("[TSP] Invalid touch_id (toud_id=%d)", touch_id);
 		return;
 	}
 
@@ -1042,20 +1043,14 @@ static void process_T9_message(struct mxt_data *mxt, u8 *message)
 
 	mxt->mtouch_info[touch_id].size = message[MXT_MSG_T9_TCHAREA];
 
-#if defined(CONFIG_EPEN_WACOM_G5SP)
-	if (mxt->mtouch_info[touch_id].size > 28)
-		mxt->mtouch_info[touch_id].size = 28;
-#endif
-
 	if (status & MXT_MSGB_T9_DETECT) {  /* case 1: detected */
 		 /* touch amplitude */
 		mxt->mtouch_info[touch_id].pressure
 					= message[MXT_MSG_T9_TCHAMPLITUDE];
 		mxt->mtouch_info[touch_id].x = (int16_t)xpos;
 		mxt->mtouch_info[touch_id].y = (int16_t)ypos;
-
+		pressed_or_released = 1;
 		if (status & MXT_MSGB_T9_PRESS) {
-			pressed_or_released = 1;  /* pressed */
 			mxt->mtouch_info[touch_id].status = TSP_STATE_PRESS;
 			printk(KERN_DEBUG "mxt %d p\n", touch_id);
 		}
@@ -1071,40 +1066,28 @@ static void process_T9_message(struct mxt_data *mxt, u8 *message)
 		 * mxt1386 chip doesn't make a release event.
 		 * So we need to release them forcibly.
 		 */
-		pressed_or_released = 1;
-#if defined(CONFIG_EPEN_WACOM_G5SP)
-		if (status & MXT_MSGB_T9_SUPPRESS)
-			mxt->mtouch_info[touch_id].size = 29;
-#else
-		mxt->mtouch_info[touch_id].status = TSP_STATE_RELEASE;
+		mxt_forced_release(mxt);
+	} else
+		pr_err("[TSP] Unknown status (0x%x)", status);
+
+	if (pressed_or_released) {
+		input_mt_slot(mxt->input, touch_id);
+		input_mt_report_slot_state(mxt->input,
+			MT_TOOL_FINGER,
+			!!mxt->mtouch_info[touch_id].pressure);
+
+		if (TSP_STATE_RELEASE == mxt->mtouch_info[touch_id].status)
+			mxt->mtouch_info[touch_id].status = TSP_STATE_INACTIVE;
+		else {
+			REPORT_MT(
+				mxt->mtouch_info[touch_id].x,
+				mxt->mtouch_info[touch_id].y,
+				mxt->mtouch_info[touch_id].pressure,
+				mxt->mtouch_info[touch_id].size);
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
+			tsp_boost = true;
+			anytouch_pressed++;
 #endif
-	} else {
-		pr_err("Unknown status (0x%x)", status);
-	}
-
-	if (prev_touch_id >= touch_id || pressed_or_released) {
-		for (i = 0; i < MXT_MAX_NUM_TOUCHES; ++i) {
-			if (TSP_STATE_INACTIVE == mxt->mtouch_info[i].status)
-				continue;
-
-			input_mt_slot(mxt->input, i);
-			input_mt_report_slot_state(mxt->input,
-				MT_TOOL_FINGER,
-				!!mxt->mtouch_info[i].pressure);
-
-			if (TSP_STATE_RELEASE == mxt->mtouch_info[i].status)
-				mxt->mtouch_info[i].status = TSP_STATE_INACTIVE;
-			else {
-				REPORT_MT(i,
-					mxt->mtouch_info[i].x,
-					mxt->mtouch_info[i].y,
-					mxt->mtouch_info[i].pressure,
-					mxt->mtouch_info[i].size);
-#ifdef SEC_DVFS_LOCK
-				tsp_boost = true;
-				anytouch_pressed++;
-#endif
-			}
 		}
 
 		if (mxt->fherr_cnt_no_ta_calready && (!anytouch_pressed)) {
@@ -1117,16 +1100,11 @@ static void process_T9_message(struct mxt_data *mxt, u8 *message)
 		}
 
 		input_sync(input);
-#ifdef SEC_DVFS_LOCK
-		set_dvfs_lock(tsp_boost);
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
+		set_dvfs_lock(mxt, tsp_boost);
 #endif
 	}
 	prev_touch_id = touch_id;
-
-#if defined(CONFIG_EPEN_WACOM_G5SP)
-	if (status & MXT_MSGB_T9_SUPPRESS)
-		mxt_forced_release(mxt);
-#endif
 
 	if (debug >= DEBUG_TRACE) {
 		char msg[64] = {0};
@@ -2467,6 +2445,10 @@ static int check_all_refer(struct mxt_data *mxt)
 		printk(KERN_DEBUG "[TSP] ret : %d\n", ret);
 		if (-EAGAIN != ret) {
 			printk(KERN_DEBUG "[TSP] status : %d\n", ret);
+			reset_chip(mxt, RESET_TO_NORMAL);
+			msleep(300);
+			mxt->pdata->fherr_cnt = 0;
+			mxt->pdata->fherr_cnt_no_ta = 0;
 			if (!work_pending(&mxt->ta_work))
 				schedule_work(&mxt->ta_work);
 			return ret;
@@ -3252,6 +3234,8 @@ static void mxt_late_resume(struct early_suspend *h)
 	but it sometimes fails to recover so it needs more*/
 	msleep(300);
 #endif
+	mxt->pdata->fherr_cnt = 0;
+	mxt->pdata->fherr_cnt_no_ta = 0;
 	if (!work_pending(&mxt->ta_work))
 		schedule_work(&mxt->ta_work);
 	mxt->enabled = true;
@@ -3342,8 +3326,10 @@ static int __devinit mxt_probe(struct i2c_client *client,
 #ifdef MXT_CALIBRATE_WORKAROUND
 	INIT_DELAYED_WORK(&mxt->calibrate_dwork, mxt_calibrate_worker);
 #endif
-#ifdef SEC_DVFS_LOCK
-	INIT_DELAYED_WORK(&dvfs_dwork, free_dvfs_lock);
+#ifdef CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK
+	INIT_DELAYED_WORK(&mxt->dvfs_dwork,
+		free_dvfs_lock);
+	mxt->dvfs_lock_status = false;
 #endif
 
 	/* Register callbacks */
@@ -3379,7 +3365,7 @@ static int __devinit mxt_probe(struct i2c_client *client,
 	__set_bit(MT_TOOL_FINGER, input->keybit);
 	__set_bit(INPUT_PROP_DIRECT, input->propbit);
 
-	input_mt_init_slots(input, MXT_MAX_NUM_TOUCHES - 1);
+	input_mt_init_slots(input, MXT_MAX_NUM_TOUCHES);
 	input_set_abs_params(input, ABS_MT_POSITION_X, 0,
 		mxt->pdata->max_x - 1, 0, 0);
 	input_set_abs_params(input, ABS_MT_POSITION_Y, 0,

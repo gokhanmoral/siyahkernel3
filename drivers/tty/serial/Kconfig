@@ -489,6 +489,17 @@ config SERIAL_SAMSUNG_CONSOLE
 	  your boot loader about how to pass options to the kernel at
 	  boot time.)
 
+config SERIAL_SAMSUNG_CONSOLE_SWITCH
+	bool "Support for console switch on Samsung SoC serial port"
+	depends on SERIAL_SAMSUNG_CONSOLE=y
+	default n
+	help
+	  Allow kernel cmdline to switch Samsung Soc serial ports for use as
+	  an virtual console or not. This may serve a port usage selection.
+
+	  Even if you say Y here, you should add samsung.uart_debug=1
+	  into kernel cmdline to enable virtual console.
+
 config SERIAL_S3C2400
 	tristate "Samsung S3C2410 Serial port support"
 	depends on ARM && SERIAL_SAMSUNG && CPU_S3C2400
@@ -1635,4 +1646,9 @@ config SERIAL_XILINX_PS_UART_CONSOLE
 	help
 	  Enable a Xilinx PS UART port to be the system console.
 
+config CSR_GSD4T_CDMA
+	bool "GPS UART CTS/RTS support"
+	default n
+	help
+	  Enable GPS UART CTS/RTS operation for CDMA CSR model.
 endmenu

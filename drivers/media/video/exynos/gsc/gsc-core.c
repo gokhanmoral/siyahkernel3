@@ -18,7 +18,6 @@
 #include <linux/errno.h>
 #include <linux/bug.h>
 #include <linux/interrupt.h>
-#include <linux/workqueue.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/list.h>
@@ -26,6 +25,7 @@
 #include <linux/slab.h>
 #include <linux/clk.h>
 #include <media/v4l2-ioctl.h>
+#include <plat/sysmmu.h>
 
 #include "gsc-core.h"
 #define GSC_CLOCK_GATE_NAME		"gscl"
@@ -38,14 +38,12 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "RGB565",
 		.pixelformat	= V4L2_PIX_FMT_RGB565X,
 		.depth		= { 16 },
-		.color		= GSC_RGB,
 		.num_planes	= 1,
 		.nr_comp	= 1,
 	}, {
 		.name		= "XRGB-8-8-8-8, 32 bpp",
 		.pixelformat	= V4L2_PIX_FMT_RGB32,
 		.depth		= { 32 },
-		.color		= GSC_RGB,
 		.num_planes	= 1,
 		.nr_comp	= 1,
 		.mbus_code	= V4L2_MBUS_FMT_XRGB8888_4X8_LE,
@@ -53,7 +51,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:2 packed, YCbYCr",
 		.pixelformat	= V4L2_PIX_FMT_YUYV,
 		.depth		= { 16 },
-		.color		= GSC_YUV422,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
@@ -63,7 +60,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:2 packed, CbYCrY",
 		.pixelformat	= V4L2_PIX_FMT_UYVY,
 		.depth		= { 16 },
-		.color		= GSC_YUV422,
 		.yorder		= GSC_LSB_C,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
@@ -73,7 +69,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:2 packed, CrYCbY",
 		.pixelformat	= V4L2_PIX_FMT_VYUY,
 		.depth		= { 16 },
-		.color		= GSC_YUV422,
 		.yorder		= GSC_LSB_C,
 		.corder		= GSC_CRCB,
 		.num_planes	= 1,
@@ -83,7 +78,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:2 packed, YCrYCb",
 		.pixelformat	= V4L2_PIX_FMT_YVYU,
 		.depth		= { 16 },
-		.color		= GSC_YUV422,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CRCB,
 		.num_planes	= 1,
@@ -93,7 +87,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:4:4 planar, YCbYCr",
 		.pixelformat	= V4L2_PIX_FMT_YUV32,
 		.depth		= { 32 },
-		.color		= GSC_YUV444,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
@@ -103,7 +96,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:2 planar, Y/Cb/Cr",
 		.pixelformat	= V4L2_PIX_FMT_YUV422P,
 		.depth		= { 16 },
-		.color		= GSC_YUV422,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
@@ -112,7 +104,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:2 planar, Y/CbCr",
 		.pixelformat	= V4L2_PIX_FMT_NV16,
 		.depth		= { 16 },
-		.color		= GSC_YUV422,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
@@ -121,7 +112,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:2 planar, Y/CrCb",
 		.pixelformat	= V4L2_PIX_FMT_NV61,
 		.depth		= { 16 },
-		.color		= GSC_YUV422,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CRCB,
 		.num_planes	= 1,
@@ -130,16 +120,14 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:0 planar, YCbCr",
 		.pixelformat	= V4L2_PIX_FMT_YUV420,
 		.depth		= { 12 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
 		.nr_comp	= 3,
-	},{
+	}, {
 		.name		= "YUV 4:2:0 planar, YCbCr",
 		.pixelformat	= V4L2_PIX_FMT_YVU420,
 		.depth		= { 12 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
@@ -149,7 +137,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:0 planar, Y/CbCr",
 		.pixelformat	= V4L2_PIX_FMT_NV12,
 		.depth		= { 12 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 1,
@@ -158,7 +145,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:0 planar, Y/CrCb",
 		.pixelformat	= V4L2_PIX_FMT_NV21,
 		.depth		= { 12 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CRCB,
 		.num_planes	= 1,
@@ -167,16 +153,22 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:0 non-contiguous 2-planar, Y/CbCr",
 		.pixelformat	= V4L2_PIX_FMT_NV12M,
 		.depth		= { 8, 4 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
+		.num_planes	= 2,
+		.nr_comp	= 2,
+	}, {
+		.name		= "YVU 4:2:0 non-contiguous 2-planar, Y/CrCb",
+		.pixelformat	= V4L2_PIX_FMT_NV21M,
+		.depth		= { 8, 4 },
+		.yorder		= GSC_LSB_Y,
+		.corder		= GSC_CRCB,
 		.num_planes	= 2,
 		.nr_comp	= 2,
 	}, {
 		.name		= "YUV 4:2:0 non-contiguous 3-planar, Y/Cb/Cr",
 		.pixelformat	= V4L2_PIX_FMT_YUV420M,
 		.depth		= { 8, 2, 2 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 3,
@@ -185,7 +177,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:0 non-contiguous 3-planar, Y/Cr/Cb",
 		.pixelformat	= V4L2_PIX_FMT_YVU420M,
 		.depth		= { 8, 2, 2 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CRCB,
 		.num_planes	= 3,
@@ -194,7 +185,6 @@ static struct gsc_fmt gsc_formats[] = {
 		.name		= "YUV 4:2:0 non-contiguous 2-planar, Y/CbCr, tiled",
 		.pixelformat	= V4L2_PIX_FMT_NV12MT_16X16,
 		.depth		= { 8, 4 },
-		.color		= GSC_YUV420,
 		.yorder		= GSC_LSB_Y,
 		.corder		= GSC_CBCR,
 		.num_planes	= 2,
@@ -273,22 +263,34 @@ void gsc_get_prescaler_shfactor(u32 hratio, u32 vratio, u32 *sh)
 }
 
 void gsc_check_src_scale_info(struct gsc_variant *var, struct gsc_frame *s_frame,
-			      u32 *wratio, u32 tx, u32 ty, u32 *hratio)
+			      u32 *wratio, u32 tx, u32 ty, u32 *hratio, int rot)
 {
 	int remainder = 0, walign, halign;
+	int poly_sc_walign, poly_sc_halign;
 
-	if (is_yuv420(s_frame->fmt->color)) {
-		walign = GSC_SC_ALIGN_4;
-		halign = GSC_SC_ALIGN_4;
-	} else if (is_yuv422(s_frame->fmt->color)) {
-		walign = GSC_SC_ALIGN_4;
-		halign = GSC_SC_ALIGN_2;
+	poly_sc_walign = var->pix_align->real_w;
+	poly_sc_halign = var->pix_align->real_h;
+
+	if (is_yuv420(s_frame->fmt->pixelformat)) {
+		walign = *wratio << poly_sc_walign;
+		halign = *hratio << poly_sc_halign;
+	} else if (is_yuv422(s_frame->fmt->pixelformat)) {
+		walign = *wratio << poly_sc_walign;
+		if (soc_is_exynos5250_rev1 && (rot == 90 || rot == 270))
+			halign = *hratio << poly_sc_halign;
+		else
+			halign = *hratio << (poly_sc_halign - 1);
 	} else {
-		walign = GSC_SC_ALIGN_2;
-		halign = GSC_SC_ALIGN_2;
+		if (soc_is_exynos5250_rev1 && (rot == 90 || rot == 270)) {
+			walign = *wratio << poly_sc_walign;
+			halign = *hratio << poly_sc_halign;
+		} else {
+			walign = *wratio << (poly_sc_walign - 1);
+			halign = *hratio << (poly_sc_halign - 1);
+		}
 	}
 
-	remainder = s_frame->crop.width % (*wratio * walign);
+	remainder = s_frame->crop.width % walign;
 	if (remainder) {
 		s_frame->crop.width -= remainder;
 		gsc_cal_prescaler_ratio(var, s_frame->crop.width, tx, wratio);
@@ -296,7 +298,7 @@ void gsc_check_src_scale_info(struct gsc_variant *var, struct gsc_frame *s_frame
 			s_frame->crop.width + remainder, s_frame->crop.width);
 	}
 
-	remainder = s_frame->crop.height % (*hratio * halign);
+	remainder = s_frame->crop.height % halign;
 	if (remainder) {
 		s_frame->crop.height -= remainder;
 		gsc_cal_prescaler_ratio(var, s_frame->crop.height, ty, hratio);
@@ -329,6 +331,70 @@ u32 get_plane_size(struct gsc_frame *frame, unsigned int plane)
 	return frame->payload[plane];
 }
 
+u32 get_plane_info(struct gsc_frame frm, u32 addr, u32 *index)
+{
+	if (frm.addr.y == addr) {
+		*index = 0;
+		return frm.addr.y;
+	} else if (frm.addr.cb == addr) {
+		*index = 1;
+		return frm.addr.cb;
+	} else if (frm.addr.cr == addr) {
+		*index = 2;
+		return frm.addr.cr;
+	} else {
+		gsc_err("Plane address is wrong");
+		return -EINVAL;
+	}
+}
+
+void gsc_set_prefbuf(struct gsc_dev *gsc, struct gsc_frame frm)
+{
+	u32 f_chk_addr, f_chk_len, s_chk_addr, s_chk_len;
+	f_chk_addr = f_chk_len = s_chk_addr = s_chk_len = 0;
+
+	f_chk_addr = frm.addr.y;
+	f_chk_len = frm.payload[0];
+	if (frm.fmt->num_planes == 2) {
+		s_chk_addr = frm.addr.cb;
+		s_chk_len = frm.payload[1];
+	} else if (frm.fmt->num_planes == 3) {
+		u32 low_addr, low_plane, mid_addr, mid_plane, high_addr, high_plane;
+		u32 t_min, t_max;
+
+		t_min = min3(frm.addr.y, frm.addr.cb, frm.addr.cr);
+		low_addr = get_plane_info(frm, t_min, &low_plane);
+		t_max = max3(frm.addr.y, frm.addr.cb, frm.addr.cr);
+		high_addr = get_plane_info(frm, t_max, &high_plane);
+
+		mid_plane = 3 - (low_plane + high_plane);
+		if (mid_plane == 0)
+			mid_addr = frm.addr.y;
+		else if (mid_plane == 1)
+			mid_addr = frm.addr.cb;
+		else if (mid_plane == 2)
+			mid_addr = frm.addr.cr;
+		else
+			return;
+
+		f_chk_addr = low_addr;
+		if (mid_addr + frm.payload[mid_plane] - low_addr >
+		    high_addr + frm.payload[high_plane] - mid_addr) {
+			f_chk_len = frm.payload[low_plane];
+			s_chk_addr = mid_addr;
+			s_chk_len = high_addr + frm.payload[high_plane] - mid_addr;
+		} else {
+			f_chk_len = mid_addr + frm.payload[mid_plane] - low_addr;
+			s_chk_addr = high_addr;
+			s_chk_len = frm.payload[high_plane];
+		}
+	}
+	exynos_sysmmu_set_prefbuf(&gsc->pdev->dev, f_chk_addr, f_chk_len,
+			       s_chk_addr, s_chk_len);
+	gsc_dbg("f_addr = 0x%08x, f_len = %d, s_addr = 0x%08x, s_len = %d\n",
+		f_chk_addr, f_chk_len, s_chk_addr, s_chk_len);
+}
+
 int gsc_try_fmt_mplane(struct gsc_ctx *ctx, struct v4l2_format *f)
 {
 	struct gsc_dev *gsc = ctx->gsc_dev;
@@ -358,7 +424,7 @@ int gsc_try_fmt_mplane(struct gsc_ctx *ctx, struct v4l2_format *f)
 	max_h = variant->pix_max->target_rot_dis_h;
 	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
 		mod_x = ffs(variant->pix_align->org_w) - 1;
-		if (is_yuv420(fmt->color))
+		if (is_yuv420(fmt->pixelformat))
 			mod_y = ffs(variant->pix_align->org_h) - 1;
 		else
 			mod_y = ffs(variant->pix_align->org_h) - 2;
@@ -366,7 +432,7 @@ int gsc_try_fmt_mplane(struct gsc_ctx *ctx, struct v4l2_format *f)
 		min_h = variant->pix_min->org_h;
 	} else {
 		mod_x = ffs(variant->pix_align->org_w) - 1;
-		if (is_yuv420(fmt->color))
+		if (is_yuv420(fmt->pixelformat))
 			mod_y = ffs(variant->pix_align->org_h) - 1;
 		else
 			mod_y = ffs(variant->pix_align->org_h) - 2;
@@ -489,20 +555,21 @@ int gsc_try_crop(struct gsc_ctx *ctx, struct v4l2_crop *cr)
 	tmp_h = cr->c.height;
 
 	if (V4L2_TYPE_IS_OUTPUT(cr->type)) {
-		if ((is_yuv422(f->fmt->color) && f->fmt->nr_comp == 1) ||
-		    is_rgb(f->fmt->color))
+		if ((is_yuv422(f->fmt->pixelformat) && f->fmt->nr_comp == 1) ||
+		    is_rgb(f->fmt->pixelformat))
 			min_w = 32;
 		else
 			min_w = 64;
-		if ((is_yuv422(f->fmt->color) && f->fmt->nr_comp == 3) ||
-		    is_yuv420(f->fmt->color))
+		if ((is_yuv422(f->fmt->pixelformat) && f->fmt->nr_comp == 3) ||
+		    is_yuv420(f->fmt->pixelformat))
 			min_h = 32;
 		else
 			min_h = 16;
 	} else {
-		if (is_yuv420(f->fmt->color) || is_yuv422(f->fmt->color))
+		if (is_yuv420(f->fmt->pixelformat) ||
+		    is_yuv422(f->fmt->pixelformat))
 			mod_x = ffs(variant->pix_align->target_w) - 1;
-		if (is_yuv420(f->fmt->color))
+		if (is_yuv420(f->fmt->pixelformat))
 			mod_y = ffs(variant->pix_align->target_h) - 1;
 		if (ctx->gsc_ctrls.rotate->val == 90 ||
 		    ctx->gsc_ctrls.rotate->val == 270) {
@@ -539,7 +606,7 @@ int gsc_try_crop(struct gsc_ctx *ctx, struct v4l2_crop *cr)
 	if (cr->c.top + tmp_h > max_h)
 		cr->c.top = max_h - tmp_h;
 
-	if (is_yuv420(f->fmt->color) || is_yuv422(f->fmt->color))
+	if (is_yuv420(f->fmt->pixelformat) || is_yuv422(f->fmt->pixelformat))
 		if (cr->c.left % 2)
 			cr->c.left -= 1;
 
@@ -564,10 +631,10 @@ int gsc_check_scaler_ratio(struct gsc_variant *var, int sw, int sh, int dw,
 		tmp_h = dh;
 	}
 
-	if ((sw / tmp_w) > sc_down_max ||
-	    (sh / tmp_h) > sc_down_max ||
-	    (tmp_w / sw) > var->sc_up_max ||
-	    (tmp_h / sh) > var->sc_up_max)
+	if ((sw > (tmp_w * sc_down_max)) ||
+	    (sh > (tmp_h * sc_down_max)) ||
+	    (tmp_w > (sw * var->sc_up_max)) ||
+	    (tmp_h > (sh * var->sc_up_max)))
 		return -EINVAL;
 
 	return 0;
@@ -579,8 +646,10 @@ int gsc_set_scaler_info(struct gsc_ctx *ctx)
 	struct gsc_frame *s_frame = &ctx->s_frame;
 	struct gsc_frame *d_frame = &ctx->d_frame;
 	struct gsc_variant *variant = ctx->gsc_dev->variant;
-	int tx, ty;
+	int tx, ty, rot;
 	int ret;
+
+	rot = ctx->gsc_ctrls.rotate->val;
 
 	ret = gsc_check_scaler_ratio(variant, s_frame->crop.width,
 		s_frame->crop.height, d_frame->crop.width, d_frame->crop.height,
@@ -590,8 +659,7 @@ int gsc_set_scaler_info(struct gsc_ctx *ctx)
 		return ret;
 	}
 
-	if (ctx->gsc_ctrls.rotate->val == 90 ||
-	    ctx->gsc_ctrls.rotate->val == 270) {
+	if (rot == 90 || rot == 270) {
 		ty = d_frame->crop.width;
 		tx = d_frame->crop.height;
 	} else {
@@ -614,7 +682,7 @@ int gsc_set_scaler_info(struct gsc_ctx *ctx)
 	}
 
 	gsc_check_src_scale_info(variant, s_frame, &sc->pre_hratio,
-				 tx, ty, &sc->pre_vratio);
+				 tx, ty, &sc->pre_vratio, rot);
 
 	gsc_get_prescaler_shfactor(sc->pre_hratio, sc->pre_vratio,
 				   &sc->pre_shfactor);
@@ -732,6 +800,7 @@ static int gsc_s_ctrl_to_mxr(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_TV_PIXEL_BLEND_ENABLE:
 	case V4L2_CID_TV_CHROMA_ENABLE:
 	case V4L2_CID_TV_CHROMA_VALUE:
+	case V4L2_CID_TV_LAYER_PRIO:
 		control.id = ctrl->id;
 		control.value = ctrl->val;
 		v4l2_subdev_call(sd, core, s_ctrl, &control);
@@ -747,6 +816,23 @@ static int gsc_s_ctrl_to_mxr(struct v4l2_ctrl *ctrl)
 /*
  * V4L2 controls handling
  */
+static int gsc_g_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct gsc_ctx *ctx = ctrl_to_ctx(ctrl);
+	struct gsc_dev *gsc = ctx->gsc_dev;
+
+	switch (ctrl->id) {
+	case V4L2_CID_M2M_CTX_NUM:
+		update_ctrl_value(ctx->gsc_ctrls.m2m_ctx_num, gsc->m2m.refcnt);
+		break;
+
+	default:
+		gsc_err("Invalid control\n");
+		return -EINVAL;
+	}
+	return 0;
+}
+
 static int gsc_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct gsc_ctx *ctx = ctrl_to_ctx(ctrl);
@@ -754,35 +840,39 @@ static int gsc_s_ctrl(struct v4l2_ctrl *ctrl)
 
 	switch (ctrl->id) {
 	case V4L2_CID_HFLIP:
-		user_to_drv(ctx->gsc_ctrls.hflip, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.hflip, ctrl->val);
 		break;
 
 	case V4L2_CID_VFLIP:
-		user_to_drv(ctx->gsc_ctrls.vflip, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.vflip, ctrl->val);
 		break;
 
 	case V4L2_CID_ROTATE:
-		user_to_drv(ctx->gsc_ctrls.rotate, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.rotate, ctrl->val);
 		break;
 
 	case V4L2_CID_GLOBAL_ALPHA:
-		user_to_drv(ctx->gsc_ctrls.global_alpha, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.global_alpha, ctrl->val);
 		break;
 
 	case V4L2_CID_CACHEABLE:
-		user_to_drv(ctx->gsc_ctrls.cacheable, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.cacheable, ctrl->val);
 		break;
 
 	case V4L2_CID_CSC_EQ_MODE:
-		user_to_drv(ctx->gsc_ctrls.csc_eq_mode, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.csc_eq_mode, ctrl->val);
 		break;
 
 	case V4L2_CID_CSC_EQ:
-		user_to_drv(ctx->gsc_ctrls.csc_eq, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.csc_eq, ctrl->val);
 		break;
 
 	case V4L2_CID_CSC_RANGE:
-		user_to_drv(ctx->gsc_ctrls.csc_range, ctrl->val);
+		update_ctrl_value(ctx->gsc_ctrls.csc_range, ctrl->val);
+		break;
+
+	case V4L2_CID_USE_SYSMMU:
+		update_ctrl_value(ctx->gsc_ctrls.use_sysmmu, ctrl->val);
 		break;
 
 	default:
@@ -800,6 +890,7 @@ static int gsc_s_ctrl(struct v4l2_ctrl *ctrl)
 }
 
 const struct v4l2_ctrl_ops gsc_ctrl_ops = {
+	.g_volatile_ctrl = gsc_g_ctrl,
 	.s_ctrl = gsc_s_ctrl,
 };
 
@@ -859,6 +950,16 @@ static const struct v4l2_ctrl_config gsc_custom_ctrl[] = {
 		.step = 1,
 	}, {
 		.ops = &gsc_ctrl_ops,
+		.id = V4L2_CID_TV_LAYER_PRIO,
+		.name = "Set layer priority",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.flags = V4L2_CTRL_FLAG_SLIDER,
+		.min = 0,
+		.max = 15,
+		.def = 1,
+		.step = 1,
+	}, {
+		.ops = &gsc_ctrl_ops,
 		.id = V4L2_CID_CSC_EQ_MODE,
 		.name = "Set CSC equation mode",
 		.type = V4L2_CTRL_TYPE_BOOLEAN,
@@ -882,6 +983,25 @@ static const struct v4l2_ctrl_config gsc_custom_ctrl[] = {
 		.flags = V4L2_CTRL_FLAG_SLIDER,
 		.max = DEFAULT_CSC_RANGE,
 		.def = DEFAULT_CSC_RANGE,
+	}, {
+		.ops = &gsc_ctrl_ops,
+		.id = V4L2_CID_M2M_CTX_NUM,
+		.name = "Get number of m2m context",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.flags = V4L2_CTRL_FLAG_SLIDER,
+		.step = 1,
+		.min = 0,
+		.max = 255,
+		.def = 0,
+		.is_volatile = 1,
+	}, {
+		.ops = &gsc_ctrl_ops,
+		.id = V4L2_CID_USE_SYSMMU,
+		.name = "set the use of sysmmu",
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.flags = V4L2_CTRL_FLAG_SLIDER,
+		.max = DEFAULT_USE_SYSMMU,
+		.def = DEFAULT_USE_SYSMMU,
 	},
 };
 
@@ -894,7 +1014,7 @@ int gsc_ctrls_create(struct gsc_ctx *ctx)
 
 	v4l2_ctrl_handler_init(&ctx->ctrl_handler, GSC_MAX_CTRL_NUM);
 
-	ctx->gsc_ctrls.rotate= v4l2_ctrl_new_std(&ctx->ctrl_handler,
+	ctx->gsc_ctrls.rotate = v4l2_ctrl_new_std(&ctx->ctrl_handler,
 				&gsc_ctrl_ops, V4L2_CID_ROTATE, 0, 270, 90, 0);
 	ctx->gsc_ctrls.hflip = v4l2_ctrl_new_std(&ctx->ctrl_handler,
 				&gsc_ctrl_ops, V4L2_CID_HFLIP, 0, 1, 1, 0);
@@ -915,14 +1035,21 @@ int gsc_ctrls_create(struct gsc_ctx *ctx)
 					&gsc_custom_ctrl[5], NULL);
 	ctx->gsc_ctrls.chroma_val = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
 					&gsc_custom_ctrl[6], NULL);
+	ctx->gsc_ctrls.prio = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
+					&gsc_custom_ctrl[7], NULL);
 
 	/* for CSC equation */
 	ctx->gsc_ctrls.csc_eq_mode = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
-					&gsc_custom_ctrl[7], NULL);
-	ctx->gsc_ctrls.csc_eq = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
 					&gsc_custom_ctrl[8], NULL);
-	ctx->gsc_ctrls.csc_range = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
+	ctx->gsc_ctrls.csc_eq = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
 					&gsc_custom_ctrl[9], NULL);
+	ctx->gsc_ctrls.csc_range = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
+					&gsc_custom_ctrl[10], NULL);
+	ctx->gsc_ctrls.m2m_ctx_num = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
+					&gsc_custom_ctrl[11], NULL);
+
+	ctx->gsc_ctrls.use_sysmmu = v4l2_ctrl_new_custom(&ctx->ctrl_handler,
+					&gsc_custom_ctrl[12], NULL);
 
 	ctx->ctrls_rdy = ctx->ctrl_handler.error == 0;
 
@@ -962,7 +1089,12 @@ int gsc_prepare_addr(struct gsc_ctx *ctx, struct vb2_buffer *vb,
 	gsc_dbg("num_planes= %d, nr_comp= %d, pix_size= %d",
 		frame->fmt->num_planes, frame->fmt->nr_comp, pix_size);
 
-	addr->y = gsc->vb2->plane_addr(vb, 0);
+	if (!gsc->vb2->use_sysmmu) {
+		WARN_ON(vb2_ion_phys_address(
+			vb2_plane_cookie(vb, 0),
+			&addr->y) != 0);
+	} else
+		addr->y = gsc->vb2->plane_addr(vb, 0);
 
 	if (frame->fmt->num_planes == 1) {
 		switch (frame->fmt->nr_comp) {
@@ -984,11 +1116,23 @@ int gsc_prepare_addr(struct gsc_ctx *ctx, struct vb2_buffer *vb,
 			return -EINVAL;
 		}
 	} else {
-		if (frame->fmt->num_planes >= 2)
-			addr->cb = gsc->vb2->plane_addr(vb, 1);
+		if (frame->fmt->num_planes >= 2) {
+			if (!gsc->vb2->use_sysmmu) {
+				WARN_ON(vb2_ion_phys_address(
+					vb2_plane_cookie(vb, 1),
+					&addr->cb) != 0);
+			} else
+				addr->cb = gsc->vb2->plane_addr(vb, 1);
+		}
 
-		if (frame->fmt->num_planes == 3)
-			addr->cr = gsc->vb2->plane_addr(vb, 2);
+		if (frame->fmt->num_planes == 3) {
+			if (!gsc->vb2->use_sysmmu) {
+				WARN_ON(vb2_ion_phys_address(
+					vb2_plane_cookie(vb, 2),
+					&addr->cr) != 0);
+			} else
+				addr->cr = gsc->vb2->plane_addr(vb, 2);
+		}
 	}
 
 	gsc_dbg("ADDR: y= 0x%X  cb= 0x%X cr= 0x%X ret= %d",
@@ -997,21 +1141,16 @@ int gsc_prepare_addr(struct gsc_ctx *ctx, struct vb2_buffer *vb,
 	return ret;
 }
 
-void gsc_wq_suspend(struct work_struct *work)
-{
-	struct gsc_dev *gsc = container_of(work, struct gsc_dev,
-					     work_struct);
-	pm_runtime_put_sync(&gsc->pdev->dev);
-}
-
 void gsc_cap_irq_handler(struct gsc_dev *gsc)
 {
 	int done_index;
 
 	done_index = gsc_hw_get_done_output_buf_index(gsc);
-	gsc_info("done_index : %d", done_index);
-	if (done_index < 0)
+	gsc_dbg("done_index : %d", done_index);
+	if (done_index < 0) {
 		gsc_err("All buffers are masked\n");
+		return;
+	}
 	test_bit(ST_CAPT_RUN, &gsc->state) ? :
 		set_bit(ST_CAPT_RUN, &gsc->state);
 	vb2_buffer_done(gsc->cap.vbq.bufs[done_index], VB2_BUF_STATE_DONE);
@@ -1026,7 +1165,7 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 	gsc_hw_clear_irq(gsc, gsc_irq);
 
 	if (gsc_irq == GSC_OR_IRQ) {
-		gsc_err("Local path input over-run interrupt has occurred!\n");
+		gsc_err("Local path input over-run interrupt has occurred!");
 		return IRQ_HANDLED;
 	}
 
@@ -1037,9 +1176,11 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 		struct gsc_ctx *ctx =
 			v4l2_m2m_get_curr_priv(gsc->m2m.m2m_dev);
 
+		gsc_clock_gating(gsc, GSC_CLK_OFF);
 		if (!ctx || !ctx->m2m_ctx)
 			goto isr_unlock;
 
+		del_timer(&ctx->op_timer);
 		src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
 		dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
 		if (src_vb && dst_vb) {
@@ -1059,14 +1200,15 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 			}
 			spin_unlock(&ctx->slock);
 		}
-		/* schedule pm_runtime_put_sync */
-		queue_work(gsc->irq_workqueue, &gsc->work_struct);
+		pm_runtime_put(&gsc->pdev->dev);
 	} else if (test_bit(ST_OUTPUT_STREAMON, &gsc->state)) {
-		if (!list_empty(&gsc->out.active_buf_q)) {
+		if (!list_empty(&gsc->out.active_buf_q) &&
+		    !list_is_singular(&gsc->out.active_buf_q)) {
 			struct gsc_input_buf *done_buf;
 			done_buf = active_queue_pop(&gsc->out, gsc);
-			gsc_hw_set_input_buf_masking(gsc, done_buf->idx, true);
-			if (!list_is_last(&done_buf->list, &gsc->out.active_buf_q)) {
+
+			if (done_buf->idx != gsc_hw_get_curr_in_buf_idx(gsc)) {
+				gsc_hw_set_input_buf_masking(gsc, done_buf->idx, true);
 				vb2_buffer_done(&done_buf->vb, VB2_BUF_STATE_DONE);
 				list_del(&done_buf->list);
 			}
@@ -1092,17 +1234,41 @@ static int gsc_get_media_info(struct device *dev, void *p)
 	return 0;
 }
 
+void gsc_clock_gating(struct gsc_dev *gsc, enum gsc_clk_status status)
+{
+	int clk_cnt;
+
+	if (status == GSC_CLK_ON) {
+		clk_cnt = atomic_inc_return(&gsc->clk_cnt);
+		if (clk_cnt == 1) {
+			clk_enable(gsc->clock);
+			if (gsc->vb2->use_sysmmu)
+				gsc->vb2->resume(gsc->alloc_ctx);
+			set_bit(ST_PWR_ON, &gsc->state);
+		}
+	} else if (status == GSC_CLK_OFF) {
+		clk_cnt = atomic_dec_return(&gsc->clk_cnt);
+		if (clk_cnt == 0) {
+			if (gsc->vb2->use_sysmmu)
+				gsc->vb2->suspend(gsc->alloc_ctx);
+			clk_disable(gsc->clock);
+			clear_bit(ST_PWR_ON, &gsc->state);
+		} else if (clk_cnt < 0) {
+			gsc_err("clock count is out of range");
+			atomic_set(&gsc->clk_cnt, 0);
+		}
+	}
+}
+
 static int gsc_runtime_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gsc_dev *gsc = (struct gsc_dev *)platform_get_drvdata(pdev);
 
-	if (gsc_m2m_opened(gsc))
+	if (!gsc_m2m_opened(gsc))
+		gsc_clock_gating(gsc, GSC_CLK_OFF);
+	else
 		gsc->m2m.ctx = NULL;
-
-	gsc->vb2->suspend(gsc->alloc_ctx);
-	clk_disable(gsc->clock);
-	clear_bit(ST_PWR_ON, &gsc->state);
 
 	return 0;
 }
@@ -1112,9 +1278,9 @@ static int gsc_runtime_resume(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gsc_dev *gsc = (struct gsc_dev *)platform_get_drvdata(pdev);
 
-	clk_enable(gsc->clock);
-	gsc->vb2->resume(gsc->alloc_ctx);
-	set_bit(ST_PWR_ON, &gsc->state);
+	if (!gsc_m2m_opened(gsc))
+		gsc_clock_gating(gsc, GSC_CLK_ON);
+
 	return 0;
 }
 
@@ -1144,7 +1310,6 @@ static int gsc_probe(struct platform_device *pdev)
 	struct device_driver *driver;
 	struct exynos_md *mdev[MDEV_MAX_NUM] = {NULL,};
 	int ret = 0;
-	char workqueue_name[WORKQUEUE_NAME_SIZE];
 
 	dev_dbg(&pdev->dev, "%s():\n", __func__);
 	drv_data = (struct gsc_driverdata *)
@@ -1253,18 +1418,10 @@ static int gsc_probe(struct platform_device *pdev)
 			goto err_irq;
 	}
 
-	sprintf(workqueue_name, "gsc%d_irq_wq_name", gsc->id);
-	gsc->irq_workqueue = create_singlethread_workqueue(workqueue_name);
-	if (gsc->irq_workqueue == NULL) {
-		dev_err(&pdev->dev, "failed to create workqueue for gsc\n");
-		goto err_irq;
-	}
-	INIT_WORK(&gsc->work_struct, gsc_wq_suspend);
-
 	gsc->alloc_ctx = gsc->vb2->init(gsc);
 	if (IS_ERR(gsc->alloc_ctx)) {
 		ret = PTR_ERR(gsc->alloc_ctx);
-		goto err_wq;
+		goto err_irq;
 	}
 	gsc_pm_runtime_enable(&pdev->dev);
 
@@ -1272,8 +1429,6 @@ static int gsc_probe(struct platform_device *pdev)
 
 	return 0;
 
-err_wq:
-	destroy_workqueue(gsc->irq_workqueue);
 err_irq:
 	free_irq(gsc->irq, gsc);
 err_regs_unmap:
@@ -1369,7 +1524,7 @@ static const struct dev_pm_ops gsc_pm_ops = {
 	.runtime_resume		= gsc_runtime_resume,
 };
 
-struct gsc_pix_max gsc_v_100_max= {
+struct gsc_pix_max gsc_v_max = {
 	.org_scaler_bypass_w	= 8192,
 	.org_scaler_bypass_h	= 8192,
 	.org_scaler_input_w	= 4800,
@@ -1384,31 +1539,54 @@ struct gsc_pix_max gsc_v_100_max= {
 	.target_rot_en_h	= 2016,
 };
 
-struct gsc_pix_min gsc_v_100_min= {
-	.org_w			= 64,
-	.org_h			= 32,
-	.real_w			= 64,
-	.real_h			= 32,
-	.target_rot_dis_w	= 64,
-	.target_rot_dis_h	= 32,
-	.target_rot_en_w	= 32,
-	.target_rot_en_h	= 16,
+struct gsc_pix_min gsc_v_min[2] = {
+	[0] = {
+		.org_w			= 64,
+		.org_h			= 32,
+		.real_w			= 64,
+		.real_h			= 32,
+		.target_rot_dis_w	= 64,
+		.target_rot_dis_h	= 32,
+		.target_rot_en_w	= 32,
+		.target_rot_en_h	= 16,
+	},
+	[1] = {
+		.org_w			= 16,
+		.org_h			= 8,
+		.real_w			= 16,
+		.real_h			= 16,
+		.target_rot_dis_w	= 16,
+		.target_rot_dis_h	= 8,
+		.target_rot_en_w	= 16,
+		.target_rot_en_h	= 8,
+	},
 };
 
-struct gsc_pix_align gsc_v_100_align= {
-	.org_h			= 16,
-	.org_w			= 16, /* yuv420 : 16, others : 8 */
-	.offset_h		= 2,  /* yuv420/422 : 2, others : 1 */
-	.real_w			= 16, /* yuv420/422 : 4~16, others : 2~8 */
-	.real_h			= 16, /* yuv420 : 4~16, others : 1 */
-	.target_w		= 2,  /* yuv420/422 : 2, others : 1 */
-	.target_h		= 2,  /* yuv420 : 2, others : 1 */
+struct gsc_pix_align gsc_v_align[2] = {
+	[0] = {
+		.org_h			= 16,
+		.org_w			= 16, /* yuv420 : 16, others : 8 */
+		.offset_h		= 2,  /* yuv420/422 : 2, others : 1 */
+		.real_w			= 2, /* yuv420/422 : 4~16, others : 2~8 */
+		.real_h			= 2, /* yuv420 : 4~16, others : 1 */
+		.target_w		= 2,  /* yuv420/422 : 2, others : 1 */
+		.target_h		= 2,  /* yuv420 : 2, others : 1 */
+	},
+	[1] = {
+		.org_h			= 16,
+		.org_w			= 16, /* yuv420 : 16, others : 8 */
+		.offset_h		= 2,  /* yuv420/422 : 2, others : 1 */
+		.real_w			= 1,  /* yuv420/422 : 2~8, others : 1~4 */
+		.real_h			= 1,  /* yuv420 : 2~8, others : 1~4 */
+		.target_w		= 2,  /* yuv420/422 : 2, others : 1 */
+		.target_h		= 2,  /* yuv420 : 2, others : 1 */
+	},
 };
 
-struct gsc_variant gsc_v_100_variant= {
-	.pix_max		= &gsc_v_100_max,
-	.pix_min		= &gsc_v_100_min,
-	.pix_align		= &gsc_v_100_align,
+struct gsc_variant gsc_v_100_variant = {
+	.pix_max		= &gsc_v_max,
+	.pix_min		= &gsc_v_min[0],
+	.pix_align		= &gsc_v_align[0],
 	.in_buf_cnt		= 8,
 	.out_buf_cnt		= 16,
 	.sc_up_max		= 8,
@@ -1418,7 +1596,20 @@ struct gsc_variant gsc_v_100_variant= {
 	.local_sc_down		= 2,
 };
 
-static struct gsc_driverdata gsc_v_100_drvdata= {
+struct gsc_variant gsc_v_200_variant = {
+	.pix_max		= &gsc_v_max,
+	.pix_min		= &gsc_v_min[1],
+	.pix_align		= &gsc_v_align[1],
+	.in_buf_cnt		= 4,
+	.out_buf_cnt		= 16,
+	.sc_up_max		= 8,
+	.sc_down_max		= 16,
+	.poly_sc_down_max	= 4,
+	.pre_sc_down_max	= 4,
+	.local_sc_down		= 4,
+};
+
+static struct gsc_driverdata gsc_v_100_drvdata = {
 	.variant = {
 		[0] = &gsc_v_100_variant,
 		[1] = &gsc_v_100_variant,
@@ -1426,13 +1617,26 @@ static struct gsc_driverdata gsc_v_100_drvdata= {
 		[3] = &gsc_v_100_variant,
 	},
 	.num_entities = 4,
-	.lclk_frequency = 266000000UL,
+};
+
+static struct gsc_driverdata gsc_v_200_drvdata = {
+	.variant = {
+		[0] = &gsc_v_200_variant,
+		[1] = &gsc_v_200_variant,
+		[2] = &gsc_v_200_variant,
+		[3] = &gsc_v_200_variant,
+	},
+	.num_entities = 4,
 };
 
 static struct platform_device_id gsc_driver_ids[] = {
 	{
 		.name		= "exynos-gsc",
 		.driver_data	= (unsigned long)&gsc_v_100_drvdata,
+	},
+	{
+		.name		= "exynos5250-gsc",
+		.driver_data	= (unsigned long)&gsc_v_200_drvdata,
 	},
 	{},
 };

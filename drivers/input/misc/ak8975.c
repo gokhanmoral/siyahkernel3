@@ -1,21 +1,17 @@
 /*
- * ak8975.c - ak8975 compass driver
+ *	Copyright (C) 2010, Samsung Electronics Co. Ltd. All Rights Reserved.
  *
- * Copyright (C) 2008-2009 HTC Corporation.
- * Author: viral wang <viralwang@gmail.com>
+ *	This program is free software; you can redistribute it and/or modify
+ *	it under the terms of the GNU General Public License as published by
+ *	the Free Software Foundation; either version 2 of the License, or
+ *	(at your option) any later version.
  *
- * Copyright (C) 2010 Samsung Electronics. All rights reserved.
+ *	This program is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *	GNU General Public License for more details.
  *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
+*/
 #ifdef CONFIG_MPU_SENSORS_MPU3050
 #define FACTORY_TEST
 #endif
@@ -31,6 +27,10 @@
 #include <linux/i2c/ak8975.h>
 #include <linux/completion.h>
 #include "ak8975-reg.h"
+
+#define VENDOR_NAME		"AKM"
+#define CHIP_NAME		"AK8975C"
+
 
 #define AK8975_REG_CNTL			0x0A
 #define REG_CNTL_MODE_SHIFT		0
@@ -49,9 +49,7 @@
 #define AK8975_REG_ASAY			0x11
 #define AK8975_REG_ASAZ			0x12
 
-#define TEST_LOG 0
-
-#define USING_IRQ 0
+#define USING_IRQ	0
 
 struct akm8975_data {
 	struct i2c_client *this_client;
@@ -59,12 +57,21 @@ struct akm8975_data {
 	struct mutex lock;
 	struct miscdevice akmd_device;
 	struct completion data_ready;
+	struct device *dev;
 	wait_queue_head_t state_wq;
 	u8 asa[3];
 #if USING_IRQ
 	int irq;
 #endif
 };
+
+#ifdef FACTORY_TEST
+static bool ak8975_selftest_passed;
+static s16 sf_x, sf_y, sf_z;
+#endif
+
+extern int sensors_register(struct device *dev, void *drvdata,
+			struct device_attribute *attributes[], char *name);
 
 static s32 akm8975_ecs_set_mode_power_down(struct akm8975_data *akm)
 {
@@ -249,7 +256,7 @@ static ssize_t akmd_read(struct file *file, char __user *buf,
 					__func__, data[0] & 0x01);
 
 done:
-	return sprintf(buf, "%d,%d,%d", x, y, z);
+	return sprintf(buf, "%d,%d,%d\n", x, y, z);
 }
 
 static long akmd_ioctl(struct file *file, unsigned int cmd,
@@ -259,9 +266,9 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 	struct akm8975_data *akm = container_of(file->private_data,
 			struct akm8975_data, akmd_device);
 	int ret;
-#if TEST_LOG
-	s16 x, y, z;
-#endif
+	#ifdef MAGNETIC_LOGGING
+	short x, y, z;
+	#endif
 	union {
 		char raw[RWBUF_SIZE];
 		int status;
@@ -281,18 +288,18 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 			return -EFAULT;
 
 		ret = i2c_smbus_write_i2c_block_data(akm->this_client,
-						rwbuf.raw[1],
-						rwbuf.raw[0] - 1,
-						&rwbuf.raw[2]);
+							rwbuf.raw[1],
+							rwbuf.raw[0] - 1,
+							&rwbuf.raw[2]);
 		break;
 	case ECS_IOCTL_READ:
 		if ((rwbuf.raw[0] < 1) || (rwbuf.raw[0] > (RWBUF_SIZE - 1)))
 			return -EINVAL;
 
 		ret = i2c_smbus_read_i2c_block_data(akm->this_client,
-						rwbuf.raw[1],
-						rwbuf.raw[0],
-						&rwbuf.raw[1]);
+							rwbuf.raw[1],
+							rwbuf.raw[0],
+							&rwbuf.raw[1]);
 		if (ret < 0)
 			return ret;
 		if (copy_to_user(argp+1, rwbuf.raw+1, rwbuf.raw[0]))
@@ -310,17 +317,21 @@ static long akmd_ioctl(struct file *file, unsigned int cmd,
 			mutex_unlock(&akm->lock);
 			return ret;
 		}
-		ret = i2c_smbus_read_i2c_block_data(akm->this_client,
-						AK8975_REG_ST1,
-						sizeof(rwbuf.data),
-						rwbuf.data);
-#if TEST_LOG
-		x = rwbuf.data[1]|rwbuf.data[2]<<8;
-		y = rwbuf.data[3]|rwbuf.data[4]<<8;
-		z = rwbuf.data[5]|rwbuf.data[6]<<8;
 
-		pr_info("eComapss Logging X=%d,Y=%d,Z=%d", x, y, z);
-#endif
+		ret = i2c_smbus_read_i2c_block_data(akm->this_client,
+							AK8975_REG_ST1,
+							sizeof(rwbuf.data),
+							rwbuf.data);
+
+		#ifdef MAGNETIC_LOGGING
+		x = (rwbuf.data[2] << 8) + rwbuf.data[1];
+		y = (rwbuf.data[4] << 8) + rwbuf.data[3];
+		z = (rwbuf.data[6] << 8) + rwbuf.data[5];
+
+		pr_info("%s: raw x = %d, y = %d, z = %d",
+			__func__, x, y, z);
+		#endif
+
 		mutex_unlock(&akm->lock);
 		if (ret != sizeof(rwbuf.data)) {
 			pr_err("%s : failed to read %d bytes of mag data",
@@ -351,21 +362,41 @@ static int akm8975_setup_irq(struct akm8975_data *akm)
 {
 	int rc = -EIO;
 	struct akm8975_platform_data *pdata = akm->pdata;
+	int irq;
 
+	if (akm->this_client->irq)
+		irq = akm->this_client->irq;
+	else {
+		rc = gpio_request(pdata->gpio_data_ready_int, "gpio_akm_int");
+		if (rc < 0) {
+			pr_err("%s: gpio %d request failed (%d)",
+				__func__, pdata->gpio_data_ready_int, rc);
+			return rc;
+		}
+
+		rc = gpio_direction_input(pdata->gpio_data_ready_int);
+		if (rc < 0) {
+			pr_err("%s: failed to set gpio %d as input (%d)",
+				__func__, pdata->gpio_data_ready_int, rc);
+			goto err_request_irq;
+		}
+
+		irq = gpio_to_irq(pdata->gpio_data_ready_int);
+	}
 	/* trigger high so we don't miss initial interrupt if it
 	 * is already pending
 	 */
-	rc = request_irq(akm->irq, akm8975_irq_handler, IRQF_TRIGGER_RISING,
+	rc = request_irq(irq, akm8975_irq_handler, IRQF_TRIGGER_RISING,
 			 "akm_int", akm);
 	if (rc < 0) {
 		pr_err("%s: request_irq(%d) failed for gpio %d (%d)",
-			__func__, akm->irq,
+			__func__, irq,
 			pdata->gpio_data_ready_int, rc);
 		goto err_request_irq;
 	}
 
 	/* start with interrupt disabled until the driver is enabled */
-	/* akm->irq = irq; */
+	akm->irq = irq;
 	akm8975_disable_irq(akm);
 
 	goto done;
@@ -391,33 +422,34 @@ static void ak8975c_selftest(struct akm8975_data *ak_data)
 
 	/* read device info */
 	i2c_smbus_read_i2c_block_data(ak_data->this_client,
-			AK8975_REG_WIA, 2, buf);
+					AK8975_REG_WIA, 2, buf);
 	pr_info("%s: device id = 0x%x, info = 0x%x",
 		__func__, buf[0], buf[1]);
 
 	/* set ATSC self test bit to 1 */
 	i2c_smbus_write_byte_data(ak_data->this_client,
-			AK8975_REG_ASTC, 0x40);
+					AK8975_REG_ASTC, 0x40);
 
 	/* start self test */
 	i2c_smbus_write_byte_data(ak_data->this_client,
-			AK8975_REG_CNTL, REG_CNTL_MODE_SELF_TEST);
+					AK8975_REG_CNTL,
+					REG_CNTL_MODE_SELF_TEST);
 
 	/* wait for data ready */
 	while (1) {
 		msleep(20);
 		if (i2c_smbus_read_byte_data(ak_data->this_client,
-				AK8975_REG_ST1) == 1) {
+						AK8975_REG_ST1) == 1) {
 			break;
 		}
 	}
 
 	i2c_smbus_read_i2c_block_data(ak_data->this_client,
-			AK8975_REG_HXL, sizeof(buf), buf);
+					AK8975_REG_HXL, sizeof(buf), buf);
 
 	/* set ATSC self test bit to 0 */
 	i2c_smbus_write_byte_data(ak_data->this_client,
-			AK8975_REG_ASTC, 0x00);
+					AK8975_REG_ASTC, 0x00);
 
 	x = buf[0] | (buf[1] << 8);
 	y = buf[2] | (buf[3] << 8);
@@ -459,26 +491,21 @@ static void ak8975c_selftest(struct akm8975_data *ak_data)
 	sf_z = z;
 #endif
 }
-#endif
-
-#ifdef FACTORY_TEST
-extern struct class *sec_class;
-static struct device *sec_ak8975_dev;
 
 static ssize_t ak8975c_get_asa(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct akm8975_data *ak_data  = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%d, %d, %d",
-		ak_data->asa[0], ak_data->asa[1], ak_data->asa[2]);
+	return sprintf(buf, "%d, %d, %d\n", ak_data->asa[0],
+		ak_data->asa[1], ak_data->asa[2]);
 }
 
 static ssize_t ak8975c_get_selftest(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	ak8975c_selftest(dev_get_drvdata(dev));
-	return sprintf(buf, "%d, %d, %d, %d",
+	return sprintf(buf, "%d, %d, %d, %d\n",
 		ak8975_selftest_passed, sf_x, sf_y, sf_z);
 }
 
@@ -490,18 +517,18 @@ static ssize_t ak8975c_check_registers(struct device *dev,
 
 	/* power down */
 	i2c_smbus_write_byte_data(ak_data->this_client,
-			AK8975_REG_CNTL, REG_CNTL_MODE_POWER_DOWN);
+	AK8975_REG_CNTL, REG_CNTL_MODE_POWER_DOWN);
 
 	/* get the value */
 	i2c_smbus_read_i2c_block_data(ak_data->this_client,
-			AK8975_REG_WIA, 11, buf);
+					AK8975_REG_WIA, 11, buf);
 
 	buf[11] = i2c_smbus_read_byte_data(ak_data->this_client,
-			AK8975_REG_ASTC);
+					AK8975_REG_ASTC);
 	buf[12] = i2c_smbus_read_byte_data(ak_data->this_client,
-			AK8975_REG_I2CDIS);
+					AK8975_REG_I2CDIS);
 
-	return sprintf(strbuf, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+	return sprintf(strbuf, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
 			buf[0], buf[1], buf[2], buf[3], buf[4], buf[5],
 			buf[6], buf[7], buf[8], buf[9], buf[10], buf[11],
 			buf[12]);
@@ -516,11 +543,10 @@ static ssize_t ak8975c_check_cntl(struct device *dev,
 
 	/* power down */
 	err = i2c_smbus_write_byte_data(ak_data->this_client,
-			AK8975_REG_CNTL, REG_CNTL_MODE_POWER_DOWN);
+	AK8975_REG_CNTL, REG_CNTL_MODE_POWER_DOWN);
 
 	buf = i2c_smbus_read_byte_data(ak_data->this_client,
-			AK8975_REG_CNTL);
-
+					AK8975_REG_CNTL);
 
 	return sprintf(strbuf, "%s\n", (!buf ? "OK" : "NG"));
 }
@@ -531,9 +557,9 @@ static ssize_t ak8975c_get_status(struct device *dev,
 	struct akm8975_data *ak_data  = dev_get_drvdata(dev);
 	int success;
 
-	if ((ak_data->asa[0] == 0) | (ak_data->asa[0] == 0xff) |
-		(ak_data->asa[1] == 0) | (ak_data->asa[1] == 0xff) |
-			(ak_data->asa[2] == 0) | (ak_data->asa[2] == 0xff))
+	if ((ak_data->asa[0] == 0) | (ak_data->asa[0] == 0xff)
+		| (ak_data->asa[1] == 0) | (ak_data->asa[1] == 0xff)
+		| (ak_data->asa[2] == 0) | (ak_data->asa[2] == 0xff))
 		success = 0;
 	else
 		success = 1;
@@ -551,7 +577,7 @@ static ssize_t ak8975_adc(struct device *dev,
 
 	/* start ADC conversion */
 	err = i2c_smbus_write_byte_data(ak_data->this_client,
-			AK8975_REG_CNTL, REG_CNTL_MODE_ONCE);
+				AK8975_REG_CNTL, REG_CNTL_MODE_ONCE);
 
 	/* wait for ADC conversion to complete */
 	err = akm8975_wait_for_data_ready(ak_data);
@@ -562,7 +588,7 @@ static ssize_t ak8975_adc(struct device *dev,
 	msleep(20);
 	/* get the value and report it */
 	err = i2c_smbus_read_i2c_block_data(ak_data->this_client,
-			AK8975_REG_ST1, sizeof(buf), buf);
+				AK8975_REG_ST1, sizeof(buf), buf);
 	if (err != sizeof(buf)) {
 		pr_err("%s: read data over i2c failed", __func__);
 		return err;
@@ -578,35 +604,103 @@ static ssize_t ak8975_adc(struct device *dev,
 	y = buf[3] | (buf[4] << 8);
 	z = buf[5] | (buf[6] << 8);
 
-	pr_debug("%s: raw x = %d, y = %d, z = %d", __func__, x, y, z);
+	pr_info("%s: raw x = %d, y = %d, z = %d", __func__, x, y, z);
+	return sprintf(strbuf, "%s, %d, %d, %d\n", (success ? "OK" : "NG"),
+		x, y, z);
+}
+#endif
 
-	return sprintf(strbuf, "%s, %d, %d, %d\n",
-			(success ? "OK" : "NG"), x, y, z);
+static ssize_t ak8975_show_raw_data(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct akm8975_data *akm = dev_get_drvdata(dev);
+	short x = 0, y = 0, z = 0;
+	int ret;
+	u8 data[8] = {0,};
+
+	mutex_lock(&akm->lock);
+	ret = akm8975_ecs_set_mode(akm, AK8975_MODE_SNG_MEASURE);
+	if (ret) {
+		mutex_unlock(&akm->lock);
+		goto done;
+	}
+	ret = akm8975_wait_for_data_ready(akm);
+	if (ret) {
+		mutex_unlock(&akm->lock);
+		goto done;
+	}
+	ret = i2c_smbus_read_i2c_block_data(akm->this_client, AK8975_REG_ST1,
+						sizeof(data), data);
+	mutex_unlock(&akm->lock);
+
+	if (ret != sizeof(data)) {
+		pr_err("%s: failed to read %d bytes of mag data\n",
+			__func__, sizeof(data));
+		goto done;
+	}
+
+	if (data[0] & 0x01) {
+		x = (data[2] << 8) + data[1];
+		y = (data[4] << 8) + data[3];
+		z = (data[6] << 8) + data[5];
+	} else
+		pr_err("%s: invalid raw data(st1 = %d)",
+			__func__, data[0] & 0x01);
+
+done:
+	return sprintf(buf, "%d,%d,%d\n", x, y, z);
+}
+static ssize_t get_vendor_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", VENDOR_NAME);
 }
 
-static DEVICE_ATTR(ak8975_asa, S_IRUGO,
+static ssize_t get_chip_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", CHIP_NAME);
+}
+static DEVICE_ATTR(vendor, S_IRUGO, get_vendor_name, NULL);
+static DEVICE_ATTR(name, S_IRUGO, get_chip_name, NULL);
+
+static DEVICE_ATTR(raw_data, 0664,
+		ak8975_show_raw_data, NULL);
+
+#ifdef FACTORY_TEST
+static DEVICE_ATTR(asa, 0664,
 		ak8975c_get_asa, NULL);
-static DEVICE_ATTR(ak8975_selftest, S_IRUGO,
+static DEVICE_ATTR(selftest, 0664,
 		ak8975c_get_selftest, NULL);
-static DEVICE_ATTR(ak8975_chk_registers, S_IRUGO,
+static DEVICE_ATTR(chk_registers, 0664,
 		ak8975c_check_registers, NULL);
-static DEVICE_ATTR(ak8975_chk_cntl, S_IRUGO,
+static DEVICE_ATTR(dac, 0664,
 		ak8975c_check_cntl, NULL);
-static DEVICE_ATTR(status, S_IRUGO,
+static DEVICE_ATTR(status, 0664,
 		ak8975c_get_status, NULL);
-static DEVICE_ATTR(adc, S_IRUGO,
+static DEVICE_ATTR(adc, 0664,
 		ak8975_adc, NULL);
 
 static struct device_attribute *magnetic_sensor_attrs[] = {
-	&dev_attr_adc,
+	&dev_attr_raw_data,
+	&dev_attr_asa,
+	&dev_attr_selftest,
+	&dev_attr_chk_registers,
+	&dev_attr_dac,
 	&dev_attr_status,
+	&dev_attr_adc,
+	&dev_attr_vendor,
+	&dev_attr_name,
 	NULL,
 };
 
-extern struct class *sensors_class;
-static struct device *magnetic_sensor_device;
-extern int sensors_register(struct device *dev, void * drvdata,
-		struct device_attribute *attributes[], char *name);
+#else
+static struct device_attribute *magnetic_sensor_attrs[] = {
+	&dev_attr_raw_data,
+	&dev_attr_vendor,
+	&dev_attr_name,
+	NULL,
+};
 #endif
 
 int akm8975_probe(struct i2c_client *client,
@@ -615,12 +709,9 @@ int akm8975_probe(struct i2c_client *client,
 	struct akm8975_data *akm;
 	int err;
 
-	pr_info("=====================");
-	pr_info("====AKM8975 Probe====");
-	pr_info("=====================");
-
-	if (client->dev.platform_data == NULL) {
-		dev_err(&client->dev, "platform data is NULL. exiting.");
+	pr_info("%s is called.\n", __func__);
+	if (client->dev.platform_data == NULL && client->irq == 0) {
+		dev_err(&client->dev, "platform data & irq are NULL.");
 		err = -ENODEV;
 		goto exit_platform_data_null;
 	}
@@ -664,87 +755,60 @@ int akm8975_probe(struct i2c_client *client,
 	akm->akmd_device.fops = &akmd_fops;
 
 	err = misc_register(&akm->akmd_device);
-	if (err)
+	if (err) {
+		pr_err("%s, misc_register failed.", __func__);
 		goto exit_akmd_device_register_failed;
+	}
 
 	init_waitqueue_head(&akm->state_wq);
 
 	/* put into fuse access mode to read asa data */
 	err = i2c_smbus_write_byte_data(client, AK8975_REG_CNTL,
 					REG_CNTL_MODE_FUSE_ROM);
-	if (err)
+	if (err) {
 		pr_err("%s: unable to enter fuse rom mode", __func__);
+		goto exit_i2c_failed;
+	}
 
 	err = i2c_smbus_read_i2c_block_data(client, AK8975_REG_ASAX,
 					sizeof(akm->asa), akm->asa);
-	if (err != sizeof(akm->asa))
+	if (err != sizeof(akm->asa)) {
 		pr_err("%s: unable to load factory sensitivity adjust values",
 			__func__);
-	else
-		pr_debug("%s: asa_x = %d, asa_y = %d, asa_z = %d", __func__,
+		goto exit_i2c_failed;
+	} else
+		pr_info("%s: asa_x = %d, asa_y = %d, asa_z = %d", __func__,
 			akm->asa[0], akm->asa[1], akm->asa[2]);
 
 	err = i2c_smbus_write_byte_data(client, AK8975_REG_CNTL,
 					REG_CNTL_MODE_POWER_DOWN);
 	if (err) {
 		dev_err(&client->dev, "Error in setting power down mode");
-		goto exit_device_create_file2;
+		goto exit_i2c_failed;
 	}
-
-#if (defined DEBUG) || (defined FACTORY_TEST)
-	ak8975c_selftest(akm);
-#endif
 
 #ifdef FACTORY_TEST
-	err = sensors_register(magnetic_sensor_device, akm,
-				magnetic_sensor_attrs, "magnetic_sensor");
-	if (err)
-		pr_info("%s: cound not register magnetic sensor device(%d).",
-			__func__, err);
-
-	sec_ak8975_dev = device_create(sec_class, NULL, 0, akm,
-			"sec_ak8975");
-	if (IS_ERR(sec_ak8975_dev))
-		pr_info("Failed to create device!");
-
-	if (device_create_file(sec_ak8975_dev, &dev_attr_ak8975_asa) < 0) {
-		pr_info("Failed to create device file(%s)!",
-			dev_attr_ak8975_asa.attr.name);
-		goto exit_device_create_file2;
-	}
-	if (device_create_file(sec_ak8975_dev, &dev_attr_ak8975_selftest) < 0) {
-		pr_info("Failed to create device file(%s)!",
-			dev_attr_ak8975_selftest.attr.name);
-		device_remove_file(sec_ak8975_dev, &dev_attr_ak8975_asa);
-		goto exit_device_create_file2;
-	}
-	if (device_create_file(sec_ak8975_dev,
-				&dev_attr_ak8975_chk_registers) < 0) {
-		pr_info("Failed to create device file(%s)!",
-			dev_attr_ak8975_chk_registers.attr.name);
-		device_remove_file(sec_ak8975_dev, &dev_attr_ak8975_asa);
-		device_remove_file(sec_ak8975_dev, &dev_attr_ak8975_selftest);
-		goto exit_device_create_file2;
-	}
-	if (device_create_file(sec_ak8975_dev, &dev_attr_ak8975_chk_cntl) < 0) {
-		pr_info("Failed to create device file(%s)!",
-			dev_attr_ak8975_chk_cntl.attr.name);
-		device_remove_file(sec_ak8975_dev, &dev_attr_ak8975_asa);
-		device_remove_file(sec_ak8975_dev, &dev_attr_ak8975_selftest);
-		device_remove_file(sec_ak8975_dev,
-						&dev_attr_ak8975_chk_registers);
-		goto exit_device_create_file2;
-	}
+	ak8975c_selftest(akm);
 #endif
+	err = sensors_register(akm->dev, akm, magnetic_sensor_attrs,
+				"magnetic_sensor");
+	if (err) {
+		pr_info("%s: cound not register"
+			"magnetic sensor device(%d).", __func__, err);
+		goto exit_class_create_failed;
+	}
 
-	return 0;
+	/* dev_set_drvdata(akm->dev, akm); */
 
-exit_device_create_file2:
+pr_info("%s is successful.", __func__);
+return 0;
+
+exit_class_create_failed:
+exit_i2c_failed:
 exit_akmd_device_register_failed:
 #if USING_IRQ
 	free_irq(akm->irq, akm);
 	gpio_free(akm->pdata->gpio_data_ready_int);
-
 exit_setup_irq:
 #endif
 exit_set_mode_power_down_failed:
@@ -759,7 +823,6 @@ exit_platform_data_null:
 static int __devexit akm8975_remove(struct i2c_client *client)
 {
 	struct akm8975_data *akm = i2c_get_clientdata(client);
-
 	misc_deregister(&akm->akmd_device);
 #if USING_IRQ
 	free_irq(akm->irq, akm);
@@ -786,7 +849,6 @@ static struct i2c_driver akm8975_driver = {
 
 static int __init akm8975_init(void)
 {
-	pr_info("%s", __func__);
 	return i2c_add_driver(&akm8975_driver);
 }
 
@@ -799,4 +861,5 @@ module_init(akm8975_init);
 module_exit(akm8975_exit);
 
 MODULE_DESCRIPTION("AKM8975 compass driver");
+MODULE_AUTHOR("Samsung Electronics");
 MODULE_LICENSE("GPL");

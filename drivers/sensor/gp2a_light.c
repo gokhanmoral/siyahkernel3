@@ -176,15 +176,15 @@ light_enable_store(struct device *dev, struct device_attribute *attr,
 		cancel_delayed_work_sync(&data->work);
 		gprintk("timer canceled.\n");
 		lightsensor_onoff(0);
+		data->enabled = value;
 	}
 	if (!data->enabled && value) {
 		lightsensor_onoff(1);
+		data->enabled = value;
 		first_value = true;
 		queue_delayed_work(data->wq, &data->work, 0);
 		gprintk("timer started.\n");
 	}
-
-	data->enabled = value;
 
 	mutex_unlock(&data->mutex);
 

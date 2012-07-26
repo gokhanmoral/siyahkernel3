@@ -78,13 +78,17 @@ config ARM_EXYNOS4_BUS_DEVFREQ
 	  controllers and adjusts the operating frequencies and voltages with
 	  OPP support.
 
-config BUSFREQ_LOCK_WRAPPER
-	bool "BUSFREQ_LOCK Wrapper support for legacy kernel hack"
-	depends on ARM_EXYNOS4_BUS_DEVFREQ
+config ARM_EXYNOS4_DISPLAY_DEVFREQ
+	bool "ARM Exynos4 Dynamic LCD refresh rate DEVFREQ Driver (4210/4212/4412) (Experimental)"
+	depends on CPU_EXYNOS4210 || CPU_EXYNOS4412 || CPU_EXYNOS4212
+	select ARCH_HAS_OPP
+	select DEVFREQ_GOV_POWERSAVE
 	help
-	  busfreq_lock() and busfreq_lock_free() are not supported in
-	  busfreq with devfreq framework. However, enabling this adds
-	  wrappers to support these two legacy kernel hack to sustain
-	  minimum bus/memory frequency.
+	  This adds the DEVFREQ driver for Exynos4 dynamic LCD refresh rate
+	  This driver is supposed to support display of other Exynos4 series
+	  SoCs as well; however, for now, this driver supports Exynos4210,
+	  Exynos4212, and Exynos4412 only. It received event(High frequency or
+	  Low frequency) from various devices to control dynamically LCD refresh
+	  rate.
 
 endif # PM_DEVFREQ

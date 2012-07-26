@@ -318,17 +318,7 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	 */
 	platform_secondary_init(cpu);
 
-	/*
-	 * Enable local interrupts.
-	 */
 	notify_cpu_starting(cpu);
-	local_irq_enable();
-	local_fiq_enable();
-
-	/*
-	 * Setup the percpu timer for this CPU.
-	 */
-	percpu_timer_setup();
 
 	if (skip_secondary_calibrate())
 		calibrate_delay();
@@ -341,8 +331,14 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	 * before we continue.
 	 */
 	set_cpu_online(cpu, true);
-	while (!cpu_active(cpu))
-		cpu_relax();
+
+	/*
+	 * Setup the percpu timer for this CPU.
+	 */
+	percpu_timer_setup();
+
+	local_irq_enable();
+	local_fiq_enable();
 
 	/*
 	 * OK, it's off to the idle thread for us
@@ -475,11 +471,13 @@ asmlinkage void __exception_irq_entry do_local_timer(struct pt_regs *regs)
 
 	if (local_timer_ack()) {
 		__inc_irq_stat(cpu, local_timer_irqs);
-		sec_debug_irq_sched_log(0, do_local_timer, 1);
+		sec_debug_irq_log(0, do_local_timer, 1);
+		irq_enter();
 		ipi_timer();
-		sec_debug_irq_sched_log(0, do_local_timer, 2);
+		irq_exit();
+		sec_debug_irq_log(0, do_local_timer, 2);
 	} else
-		sec_debug_irq_sched_log(0, do_local_timer, 3);
+		sec_debug_irq_log(0, do_local_timer, 3);
 
 	set_irq_regs(old_regs);
 }
@@ -641,7 +639,7 @@ asmlinkage void __exception_irq_entry do_IPI(int ipinr, struct pt_regs *regs)
 	if (ipinr >= IPI_TIMER && ipinr < IPI_TIMER + NR_IPI)
 		__inc_irq_stat(cpu, ipi_irqs[ipinr - IPI_TIMER]);
 
-	sec_debug_irq_sched_log(ipinr, do_IPI, 1);
+	sec_debug_irq_log(ipinr, do_IPI, 1);
 
 	switch (ipinr) {
 	case IPI_TIMER:
@@ -682,7 +680,7 @@ asmlinkage void __exception_irq_entry do_IPI(int ipinr, struct pt_regs *regs)
 		break;
 	}
 
-	sec_debug_irq_sched_log(ipinr, do_IPI, 2);
+	sec_debug_irq_log(ipinr, do_IPI, 2);
 
 	set_irq_regs(old_regs);
 }

@@ -21,14 +21,19 @@
 #include "ump_ukk.h"
 #include "ump_kernel_common.h"
 
-#ifdef CONFIG_ION_EXYNOS
-#include <linux/ion.h>
+#if defined(CONFIG_ION_EXYNOS) || defined(CONFIG_DMA_SHARED_BUFFER)
 #include <linux/scatterlist.h>
-#include "../../../../../gpu/ion/ion_priv.h"
 #include "ump_kernel_interface_ref_drv.h"
 #include "mali_osk_list.h"
+#ifdef CONFIG_ION_EXYNOS
+#include <linux/ion.h>
+#include "../../../../../gpu/ion/ion_priv.h"
 extern struct ion_device *ion_exynos;
 extern struct ion_client *ion_client_ump;
+#endif
+#ifdef CONFIG_DMA_SHARED_BUFFER
+#include <linux/dma-buf.h>
+#endif
 #endif
 
 /*
@@ -140,15 +145,23 @@ int ump_ion_import_wrapper(u32 __user * argument, struct ump_session_data  * ses
 
 	num_blocks = i;
 
-	ump_handle = ump_dd_handle_create_from_phys_blocks(blocks, num_blocks);
-
 	/* Initialize the session_memory_element, and add it to the session object */
 	session_memory_element = _mali_osk_calloc( 1, sizeof(ump_session_memory_list_element));
 
 	if (NULL == session_memory_element)
 	{
-	     DBG_MSG(1, ("Failed to allocate ump_session_memory_list_element in ump_ioctl_allocate()\n"));
-	     return -EFAULT;
+		_mali_osk_free(blocks);
+		DBG_MSG(1, ("Failed to allocate ump_session_memory_list_element in ump_ioctl_allocate()\n"));
+		return -EFAULT;
+	}
+
+	ump_handle = ump_dd_handle_create_from_phys_blocks(blocks, num_blocks);
+	if (UMP_DD_HANDLE_INVALID == ump_handle)
+	{
+		_mali_osk_free(session_memory_element);
+		_mali_osk_free(blocks);
+		DBG_MSG(1, ("Failed to allocate ump_session_memory_list_element in ump_ioctl_allocate()\n"));
+		return -EFAULT;
 	}
 
 	session_memory_element->mem = (ump_dd_mem*)ump_handle;
@@ -173,5 +186,130 @@ int ump_ion_import_wrapper(u32 __user * argument, struct ump_session_data  * ses
 		return -EFAULT;
 	}
 	return 0; /* success */
+}
+#endif
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+int ump_dmabuf_import_wrapper(u32 __user *argument,
+				struct ump_session_data  *session_data)
+{
+	ump_session_memory_list_element *session = NULL;
+	struct ump_uk_dmabuf ump_dmabuf;
+	ump_dd_handle *ump_handle;
+	ump_dd_physical_block *blocks;
+	struct dma_buf_attachment *attach;
+	struct dma_buf *dma_buf;
+	struct sg_table *sgt;
+	struct scatterlist *sgl;
+	unsigned long block_size;
+	/* FIXME */
+	struct device dev;
+	unsigned int i = 0, npages;
+	int ret;
+
+	/* Sanity check input parameters */
+	if (!argument || !session_data) {
+		MSG_ERR(("NULL parameter.\n"));
+		return -EINVAL;
+	}
+
+	if (copy_from_user(&ump_dmabuf, argument,
+				sizeof(struct ump_uk_dmabuf))) {
+		MSG_ERR(("copy_from_user() failed.\n"));
+		return -EFAULT;
+	}
+
+	dma_buf = dma_buf_get(ump_dmabuf.fd);
+	if (IS_ERR(dma_buf))
+		return PTR_ERR(dma_buf);
+
+	/*
+	 * check whether dma_buf imported already exists or not.
+	 *
+	 * TODO
+	 * if already imported then dma_buf_put() should be called
+	 * and then just return dma_buf imported.
+	 */
+
+	attach = dma_buf_attach(dma_buf, &dev);
+	if (IS_ERR(attach)) {
+		ret = PTR_ERR(attach);
+		goto err_dma_buf_put;
+	}
+
+	sgt = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
+	if (IS_ERR(sgt)) {
+		ret = PTR_ERR(sgt);
+		goto err_dma_buf_detach;
+	}
+
+	npages = sgt->nents;
+
+	/* really need? */
+	ump_dmabuf.ctx = (void *)session_data;
+
+	block_size = sizeof(ump_dd_physical_block) * npages;
+
+	blocks = (ump_dd_physical_block *)_mali_osk_malloc(block_size);
+	sgl = sgt->sgl;
+
+	while (i < npages) {
+		blocks[i].addr = sg_phys(sgl);
+		blocks[i].size = sg_dma_len(sgl);
+		sgl = sg_next(sgl);
+		i++;
+	}
+
+	/*
+	 * Initialize the session memory list element, and add it
+	 * to the session object
+	 */
+	session = _mali_osk_calloc(1, sizeof(*session));
+	if (!session) {
+		DBG_MSG(1, ("Failed to allocate session.\n"));
+		ret = -EFAULT;
+		goto err_free_block;
+	}
+
+	ump_handle = ump_dd_handle_create_from_phys_blocks(blocks, i);
+	if (UMP_DD_HANDLE_INVALID == ump_handle) {
+		DBG_MSG(1, ("Failed to create ump handle.\n"));
+		ret = -EFAULT;
+		goto err_free_session;
+	}
+
+	session->mem = (ump_dd_mem *)ump_handle;
+
+	_mali_osk_lock_wait(session_data->lock, _MALI_OSK_LOCKMODE_RW);
+	_mali_osk_list_add(&(session->list),
+			&(session_data->list_head_session_memory_list));
+	_mali_osk_lock_signal(session_data->lock, _MALI_OSK_LOCKMODE_RW);
+
+	_mali_osk_free(blocks);
+
+	ump_dmabuf.secure_id = ump_dd_secure_id_get(ump_handle);
+	ump_dmabuf.size = ump_dd_size_get(ump_handle);
+
+	if (copy_to_user(argument, &ump_dmabuf,
+				sizeof(struct ump_uk_dmabuf))) {
+		MSG_ERR(("copy_to_user() failed.\n"));
+		ret =  -EFAULT;
+		goto err_release_ump_handle;
+	}
+
+	return 0;
+
+err_release_ump_handle:
+	ump_dd_reference_release(ump_handle);
+err_free_session:
+	_mali_osk_free(session);
+err_free_block:
+	_mali_osk_free(blocks);
+	dma_buf_unmap_attachment(attach, sgt, DMA_BIDIRECTIONAL);
+err_dma_buf_detach:
+	dma_buf_detach(dma_buf, attach);
+err_dma_buf_put:
+	dma_buf_put(dma_buf);
+	return ret;
 }
 #endif

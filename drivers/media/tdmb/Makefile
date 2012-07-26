@@ -23,7 +23,15 @@ obj-$(CONFIG_TDMB_FC8050) += fc8050/
 ccflags-$(CONFIG_TDMB_MTV318) += -Idrivers/media/tdmb/mtv318
 obj-$(CONFIG_TDMB_MTV318) += tdmb_port_mtv318.o
 obj-$(CONFIG_TDMB_MTV318) += mtv318/
-
+# TCC3170
+ccflags-$(CONFIG_TDMB_TCC3170) += -Idrivers/media/tdmb/tcc3170
+ccflags-$(CONFIG_TDMB_TCC3170) += -Idrivers/media/tdmb/tcc3170/inc
+ccflags-$(CONFIG_TDMB_TCC3170) += -Idrivers/media/tdmb/tcc3170/inc/tcpal
+ccflags-$(CONFIG_TDMB_TCC3170) += -Idrivers/media/tdmb/tcc3170/inc/tcbd_diagnosis
+ccflags-$(CONFIG_TDMB_TCC3170) += -Idrivers/media/tdmb/tcc3170/inc/tcbd_stream_parser
+ccflags-$(CONFIG_TDMB_TCC3170) += -Idrivers/media/tdmb/tcc3170/inc/tcc_fic_decoder
+obj-$(CONFIG_TDMB_TCC3170) += tdmb_port_tcc3170.o
+obj-$(CONFIG_TDMB_TCC3170) += tcc3170/
 # Test
 obj-$(CONFIG_TDMB_SIMUL) += tdmb_port_Simul.o
 

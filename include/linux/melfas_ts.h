@@ -37,6 +37,11 @@ struct melfas_tsi_platform_data {
 #ifdef CONFIG_INPUT_FBSUSPEND
 	struct notifier_block fb_notif;
 #endif
+
+#if defined(CONFIG_MACH_M0_CHNOPEN) ||					\
+	defined(CONFIG_MACH_M0_CMCC) || defined(CONFIG_MACH_M0_CTC)
+	int (*lcd_type)(void);
+#endif
 };
 
 #endif /* _LINUX_MELFAS_TS_H */

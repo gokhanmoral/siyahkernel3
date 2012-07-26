@@ -41,7 +41,14 @@ void s3cfb_check_line_count(struct s3cfb_global *ctrl)
 
 int s3cfb_check_vsync_status(struct s3cfb_global *ctrl)
 {
-	u32 cfg = (readl(ctrl->regs + S3C_VIDCON1) & S3C_VIDCON1_VSTATUS_MASK);
+	u32 cfg;
+
+	if (unlikely(!ctrl->regs)) {
+		dev_err(ctrl->dev, "reg is zero\n");
+		return 0;
+	}
+
+	cfg = (readl(ctrl->regs + S3C_VIDCON1) & S3C_VIDCON1_VSTATUS_MASK);
 
 	if (cfg != S3C_VIDCON1_VSTATUS_ACTIVE && cfg != S3C_VIDCON1_VSTATUS_BACK)
 		return 1;
@@ -200,7 +207,7 @@ int s3cfb_set_clock(struct s3cfb_global *ctrl)
 		cfg &= ~(S3C_VIDCON0_CLKVALUP_MASK |
 			S3C_VIDCON0_VCLKEN_MASK);
 		cfg |= (S3C_VIDCON0_CLKVALUP_ALWAYS |
-			S3C_VIDCON0_VCLKEN_NORMAL);
+			S3C_VIDCON0_VCLKEN_FREERUN);
 
 		src_clk = clk_get_rate(ctrl->clock);
 		printk(KERN_DEBUG "FIMD src sclk = %d\n", src_clk);
@@ -289,7 +296,6 @@ int s3cfb_set_polarity_only(struct s3cfb_global *ctrl)
 	u32 cfg = 0;
 
 	pol = &ctrl->lcd->polarity;
-	cfg |= S3C_VIDCON1_FIXVCLK_VCLK_RUN_VDEN_DIS;
 
 	if (pol->rise_vclk)
 		cfg |= S3C_VIDCON1_IVCLK_RISING_EDGE;
@@ -666,7 +672,7 @@ int s3cfb_get_win_cur_buf_addr(struct s3cfb_global *ctrl, int id)
 
 	start_addr = readl(ctrl->regs + S3C_VIDADDR_START0(id) + S3C_SHD_WIN_BASE);
 
-    dev_dbg(ctrl->dev, "[fb%d] start_addr: 0x%08x\n", id, start_addr);
+	dev_dbg(ctrl->dev, "[fb%d] start_addr: 0x%08x\n", id, start_addr);
 
 	return start_addr;
 }
@@ -711,6 +717,31 @@ int s3cfb_set_buffer_address(struct s3cfb_global *ctrl, int id)
 int s3cfb_set_alpha_value(struct s3cfb_global *ctrl, int value)
 {
 	writel(value, ctrl->regs + S3C_BLENDCON);
+
+	return 0;
+}
+
+int s3cfb_set_alpha_mode(struct s3cfb_global *ctrl, int id, unsigned int mode)
+{
+	if (id <= 0 || id > 5)
+		return 0;
+
+	if (mode == BLENDING_PREMULT)
+		writel(0xc1, ctrl->regs + S3C_BLENDEQ1 + 4 * (id - 1));
+	else
+		writel(0xc2, ctrl->regs + S3C_BLENDEQ1 + 4 * (id - 1));
+
+	return 0;
+}
+
+int s3cfb_set_alpha_value_width(struct s3cfb_global *ctrl, int id)
+{
+	struct fb_var_screeninfo *var = &ctrl->fb[id]->var;
+
+	if (var->bits_per_pixel == 32 && var->transp.length > 4)
+		writel(1, ctrl->regs + S3C_BLENDCON);
+	else
+		writel(0, ctrl->regs + S3C_BLENDCON);
 
 	return 0;
 }
@@ -887,3 +918,11 @@ int s3cfb_set_chroma_key(struct s3cfb_global *ctrl, int id)
 
 	return 0;
 }
+
+int s3cfb_set_dualrgb(struct s3cfb_global *ctrl, int mode)
+{
+	writel(mode, ctrl->regs + S3C_DUALRGB);
+
+	return 0;
+}
+

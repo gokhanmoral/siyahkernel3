@@ -43,16 +43,17 @@ struct vcm_mmu_res {
 #endif
 
 int mfc_mem_count(void);
-unsigned int mfc_mem_base(int port);
+unsigned long mfc_mem_base(int port);
 unsigned char *mfc_mem_addr(int port);
-unsigned int mfc_mem_data_base(int port);
+unsigned long mfc_mem_data_base(int port);
 unsigned int mfc_mem_data_size(int port);
-#ifdef CONFIG_EXYNOS4_CONTENT_PATH_PROTECTION
+#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 unsigned int mfc_mem_hole_size(void);
 #endif
-unsigned int mfc_mem_data_ofs(unsigned int addr, int contig);
-unsigned int mfc_mem_base_ofs(unsigned int addr);
-unsigned int mfc_mem_addr_ofs(unsigned int ofs, int port);
+unsigned long mfc_mem_data_ofs(unsigned long addr, int contig);
+unsigned long mfc_mem_base_ofs(unsigned long addr);
+unsigned long mfc_mem_addr_ofs(unsigned long ofs, int from);
+long mfc_mem_ext_ofs(unsigned long addr, unsigned int size, int from);
 
 void mfc_mem_cache_clean(const void *start_addr, unsigned long size);
 void mfc_mem_cache_inv(const void *start_addr, unsigned long size);

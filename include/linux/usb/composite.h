@@ -421,6 +421,7 @@ struct usb_composite_dev {
 	 * to avoid signalling switch changes
 	 */
 	bool                            mute_switch;
+	bool                            force_disconnect;
 #endif
 };
 

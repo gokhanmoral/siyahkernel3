@@ -17,7 +17,11 @@
 #endif
 
 #define FM_RESET	GPIO_FM_RST
+#if defined(CONFIG_MACH_Q1_CMCC_BD)
+#define FM_PORT "GPX13"
+#else
 #define FM_PORT		"GPB"
+#endif
 
 #define FM_IRQ_INT	gpio_to_irq(GPIO_FM_INT)	/* GPB1(EXT_INT3[1]) */
 

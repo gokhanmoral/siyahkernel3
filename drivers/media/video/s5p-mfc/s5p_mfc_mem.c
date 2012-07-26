@@ -48,7 +48,7 @@ void **s5p_mfc_mem_init_multi(struct device *dev, unsigned int ctx_num)
 					   s5p_mem_alignments,0);
 }
 
-void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes)
+void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes, unsigned int ctx_num)
 {
 	vb2_cma_phys_cleanup_multi(alloc_ctxes);
 }
@@ -79,7 +79,7 @@ void **s5p_mfc_mem_init_multi(struct device *dev, unsigned int ctx_num)
 	return alloc_ctxes;
 }
 
-void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes)
+void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes, unsigned int ctx_num)
 {
 	vb2_sdvmm_cleanup_multi(alloc_ctxes);
 }
@@ -91,31 +91,40 @@ struct vb2_mem_ops *s5p_mfc_mem_ops(void)
 
 void **s5p_mfc_mem_init_multi(struct device *dev, unsigned int ctx_num)
 {
-	struct vb2_ion ion;
-	void **alloc_ctxes;
-	struct vb2_drv vb2_drv;
 	struct s5p_mfc_dev *m_dev = platform_get_drvdata(to_platform_device(dev));
+	void **alloc_ctxes;
+	unsigned int i;
 
-	/* TODO */
-	ion.name = MFC_ION_NAME;
-	ion.dev = dev;
-	ion.cacheable = true;
-	ion.align = IS_MFCV6(m_dev) ? SZ_4K : SZ_128K;
-	ion.contig = false;
+	alloc_ctxes = kmalloc(sizeof(*alloc_ctxes) * ctx_num, GFP_KERNEL);
+	if (!alloc_ctxes)
+		return NULL;
 
-	vb2_drv.use_mmu = true;
+	for (i = 0; i < ctx_num; i++) {
+		alloc_ctxes[i] = vb2_ion_create_context(dev,
+				IS_MFCV6(m_dev) ? SZ_4K : SZ_128K,
+				VB2ION_CTX_VMCONTIG | VB2ION_CTX_IOMMU);
 
-	s5p_mfc_power_on();
-	alloc_ctxes = (void **)vb2_ion_init_multi(ctx_num, &ion,
-							&vb2_drv);
-	s5p_mfc_power_off();
+		if (IS_ERR(alloc_ctxes[i]))
+			break;
+	}
+
+	if (i < ctx_num) {
+		while (i-- > 0)
+			vb2_ion_destroy_context(alloc_ctxes[i]);
+
+		kfree(alloc_ctxes);
+		alloc_ctxes = NULL;
+	}
 
 	return alloc_ctxes;
 }
 
-void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes)
+void s5p_mfc_mem_cleanup_multi(void **alloc_ctxes, unsigned int ctx_num)
 {
-	vb2_ion_cleanup_multi(alloc_ctxes);
+	while (ctx_num-- > 0)
+		vb2_ion_destroy_context(alloc_ctxes[ctx_num]);
+
+	kfree(alloc_ctxes);
 }
 #endif
 
@@ -136,9 +145,19 @@ struct vb2_cma_phys_buf {
 	struct vb2_vmarea_handler	handler;
 	bool				cacheable;
 };
-void s5p_mfc_cache_clean(void *alloc_ctx)
+
+void s5p_mfc_cache_clean_fw(void *cookie)
 {
-	struct vb2_cma_phys_buf *buf = (struct vb2_cma_phys_buf *)alloc_ctx;
+	phys_addr_t phys = (phys_addr_t)cookie;
+	/* FIXME: cache maintenance operation */
+	dmac_map_area(phys_to_virt(phys), SZ_1M, DMA_TO_DEVICE);
+	outer_clean_range(phys, phys + SZ_1M);
+}
+
+void s5p_mfc_cache_clean(struct vb2_buffer *vb, int plane_no)
+{
+	struct vb2_cma_phys_buf *buf =
+		(struct vb2_cma_phys_buf *)vb->planes[plane_no].mem_priv;
 	void *start_addr;
 	unsigned long size;
 	unsigned long paddr = (dma_addr_t)buf->paddr;
@@ -150,9 +169,10 @@ void s5p_mfc_cache_clean(void *alloc_ctx)
 	outer_clean_range(paddr, paddr + size);
 }
 
-void s5p_mfc_cache_inv(void *alloc_ctx)
+void s5p_mfc_cache_inv(struct vb2_buffer *vb, int plane_no)
 {
-	struct vb2_cma_phys_buf *buf = (struct vb2_cma_phys_buf *)alloc_ctx;
+	struct vb2_cma_phys_buf *buf =
+		(struct vb2_cma_phys_buf *)vb->planes[plane_no].mem_priv;
 	void *start_addr;
 	unsigned long size;
 	unsigned long paddr = (dma_addr_t)buf->paddr;
@@ -169,19 +189,14 @@ void s5p_mfc_mem_suspend(void *alloc_ctx)
 	/* NOP */
 }
 
-void s5p_mfc_mem_resume(void *alloc_ctx)
+int s5p_mfc_mem_resume(void *alloc_ctx)
 {
-	/* NOP */
+	return 0;
 }
 
 void s5p_mfc_mem_set_cacheable(void *alloc_ctx, bool cacheable)
 {
 	vb2_cma_phys_set_cacheable(alloc_ctx, cacheable);
-}
-
-void s5p_mfc_mem_get_cacheable(void *alloc_ctx)
-{
-	/* NOP */
 }
 
 int s5p_mfc_mem_cache_flush(struct vb2_buffer *vb, u32 plane_no)
@@ -310,11 +325,12 @@ void s5p_mfc_mem_suspend(void *alloc_ctx)
 	s5p_mfc_clock_off();
 }
 
-void s5p_mfc_mem_resume(void *alloc_ctx)
+int s5p_mfc_mem_resume(void *alloc_ctx)
 {
 	s5p_mfc_clock_on();
 	vb2_sdvmm_resume(alloc_ctx);
 	s5p_mfc_clock_off();
+	return 0;
 }
 
 void s5p_mfc_mem_set_cacheable(void *alloc_ctx, bool cacheable)
@@ -322,86 +338,57 @@ void s5p_mfc_mem_set_cacheable(void *alloc_ctx, bool cacheable)
 	vb2_sdvmm_set_cacheable(alloc_ctx, cacheable);
 }
 
-void s5p_mfc_mem_get_cacheable(void *alloc_ctx)
-{
-	vb2_sdvmm_get_cacheable(alloc_ctx);
-}
-
 int s5p_mfc_mem_cache_flush(struct vb2_buffer *vb, u32 plane_no)
 {
 	return vb2_sdvmm_cache_flush(vb, plane_no);
 }
 #elif defined(CONFIG_S5P_MFC_VB2_ION)
-struct vb2_ion_conf {
-	struct device		*dev;
-	const char		*name;
 
-	struct ion_client	*client;
-
-	unsigned long		align;
-	bool			contig;
-	bool			sharable;
-	bool			cacheable;
-	bool			use_mmu;
-	atomic_t		mmu_enable;
-
-	spinlock_t		slock;
-};
-
-struct vb2_ion_buf {
-	struct vm_area_struct		*vma;
-	struct vb2_ion_conf		*conf;
-	struct vb2_vmarea_handler	handler;
-
-	struct ion_handle		*handle;	/* Kernel space */
-
-	dma_addr_t			kva;
-	dma_addr_t			dva;
-	size_t				offset;
-	unsigned long			size;
-
-	struct scatterlist		*sg;
-	int				nents;
-
-	atomic_t			ref;
-
-	bool				cacheable;
-};
-
-void s5p_mfc_cache_clean(void *alloc_ctx)
+void s5p_mfc_cache_clean_fw(void *cookie)
 {
-	struct vb2_ion_buf *buf = (struct vb2_ion_buf *)alloc_ctx;
+	int nents = 0;
+	struct scatterlist *sg;
 
-	dma_sync_sg_for_device(buf->conf->dev, buf->sg, buf->nents,
-		DMA_TO_DEVICE);
+	sg = vb2_ion_get_sg(cookie, &nents);
+
+	dma_sync_sg_for_device(NULL, sg, nents, DMA_TO_DEVICE);
 }
 
-void s5p_mfc_cache_inv(void *alloc_ctx)
+void s5p_mfc_cache_clean(struct vb2_buffer *vb, int plane_no)
 {
-	struct vb2_ion_buf *buf = (struct vb2_ion_buf *)alloc_ctx;
+	void *cookie = vb2_plane_cookie(vb, plane_no);
+	int nents = 0;
+	struct scatterlist *sg;
 
-	dma_sync_sg_for_cpu(buf->conf->dev, buf->sg, buf->nents,
-		DMA_FROM_DEVICE);
+	sg = vb2_ion_get_sg(cookie, &nents);
+
+	dma_sync_sg_for_device(NULL, sg, nents, DMA_TO_DEVICE);
+}
+
+void s5p_mfc_cache_inv(struct vb2_buffer *vb, int plane_no)
+{
+	void *cookie = vb2_plane_cookie(vb, plane_no);
+	int nents = 0;
+	struct scatterlist *sg;
+
+	sg = vb2_ion_get_sg(cookie, &nents);
+
+	dma_sync_sg_for_device(NULL, sg, nents, DMA_FROM_DEVICE);
 }
 
 void s5p_mfc_mem_suspend(void *alloc_ctx)
 {
-	vb2_ion_suspend(alloc_ctx);
+	vb2_ion_detach_iommu(alloc_ctx);
 }
 
-void s5p_mfc_mem_resume(void *alloc_ctx)
+int s5p_mfc_mem_resume(void *alloc_ctx)
 {
-	vb2_ion_resume(alloc_ctx);
+	return vb2_ion_attach_iommu(alloc_ctx);
 }
 
 void s5p_mfc_mem_set_cacheable(void *alloc_ctx, bool cacheable)
 {
-	vb2_ion_set_cacheable(alloc_ctx, cacheable);
-}
-
-void s5p_mfc_mem_get_cacheable(void *alloc_ctx)
-{
-	vb2_ion_get_cacheable(alloc_ctx);
+	vb2_ion_set_cached(alloc_ctx, cacheable);
 }
 
 int s5p_mfc_mem_cache_flush(struct vb2_buffer *vb, u32 plane_no)

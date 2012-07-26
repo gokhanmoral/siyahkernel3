@@ -594,6 +594,7 @@ static int oci_sys_init(struct sec_otghost *otghost)
 
 	if (pdata && pdata->phy_init && pdata->pdev) {
 		pr_info("otg phy_init\n");
+		clk_enable(pdata->clk);
 		pdata->phy_init(0);
 
 		writel(0, OTG_PHYPWR);

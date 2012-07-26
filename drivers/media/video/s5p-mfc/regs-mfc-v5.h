@@ -124,6 +124,12 @@
 #define S5P_FIMV_ENC_HSIZE_PX		0x0818 /* frame width at encoder */
 #define S5P_FIMV_ENC_VSIZE_PX		0x081c /* frame height at encoder */
 #define S5P_FIMV_ENC_PROFILE		0x0830 /* profile register */
+#define S5P_FIMV_ENC_PROFILE_H264_MAIN			0
+#define S5P_FIMV_ENC_PROFILE_H264_HIGH			1
+#define S5P_FIMV_ENC_PROFILE_H264_BASELINE		2
+#define S5P_FIMV_ENC_PROFILE_H264_CONSTRAINED_BASELINE	3
+#define S5P_FIMV_ENC_PROFILE_MPEG4_SIMPLE		0
+#define S5P_FIMV_ENC_PROFILE_MPEG4_ADVANCED_SIMPLE	1
 #define S5P_FIMV_ENC_PIC_STRUCT		0x083c /* picture field/frame flag */
 #define S5P_FIMV_ENC_LF_CTRL		0x0848 /* loop filter control */
 #define S5P_FIMV_ENC_ALPHA_OFF		0x084c /* loop filter alpha offset */
@@ -345,6 +351,7 @@
 #define S5P_FIMV_R2H_CMD_ERR_RET		32
 
 /* Dummy definition for MFCv6 compatibilty */
+#define S5P_FIMV_CODEC_H264_MVC_DEC		-1
 #define S5P_FIMV_R2H_CMD_FIELD_DONE_RET		-1
 #define S5P_FIMV_MFC_RESET			-1
 #define S5P_FIMV_RISC_ON			-1
@@ -355,6 +362,11 @@
 #define S5P_FIMV_CRC_DISP_LUMA0			S5P_FIMV_CRC_LUMA0
 #define S5P_FIMV_CRC_DISP_CHROMA0		S5P_FIMV_CRC_CHROMA0
 #define S5P_FIMV_CRC_DISP_STATUS		S5P_FIMV_SI_DECODED_STATUS
+#define S5P_FIMV_D_MVC_VIEW_ID			0
+#define S5P_FIMV_MFC_BUS_RESET_CTRL		-1
+#define S5P_FIMV_D_MIN_NUM_MV			-1
+#define S5P_FIMV_D_NUM_MV			-1
+#define S5P_FIMV_MFC_VERSION			0
 
 /* Error handling defines */
 #define S5P_FIMV_ERR_WARNINGS_START		145

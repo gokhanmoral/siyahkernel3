@@ -144,6 +144,7 @@ static struct irq_chip exynos_irq_eint = {
 	.irq_mask	= exynos_irq_eint_mask,
 	.irq_unmask	= exynos_irq_eint_unmask,
 	.irq_mask_ack	= exynos_irq_eint_maskack,
+	.irq_disable	= exynos_irq_eint_maskack,
 	.irq_ack	= exynos_irq_eint_ack,
 	.irq_set_type	= exynos_irq_eint_set_type,
 #ifdef CONFIG_PM

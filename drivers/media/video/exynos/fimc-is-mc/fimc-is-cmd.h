@@ -3,7 +3,6 @@
  *
  *
  * Copyright (c) 2011 Samsung Electronics Co., Ltd
- * Contact: Jiyoung Shin<idon.shin@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -23,6 +22,7 @@ enum is_cmd {
 	HIC_CAPTURE_VIDEO,
 	HIC_STREAM_ON,
 	HIC_STREAM_OFF,
+	HIC_SHOT,
 	HIC_SET_PARAMETER,
 	HIC_GET_PARAMETER,
 	HIC_SET_TUNE,
@@ -35,10 +35,12 @@ enum is_cmd {
 	HIC_SIMMIAN_WRITE,
 	HIC_SIMMIAN_READ,
 	HIC_POWER_DOWN,
+	HIC_GET_SET_FILE_ADDR,
+	HIC_LOAD_SET_FILE,
 	HIC_MSG_CONFIG,
+	HIC_MSG_TEST,
 	/* IS -> HOST */
 	IHC_GET_SENSOR_NUMBER = 0x1000,
-	IHC_LOAD_SET_FILE,
 	/* Parameter1 : Address of space to copy a setfile */
 	/* Parameter2 : Space szie */
 	IHC_SET_SHOT_MARK,
@@ -110,19 +112,31 @@ struct is_common_reg {
 
 	u32 isp_sensor_id;
 	u32 isp_param1;
-	u32 reserved3[2];
+	u32 isp_param2;
+	u32 isp_param3;
+	u32 isp_param4;
+	u32 reserved3[3];
 
 	u32 scc_sensor_id;
 	u32 scc_param1;
-	u32 reserved4[2];
+	u32 scc_param2;
+	u32 scc_param3;
+	u32 scc_param4;
+	u32 reserved4[3];
 
 	u32 dnr_sensor_id;
 	u32 dnr_param1;
-	u32 reserved5[2];
+	u32 dnr_param2;
+	u32 dnr_param3;
+	u32 dnr_param4;
+	u32 reserved5[3];
 
 	u32 scp_sensor_id;
 	u32 scp_param1;
-	u32 reserved6[30];
+	u32 scp_param2;
+	u32 scp_param3;
+	u32 scp_param4;
+	u32 reserved6[15];
 };
 
 struct is_mcuctl_reg {

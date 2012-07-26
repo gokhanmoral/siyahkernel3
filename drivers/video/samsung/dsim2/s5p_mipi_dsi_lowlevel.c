@@ -304,7 +304,8 @@ void s5p_mipi_dsi_enable_pll_bypass(struct mipi_dsim_device *dsim,
 void s5p_mipi_dsi_set_pll_pms(struct mipi_dsim_device *dsim, unsigned int p,
 	unsigned int m, unsigned int s)
 {
-	unsigned int reg = readl(dsim->reg_base + S5P_DSIM_PLLCTRL);
+	unsigned int reg = (readl(dsim->reg_base + S5P_DSIM_PLLCTRL)) &
+		~(0x7ffff << 1);
 
 	reg |= ((p & 0x3f) << 13) | ((m & 0x1ff) << 4) | ((s & 0x7) << 1);
 
