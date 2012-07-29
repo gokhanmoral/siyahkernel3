@@ -21,11 +21,17 @@
 #include <linux/skbuff.h>
 #include <linux/completion.h>
 #include <linux/wakelock.h>
+#include <linux/rbtree.h>
+#include <linux/spinlock.h>
 
+#define MAX_CPINFO_SIZE		512
 
 #define MAX_LINK_DEVTYPE	3
-#define MAX_RAW_DEVS		32
-#define MAX_NUM_IO_DEV		(MAX_RAW_DEVS + 4)
+
+#define MAX_FMT_DEVS	10
+#define MAX_RAW_DEVS	32
+#define MAX_RFS_DEVS	10
+#define MAX_NUM_IO_DEV	(MAX_FMT_DEVS + MAX_RAW_DEVS + MAX_RFS_DEVS)
 
 #define IOCTL_MODEM_ON			_IO('o', 0x19)
 #define IOCTL_MODEM_OFF			_IO('o', 0x20)
@@ -38,7 +44,7 @@
 #define IOCTL_MODEM_PROTOCOL_RESUME	_IO('o', 0x26)
 
 #define IOCTL_MODEM_STATUS		_IO('o', 0x27)
-#define IOCTL_MODEM_GOTA_START		_IO('o', 0x28)
+#define IOCTL_MODEM_DL_START		_IO('o', 0x28)
 #define IOCTL_MODEM_FW_UPDATE		_IO('o', 0x29)
 
 #define IOCTL_MODEM_NET_SUSPEND		_IO('o', 0x30)
@@ -62,6 +68,10 @@
 #define IOCTL_DPRAM_PHONE_UPLOAD_STEP1	_IO('o', 0xde)
 #define IOCTL_DPRAM_PHONE_UPLOAD_STEP2	_IO('o', 0xdf)
 
+/* ioctl command for IPC Logger */
+#define IOCTL_MIF_LOG_DUMP		_IO('o', 0x51)
+#define IOCTL_MIF_DPRAM_DUMP		_IO('o', 0x52)
+
 /* modem status */
 #define MODEM_OFF		0
 #define MODEM_CRASHED		1
@@ -77,9 +87,76 @@
 #define PSD_DATA_CHID_BEGIN	0x2A
 #define PSD_DATA_CHID_END	0x38
 
+#define PS_DATA_CH_0	10
+#define PS_DATA_CH_LAST	24
+
 #define IP6VERSION		6
 
 #define SOURCE_MAC_ADDR		{0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC}
+
+/* Debugging features */
+#define MAX_MIF_LOG_PATH_LEN	128
+#define MAX_MIF_LOG_FILE_SIZE	0x800000	/* 8 MB */
+
+#define MAX_MIF_EVT_BUFF_SIZE	256
+#define MAX_MIF_TIME_LEN	32
+#define MAX_MIF_NAME_LEN	16
+#define MAX_MIF_STR_LEN		127
+#define MAX_MIF_LOG_LEN		128
+
+enum mif_event_id {
+	MIF_IRQ_EVT = 0,
+	MIF_LNK_RX_EVT,
+	MIF_MUX_RX_EVT,
+	MIF_IOD_RX_EVT,
+	MIF_IOD_TX_EVT,
+	MIF_MUX_TX_EVT,
+	MIF_LNK_TX_EVT,
+	MAX_MIF_EVT
+};
+
+struct dpram_queue_status {
+	unsigned in;
+	unsigned out;
+};
+
+struct dpram_queue_status_pair {
+	struct dpram_queue_status txq;
+	struct dpram_queue_status rxq;
+};
+
+struct dpram_irq_buff {
+	unsigned magic;
+	unsigned access;
+	struct dpram_queue_status_pair qsp[MAX_IPC_DEV];
+	unsigned int2ap;
+	unsigned int2cp;
+};
+
+/* Not use */
+struct mif_event_buff {
+	char time[MAX_MIF_TIME_LEN];
+
+	struct timeval tv;
+	enum mif_event_id evt;
+
+	char mc[MAX_MIF_NAME_LEN];
+
+	char iod[MAX_MIF_NAME_LEN];
+
+	char ld[MAX_MIF_NAME_LEN];
+	enum modem_link link_type;
+
+	unsigned rcvd;
+	unsigned len;
+	union {
+		u8 data[MAX_MIF_LOG_LEN];
+		struct dpram_irq_buff dpram_irqb;
+	};
+};
+
+#define MIF_LOG_DIR	"/sdcard"
+#define MIF_LOG_LV_FILE	"/data/.mif_log_level"
 
 /* Does modem ctl structure will use state ? or status defined below ?*/
 enum modem_state {
@@ -90,6 +167,8 @@ enum modem_state {
 	STATE_ONLINE,
 	STATE_NV_REBUILDING, /* <= rebuilding start */
 	STATE_LOADER_DONE,
+	STATE_SIM_ATTACH,
+	STATE_SIM_DETACH,
 };
 
 enum com_state {
@@ -100,6 +179,25 @@ enum com_state {
 	COM_CRASH,
 };
 
+enum link_mode {
+	LINK_MODE_INVALID = 0,
+	LINK_MODE_IPC,
+	LINK_MODE_BOOT,
+	LINK_MODE_DLOAD,
+	LINK_MODE_ULOAD,
+};
+
+struct sim_state {
+	bool online;	/* SIM is online? */
+	bool changed;	/* online is changed? */
+};
+
+#define HDLC_START		0x7F
+#define HDLC_END		0x7E
+#define SIZE_OF_HDLC_START	1
+#define SIZE_OF_HDLC_END	1
+#define MAX_LINK_PADDING_SIZE	3
+
 struct header_data {
 	char hdr[HDLC_HEADER_MAX_SIZE];
 	unsigned len;
@@ -107,12 +205,24 @@ struct header_data {
 	char start; /*hdlc start header 0x7F*/
 };
 
-struct sipc4_hdlc_fmt_hdr {
+struct fmt_hdr {
 	u16 len;
-	u8  control;
+	u8 control;
 } __packed;
 
-struct sipc4_fmt_hdr {
+struct raw_hdr {
+	u32 len;
+	u8 channel;
+	u8 control;
+} __packed;
+
+struct rfs_hdr {
+	u32 len;
+	u8 cmd;
+	u8 id;
+} __packed;
+
+struct sipc_fmt_hdr {
 	u16 len;
 	u8  msg_seq;
 	u8  ack_seq;
@@ -120,6 +230,101 @@ struct sipc4_fmt_hdr {
 	u8  sub_cmd;
 	u8  cmd_type;
 } __packed;
+
+#define SIPC5_START_MASK	0b11111000
+#define SIPC5_CONFIG_MASK	0b00000111
+#define SIPC5_EXT_FIELD_MASK	0b00000011
+
+#define SIPC5_PADDING_EXIST	0b00000100
+#define SIPC5_EXT_FIELD_EXIST	0b00000010
+#define SIPC5_CTL_FIELD_EXIST	0b00000001
+
+#define SIPC5_MAX_HEADER_SIZE	6
+#define SIPC5_HEADER_SIZE_WITH_EXT_LEN	6
+#define SIPC5_HEADER_SIZE_WITH_CTL_FLD	5
+#define SIPC5_MIN_HEADER_SIZE	4
+#define SIPC5_CONFIG_SIZE	1
+#define SIPC5_CH_ID_SIZE	1
+
+#define SIPC5_CONFIG_OFFSET	0
+#define SIPC5_CH_ID_OFFSET	1
+#define SIPC5_LEN_OFFSET	2
+#define SIPC5_CTL_OFFSET	4
+
+#define SIPC5_CH_ID_RAW_0	0
+#define SIPC5_CH_ID_FMT_0	235
+#define SIPC5_CH_ID_RFS_0	245
+#define SIPC5_CH_ID_MAX		255
+
+/* If iod->id is 0, do not need to store to `iodevs_tree_fmt' in SIPC4 */
+#define sipc4_is_not_reserved_channel(ch) ((ch) != 0)
+
+/* Channel 0, 5, 6, 27, 255 are reserved in SIPC5.
+ * see SIPC5 spec: 2.2.2 Channel Identification (Ch ID) Field.
+ * They do not need to store in `iodevs_tree_fmt'
+ */
+#define sipc5_is_not_reserved_channel(ch) \
+	((ch) != 0 && (ch) != 5 && (ch) != 6 && (ch) != 27 && (ch) != 255)
+
+struct sipc5_link_hdr {
+	u8 cfg;
+	u8 ch;
+	u16 len;
+	u8 ctl;
+} __packed;
+
+struct sipc5_frame_data {
+	/* Config octet */
+	u8 config;
+
+	/* Channel ID */
+	u8 ch_id;
+
+	/* Control for multiple FMT frame */
+	u8 control;
+
+	/* Frame configuration set by header analysis */
+	bool padding;
+	bool ext_fld;
+	bool ctl_fld;
+	bool ext_len;
+
+	/* Frame length calculated from the length fields */
+	unsigned len;
+
+	/* The length of link layer header */
+	unsigned hdr_len;
+
+	/* The length of received header */
+	unsigned hdr_rcvd;
+
+	/* The length of data payload */
+	unsigned data_len;
+
+	/* The length of received data */
+	unsigned data_rcvd;
+
+	/* Header buffer */
+	u8 hdr[SIPC5_MAX_HEADER_SIZE];
+};
+
+static inline unsigned sipc5_get_hdr_size(u8 cfg)
+{
+	if (cfg & SIPC5_EXT_FIELD_EXIST) {
+		if (cfg & SIPC5_CTL_FIELD_EXIST)
+			return SIPC5_HEADER_SIZE_WITH_CTL_FLD;
+		else
+			return SIPC5_HEADER_SIZE_WITH_EXT_LEN;
+	} else {
+		return SIPC5_MIN_HEADER_SIZE;
+	}
+}
+
+static inline unsigned sipc5_calc_padding_size(unsigned len)
+{
+	unsigned residue = len & 0x3;
+	return residue ? (4 - residue) : 0;
+}
 
 struct vnet {
 	struct io_device *iod;
@@ -129,8 +334,11 @@ struct vnet {
 struct fragmented_data {
 	struct sk_buff *skb_recv;
 	struct header_data h_data;
+	struct sipc5_frame_data f_data;
+	/* page alloc fail retry*/
+	unsigned realloc_offset;
 };
-#define fragdata(iod, ld) (&(iod)->fragments[ld->link_type])
+#define fragdata(iod, ld) (&(iod)->fragments[(ld)->link_type])
 
 /** struct skbuff_priv - private data of struct sk_buff
  * this is matched to char cb[48] of struct sk_buff
@@ -167,10 +375,14 @@ static inline struct sk_buff *rx_alloc_skb(unsigned int length,
 }
 
 struct io_device {
-	struct list_head list;
+	/* rb_tree node for an io device */
+	struct rb_node node_chan;
+	struct rb_node node_fmt;
 
 	/* Name of the IO device */
 	char *name;
+
+	atomic_t opened;
 
 	/* Wait queue for the IO device */
 	wait_queue_head_t wq;
@@ -180,12 +392,19 @@ struct io_device {
 	struct net_device *ndev;
 
 	/* ID and Format for channel on the link */
-	unsigned           id;
-	enum modem_link    link_types;
-	enum dev_format    format;
-	enum modem_io      io_typ;
+	unsigned id;
+	enum modem_link link_types;
+	enum dev_format format;
+	enum modem_io io_typ;
 	enum modem_network net_typ;
-	bool               use_handover;	/* handover 2+ link devices */
+
+	bool use_handover;	/* handover 2+ link devices */
+
+	/* SIPC version */
+	enum sipc_ver ipc_version;
+
+	/* Tx header buffer */
+	struct sipc5_frame_data meta_frame;
 
 	/* Rx queue of sk_buff */
 	struct sk_buff_head sk_rx_q;
@@ -210,35 +429,60 @@ struct io_device {
 	 */
 	void (*modem_state_changed)(struct io_device *iod, enum modem_state);
 
-	struct link_device *link;
-	struct modem_ctl   *mc;
+	/* inform the IO device that the SIM is not inserting or removing */
+	void (*sim_state_changed)(struct io_device *iod, bool sim_online);
+
+	struct modem_ctl *mc;
+	struct modem_shared *msd;
 
 	struct wake_lock wakelock;
 	long waketime;
 
-	void *private_data;
+	/* DO NOT use __current_link directly
+	 * you MUST use skbpriv(skb)->ld in mc, link, etc..
+	 */
+	struct link_device *__current_link;
 };
 #define to_io_device(misc) container_of(misc, struct io_device, miscdev)
 
-struct io_raw_devices {
-	struct io_device *raw_devices[MAX_RAW_DEVS];
-	int num_of_raw_devs;
-};
+/* get_current_link, set_current_link don't need to use locks.
+ * In ARM, set_current_link and get_current_link are compiled to
+ * each one instruction (str, ldr) as atomic_set, atomic_read.
+ * And, the order of set_current_link and get_current_link is not important.
+ */
+#define get_current_link(iod) ((iod)->__current_link)
+#define set_current_link(iod, ld) ((iod)->__current_link = (ld))
 
 struct link_device {
 	struct list_head  list;
-	char             *name;
-	enum modem_link   link_type;
-	unsigned          aligned;
+	char *name;
+
+	enum modem_link link_type;
+	unsigned aligned;
+
+	/* SIPC version */
+	enum sipc_ver ipc_version;
 
 	/* Modem data */
 	struct modem_data *mdm_data;
 
+	/* Modem control */
+	struct modem_ctl *mc;
+
+	/* Modem shared data */
+	struct modem_shared *msd;
+
+	/* Operation mode of the link device */
+	enum link_mode mode;
+
+	struct io_device *fmt_iods[4];
+
+	/* TX queue of socket buffers */
 	struct sk_buff_head sk_fmt_tx_q;
 	struct sk_buff_head sk_raw_tx_q;
 	struct sk_buff_head sk_rfs_tx_q;
 
-	struct sk_buff_head *skb_txq[MAX_DEV_FORMAT];
+	struct sk_buff_head *skb_txq[MAX_IPC_DEV];
 
 	bool raw_tx_suspended; /* for misc dev */
 	struct completion raw_tx_resumed_by_cp;
@@ -246,11 +490,11 @@ struct link_device {
 	struct workqueue_struct *tx_wq;
 	struct work_struct tx_work;
 	struct delayed_work tx_delayed_work;
+	struct delayed_work tx_dwork;
 
-	/*COMMON LINK DEVICE*/
-	/* maybe -list of io devices for the link device to use */
-	/* to find where to send incoming packets to */
-	struct list_head *list_of_io_devices;
+	struct workqueue_struct *rx_wq;
+	struct work_struct rx_work;
+	struct delayed_work rx_delayed_work;
 
 	enum com_state com_state;
 
@@ -265,26 +509,22 @@ struct link_device {
 	 *   format fields to determine how to route/format the packet
 	 */
 	int (*send)(struct link_device *ld, struct io_device *iod,
-				struct sk_buff *skb);
+			struct sk_buff *skb);
 
-	int (*gota_start)(struct link_device *ld, struct io_device *iod);
+	int (*udl_start)(struct link_device *ld, struct io_device *iod);
 
 	int (*force_dump)(struct link_device *ld, struct io_device *iod);
 
 	int (*dump_start)(struct link_device *ld, struct io_device *iod);
 
-	int (*modem_update)(
-		struct link_device *ld,
-		struct io_device *iod,
-		unsigned long arg);
+	int (*modem_update)(struct link_device *ld, struct io_device *iod,
+			unsigned long arg);
 
-	int (*dump_update)(
-		struct link_device *ld,
-		struct io_device *iod,
-		unsigned long arg);
+	int (*dump_update)(struct link_device *ld, struct io_device *iod,
+			unsigned long arg);
 
-	int (*ioctl)(struct link_device *ld, struct io_device *iod, unsigned cmd
-		, unsigned long _arg);
+	int (*ioctl)(struct link_device *ld, struct io_device *iod,
+			unsigned cmd, unsigned long _arg);
 };
 
 struct modemctl_ops {
@@ -297,12 +537,37 @@ struct modemctl_ops {
 	int (*modem_dump_reset) (struct modem_ctl *);
 };
 
+/* for IPC Logger */
+struct mif_storage {
+	char *addr;
+	unsigned int cnt;
+};
+
+/* modem_shared - shared data for all io/link devices and a modem ctl
+ * msd : mc : iod : ld = 1 : 1 : M : N
+ */
+struct modem_shared {
+	/* list of link devices */
+	struct list_head link_dev_list;
+
+	/* rb_tree root of io devices. */
+	struct rb_root iodevs_tree_chan; /* group by channel */
+	struct rb_root iodevs_tree_fmt; /* group by dev_format */
+
+	/* for IPC Logger */
+	struct mif_storage storage;
+	spinlock_t lock;
+};
+
 struct modem_ctl {
 	struct device *dev;
 	char *name;
 	struct modem_data *mdm_data;
 
-	int phone_state;
+	struct modem_shared *msd;
+
+	enum modem_state phone_state;
+	struct sim_state sim_state;
 
 	unsigned gpio_cp_on;
 	unsigned gpio_reset_req_n;
@@ -310,11 +575,18 @@ struct modem_ctl {
 	unsigned gpio_pda_active;
 	unsigned gpio_phone_active;
 	unsigned gpio_cp_dump_int;
+	unsigned gpio_ap_dump_int;
 	unsigned gpio_flm_uart_sel;
+#if defined(CONFIG_MACH_M0_CTC)
+	unsigned gpio_flm_uart_sel_rev06;
+#endif
 	unsigned gpio_cp_warm_reset;
 	unsigned gpio_cp_off;
+	unsigned gpio_sim_detect;
+	unsigned gpio_dynamic_switching;
 
 	int irq_phone_active;
+	int irq_sim_detect;
 
 #ifdef CONFIG_LTE_MODEM_CMC221
 	const struct attribute_group *group;
@@ -336,16 +608,21 @@ struct modem_ctl {
 	bool usb_boot;
 #endif
 
-	struct list_head link_dev_list;
-
 	struct modemctl_ops ops;
 	struct io_device *iod;
 	struct io_device *bootd;
 
+	/* Wakelock for modem_ctl */
+	struct wake_lock mc_wake_lock;
+
 	void (*gpio_revers_bias_clear)(void);
 	void (*gpio_revers_bias_restore)(void);
+
+	bool need_switch_to_usb;
 };
 
-int init_io_device(struct io_device *iod);
+int sipc4_init_io_device(struct io_device *iod);
+int sipc5_init_io_device(struct io_device *iod);
 
+extern void set_sromc_access(bool access);
 #endif

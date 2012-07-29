@@ -43,7 +43,7 @@ struct link_device *c2c_create_link_device(struct platform_device *pdev)
 
 	dpld = kzalloc(sizeof(struct c2c_link_device), GFP_KERNEL);
 	if (!dpld) {
-		pr_err("[LINK/Err] <%s> dpld == NULL\n", __func__);
+		mif_err("dpld == NULL\n");
 		return NULL;
 	}
 
@@ -55,7 +55,7 @@ struct link_device *c2c_create_link_device(struct platform_device *pdev)
 
 	ld->name = "c2c";
 
-	pr_info("[LINK] <%s> %s is created!!!\n", __func__, dpld->ld.name);
+	mif_info("%s is created!!!\n", dpld->ld.name);
 
 	return ld;
 }
