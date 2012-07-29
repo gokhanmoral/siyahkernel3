@@ -65,7 +65,7 @@ struct wl_ibss;
 #define	WL_ERR(args)									\
 do {										\
 	if (wl_dbg_level & WL_DBG_ERR) {				\
-			printk(KERN_ERR "CFG80211-INFO2) %s : ", __func__);	\
+			printk(KERN_INFO "CFG80211-INFO2) %s : ", __func__);	\
 			printk args;						\
 		}								\
 } while (0)
@@ -75,7 +75,7 @@ do {										\
 #define	WL_INFO(args)									\
 do {										\
 	if (wl_dbg_level & WL_DBG_INFO) {				\
-			printk(KERN_ERR "CFG80211-INFO) %s : ", __func__);	\
+			printk(KERN_INFO "CFG80211-INFO) %s : ", __func__);	\
 			printk args;						\
 		}								\
 } while (0)
@@ -85,7 +85,7 @@ do {										\
 #define	WL_SCAN(args)								\
 do {									\
 	if (wl_dbg_level & WL_DBG_SCAN) {			\
-		printk(KERN_ERR "CFG80211-SCAN) %s :", __func__);	\
+		printk(KERN_INFO "CFG80211-SCAN) %s :", __func__);	\
 		printk args;							\
 	}									\
 } while (0)
@@ -95,7 +95,7 @@ do {									\
 #define	WL_TRACE(args)								\
 do {									\
 	if (wl_dbg_level & WL_DBG_TRACE) {			\
-		printk(KERN_ERR "CFG80211-TRACE) %s :", __func__);	\
+		printk(KERN_INFO "CFG80211-TRACE) %s :", __func__);	\
 		printk args;							\
 	}									\
 } while (0)
@@ -103,7 +103,7 @@ do {									\
 #define	WL_DBG(args)								\
 do {									\
 	if (wl_dbg_level & WL_DBG_DBG) {			\
-		printk(KERN_ERR "CFG80211-DEBUG) %s :", __func__);	\
+		printk(KERN_DEBUG "CFG80211-DEBUG) %s :", __func__);	\
 		printk args;							\
 	}									\
 } while (0)
@@ -116,7 +116,7 @@ do {									\
 #define	WL_SCAN2(args)								\
 do {									\
 	if (wl_dbg_level & WL_DBG_SCAN2) {			\
-		printk(KERN_ERR "CFG80211-SCAN) %s :", __func__);	\
+		printk(KERN_DEBUG "CFG80211-SCAN) %s :", __func__);	\
 		printk args;							\
 	}									\
 } while (0)
@@ -127,7 +127,7 @@ do {									\
 #define WL_SCAN_RETRY_MAX	3
 #define WL_NUM_PMKIDS_MAX	MAXPMKID
 #define WL_SCAN_BUF_MAX		(1024 * 8)
-#define WL_TLV_INFO_MAX 	1500 /* customer want to large size IE, so increase ie length */
+#define WL_TLV_INFO_MAX		1500 /* customer want to large size IE, so increase ie length */
 #define WL_SCAN_IE_LEN_MAX      2048
 #define WL_BSS_INFO_MAX		2048
 #define WL_ASSOC_INFO_MAX	512
@@ -193,6 +193,7 @@ enum wl_prof_list {
 	WL_PROF_SEC,
 	WL_PROF_IBSS,
 	WL_PROF_BAND,
+	WL_PROF_CHAN,
 	WL_PROF_BSSID,
 	WL_PROF_ACT,
 	WL_PROF_BEACONINT,
@@ -292,6 +293,7 @@ struct wl_ibss {
 struct wl_profile {
 	u32 mode;
 	s32 band;
+	u32 channel;
 	struct wlc_ssid ssid;
 	struct wl_security sec;
 	struct wl_ibss ibss;
@@ -796,4 +798,5 @@ extern s32 wl_update_wiphybands(struct wl_priv *wl);
 extern s32 wl_cfg80211_scan_abort(struct wl_priv *wl, struct net_device *ndev);
 
 extern s32 wl_cfg80211_if_is_group_owner(void);
+extern s32 wl_add_remove_eventmsg(struct net_device *ndev, u16 event, bool add);
 #endif				/* _wl_cfg80211_h_ */

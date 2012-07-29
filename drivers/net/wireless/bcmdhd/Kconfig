@@ -25,8 +25,8 @@ config BROADCOM_WIFI_RESERVED_MEM
 
 config WLAN_COUNTRY_CODE
 	tristate "---Broadcom WiFi Driver for 5GH channel setting"
-   	depends on WLAN
-   	default	n
+	depends on WLAN
+	default	n
 
 config WLAN_REGION_CODE
 	int "---Region codes for Broadcom WiFi Driver"
