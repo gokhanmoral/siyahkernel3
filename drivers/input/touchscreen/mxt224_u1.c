@@ -92,6 +92,7 @@
 #define MAX_USING_FINGER_NUM 10
 
 #define MXT224_AUTOCAL_WAIT_TIME		2000
+#define printk(arg, ...)
 
 #if defined(U1_EUR_TARGET)
 static bool gbfilter;
@@ -199,8 +200,11 @@ struct mxt224_data {
 	bool enabled;
 };
 
+static u8 mov_hysti = 255;
+
 #define CLEAR_MEDIAN_FILTER_ERROR
 struct mxt224_data *copy_data;
+struct mxt224_platform_data *copy_pdata;
 int touch_is_pressed;
 EXPORT_SYMBOL(touch_is_pressed);
 
@@ -446,25 +450,25 @@ static void mxt224_ta_probe(bool ta_status)
 	}
 
 	if (ta_status) {
-		copy_data->threshold = copy_data->tchthr_charging;
-		calcfg_dis = copy_data->calcfg_charging_e;
-		calcfg_en = copy_data->calcfg_charging_e | 0x20;
-		noise_threshold = copy_data->noisethr_charging;
-		charge_time = copy_data->chrgtime_charging_e;
+		copy_data->threshold = copy_pdata->tchthr_charging;
+		calcfg_dis = copy_pdata->calcfg_charging_e;
+		calcfg_en = copy_pdata->calcfg_charging_e | 0x20;
+		noise_threshold = copy_pdata->noisethr_charging;
+		charge_time = copy_pdata->chrgtime_charging_e;
 #ifdef CLEAR_MEDIAN_FILTER_ERROR
 		copy_data->gErrCondition = ERR_RTN_CONDITION_MAX;
 		copy_data->noise_median.mferr_setting = false;
 #endif
 	} else {
 		if (copy_data->boot_or_resume == 1)
-			copy_data->threshold = copy_data->tchthr_batt_init;
+			copy_data->threshold = copy_pdata->tchthr_batt_init;
 		else
-			copy_data->threshold = copy_data->tchthr_batt;
-		copy_data->threshold_e = copy_data->tchthr_batt_e;
-		calcfg_dis = copy_data->calcfg_batt_e;
-		calcfg_en = copy_data->calcfg_batt_e | 0x20;
-		noise_threshold = copy_data->noisethr_batt;
-		charge_time = copy_data->chrgtime_batt_e;
+			copy_data->threshold = copy_pdata->tchthr_batt;
+		copy_data->threshold_e = copy_pdata->tchthr_batt_e;
+		calcfg_dis = copy_pdata->calcfg_batt_e;
+		calcfg_en = copy_pdata->calcfg_batt_e | 0x20;
+		noise_threshold = copy_pdata->noisethr_batt;
+		charge_time = copy_pdata->chrgtime_batt_e;
 #ifdef CLEAR_MEDIAN_FILTER_ERROR
 		copy_data->gErrCondition = ERR_RTN_CONDITION_IDLE;
 		copy_data->noise_median.mferr_count = 0;
@@ -641,6 +645,15 @@ static void mxt224_ta_probe(bool ta_status)
 			 (u8) size_one, &val);
 		printk(KERN_ERR "[TSP]TA_probe MXT224 T%d Byte%d is %d\n", 9,
 		       register_address, val);
+
+		// if 255, it's not modified. by tegrak
+		if (mov_hysti != 255) {
+			value = (u8)mov_hysti;
+			register_address = 11;
+			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR "[TSP] TA_probe MXT224 T%d Byte%d is %d\n", 9, register_address, val);
+		}
 
 		value = noise_threshold;
 		register_address = 8;
@@ -1205,6 +1218,8 @@ static int __devinit mxt224_init_touch_driver(struct mxt224_data *data)
 	return ret;
 }
 
+void (*mxt224_touch_cb)(void) = NULL;
+
 static void report_input_data(struct mxt224_data *data)
 {
 	int i;
@@ -1330,6 +1345,7 @@ static void report_input_data(struct mxt224_data *data)
 				level);
 			copy_data->lock_status = 1;
 		}
+		if(mxt224_touch_cb!=NULL) (*mxt224_touch_cb)();
 	}
 }
 
@@ -2082,6 +2098,76 @@ static ssize_t qt602240_object_setting(struct device *dev,
 
 	return count;
 
+}
+
+/* 
+ * write MOVHYSTI of TOUCH_MULTITOUCHSCREEN_T9
+ * by tegrak, found by vitalij@XDA
+ */
+static ssize_t mov_hysti_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	unsigned int register_value;
+	u8 **tsp_config;
+	char buff[50];
+	int i;
+	
+	//struct i2c_client *client = to_i2c_client(dev);
+//	struct mxt224_data *data = dev_get_drvdata(dev);
+	//struct mxt224_platform_data *pdata = data->client->dev.platform_data;
+	
+	sscanf(buf, "%u", &register_value);
+	
+	// store value in global variable
+	mov_hysti = register_value;
+	
+	/*
+	tsp_config = pdata->config;
+	for (i = 0; tsp_config[i][0] != RESERVED_T255; i++) {
+		if (tsp_config[i][0] == TOUCH_MULTITOUCHSCREEN_T9) {
+			printk(KERN_ERR "[TSP] T9[12]=%u\n", tsp_config[i][12]);
+			tsp_config[i][12] = (u8)register_value;
+			break;
+		}
+	}
+	*/
+	
+	//do not apply if the screen is not active,
+	//it will be applied after turning on the screen anyway -gm
+	if( copy_data->mxt224_enabled == 1)
+	{
+		i = sprintf(buff, "%u %u %u", TOUCH_MULTITOUCHSCREEN_T9, 11, register_value);
+		qt602240_object_setting(dev, attr, buff, i);
+	}
+	return count;
+}
+
+/* 
+ * read MOVHYSTI of TOUCH_MULTITOUCHSCREEN_T9
+ * by tegrak, found by vitalij@XDA
+ */
+ 
+static ssize_t mov_hysti_show(struct device* dev, 
+							 struct device_attribute *attr,
+							 char *buf)
+{
+	struct mxt224_data *data = dev_get_drvdata(dev);
+	unsigned int object_type = TOUCH_MULTITOUCHSCREEN_T9;
+	u8 val;
+	int ret;
+	u16 address;
+	u16 size;
+	
+	ret = get_object_info(data, (u8)object_type, &size, &address);
+	if (ret || size <= 11) {
+		printk(KERN_ERR "[TSP] fail to get object_info\n");
+//		sprintf(buf, "-1\n");
+		return -EINVAL;
+	}
+	
+	read_mem(data, address+11, 1, &val);
+	return sprintf(buf, "%u\n", val);
 }
 
 static ssize_t qt602240_object_show(struct device *dev,
@@ -3205,6 +3291,8 @@ static DEVICE_ATTR(object_write, S_IRUGO | S_IWUSR | S_IWGRP, NULL,
 		   qt602240_object_setting);
 static DEVICE_ATTR(dbg_switch, S_IRUGO | S_IWUSR | S_IWGRP, NULL,
 		   mxt224_debug_setting);
+static DEVICE_ATTR(mov_hysti, S_IRUGO | S_IWUSR | S_IWGRP, 
+		mov_hysti_show, mov_hysti_store);
 
 static int sec_touchscreen_enable(struct mxt224_data *data)
 {
@@ -3270,6 +3358,7 @@ static struct attribute *qt602240_attrs[] = {
 	&dev_attr_object_show.attr,
 	&dev_attr_object_write.attr,
 	&dev_attr_dbg_switch.attr,
+	&dev_attr_mov_hysti.attr,
 	NULL
 };
 
@@ -3382,6 +3471,7 @@ static int __devinit mxt224_probe(struct i2c_client *client,
 	data->tsp_config_version = "20111215";
 
 	copy_data = data;
+	copy_pdata = pdata;
 
 	if (data->family_id == 0x80) {	/*MXT-224 */
 		tsp_config = pdata->config;

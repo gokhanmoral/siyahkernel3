@@ -23,6 +23,7 @@
 *.symtypes
 *.order
 modules.builtin
+!drivers/mfd/cg2900/modules.order
 *.elf
 *.bin
 *.gz
@@ -44,6 +45,7 @@ modules.builtin
 /System.map
 /Module.markers
 /Module.symvers
+/zImage
 
 #
 # git files that we don't want to ignore even it they are dot-files
@@ -58,6 +60,16 @@ include/config
 include/linux/version.h
 include/generated
 arch/*/include/generated
+zImage
+include/asm
+include/asm-arm
+include/config
+include/linux/autoconf.h
+include/linux/compile.h
+include/linux/version.h
+include/linux/utsrelease.h
+include/linux/bounds.h
+include/generated
 
 # stgit generated dirs
 patches-*
@@ -79,3 +91,8 @@ GTAGS
 *.orig
 *~
 \#*#
+_t32
+_tool
+
+Module.symvers
+

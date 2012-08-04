@@ -45,7 +45,7 @@ ifeq ($(CONFIG_TARGET_LOCALE_KOR),y)
 obj-$(CONFIG_BATTERY_SEC_U1)	+= sec_battery_u1_kor.o
 obj-$(CONFIG_BATTERY_MAX17042_FUELGAUGE_U1)	+= max17042_fuelgauge_u1_kor.o
 else
-obj-$(CONFIG_BATTERY_SEC_U1)	+= sec_battery_u1.o
+obj-$(CONFIG_BATTERY_SEC_U1)	+= sec_battery_u1.o charge_current.o
 obj-$(CONFIG_BATTERY_MAX17042_FUELGAUGE_U1)	+= max17042_fuelgauge_u1.o
 endif
 obj-$(CONFIG_BATTERY_SEC_PX)	+= sec_battery_px.o

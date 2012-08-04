@@ -287,7 +287,7 @@ cmd_xzkern = (cat $(filter-out FORCE,$^) | \
 
 quiet_cmd_xzmisc = XZMISC  $@
 cmd_xzmisc = (cat $(filter-out FORCE,$^) | \
-	xz --check=crc32 --lzma2=dict=1MiB) > $@ || \
+	xz -1e --check=crc32 --lzma2=dict=1MiB) > $@ || \
 	(rm -f $@ ; false)
 
 # misc stuff

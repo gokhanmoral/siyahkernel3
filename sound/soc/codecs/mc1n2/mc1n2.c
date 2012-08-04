@@ -4449,7 +4449,7 @@ static int mc1n2_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
-#ifdef CONFIG_TARGET_LOCALE_KOR
+//#ifdef CONFIG_TARGET_LOCALE_KOR
 /*
  * Function to prevent tick-noise when reboot menu selected.
  * if you have Power-Off sound and same problem, use this function
@@ -4521,7 +4521,7 @@ error:
 
 	return;
 }
-#endif
+//#endif
 
 static const struct i2c_device_id mc1n2_i2c_id[] = {
 	{MC1N2_NAME, 0},
@@ -4536,9 +4536,9 @@ static struct i2c_driver mc1n2_i2c_driver = {
 	},
 	.probe = mc1n2_i2c_probe,
 	.remove = mc1n2_i2c_remove,
-#ifdef CONFIG_TARGET_LOCALE_KOR
+//#ifdef CONFIG_TARGET_LOCALE_KOR
 	.shutdown = mc1n2_i2c_shutdown,
-#endif
+//#endif
 	.id_table = mc1n2_i2c_id,
 };
 

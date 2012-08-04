@@ -995,10 +995,21 @@ static const unsigned short tune_warm_outdoor[] = {
 	END_SEQ, 0x0000,
 };
 
+static const unsigned short tune_normal[] = {
+	/*start U1 normal */
+	0x0001, 0x0044, /*SCR MCM HDTR */
+	0x005b, 0x0064, /*MCM */
+	0x0063, 0x8000, /*cb */
+	0x0065, 0x0080, /*cr */
+	0x0028, 0x0000, /*Register Mask */
+	/*end */
+	END_SEQ, 0x0000,
+};
+
 struct mdnie_tunning_info etc_table[CABC_MAX][OUTDOOR_MAX][TONE_MAX] = {
 	{
 		{
-			{"NORMAL",		NULL},
+			{"NORMAL",		tune_normal},
 			{"WARM",		tune_warm},
 			{"COLD",		tune_cold},
 		},

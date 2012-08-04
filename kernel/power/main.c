@@ -441,7 +441,7 @@ static ssize_t cpufreq_max_limit_store(struct kobject *kobj,
 
 	if (val == -1) { /* Unlock request */
 		if (cpufreq_max_limit_val != -1) {
-			exynos_cpufreq_upper_limit_free(DVFS_LOCK_ID_USER);
+//			exynos_cpufreq_upper_limit_free(DVFS_LOCK_ID_USER);
 			cpufreq_max_limit_val = -1;
 		} else /* Already unlocked */
 			printk(KERN_ERR "%s: Unlock request is ignored\n",
@@ -449,12 +449,12 @@ static ssize_t cpufreq_max_limit_store(struct kobject *kobj,
 	} else { /* Lock request */
 		if (get_cpufreq_level((unsigned int)val, &cpufreq_level)
 		    == VALID_LEVEL) {
-			if (cpufreq_max_limit_val != -1)
+//			if (cpufreq_max_limit_val != -1)
 				/* Unlock the previous lock */
-				exynos_cpufreq_upper_limit_free(
-					DVFS_LOCK_ID_USER);
-			lock_ret = exynos_cpufreq_upper_limit(
-					DVFS_LOCK_ID_USER, cpufreq_level);
+//				exynos_cpufreq_upper_limit_free(
+//					DVFS_LOCK_ID_USER);
+//			lock_ret = exynos_cpufreq_upper_limit(
+//					DVFS_LOCK_ID_USER, cpufreq_level);
 			/* ret of exynos_cpufreq_upper_limit is meaningless.
 			   0 is fail? success? */
 			cpufreq_max_limit_val = val;
@@ -494,7 +494,7 @@ static ssize_t cpufreq_min_limit_store(struct kobject *kobj,
 
 	if (val == -1) { /* Unlock request */
 		if (cpufreq_min_limit_val != -1) {
-			exynos_cpufreq_lock_free(DVFS_LOCK_ID_USER);
+//			exynos_cpufreq_lock_free(DVFS_LOCK_ID_USER);
 			cpufreq_min_limit_val = -1;
 		} else /* Already unlocked */
 			printk(KERN_ERR "%s: Unlock request is ignored\n",
@@ -502,11 +502,11 @@ static ssize_t cpufreq_min_limit_store(struct kobject *kobj,
 	} else { /* Lock request */
 		if (get_cpufreq_level((unsigned int)val, &cpufreq_level)
 			== VALID_LEVEL) {
-			if (cpufreq_min_limit_val != -1)
+//			if (cpufreq_min_limit_val != -1)
 				/* Unlock the previous lock */
-				exynos_cpufreq_lock_free(DVFS_LOCK_ID_USER);
-			lock_ret = exynos_cpufreq_lock(
-					DVFS_LOCK_ID_USER, cpufreq_level);
+//				exynos_cpufreq_lock_free(DVFS_LOCK_ID_USER);
+//			lock_ret = exynos_cpufreq_lock(
+//					DVFS_LOCK_ID_USER, cpufreq_level);
 			/* ret of exynos_cpufreq_lock is meaningless.
 			   0 is fail? success? */
 			cpufreq_min_limit_val = val;

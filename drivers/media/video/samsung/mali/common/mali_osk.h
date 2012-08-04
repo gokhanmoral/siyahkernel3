@@ -368,7 +368,6 @@ typedef struct _mali_osk_notification_queue_t_struct _mali_osk_notification_queu
 /** @brief Public notification data object type */
 typedef struct _mali_osk_notification_t_struct
 {
-	u32 magic_code;
 	u32 notification_type;   /**< The notification type */
 	u32 result_buffer_size; /**< Size of the result buffer to copy to user space */
 	void * result_buffer;   /**< Buffer containing any type specific data */

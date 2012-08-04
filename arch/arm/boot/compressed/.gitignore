@@ -1,0 +1,9 @@
+font.c
+lib1funcs.S
+piggy.gzip
+piggy.lzo
+piggy.lzma
+vmlinux
+vmlinux.lds
+piggy.xzkern
+ashldi3.S

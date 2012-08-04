@@ -61,3 +61,10 @@ config VIDEO_MALI400MP_DVFS
 	default y
 	help
 	  This enables Mali driver DVFS.
+
+config GPU_CLOCK_CONTROL
+	bool "Enable gpu clock control interface"
+	depends on VIDEO_MALI400MP
+	default y
+	help
+	  This enables a sysfs interface to control gpu clock speeds.

@@ -197,12 +197,27 @@ static ssize_t show_available_freqs(struct cpufreq_policy *policy, char *buf)
 	return count;
 
 }
+#if defined(CONFIG_CPU_EXYNOS4210)
+extern ssize_t store_available_freqs_exynos4210(struct cpufreq_policy *policy,
+		     const char *buf, size_t count);
+#endif
+
+static ssize_t store_available_freqs(struct cpufreq_policy *policy,
+		     const char *buf, size_t count)
+{
+#if defined(CONFIG_CPU_EXYNOS4210)
+	return store_available_freqs_exynos4210(policy, buf, count);
+#else
+	return count;
+#endif
+}
 
 struct freq_attr cpufreq_freq_attr_scaling_available_freqs = {
 	.attr = { .name = "scaling_available_frequencies",
-		  .mode = 0444,
+		  .mode = 0644,
 		},
 	.show = show_available_freqs,
+	.store = store_available_freqs,
 };
 EXPORT_SYMBOL_GPL(cpufreq_freq_attr_scaling_available_freqs);
 
