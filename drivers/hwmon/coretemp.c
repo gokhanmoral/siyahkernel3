@@ -42,7 +42,7 @@
 #define DRVNAME	"coretemp"
 
 #define BASE_SYSFS_ATTR_NO	2	/* Sysfs Base attr no for coretemp */
-#define NUM_REAL_CORES		16	/* Number of Real cores per cpu */
+#define NUM_REAL_CORES		32	/* Number of Real cores per cpu */
 #define CORETEMP_NAME_LENGTH	17	/* String Length of attrs */
 #define MAX_ATTRS		5	/* Maximum no of per-core attrs */
 #define MAX_CORE_DATA		(NUM_REAL_CORES + BASE_SYSFS_ATTR_NO)
@@ -709,7 +709,7 @@ static void __cpuinit get_core_online(unsigned int cpu)
 	 * sensors. We check this bit only, all the early CPUs
 	 * without thermal sensors will be filtered out.
 	 */
-	if (!cpu_has(c, X86_FEATURE_DTS))
+	if (!cpu_has(c, X86_FEATURE_DTHERM))
 		return;
 
 	if (!pdev) {
@@ -751,6 +751,10 @@ static void __cpuinit put_core_offline(unsigned int cpu)
 		return;
 
 	indx = TO_ATTR_NO(cpu);
+
+	/* The core id is too big, just return */
+	if (indx > MAX_CORE_DATA - 1)
+		return;
 
 	if (pdata->core_data[indx] && pdata->core_data[indx]->cpu == cpu)
 		coretemp_remove_core(pdata, &pdev->dev, indx);

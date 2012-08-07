@@ -77,6 +77,7 @@
 #include <net/route.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
+#include <net/pkt_sched.h>
 #include "bonding.h"
 #include "bond_3ad.h"
 #include "bond_alb.h"
@@ -388,8 +389,6 @@ struct vlan_entry *bond_next_vlan(struct bonding *bond, struct vlan_entry *curr)
 	return next;
 }
 
-#define bond_queue_mapping(skb) (*(u16 *)((skb)->cb))
-
 /**
  * bond_dev_queue_xmit - Prepare skb for xmit.
  *
@@ -403,7 +402,9 @@ int bond_dev_queue_xmit(struct bonding *bond, struct sk_buff *skb,
 	skb->dev = slave_dev;
 	skb->priority = 1;
 
-	skb->queue_mapping = bond_queue_mapping(skb);
+	BUILD_BUG_ON(sizeof(skb->queue_mapping) !=
+		     sizeof(qdisc_skb_cb(skb)->bond_queue_mapping));
+	skb->queue_mapping = qdisc_skb_cb(skb)->bond_queue_mapping;
 
 	if (unlikely(netpoll_tx_running(slave_dev)))
 		bond_netpoll_send_skb(bond_get_slave_by_dev(bond, slave_dev), skb);
@@ -1905,7 +1906,7 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 				 "but new slave device does not support netpoll.\n",
 				 bond_dev->name);
 			res = -EBUSY;
-			goto err_close;
+			goto err_detach;
 		}
 	}
 #endif
@@ -1914,7 +1915,7 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 
 	res = bond_create_slave_symlinks(bond_dev, slave_dev);
 	if (res)
-		goto err_close;
+		goto err_detach;
 
 	res = netdev_rx_handler_register(slave_dev, bond_handle_frame,
 					 new_slave);
@@ -1934,6 +1935,11 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 /* Undo stages on error */
 err_dest_symlinks:
 	bond_destroy_slave_symlinks(bond_dev, slave_dev);
+
+err_detach:
+	write_lock_bh(&bond->lock);
+	bond_detach_slave(bond, new_slave);
+	write_unlock_bh(&bond->lock);
 
 err_close:
 	dev_close(slave_dev);
@@ -3071,7 +3077,11 @@ static void bond_ab_arp_commit(struct bonding *bond, int delta_in_ticks)
 					   trans_start + delta_in_ticks)) ||
 			    bond->curr_active_slave != slave) {
 				slave->link = BOND_LINK_UP;
-				bond->current_arp_slave = NULL;
+				if (bond->current_arp_slave) {
+					bond_set_slave_inactive_flags(
+						bond->current_arp_slave);
+					bond->current_arp_slave = NULL;
+				}
 
 				pr_info("%s: link status definitely up for interface %s.\n",
 					bond->dev->name, slave->dev->name);
@@ -4231,7 +4241,7 @@ static u16 bond_select_queue(struct net_device *dev, struct sk_buff *skb)
 	/*
 	 * Save the original txq to restore before passing to the driver
 	 */
-	bond_queue_mapping(skb) = skb->queue_mapping;
+	qdisc_skb_cb(skb)->bond_queue_mapping = skb->queue_mapping;
 
 	if (unlikely(txq >= dev->real_num_tx_queues)) {
 		do {

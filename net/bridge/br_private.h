@@ -77,9 +77,7 @@ struct net_bridge_port_group {
 	struct hlist_node		mglist;
 	struct rcu_head			rcu;
 	struct timer_list		timer;
-	struct timer_list		query_timer;
 	struct br_ip			addr;
-	u32				queries_sent;
 };
 
 struct net_bridge_mdb_entry
@@ -89,10 +87,8 @@ struct net_bridge_mdb_entry
 	struct net_bridge_port_group __rcu *ports;
 	struct rcu_head			rcu;
 	struct timer_list		timer;
-	struct timer_list		query_timer;
 	struct br_ip			addr;
 	bool				mglist;
-	u32				queries_sent;
 };
 
 struct net_bridge_mdb_htable
@@ -533,6 +529,7 @@ extern int (*br_fdb_test_addr_hook)(struct net_device *dev, unsigned char *addr)
 #endif
 
 /* br_netlink.c */
+extern struct rtnl_link_ops br_link_ops;
 extern int br_netlink_init(void);
 extern void br_netlink_fini(void);
 extern void br_ifinfo_notify(int event, struct net_bridge_port *port);
