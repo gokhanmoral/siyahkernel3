@@ -170,25 +170,25 @@ static unsigned int get_nr_run_avg(void)
 #define HOTPLUG_DOWN_INDEX			(0)
 #define HOTPLUG_UP_INDEX			(1)
 
-#ifdef CONFIG_CPU_EXYNOS4210
+#ifdef CONFIG_MACH_MIDAS
 static int hotplug_rq[4][2] = {
-	{0, 300}, {300, 200}, {200, 300}, {300, 0}
+	{0, 200}, {200, 300}, {300, 400}, {400, 0}
+};
+
+static int hotplug_freq[4][2] = {
+	{0, 500000},
+	{300000, 500000},
+	{400000, 800000},
+	{600000, 0}
+};
+#else
+static int hotplug_rq[4][2] = {
+	{0, 400}, {400, 200}, {200, 300}, {300, 0}
 };
 
 static int hotplug_freq[4][2] = {
 	{0, 500000},
 	{400000, 500000},
-	{200000, 500000},
-	{200000, 0}
-};
-#else
-static int hotplug_rq[4][2] = {
-	{0, 100}, {100, 200}, {200, 300}, {300, 0}
-};
-
-static int hotplug_freq[4][2] = {
-	{0, 500000},
-	{200000, 500000},
 	{200000, 500000},
 	{200000, 0}
 };
@@ -353,6 +353,38 @@ int cpufreq_pegasusq_cpu_unlock(int num_core)
 	return 0;
 }
 
+void cpufreq_pegasusq_min_cpu_lock(unsigned int num_core)
+{
+	int online, flag;
+	struct cpu_dbs_info_s *dbs_info;
+
+	dbs_tuners_ins.min_cpu_lock = min(num_core, num_possible_cpus());
+
+	dbs_info = &per_cpu(od_cpu_dbs_info, 0); /* from CPU0 */
+	online = num_online_cpus();
+	flag = (int)num_core - online;
+	if (flag <= 0)
+		return;
+	queue_work_on(dbs_info->cpu, dvfs_workqueue, &dbs_info->up_work);
+}
+
+void cpufreq_pegasusq_min_cpu_unlock(void)
+{
+	int online, lock, flag;
+	struct cpu_dbs_info_s *dbs_info;
+
+	dbs_tuners_ins.min_cpu_lock = 0;
+
+	dbs_info = &per_cpu(od_cpu_dbs_info, 0); /* from CPU0 */
+	online = num_online_cpus();
+	lock = atomic_read(&g_hotplug_lock);
+	if (lock == 0)
+		return;
+	flag = lock - online;
+	if (flag >= 0)
+		return;
+	queue_work_on(dbs_info->cpu, dvfs_workqueue, &dbs_info->down_work);
+}
 
 /*
  * History of CPU usage
@@ -671,6 +703,7 @@ static ssize_t store_cpu_down_rate(struct kobject *a, struct attribute *b,
 	return count;
 }
 
+
 #ifndef CONFIG_CPU_EXYNOS4210
 static ssize_t store_up_nr_cpus(struct kobject *a, struct attribute *b,
 				const char *buf, size_t count)
@@ -705,7 +738,10 @@ static ssize_t store_min_cpu_lock(struct kobject *a, struct attribute *b,
 	ret = sscanf(buf, "%u", &input);
 	if (ret != 1)
 		return -EINVAL;
-	dbs_tuners_ins.min_cpu_lock = min(input, num_possible_cpus());
+	if (input == 0)
+		cpufreq_pegasusq_min_cpu_unlock();
+	else
+		cpufreq_pegasusq_min_cpu_lock(input);
 	return count;
 }
 
@@ -853,9 +889,15 @@ static void cpu_up_work(struct work_struct *work)
 	int cpu;
 	int online = num_online_cpus();
 	int nr_up = dbs_tuners_ins.up_nr_cpus;
+	int min_cpu_lock = dbs_tuners_ins.min_cpu_lock;
 	int hotplug_lock = atomic_read(&g_hotplug_lock);
-	if (hotplug_lock)
+
+	if (hotplug_lock && min_cpu_lock)
+		nr_up = max(hotplug_lock, min_cpu_lock) - online;
+	else if (hotplug_lock)
 		nr_up = hotplug_lock - online;
+	else if (min_cpu_lock)
+		nr_up = max(nr_up, min_cpu_lock - online);
 
 	if (online == 1) {
 		printk(KERN_ERR "CPU_UP 3\n");
