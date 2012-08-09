@@ -454,6 +454,7 @@ static void mxt224_ta_probe(bool ta_status)
 		calcfg_dis = copy_pdata->calcfg_charging_e;
 		calcfg_en = copy_pdata->calcfg_charging_e | 0x20;
 		noise_threshold = copy_pdata->noisethr_charging;
+		movfilter = copy_pdata->movfilter_charging;
 		charge_time = copy_pdata->chrgtime_charging_e;
 #ifdef CLEAR_MEDIAN_FILTER_ERROR
 		copy_data->gErrCondition = ERR_RTN_CONDITION_MAX;
@@ -468,6 +469,7 @@ static void mxt224_ta_probe(bool ta_status)
 		calcfg_dis = copy_pdata->calcfg_batt_e;
 		calcfg_en = copy_pdata->calcfg_batt_e | 0x20;
 		noise_threshold = copy_pdata->noisethr_batt;
+		movfilter = copy_pdata->movfilter_batt;
 		charge_time = copy_pdata->chrgtime_batt_e;
 #ifdef CLEAR_MEDIAN_FILTER_ERROR
 		copy_data->gErrCondition = ERR_RTN_CONDITION_IDLE;
@@ -498,7 +500,7 @@ static void mxt224_ta_probe(bool ta_status)
 				  obj_address + (u16) register_address,
 				  size_one, &value);
 			/*move Filter */
-			value = copy_data->movfilter_batt_e;
+			value = copy_pdata->movfilter_batt_e;
 			register_address = 13;
 			write_mem(copy_data,
 				  obj_address + (u16) register_address,
@@ -646,6 +648,11 @@ static void mxt224_ta_probe(bool ta_status)
 		printk(KERN_ERR "[TSP]TA_probe MXT224 T%d Byte%d is %d\n", 9,
 		       register_address, val);
 
+		value = (u8) movfilter;
+		register_address = 13;
+		write_mem(copy_data, obj_address + (u16) register_address,
+			  size_one, &value);
+		
 		// if 255, it's not modified. by tegrak
 		if (mov_hysti != 255) {
 			value = (u8)mov_hysti;
