@@ -89,7 +89,7 @@
 
 #define HOTPLUG_UNLOCKED 0
 #define HOTPLUG_LOCKED 1
-#define PM_HOTPLUG_DEBUG 1
+#define PM_HOTPLUG_DEBUG 0
 #define NUM_CPUS num_possible_cpus()
 #define CPULOAD_TABLE (NR_CPUS + 1)
 
