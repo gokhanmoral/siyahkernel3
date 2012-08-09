@@ -1352,7 +1352,8 @@ static void report_input_data(struct mxt224_data *data)
 				level);
 			copy_data->lock_status = 1;
 		}
-		if(mxt224_touch_cb!=NULL) (*mxt224_touch_cb)();
+		if(touch_is_pressed && mxt224_touch_cb!=NULL)
+			(*mxt224_touch_cb)();
 	}
 }
 

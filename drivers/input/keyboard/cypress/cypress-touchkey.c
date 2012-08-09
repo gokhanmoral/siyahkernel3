@@ -928,12 +928,6 @@ static int sec_touchkey_early_suspend(struct early_suspend *h)
 	touchkey_enable = 0;
 	set_touchkey_debug('S');
 	printk(KERN_DEBUG "[TouchKey] sec_touchkey_early_suspend\n");
-	if (touchkey_enable < 0) {
-		printk(KERN_DEBUG "[TouchKey] ---%s---touchkey_enable: %d\n",
-		       __func__, touchkey_enable);
-		mutex_unlock(&touchkey_enable_mutex);
-		return 0;
-	}
 
 	gpio_direction_input(_3_GPIO_TOUCH_INT);
 
@@ -1305,16 +1299,16 @@ static ssize_t led_timeout_read( struct device *dev, struct device_attribute *at
 
 static ssize_t led_timeout_write_ms( struct device *dev, struct device_attribute *attr, const char *buf, size_t size )
 {
-SAMSUNGROM
-{
-	sscanf(buf,"%d\n", &led_timeout);
+	int i = 0;
+	sscanf(buf,"%d\n", &i);
+	if(i < 0) return size;
+	led_timeout = i;
 	if(!led_disabled)
 	if(led_timeout == 0)
 	{
 		del_timer(&led_timer);
 	}
 	else mod_timer(&led_timer, jiffies + msecs_to_jiffies(led_timeout));
-}
 	return size;
 }
 
@@ -1878,7 +1872,7 @@ static ssize_t touch_led_control(struct device *dev,
 				data = 0x20;
 		}
 #endif
-	if(data == 0 || !led_disabled) {
+		if(data == 0 || !led_disabled) {
 		errnum = i2c_touchkey_write((u8 *) &data, 1);
 		if( data == 1 && led_timeout > 0 )
 			mod_timer(&led_timer, jiffies + msecs_to_jiffies(led_timeout));
@@ -1886,7 +1880,7 @@ static ssize_t touch_led_control(struct device *dev,
 			touchled_cmd_reversed = 1;
 
 		touchkey_led_status = data;
-	}
+		}
 	} else {
 		printk(KERN_DEBUG "[TouchKey] touch_led_control Error\n");
 	}
