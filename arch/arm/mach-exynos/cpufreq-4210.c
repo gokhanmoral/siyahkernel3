@@ -482,7 +482,8 @@ static void __init set_volt_table(void)
 
 	if (for_1000)
 		exynos4210_freq_table[L4].frequency = CPUFREQ_ENTRY_INVALID;
-
+	exynos4210_freq_table[L16].frequency = CPUFREQ_ENTRY_INVALID;
+	exynos4210_freq_table[L17].frequency = CPUFREQ_ENTRY_INVALID;
 	printk(KERN_INFO "DVFS : VDD_ARM Voltage table set with %d Group\n", asv_group);
 
 	if (for_1400) {
