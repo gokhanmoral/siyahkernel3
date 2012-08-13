@@ -162,6 +162,15 @@ config TOUCHSCREEN_ATMEL_MXT224_U1
           To compile this driver as a module, choose M here: the
           module will be called atmel_mxt224_u1_ts.
 
+config TOUCHSCREEN_GESTURES
+        bool "Enable detection of touch gestures"
+        depends on TOUCHSCREEN_ATMEL_MXT224_U1
+        ---help---
+          This option enables the mxt224_u1 touchscreen device to
+          detect and report touch gestures.
+          Definition of the gesture paths and reporting of the
+          detections are available through sysfs entries.
+
 config TOUCHSCREEN_ATMEL_MXT224_GRANDE
         tristate "Atmel mXT I2C Touchscreen for GRANDE"
         depends on I2C
