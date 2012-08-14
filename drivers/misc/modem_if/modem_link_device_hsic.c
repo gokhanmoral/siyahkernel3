@@ -194,7 +194,9 @@ static void usb_rx_retry_work(struct work_struct *work)
 	switch (pipe_data->format) {
 	case IF_USB_FMT_EP:
 		if (usb_ld->if_usb_is_main) {
+#if 0
 			pr_urb("IPC-RX, retry", urb);
+#endif
 			iod_format = IPC_FMT;
 		} else {
 			iod_format = IPC_BOOT;
@@ -478,9 +480,10 @@ static int _usb_tx_work(struct sk_buff *skb)
 	if (!pipe_data)
 		return -ENOENT;
 
+#if 0
 	if (iod->format == IPC_FMT && usb_ld->if_usb_is_main)
 		pr_skb("IPC-TX", skb);
-
+#endif
 	if (iod->format == IPC_RAW)
 		mif_debug("TX[RAW]\n");
 
