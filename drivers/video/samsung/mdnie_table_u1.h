@@ -11,11 +11,11 @@ static const unsigned short tune_dynamic_gallery[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS */
-	0x003B, 0x03ff, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
 	0x003F, 0x012c, /*CS GAIN  */
-	0x0042, 0x0020, /*DE TH (MAX DIFF) */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00,
 	0x004b, 0x008f,
@@ -69,12 +69,11 @@ static const unsigned short tune_dynamic_ui[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000d, /*HDTR DE_off CS : de on = d ,  de off = 9 */
-	0x003B, 0x0001, /*DE SHARPNESS(0~1023)  off */
-	0x003C, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE_off CS : de on = d ,  de off = 9 */
+
+
 	0x003F, 0x012c, /*CS GAIN 300 */
-	0x003B, 0x0001, /*DE SHARPNESS(0~1023)  off */
-	0x0042, 0x0030, /*DE TH (MAX DIFF) */
+
 	0x004d, 0x0100, /*pcc strength */
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0x0000, /*gc R */
@@ -125,11 +124,11 @@ static const unsigned short tune_dynamic_video[] = {
 	0x002d, 0x1908, /*DNR bypass 0x0a08 */
 	0x002e, 0x1005, /*DNR bypass 0x1010 */
 	0x002f, 0x0400, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS  de on = d ,  de off = 9 */
-	0x003B, 0x03ff, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE CS  de on = d ,  de off = 9 */
+
+
 	0x003F, 0x012c, /*CS GAIN  */
-	0x0042, 0x0020, /*DE TH (MAX DIFF) */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00, /*7300 */
 	0x004b, 0x008F, /*008f */
@@ -183,11 +182,11 @@ static const unsigned short tune_dynamic_vtcall[] = {
 	0x002d, 0x19ff, /*DNR dirnumTh decon7Th */
 	0x002e, 0xff16, /*DNR decon5Th maskTh */
 	0x002f, 0x0000, /*DNR blTh */
-	0x003a, 0x000d, /*HDTR DE CS */
-	0x003b, 0x03ff, /*DE SHARPNESS */
-	0x003c, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
 	0x003f, 0x0100, /*CS GAIN */
-	0x0042, 0x0000, /*DE TH (MAX DIFF) */
+
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0x0000, /*gc R */
 	0x00ca, 0xffff, /*rm R */
@@ -237,11 +236,11 @@ static const unsigned short tune_movie_gallery[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS */
-	0x003B, 0x0001, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
-	0x003F, 0x0032, /*CS GAIN 300 */
-	0x0042, 0x003f, /*DE TH (MAX DIFF) */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
+	0x003F, 0x000f, /*CS GAIN 300 */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00,
 	0x004b, 0x008f,
@@ -295,11 +294,11 @@ static const unsigned short tune_movie_ui[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000d, /*HDTR DE_off CS : de on = d ,  de off = 9 */
-	0x003B, 0x0001, /*DE SHARPNESS(0~1023)  off */
-	0x003C, 0x0000, /*NOISE LEVEL */
-	0x003F, 0x0032, /*CS GAIN 50 */
-	0x0042, 0x0030, /*DE TH (MAX DIFF) */
+	0x003A, 0x0009, /*HDTR DE_off CS : de on = d ,  de off = 9 */
+
+
+	0x003F, 0x000f, /*CS GAIN 50 */
+
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0xb6bc, /*gc R */
 	0x00ca, 0xd4ff, /*rm R */
@@ -349,11 +348,11 @@ static const unsigned short tune_movie_video[] = {
 	0x002d, 0x1908, /*DNR bypass 0x0a08 */
 	0x002e, 0x1005, /*DNR bypass 0x1010 */
 	0x002f, 0x0400, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS  de on = d ,  de off = 9 */
-	0x003B, 0x0001, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
-	0x003F, 0x0032, /*CS GAIN 300 */
-	0x0042, 0x003f, /*DE TH (MAX DIFF) */
+	0x003A, 0x0009, /*HDTR DE CS  de on = d ,  de off = 9 */
+
+
+	0x003F, 0x000f, /*CS GAIN 300 */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00, /*7300 */
 	0x004b, 0x008F, /*008f */
@@ -407,10 +406,10 @@ static const unsigned short tune_movie_vtcall[] = {
 	0x002d, 0x19ff, /*DNR dirnumTh decon7Th */
 	0x002e, 0xff16, /*DNR decon5Th maskTh */
 	0x002f, 0x0000, /*DNR blTh */
-	0x003a, 0x000d, /*HDTR DE CS */
-	0x003b, 0x0000, /*DE SHARPNESS */
-	0x003c, 0x0000, /*NOISE LEVEL */
-	0x003f, 0x0030, /*CS GAIN */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
+	0x003F, 0x000f, /*CS GAIN */
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0xb6bc, /*gc R */
 	0x00ca, 0xd4ff, /*rm R */
@@ -461,15 +460,15 @@ static const unsigned short tune_standard_gallery[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS */
-	0x003B, 0x03ff, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
-	0x003F, 0x0032, /*CS GAIN  */
-	0x0042, 0x0020, /*DE TH (MAX DIFF) */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
+	0x003F, 0x000f, /*CS GAIN  */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00,
 	0x004b, 0x008f,
-	0x004d, 0x0100, /*pcc strength */
+	0x004d, 0x0000, /*pcc strength */
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0x0000, /*gc R */
 	0x00ca, 0xffff, /*rm R */
@@ -519,11 +518,11 @@ static const unsigned short tune_standard_ui[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000,	/*DNR bypass 0x1010 */
 	0x002f, 0x0fff,	/*DNR bypass 0x0400 */
-	0x003A, 0x000d,	/*HDTR DE_off CS : de on = d ,  de off = 9 */
-	0x003B, 0x0001,	/*DE SHARPNESS(0~1023)  off */
-	0x003C, 0x0000,	/*NOISE LEVEL */
-	0x003F, 0x001e,	/*CS GAIN 30 */
-	0x0042, 0x0030,	/*DE TH (MAX DIFF) */
+	0x003A, 0x0009,	/*HDTR DE_off CS : de on = d ,  de off = 9 */
+
+
+	0x003F, 0x000f,	/*CS GAIN 30 */
+
 	0x00c8, 0x0000,	/*kb R	SCR */
 	0x00c9, 0x0000,	/*gc R */
 	0x00ca, 0xffff,	/*rm R */
@@ -573,15 +572,15 @@ static const unsigned short tune_standard_video[] = {
 	0x002d, 0x1908, /*DNR bypass 0x0a08 */
 	0x002e, 0x1005, /*DNR bypass 0x1010 */
 	0x002f, 0x0400, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS  de on = d ,  de off = 9 */
-	0x003B, 0x03ff, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
-	0x003F, 0x0032, /*CS GAIN  */
-	0x0042, 0x0020, /*DE TH (MAX DIFF) */
+	0x003A, 0x0009, /*HDTR DE CS  de on = d ,  de off = 9 */
+
+
+	0x003F, 0x000f, /*CS GAIN  */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00, /*7300 */
 	0x004b, 0x008F, /*008f */
-	0x004d, 0x0100, /*pcc strength */
+	0x004d, 0x0000, /*pcc strength */
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0x0000, /*gc R */
 	0x00ca, 0xffff, /*rm R */
@@ -631,11 +630,11 @@ static const unsigned short tune_standard_vtcall[] = {
 	0x002d, 0x19ff, /*DNR dirnumTh decon7Th */
 	0x002e, 0xff16, /*DNR decon5Th maskTh */
 	0x002f, 0x0000, /*DNR blTh */
-	0x003a, 0x000d, /*HDTR DE CS */
-	0x003b, 0x03f8, /*DE SHARPNESS */
-	0x003c, 0x0000, /*NOISE LEVEL */
-	0x003f, 0x00a0, /*CS GAIN */
-	0x0042, 0x0000, /*DE TH (MAX DIFF) */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
+	0x003F, 0x000f, /*CS GAIN */
+
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0x0000, /*gc R */
 	0x00ca, 0xffff, /*rm R */
@@ -685,15 +684,15 @@ static const unsigned short tune_natural_gallery[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS */
-	0x003B, 0x03ff, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
 	0x003F, 0x0180, /*CS GAIN  */
-	0x0042, 0x0020, /*DE TH (MAX DIFF) */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00,
 	0x004b, 0x008f,
-	0x004d, 0x0100, /*pcc strength */
+	0x004d, 0x0000, /*pcc strength */
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0xb6bc, /*gc R */
 	0x00ca, 0xd4ff, /*rm R */
@@ -743,11 +742,11 @@ static const unsigned short tune_natural_ui[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000d, /*HDTR DE_off CS : de on = d ,  de off = 9 */
-	0x003B, 0x0001, /*DE SHARPNESS(0~1023)  off */
-	0x003C, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE_off CS : de on = d ,  de off = 9 */
+
+
 	0x003F, 0x0180, /*CS GAIN 30 */
-	0x0042, 0x0030, /*DE TH (MAX DIFF) */
+
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0xb6bc, /*gc R */
 	0x00ca, 0xd4ff, /*rm R */
@@ -797,15 +796,15 @@ static const unsigned short tune_natural_video[] = {
 	0x002d, 0x1908, /*DNR bypass 0x0a08 */
 	0x002e, 0x1005, /*DNR bypass 0x1010 */
 	0x002f, 0x0400, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS  de on = d ,  de off = 9 */
-	0x003B, 0x03ff, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE CS  de on = d ,  de off = 9 */
+
+
 	0x003F, 0x0180, /*CS GAIN  */
-	0x0042, 0x0020, /*DE TH (MAX DIFF) */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7a00, /*7300 */
 	0x004b, 0x008F, /*008f */
-	0x004d, 0x0100, /*pcc strength */
+	0x004d, 0x0000, /*pcc strength */
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0xb6bc, /*gc R */
 	0x00ca, 0xd4ff, /*rm R */
@@ -855,11 +854,11 @@ static const unsigned short tune_natural_vtcall[] = {
 	0x002d, 0x19ff, /*DNR dirnumTh decon7Th */
 	0x002e, 0xff16, /*DNR decon5Th maskTh */
 	0x002f, 0x0000, /*DNR blTh */
-	0x003a, 0x000d, /*HDTR DE CS */
-	0x003b, 0x03f8, /*DE SHARPNESS */
-	0x003c, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
 	0x003f, 0x0180, /*CS GAIN */
-	0x0042, 0x0000, /*DE TH (MAX DIFF) */
+
 	0x00c8, 0x0000, /*kb R	SCR */
 	0x00c9, 0xb6bc, /*gc R */
 	0x00ca, 0xd4ff, /*rm R */
@@ -910,10 +909,10 @@ static const unsigned short tune_camera[] = {
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
 	0x003A, 0x0009, /*HDTR (DE off)(CS only 9) */
-	0x003B, 0x0000, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
+
+
 	0x003F, 0x0000, /*CS GAIN */
-	0x0042, 0x003f, /*DE TH (MAX DIFF) */
+
 	0x0028, 0x0000, /*Register Mask */
 	/*end */
 	END_SEQ, 0x0000,
@@ -926,11 +925,11 @@ static const unsigned short tune_camera_outdoor[] = {
 	0x002d, 0x1900, /*DNR bypass 0x0a08 */
 	0x002e, 0x0000, /*DNR bypass 0x1010 */
 	0x002f, 0x0fff, /*DNR bypass 0x0400 */
-	0x003A, 0x000D, /*HDTR DE CS */
-	0x003B, 0x03ff, /*DE SHARPNESS */
-	0x003C, 0x0000, /*NOISE LEVEL */
+	0x003A, 0x0009, /*HDTR DE CS */
+
+
 	0x003F, 0x0100, /*CS GAIN */
-	0x0042, 0x003f, /*DE TH (MAX DIFF) */
+
 	0x0049, 0x0400, /*pcc skin */
 	0x004a, 0x7300,
 	0x004b, 0x008f,
@@ -995,21 +994,10 @@ static const unsigned short tune_warm_outdoor[] = {
 	END_SEQ, 0x0000,
 };
 
-static const unsigned short tune_normal[] = {
-	/*start U1 normal */
-	0x0001, 0x0044, /*SCR MCM HDTR */
-	0x005b, 0x0064, /*MCM */
-	0x0063, 0x8000, /*cb */
-	0x0065, 0x0080, /*cr */
-	0x0028, 0x0000, /*Register Mask */
-	/*end */
-	END_SEQ, 0x0000,
-};
-
 struct mdnie_tunning_info etc_table[CABC_MAX][OUTDOOR_MAX][TONE_MAX] = {
 	{
 		{
-			{"NORMAL",		tune_normal},
+			{"NORMAL",		NULL},
 			{"WARM",		tune_warm},
 			{"COLD",		tune_cold},
 		},
