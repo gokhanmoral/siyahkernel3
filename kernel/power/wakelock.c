@@ -68,7 +68,7 @@ static char deleted_wake_lock2_name[MAX_DELETED_WAKE_LOCK_NAME];
 static ktime_t last_sleep_time_update;
 static int wait_for_wakeup;
 
-static int default_stats = 0; // 0 - total; 1 - exclusive
+static int default_stats = 0; // 0 - total; 1 - discrete
 module_param_named(default_stats, default_stats, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
 int get_expired_time(struct wake_lock *lock, ktime_t *expire_time)
@@ -96,13 +96,13 @@ int get_expired_time(struct wake_lock *lock, ktime_t *expire_time)
 
 static int print_lock_stat(struct seq_file *m, struct wake_lock *lock, int stats_type)
 {
-	int lock_count = stats_type ? lock->exclusive_stat.count : lock->stat.count;
-	int expire_count = stats_type ? lock->exclusive_stat.expire_count : lock->stat.expire_count;
+	int lock_count = stats_type ? lock->discrete_stat.count : lock->stat.count;
+	int expire_count = stats_type ? lock->discrete_stat.expire_count : lock->stat.expire_count;
 	ktime_t active_time = ktime_set(0, 0);
-	ktime_t total_time = stats_type ? lock->exclusive_stat.total_time : lock->stat.total_time;
-	ktime_t max_time = stats_type ? lock->exclusive_stat.max_time : lock->stat.max_time;
+	ktime_t total_time = stats_type ? lock->discrete_stat.total_time : lock->stat.total_time;
+	ktime_t max_time = stats_type ? lock->discrete_stat.max_time : lock->stat.max_time;
 
-	ktime_t prevent_suspend_time = stats_type ? lock->exclusive_stat.prevent_suspend_time
+	ktime_t prevent_suspend_time = stats_type ? lock->discrete_stat.prevent_suspend_time
 						: lock->stat.prevent_suspend_time;
 	if (lock->flags & WAKE_LOCK_ACTIVE
 			&& (!stats_type || (stats_type && lock->flags & WAKE_LOCK_AWAKE_CULPRIT))) {
@@ -110,7 +110,7 @@ static int print_lock_stat(struct seq_file *m, struct wake_lock *lock, int stats
 		int expired = get_expired_time(lock, &now);
 		if (!expired)
 			now = ktime_get();
-		add_time = ktime_sub(now, stats_type ? lock->exclusive_stat.last_time
+		add_time = ktime_sub(now, stats_type ? lock->discrete_stat.last_time
 						: lock->stat.last_time);
 		lock_count++;
 		if (!expired)
@@ -128,10 +128,10 @@ static int print_lock_stat(struct seq_file *m, struct wake_lock *lock, int stats
 	return seq_printf(m,
 		     "\"%s\"\t%d\t%d\t%d\t%lld\t%lld\t%lld\t%lld\t%lld\n",
 		     lock->name, lock_count, expire_count,
-		     stats_type ? lock->exclusive_stat.wakeup_count : lock->stat.wakeup_count,
+		     stats_type ? lock->discrete_stat.wakeup_count : lock->stat.wakeup_count,
 		     ktime_to_ns(active_time), ktime_to_ns(total_time),
 		     ktime_to_ns(prevent_suspend_time), ktime_to_ns(max_time),
-		     ktime_to_ns(stats_type ? lock->exclusive_stat.last_time : lock->stat.last_time));
+		     ktime_to_ns(stats_type ? lock->discrete_stat.last_time : lock->stat.last_time));
 }
 
 static int wakelock_stats_show_total(struct seq_file *m, void *unused)
@@ -155,7 +155,7 @@ static int wakelock_stats_show_total(struct seq_file *m, void *unused)
 	return 0;
 }
 
-static int wakelock_stats_show_exclusive(struct seq_file *m, void *unused)
+static int wakelock_stats_show_discrete(struct seq_file *m, void *unused)
 {
 	unsigned long irqflags;
 	struct wake_lock *lock;
@@ -179,7 +179,7 @@ static int wakelock_stats_show_exclusive(struct seq_file *m, void *unused)
 static void wake_unlock_stat_locked(struct wake_lock *lock, int expired)
 {
 	ktime_t duration;
-	ktime_t exclusive_duration;
+	ktime_t discrete_duration;
 	ktime_t now;
 	if (!(lock->flags & WAKE_LOCK_ACTIVE))
 		return;
@@ -191,28 +191,28 @@ static void wake_unlock_stat_locked(struct wake_lock *lock, int expired)
 	if (expired)
 		lock->stat.expire_count++;
 	duration = ktime_sub(now, lock->stat.last_time);
-	exclusive_duration = ktime_sub(now, lock->exclusive_stat.last_time); // TODO check if could fail with garbage
+	discrete_duration = ktime_sub(now, lock->discrete_stat.last_time);
 	lock->stat.total_time = ktime_add(lock->stat.total_time, duration);
 	if (ktime_to_ns(duration) > ktime_to_ns(lock->stat.max_time))
 		lock->stat.max_time = duration;
 	lock->stat.last_time = ktime_get();
 	if (lock->flags & WAKE_LOCK_AWAKE_CULPRIT) {
-		lock->exclusive_stat.count++;
+		lock->discrete_stat.count++;
 		if (expired)
-			lock->exclusive_stat.expire_count++;
-		lock->exclusive_stat.total_time = ktime_add(lock->exclusive_stat.total_time, exclusive_duration);
-		if (ktime_to_ns(exclusive_duration) > ktime_to_ns(lock->exclusive_stat.max_time))
-			lock->exclusive_stat.max_time = exclusive_duration;
-		lock->exclusive_stat.last_time = ktime_get();
+			lock->discrete_stat.expire_count++;
+		lock->discrete_stat.total_time = ktime_add(lock->discrete_stat.total_time, discrete_duration);
+		if (ktime_to_ns(discrete_duration) > ktime_to_ns(lock->discrete_stat.max_time))
+			lock->discrete_stat.max_time = discrete_duration;
+		lock->discrete_stat.last_time = ktime_get();
 	}
 	if (lock->flags & WAKE_LOCK_PREVENTING_SUSPEND) {
 		duration = ktime_sub(now, last_sleep_time_update);
 		lock->stat.prevent_suspend_time = ktime_add(
 			lock->stat.prevent_suspend_time, duration);
 		if (lock->flags & WAKE_LOCK_AWAKE_CULPRIT) {
-			exclusive_duration = ktime_sub(now, last_sleep_time_update);
-			lock->exclusive_stat.prevent_suspend_time = ktime_add(
-				lock->exclusive_stat.prevent_suspend_time, exclusive_duration);
+			discrete_duration = ktime_sub(now, last_sleep_time_update);
+			lock->discrete_stat.prevent_suspend_time = ktime_add(
+				lock->discrete_stat.prevent_suspend_time, discrete_duration);
 		}
 		lock->flags &= ~WAKE_LOCK_PREVENTING_SUSPEND;
 	}
@@ -236,8 +236,8 @@ static void update_sleep_wait_stats_locked(int done)
 			lock->stat.prevent_suspend_time = ktime_add(
 				lock->stat.prevent_suspend_time, add);
 			if (lock->flags & WAKE_LOCK_AWAKE_CULPRIT) {
-				lock->exclusive_stat.prevent_suspend_time = ktime_add(
-					lock->exclusive_stat.prevent_suspend_time, add);
+				lock->discrete_stat.prevent_suspend_time = ktime_add(
+					lock->discrete_stat.prevent_suspend_time, add);
 			}
 		}
 		if (done || expired)
@@ -287,7 +287,7 @@ static void assign_next_awake_culprit_locked(void)
 			update_sleep_wait_stats_locked(0);
 		}
 		// Set now as the last_time of the culprit
-		candidate_lock->exclusive_stat.last_time = ktime_get();
+		candidate_lock->discrete_stat.last_time = ktime_get();
 		// Assign new culprit
 		candidate_lock->flags |= WAKE_LOCK_AWAKE_CULPRIT;
 		if (debug_mask & DEBUG_WAKE_LOCK)
@@ -506,13 +506,13 @@ void wake_lock_init(struct wake_lock *lock, int type, const char *name)
 	lock->stat.prevent_suspend_time = ktime_set(0, 0);
 	lock->stat.max_time = ktime_set(0, 0);
 	lock->stat.last_time = ktime_set(0, 0);
-	lock->exclusive_stat.count = 0;
-	lock->exclusive_stat.expire_count = 0;
-	lock->exclusive_stat.wakeup_count = 0;
-	lock->exclusive_stat.total_time = ktime_set(0, 0);
-	lock->exclusive_stat.prevent_suspend_time = ktime_set(0, 0);
-	lock->exclusive_stat.max_time = ktime_set(0, 0);
-	lock->exclusive_stat.last_time = ktime_set(0, 0);
+	lock->discrete_stat.count = 0;
+	lock->discrete_stat.expire_count = 0;
+	lock->discrete_stat.wakeup_count = 0;
+	lock->discrete_stat.total_time = ktime_set(0, 0);
+	lock->discrete_stat.prevent_suspend_time = ktime_set(0, 0);
+	lock->discrete_stat.max_time = ktime_set(0, 0);
+	lock->discrete_stat.last_time = ktime_set(0, 0);
 #endif
 	lock->flags = (type & WAKE_LOCK_TYPE_MASK) | WAKE_LOCK_INITIALIZED;
 
@@ -557,20 +557,20 @@ void wake_lock_destroy(struct wake_lock *lock)
 				deleted_wake_locks.stat.max_time =
 					ktime_add(deleted_wake_locks.stat.max_time,
 						  deleted_wake_lock2.stat.max_time);
-				deleted_wake_locks.exclusive_stat.count += deleted_wake_lock2.exclusive_stat.count;
-				deleted_wake_locks.exclusive_stat.expire_count +=
-					deleted_wake_lock2.exclusive_stat.expire_count;
-				deleted_wake_locks.exclusive_stat.wakeup_count +=
-					deleted_wake_lock2.exclusive_stat.wakeup_count;
-				deleted_wake_locks.exclusive_stat.total_time =
-					ktime_add(deleted_wake_locks.exclusive_stat.total_time,
-						  deleted_wake_lock2.exclusive_stat.total_time);
-				deleted_wake_locks.exclusive_stat.prevent_suspend_time =
-					ktime_add(deleted_wake_locks.exclusive_stat.prevent_suspend_time,
-						  deleted_wake_lock2.exclusive_stat.prevent_suspend_time);
-				deleted_wake_locks.exclusive_stat.max_time =
-					ktime_add(deleted_wake_locks.exclusive_stat.max_time,
-						  deleted_wake_lock2.exclusive_stat.max_time);
+				deleted_wake_locks.discrete_stat.count += deleted_wake_lock2.discrete_stat.count;
+				deleted_wake_locks.discrete_stat.expire_count +=
+					deleted_wake_lock2.discrete_stat.expire_count;
+				deleted_wake_locks.discrete_stat.wakeup_count +=
+					deleted_wake_lock2.discrete_stat.wakeup_count;
+				deleted_wake_locks.discrete_stat.total_time =
+					ktime_add(deleted_wake_locks.discrete_stat.total_time,
+						  deleted_wake_lock2.discrete_stat.total_time);
+				deleted_wake_locks.discrete_stat.prevent_suspend_time =
+					ktime_add(deleted_wake_locks.discrete_stat.prevent_suspend_time,
+						  deleted_wake_lock2.discrete_stat.prevent_suspend_time);
+				deleted_wake_locks.discrete_stat.max_time =
+					ktime_add(deleted_wake_locks.discrete_stat.max_time,
+						  deleted_wake_lock2.discrete_stat.max_time);
 			}
 
 			// Move the stats in the 1st position to the 2nd one
@@ -585,15 +585,15 @@ void wake_lock_destroy(struct wake_lock *lock)
 				deleted_wake_lock1.stat.prevent_suspend_time);
 			deleted_wake_lock2.stat.max_time = ktime_add(zero_time,
 				deleted_wake_lock1.stat.max_time);
-			deleted_wake_lock2.exclusive_stat.count = deleted_wake_lock1.exclusive_stat.count;
-			deleted_wake_lock2.exclusive_stat.expire_count = deleted_wake_lock1.exclusive_stat.expire_count;
-			deleted_wake_lock2.exclusive_stat.wakeup_count = deleted_wake_lock1.exclusive_stat.wakeup_count;
-			deleted_wake_lock2.exclusive_stat.total_time = ktime_add(zero_time,
-				deleted_wake_lock1.exclusive_stat.total_time);
-			deleted_wake_lock2.exclusive_stat.prevent_suspend_time = ktime_add(zero_time,
-				deleted_wake_lock1.exclusive_stat.prevent_suspend_time);
-			deleted_wake_lock2.exclusive_stat.max_time = ktime_add(zero_time,
-				deleted_wake_lock1.exclusive_stat.max_time);
+			deleted_wake_lock2.discrete_stat.count = deleted_wake_lock1.discrete_stat.count;
+			deleted_wake_lock2.discrete_stat.expire_count = deleted_wake_lock1.discrete_stat.expire_count;
+			deleted_wake_lock2.discrete_stat.wakeup_count = deleted_wake_lock1.discrete_stat.wakeup_count;
+			deleted_wake_lock2.discrete_stat.total_time = ktime_add(zero_time,
+				deleted_wake_lock1.discrete_stat.total_time);
+			deleted_wake_lock2.discrete_stat.prevent_suspend_time = ktime_add(zero_time,
+				deleted_wake_lock1.discrete_stat.prevent_suspend_time);
+			deleted_wake_lock2.discrete_stat.max_time = ktime_add(zero_time,
+				deleted_wake_lock1.discrete_stat.max_time);
 		}
 
 		// Move data from this WL to the 1st position
@@ -604,13 +604,13 @@ void wake_lock_destroy(struct wake_lock *lock)
 		deleted_wake_lock1.stat.total_time = ktime_add(zero_time, lock->stat.total_time);
 		deleted_wake_lock1.stat.prevent_suspend_time = ktime_add(zero_time, lock->stat.prevent_suspend_time);
 		deleted_wake_lock1.stat.max_time = ktime_add(zero_time, lock->stat.max_time);
-		deleted_wake_lock1.exclusive_stat.count = lock->exclusive_stat.count;
-		deleted_wake_lock1.exclusive_stat.expire_count = lock->exclusive_stat.expire_count;
-		deleted_wake_lock1.exclusive_stat.wakeup_count = lock->exclusive_stat.wakeup_count;
-		deleted_wake_lock1.exclusive_stat.total_time = ktime_add(zero_time, lock->exclusive_stat.total_time);
-		deleted_wake_lock1.exclusive_stat.prevent_suspend_time = ktime_add(zero_time,
-			lock->exclusive_stat.prevent_suspend_time);
-		deleted_wake_lock1.exclusive_stat.max_time = ktime_add(zero_time, lock->exclusive_stat.max_time);
+		deleted_wake_lock1.discrete_stat.count = lock->discrete_stat.count;
+		deleted_wake_lock1.discrete_stat.expire_count = lock->discrete_stat.expire_count;
+		deleted_wake_lock1.discrete_stat.wakeup_count = lock->discrete_stat.wakeup_count;
+		deleted_wake_lock1.discrete_stat.total_time = ktime_add(zero_time, lock->discrete_stat.total_time);
+		deleted_wake_lock1.discrete_stat.prevent_suspend_time = ktime_add(zero_time,
+			lock->discrete_stat.prevent_suspend_time);
+		deleted_wake_lock1.discrete_stat.max_time = ktime_add(zero_time, lock->discrete_stat.max_time);
 	}
 #endif
 	spin_unlock_irqrestore(&list_lock, irqflags);
@@ -638,14 +638,14 @@ static void wake_lock_internal(
 		wait_for_wakeup = 0;
 		lock->stat.wakeup_count++;
 		if (lock->flags & WAKE_LOCK_AWAKE_CULPRIT)
-			lock->exclusive_stat.wakeup_count++;
+			lock->discrete_stat.wakeup_count++;
 	}
 	if ((lock->flags & WAKE_LOCK_AUTO_EXPIRE) &&
 	    (long)(lock->expires - jiffies) <= 0) {
 		wake_unlock_stat_locked(lock, 0);
 		lock->stat.last_time = ktime_get();
 		if (lock->flags & WAKE_LOCK_AWAKE_CULPRIT)
-			lock->exclusive_stat.last_time = ktime_get();
+			lock->discrete_stat.last_time = ktime_get();
 	}
 #endif
 	if (!(lock->flags & WAKE_LOCK_ACTIVE)) {
@@ -653,7 +653,7 @@ static void wake_lock_internal(
 #ifdef CONFIG_WAKELOCK_STAT
 		lock->stat.last_time = ktime_get();
 		if (lock->flags & WAKE_LOCK_AWAKE_CULPRIT)
-			lock->exclusive_stat.last_time = ktime_get();
+			lock->discrete_stat.last_time = ktime_get();
 #endif
 	}
 	list_del(&lock->link);
@@ -768,7 +768,7 @@ EXPORT_SYMBOL(wake_lock_active);
 static int wakelock_stats_open(struct inode *inode, struct file *file)
 {
 	if (default_stats) {
-		return single_open(file, wakelock_stats_show_exclusive, NULL);
+		return single_open(file, wakelock_stats_show_discrete, NULL);
 	} else {
 		return single_open(file, wakelock_stats_show_total, NULL);
 	}
@@ -779,9 +779,9 @@ static int wakelock_total_stats_open(struct inode *inode, struct file *file)
 	return single_open(file, wakelock_stats_show_total, NULL);
 }
 
-static int wakelock_exclusive_stats_open(struct inode *inode, struct file *file)
+static int wakelock_discrete_stats_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, wakelock_stats_show_exclusive, NULL);
+	return single_open(file, wakelock_stats_show_discrete, NULL);
 }
 
 static const struct file_operations wakelock_stats_fops = {
@@ -800,9 +800,9 @@ static const struct file_operations wakelock_total_stats_fops = {
 	.release = single_release,
 };
 
-static const struct file_operations wakelock_exclusive_stats_fops = {
+static const struct file_operations wakelock_discrete_stats_fops = {
 	.owner = THIS_MODULE,
-	.open = wakelock_exclusive_stats_open,
+	.open = wakelock_discrete_stats_open,
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = single_release,
@@ -857,7 +857,7 @@ static int __init wakelocks_init(void)
 #ifdef CONFIG_WAKELOCK_STAT
 	proc_create("wakelocks", S_IRUGO, NULL, &wakelock_stats_fops);
 	proc_create("wakelocks_total", S_IRUGO, NULL, &wakelock_total_stats_fops);
-	proc_create("wakelocks_exclusive", S_IRUGO, NULL, &wakelock_exclusive_stats_fops);
+	proc_create("wakelocks_discrete", S_IRUGO, NULL, &wakelock_discrete_stats_fops);
 #endif
 
 	return 0;
@@ -884,7 +884,7 @@ err_platform_device_register:
 static void  __exit wakelocks_exit(void)
 {
 #ifdef CONFIG_WAKELOCK_STAT
-	remove_proc_entry("wakelocks_exclusive", NULL);
+	remove_proc_entry("wakelocks_discrete", NULL);
 	remove_proc_entry("wakelocks_total", NULL);
 	remove_proc_entry("wakelocks", NULL);
 #endif
