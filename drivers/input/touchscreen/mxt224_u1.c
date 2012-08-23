@@ -1263,6 +1263,7 @@ static int __devinit mxt224_init_touch_driver(struct mxt224_data *data)
 	kfree(object_table);
 	return ret;
 }
+extern void gpu_boost_on_touch(void);
 
 void (*mxt224_touch_cb)(void) = NULL;
 
@@ -1527,7 +1528,10 @@ static void report_input_data(struct mxt224_data *data)
 			copy_data->lock_status = 1;
 		}
 		if(touch_is_pressed && mxt224_touch_cb!=NULL)
+		{
 			(*mxt224_touch_cb)();
+			gpu_boost_on_touch();
+		}
 	}
 }
 

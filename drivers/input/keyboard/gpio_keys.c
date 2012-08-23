@@ -405,6 +405,8 @@ int homekey_trg_ms = 300;
 static int mdnie_shortcut_enabled = 1;
 module_param_named(mdnie_shortcut_enabled, mdnie_shortcut_enabled, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
+void gpu_boost_on_touch(void);
+
 static void gpio_keys_report_event(struct gpio_button_data *bdata)
 {
 	static int64_t homekey_lasttime = 0;
@@ -455,6 +457,7 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 		input_event(input, type, button->code, !!state);
 		if (button->code == KEY_POWER)
 			printk(KERN_DEBUG"[keys]PWR %d\n", !!state);
+		if(!!state) gpu_boost_on_touch();
 	}
 
 	input_sync(input);
