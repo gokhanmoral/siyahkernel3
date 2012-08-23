@@ -26,12 +26,6 @@ nice -n 10 make -j4 || exit 1
 #remove previous initramfs files
 rm -rf $INITRAMFS_TMP
 rm -rf $INITRAMFS_TMP.cpio
-chmod 644 $INITRAMFS_SOURCE/*.rc
-chmod 644 $INITRAMFS_SOURCE/*.rc.2
-chmod 644 $INITRAMFS_SOURCE/*.prop
-chmod 755 $INITRAMFS_SOURCE/innt
-chmod 644 $INITRAMFS_SOURCE/res/misc/init.cm10/*
-chmod 755 $INITRAMFS_SOURCE/res/misc/init.cm10/innt
 #copy initramfs files to tmp directory
 cp -ax $INITRAMFS_SOURCE $INITRAMFS_TMP
 #clear git repositories in initramfs
