@@ -106,7 +106,7 @@ module_param(gpu_power_state, int, S_IRUSR | S_IRGRP | S_IROTH); /* r--r--r-- */
 MODULE_PARM_DESC(gpu_power_state, "Mali Power State");
 extern _mali_device_power_states mali_dvfs_device_state;
 
-int mali_touch_boost_level = 1;
+int mali_touch_boost_level = 0;
 module_param(mali_touch_boost_level, int, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP | S_IROTH); /* rw--rw--r-- */
 MODULE_PARM_DESC(mali_touch_boost_level, "Mali Touch Boost Level");
 
