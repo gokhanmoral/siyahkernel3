@@ -88,35 +88,35 @@ static struct mutex set_speed_lock;
 /*
  * The minimum amount of time to spend at a frequency before we can step up.
  */
-#define DEFAULT_UP_SAMPLE_TIME 20 * USEC_PER_MSEC
+#define DEFAULT_UP_SAMPLE_TIME 40 * USEC_PER_MSEC
 
 /*
  * The minimum amount of time to spend at a frequency before we can step down.
  */
-#define DEFAULT_DOWN_SAMPLE_TIME 40 * USEC_PER_MSEC
+#define DEFAULT_DOWN_SAMPLE_TIME 20 * USEC_PER_MSEC
 
 /*
  * CPU freq will be increased if measured load > inc_cpu_load;
  */
-#define DEFAULT_INC_CPU_LOAD 60
+#define DEFAULT_INC_CPU_LOAD 80
 
 /*
  * CPU freq will be decreased if measured load < dec_cpu_load;
  * not implemented yet.
  */
-#define DEFAULT_DEC_CPU_LOAD 30
+#define DEFAULT_DEC_CPU_LOAD 40
 
 /*
  * Increasing frequency table index
  * zero disables and causes to always jump straight to max frequency.
  */
-#define DEFAULT_PUMP_UP_STEP 0
+#define DEFAULT_PUMP_UP_STEP 2
 
 /*
  * Decreasing frequency table index
  * zero disables and will calculate frequency according to load heuristic.
  */
-#define DEFAULT_PUMP_DOWN_STEP 0
+#define DEFAULT_PUMP_DOWN_STEP 2
 
 /*
  * Use minimum frequency while suspended.
@@ -695,6 +695,9 @@ static inline unsigned int adjust_screen_off_freq(
 
 static void cpufreq_lulzactive_timer(unsigned long data)
 {
+    // do not step down if up scaling was stucked by short sampling time by tegrak
+    static unsigned int stuck_on_sampling = 0;
+
     unsigned int delta_idle;
     unsigned int delta_time;
     int cpu_load;
@@ -704,7 +707,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
     struct cpufreq_lulzactive_cpuinfo *pcpu =
         &per_cpu(cpuinfo, data);
     u64 now_idle;
-    unsigned int new_freq;
+    unsigned int new_freq, old_freq;
     unsigned long flags;
     int ret;
 
@@ -716,6 +719,10 @@ static void cpufreq_lulzactive_timer(unsigned long data)
     // do not let inc_cpu_load be less than dec_cpu_load.
     if (dbs_tuners_ins.dec_cpu_load > dbs_tuners_ins.inc_cpu_load) {
         dbs_tuners_ins.dec_cpu_load = dbs_tuners_ins.dec_cpu_load - (dbs_tuners_ins.dec_cpu_load - dbs_tuners_ins.inc_cpu_load) - 1;
+    }
+
+    if (dbs_tuners_ins.dvfs_debug) {
+       printk (KERN_ERR "CPU in function = %d, CPU in struct = %d.\n", data, pcpu->cpu);
     }
 
     /*
@@ -773,7 +780,28 @@ static void cpufreq_lulzactive_timer(unsigned long data)
     /*
      * START lulzactive algorithm section
      */
-    if (cpu_load >= dbs_tuners_ins.inc_cpu_load) {
+    if (stuck_on_sampling) {
+
+        /*
+         * Here we prevent from both independent scales up / down
+         * samples to 'colide'. If some scale is rearmed and the load in next
+         * iteration indicates to scale in the oppsite way to the rearmed one
+         * nothing but this parameter would stop it.
+         *
+         * This forces the sampling rate to always be respected.
+         * But in otherwise it doesn't respect the imediate load that is a little
+         * like the nature of Lulzactive... letting it in this way for now.
+         */
+
+	new_freq = pcpu->policy->cur;
+
+        if (dbs_tuners_ins.dvfs_debug) {
+
+            printk (KERN_ERR "[NO PUMP]: Stuck on sampling.\n");
+
+        }
+    }
+    else if (cpu_load >= dbs_tuners_ins.inc_cpu_load) {
         if (dbs_tuners_ins.pump_up_step && pcpu->policy->cur < pcpu->policy->max) {
             ret = cpufreq_frequency_table_target(
                 pcpu->policy, pcpu->lulzfreq_table,
@@ -796,8 +824,8 @@ static void cpufreq_lulzactive_timer(unsigned long data)
  
         if (dbs_tuners_ins.dvfs_debug) {
             if (pcpu->policy->cur < pcpu->policy->max) {
-                printk(KERN_ERR "[PUMP UP] %s %d>=%lu, from %d to %d\n",
-                        __func__, cpu_load, dbs_tuners_ins.inc_cpu_load, pcpu->policy->cur, new_freq);
+                printk(KERN_ERR "[PUMP UP] %s, CPU %d, %d>=%lu, from %d to %d\n",
+                        __func__, pcpu->cpu, cpu_load, dbs_tuners_ins.inc_cpu_load, pcpu->policy->cur, new_freq);
             }
         }
     }
@@ -836,8 +864,8 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 
        if (dbs_tuners_ins.dvfs_debug) {
            if (pcpu->policy->cur > pcpu->policy->min) {
-              printk(KERN_ERR "[PUMP DOWN] %s %d<=%lu, from %d to %d\n",
-                     __func__, cpu_load, dbs_tuners_ins.dec_cpu_load, pcpu->policy->cur, new_freq);
+              printk(KERN_ERR "[PUMP DOWN] %s, CPU %d, %d<=%lu, from %d to %d\n",
+                     __func__, pcpu->cpu, cpu_load, dbs_tuners_ins.dec_cpu_load, pcpu->policy->cur, new_freq);
             }
        }
     }
@@ -847,11 +875,19 @@ static void cpufreq_lulzactive_timer(unsigned long data)
     }
     
     // adjust freq when screen off
+    old_freq = new_freq;
     new_freq = adjust_screen_off_freq(pcpu, new_freq);
+
+    if (dbs_tuners_ins.dvfs_debug) {
+        if (new_freq != old_freq)
+            printk (KERN_ERR "[LULZ ADJUST SCREEN]: CPU %d, instead of %d, %d \n", pcpu->cpu, old_freq, new_freq);
+    }
     
     if (pcpu->target_freq == new_freq)
+    {
+        stuck_on_sampling = 0;
         goto rearm_if_notmax;
-
+    }
     /*
      * Do not scale down unless we have been at this frequency for the
      * minimum sample time.
@@ -861,10 +897,11 @@ static void cpufreq_lulzactive_timer(unsigned long data)
             < dbs_tuners_ins.down_sample_time) {
 
             if (dbs_tuners_ins.dvfs_debug) {
-                printk (KERN_ERR "[PUMP REARM DOWN]: (%llu - %llu) < %lu\n",
-                        pcpu->timer_run_time, pcpu->freq_change_time, dbs_tuners_ins.down_sample_time);
+                printk (KERN_ERR "[PUMP REARM DOWN]: CPU %d, (%llu - %llu) < %lu\n",
+                        pcpu->cpu, pcpu->timer_run_time, pcpu->freq_change_time, dbs_tuners_ins.down_sample_time);
             }
 
+            stuck_on_sampling = 1;
             goto rearm;
         }
     }
@@ -873,20 +910,22 @@ static void cpufreq_lulzactive_timer(unsigned long data)
             < dbs_tuners_ins.up_sample_time) {
 
             if (dbs_tuners_ins.dvfs_debug)  {
-                printk (KERN_ERR "[PUMP REARM UP]: (%llu - %llu) < %lu\n",
-                        pcpu->timer_run_time, pcpu->freq_change_time, dbs_tuners_ins.up_sample_time);
+                printk (KERN_ERR "[PUMP REARM UP]: CPU %d, (%llu - %llu) < %lu\n",
+                        pcpu->cpu, pcpu->timer_run_time, pcpu->freq_change_time, dbs_tuners_ins.up_sample_time);
             }
 
             /* don't reset timer */
+            stuck_on_sampling = 1;
             goto rearm;
         }
     }
 
+    stuck_on_sampling = 0;
     if (new_freq < pcpu->target_freq) {
 
         if (dbs_tuners_ins.dvfs_debug) {
-            printk (KERN_ERR "[PUMP DOWN NOW] after %u (%llu - %llu)\n", 
-                    (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time),
+            printk (KERN_ERR "[PUMP DOWN NOW] CPU %d, after %u (%llu - %llu)\n", 
+                    pcpu->cpu, (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time),
                     pcpu->timer_run_time, pcpu->freq_change_time);
         }
 
@@ -898,8 +937,8 @@ static void cpufreq_lulzactive_timer(unsigned long data)
     } else {
 
         if (dbs_tuners_ins.dvfs_debug) {
-            printk (KERN_ERR "[PUMP UP NOW] after %u (%llu - %llu)\n", 
-                    (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time),
+            printk (KERN_ERR "[PUMP UP NOW] CPU %d, after %u (%llu - %llu)\n", 
+                    pcpu->cpu, (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time),
                     pcpu->timer_run_time, pcpu->freq_change_time);
         }
 
@@ -1070,18 +1109,19 @@ static int cpufreq_lulzactive_up_task(void *data)
 
                 if (pjcpu->target_freq > max_freq)
                     max_freq = pjcpu->target_freq;
-
-                // even if the freq doesnt change in next statement we are renewing
-                // the sample time here.
-
-		pcpu->freq_change_time_in_idle =
-			get_cpu_idle_time_us(j, &pjcpu->freq_change_time);
             }
 
             if (max_freq != pcpu->policy->cur)
                 __cpufreq_driver_target(pcpu->policy,
                             max_freq,
                             CPUFREQ_RELATION_H);
+
+                /* even if the freq havent change in the previous
+                 * statement we are renewing
+                 * the sample time here. */
+
+   		pcpu->freq_change_time_in_idle =
+			get_cpu_idle_time_us(cpu, &pcpu->freq_change_time);
 
             mutex_unlock(&set_speed_lock);
         }
@@ -1121,16 +1161,18 @@ static void cpufreq_lulzactive_freq_down(struct work_struct *work)
             if (pjcpu->target_freq > max_freq)
                 max_freq = pjcpu->target_freq;
 
-                // even if the freq doesnt change in next statement we are renewing
-                // the sample time here.
-
-		pcpu->freq_change_time_in_idle =
-			get_cpu_idle_time_us(cpu, &pcpu->freq_change_time);
         }
 
         if (max_freq != pcpu->policy->cur)
             __cpufreq_driver_target(pcpu->policy, max_freq,
                         CPUFREQ_RELATION_H);
+
+                /* even if the freq havent change in the previous
+                 * statement we are renewing
+                 * the sample time here. */
+
+   		pcpu->freq_change_time_in_idle =
+			get_cpu_idle_time_us(cpu, &pcpu->freq_change_time);
 
         mutex_unlock(&set_speed_lock);
     }
@@ -1172,7 +1214,7 @@ static ssize_t store_dec_cpu_load(struct kobject *kobj,
     if (dbs_tuners_ins.dec_cpu_load > 90) {
         dbs_tuners_ins.dec_cpu_load = 90;
     }
-    else if (dbs_tuners_ins.dec_cpu_load < 0) {
+    else if (dbs_tuners_ins.dec_cpu_load <= 0) {
         dbs_tuners_ins.dec_cpu_load = 10;
     }
 
@@ -1621,6 +1663,10 @@ static void do_hot_timer(struct work_struct *work)
     if (num_online_cpus() > 1)
         delay -= jiffies % delay;
 
+    if (dbs_tuners_ins.dvfs_debug) {
+        printk (KERN_ERR "CPU %d working.\n", cpu);
+    }
+
     queue_delayed_work_on(cpu, lulz_wq, &pcpu->work, delay);
     mutex_unlock(&pcpu->timer_mutex);
 }
@@ -1647,7 +1693,6 @@ static int cpufreq_governor_lulzactive(struct cpufreq_policy *policy,
         unsigned int event)
 {
     int rc;
-    unsigned int j;
     struct cpufreq_lulzactive_cpuinfo *pcpu;
     struct cpufreq_frequency_table *freq_table;
 
@@ -1658,38 +1703,39 @@ static int cpufreq_governor_lulzactive(struct cpufreq_policy *policy,
         if (!cpu_online(policy->cpu))
             return -EINVAL;
 
-        /* init works of each cpu */
+        /* Setting current cpu*/
+        pcpu->cpu = policy->cpu;
+        printk (KERN_ERR "[LULZ GOV START] Current CPU set: %d.\n", pcpu->cpu);
+
+        /* init works and timer of each cpu */
 
         hotplug_lulzq_history->num_hist = 0;
+        start_rq_work();
 
-        mutex_init(&pcpu->timer_mutex);
-        hotplug_timer_init (pcpu);
-                start_rq_work();
-
-        /* init timer and other components */
-
-        pcpu->cpu = policy->cpu;
+        /* init other components */
 
         freq_table =
             cpufreq_frequency_get_table(pcpu->cpu);
 
-        for_each_cpu(j, policy->cpus) {
-            pcpu = &per_cpu(cpuinfo, j);
-            pcpu->policy = policy;
-            pcpu->target_freq = policy->cur;
-            pcpu->freq_table = freq_table;
-            pcpu->freq_change_time_in_idle =
-                get_cpu_idle_time_us(j,
-                             &pcpu->freq_change_time);
+        pcpu->policy = policy;
+        pcpu->target_freq = policy->cur;
+        pcpu->freq_table = cpufreq_frequency_get_table(pcpu->cpu);
+        pcpu->freq_change_time_in_idle =
+            get_cpu_idle_time_us(pcpu->cpu,
+                         &pcpu->freq_change_time);
 
-            pcpu->governor_enabled = 1;
-            pcpu->cur_index = 0;
-            smp_wmb();
-            pcpu->lulzfreq_table_size = get_lulzfreq_table_size(pcpu);
+        pcpu->governor_enabled = 1;
+        pcpu->cur_index = 0;
+        smp_wmb();
 
-            // fix invalid screen_off_min_step
-            fix_screen_off_min_step(pcpu);
-        }
+        pcpu->lulzfreq_table_size = get_lulzfreq_table_size(pcpu);
+
+        /* fix invalid screen_off_min_step */
+        fix_screen_off_min_step(pcpu);
+
+        /*  starting hotplug */
+        mutex_init(&pcpu->timer_mutex);
+        hotplug_timer_init (pcpu);
 
         /*
          * Do not register the idle hook and create sysfs
@@ -1697,6 +1743,7 @@ static int cpufreq_governor_lulzactive(struct cpufreq_policy *policy,
          */
         if (atomic_inc_return(&active_count) > 1)
             return 0;
+        
         start_lulzactiveq();
 
         rc = sysfs_create_group(cpufreq_global_kobject,
@@ -1713,27 +1760,24 @@ static int cpufreq_governor_lulzactive(struct cpufreq_policy *policy,
         cancel_work_sync(&pcpu->up_work);
         cancel_work_sync(&pcpu->down_work);
 
-        mutex_destroy(&ppcu->timer_mutex);
+        mutex_destroy(&pcu->timer_mutex);
 
         /* releasing timer */
-        for_each_cpu(j, policy->cpus) {
-            pcpu = &per_cpu(cpuinfo, j);
-            pcpu->governor_enabled = 0;
-            smp_wmb();
-            del_timer_sync(&pcpu->cpu_timer);
+        pcpu->governor_enabled = 0;
+        smp_wmb();
+        del_timer_sync(&pcpu->cpu_timer);
 
-            /*
-             * Reset idle exit time since we may cancel the timer
-             * before it can run after the last idle exit time,
-             * to avoid tripping the check in idle exit for a timer
-             * that is trying to run.
-             */
-            pcpu->idle_exit_time = 0;
-        }
+        /*
+         * Reset idle exit time since we may cancel the timer
+         * before it can run after the last idle exit time,
+         * to avoid tripping the check in idle exit for a timer
+         * that is trying to run.
+         */
+        pcpu->idle_exit_time = 0;
 
         flush_work(&freq_scale_down_work);
 
-                stop_rq_work();
+        stop_rq_work();
 
         if (atomic_dec_return(&active_count) > 0)
             return 0;
@@ -1820,7 +1864,7 @@ void start_lulzactiveq(void)
         }
     }
     if(dbs_tuners_ins.pump_down_step == 0 ) {
-               dbs_tuners_ins.pump_down_step = dbs_tuners_ins.pump_up_step;
+        dbs_tuners_ins.pump_down_step = dbs_tuners_ins.pump_up_step;
     }   
 
         up_task = kthread_create(cpufreq_lulzactive_up_task, NULL,
@@ -1873,7 +1917,7 @@ static int __init cpufreq_lulzactive_init(void)
 
     /* No rescuer thread, bind to CPU queuing the work for possibly
        warm cache (probably doesn't matter much). */
-    lulz_wq = alloc_workqueue("klulzactiveq_wq", 0, 1);
+    lulz_wq = alloc_workqueue("klulzactiveq_wq", 0, 0);
 
     if (!lulz_wq)
         goto err_queue;
@@ -1908,8 +1952,8 @@ static void __exit cpufreq_lulzactive_exit(void)
     kthread_stop(up_task);
     put_task_struct(up_task);
     destroy_workqueue(lulz_wq);
-        kfree(hotplug_lulzq_history);
-        kfree(rq_data);
+    kfree(hotplug_lulzq_history);
+    kfree(rq_data);
 }
 
 module_exit(cpufreq_lulzactive_exit);
@@ -1917,3 +1961,4 @@ module_exit(cpufreq_lulzactive_exit);
 MODULE_AUTHOR("robertobsc - gokhanmoral");
 MODULE_DESCRIPTION("'lulzactiveQ' - improved lulzactive governor with hotplug logic");
 MODULE_LICENSE("GPL");
+
