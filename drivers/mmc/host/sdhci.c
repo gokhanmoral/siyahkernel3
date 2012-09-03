@@ -645,19 +645,15 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd)
 	/* timeout in us */
 	if (!data)
 		target_timeout = cmd->cmd_timeout_ms * 1000;
-	else {  
-	/* patch added for divide by zero once issue for P2_USA_TMO project. */
-		#ifndef CONFIG_TARGET_LOCALE_P2TMO_TEMP
-		target_timeout = data->timeout_ns / 1000 +
-			data->timeout_clks / host->clock;
-	        #else
-		if (host!=NULL)
-                target_timeout = data->timeout_ns / 1000 +
-                        data->timeout_clks / host->clock;
+	else {
+		/* patch added for divide by zero once issue. */
+		if (host && host->clock)
+			target_timeout = data->timeout_ns / 1000 +
+				data->timeout_clks / host->clock;
 		else
 			return 0;
-	        #endif
-             }
+	}
+
 	if (host->quirks & SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK)
 		host->timeout_clk = host->clock / 1000;
 
