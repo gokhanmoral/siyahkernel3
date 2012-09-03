@@ -533,6 +533,9 @@ void wake_lock_destroy(struct wake_lock *lock)
 #ifdef CONFIG_WAKELOCK_STAT
 	if (lock->flags & WAKE_LOCK_AWAKE_CULPRIT) {
 		lock->flags &= ~WAKE_LOCK_AWAKE_CULPRIT;
+		lock->flags &= ~(WAKE_LOCK_ACTIVE | WAKE_LOCK_AUTO_EXPIRE);
+		list_del(&lock->link);
+		list_add(&lock->link, &inactive_locks);
 		assign_next_awake_culprit_locked();
 	}
 	if (lock->stat.count) {

@@ -118,27 +118,34 @@ int mali_regulator_get_usecount(void)
 	return rdev->use_count;
 }
 
+static DEFINE_MUTEX(boostpop_mutex);
 void mali_regulator_disable(void)
 {
+	mutex_lock(&boostpop_mutex);
 	bPoweroff = 1;
 	if( IS_ERR_OR_NULL(g3d_regulator) )
 	{
+		mutex_unlock(&boostpop_mutex);
 		MALI_DEBUG_PRINT(1, ("error on mali_regulator_disable : g3d_regulator is null\n"));
 		return;
 	}
 	regulator_disable(g3d_regulator);
+	mutex_unlock(&boostpop_mutex);
 	MALI_DEBUG_PRINT(1, ("regulator_disable -> use cnt: %d \n",mali_regulator_get_usecount()));
 }
 
 void mali_regulator_enable(void)
 {
+	mutex_lock(&boostpop_mutex);
 	bPoweroff = 0;
 	if( IS_ERR_OR_NULL(g3d_regulator) )
 	{
+		mutex_unlock(&boostpop_mutex);
 		MALI_DEBUG_PRINT(1, ("error on mali_regulator_enable : g3d_regulator is null\n"));
 		return;
 	}
 	regulator_enable(g3d_regulator);
+	mutex_unlock(&boostpop_mutex);
 	MALI_DEBUG_PRINT(1, ("regulator_enable -> use cnt: %d \n",mali_regulator_get_usecount()));
 }
 
@@ -469,7 +476,6 @@ static mali_bool deinit_mali_clock(void)
 }
 extern int mali_touch_boost_level;
 static int is_gpu_boosted = 0;
-static DEFINE_MUTEX(boostpop_mutex);
 static struct timer_list boostpop_timer;
 static void boostpop(struct work_struct *boostpop_work)
 {
@@ -490,7 +496,7 @@ void gpu_boost_on_touch(void)
 {
 	if(!mali_touch_boost_level) return;
 	mutex_lock(&boostpop_mutex);
-	if(!is_gpu_boosted)
+	if(!is_gpu_boosted && !bPoweroff)
 	{
 		mali_dvfs_bottom_lock_push(mali_touch_boost_level);
 		is_gpu_boosted = 1;
