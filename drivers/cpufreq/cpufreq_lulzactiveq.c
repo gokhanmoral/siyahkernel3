@@ -1714,7 +1714,7 @@ static int cpufreq_governor_lulzactive(struct cpufreq_policy *policy,
 		cancel_delayed_work_sync(&pcpu->work);
 		cancel_work_sync(&pcpu->up_work);
 		cancel_work_sync(&pcpu->down_work);
-		mutex_destroy(&pcu->timer_mutex);
+		mutex_destroy(&pcpu->timer_mutex);
 		for_each_cpu(j, policy->cpus) {
 			pcpu = &per_cpu(cpuinfo, j);
 			pcpu->governor_enabled = 0;
