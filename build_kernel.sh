@@ -3,7 +3,6 @@ export KERNELDIR=`readlink -f .`
 export INITRAMFS_SOURCE=`readlink -f $KERNELDIR/../initramfs3`
 export PARENT_DIR=`readlink -f ..`
 export USE_SEC_FIPS_MODE=true
-export CROSS_COMPILE=$PARENT_DIR/android_prebuilt/linux-x86/toolchain/arm-eabi-4.4.3/bin/arm-eabi-
 
 if [ "${1}" != "" ];then
   export KERNELDIR=`readlink -f ${1}`
