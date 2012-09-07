@@ -64,29 +64,53 @@ typedef struct mali_dvfs_staycount{
 
 mali_dvfs_staycount_table mali_dvfs_staycount[MALI_DVFS_STEPS]={
 	/*step 0*/{0},
+#if (MALI_DVFS_STEPS > 1)
 	/*step 1*/{0},
+#if (MALI_DVFS_STEPS > 2)
 	/*step 2*/{0},
-	/*step 3*/{0} };
+#if (MALI_DVFS_STEPS > 3)
+	/*step 3*/{0},
+#if (MALI_DVFS_STEPS > 4)
+	/*step 4*/{0}
+#endif
+#endif
+#endif
+#endif
+};
 
 mali_dvfs_table mali_dvfs[MALI_DVFS_STEPS]={
 	{100  ,1000000    , 900000},
+#if (MALI_DVFS_STEPS > 1)
 	{160  ,1000000    , 950000},
+#if (MALI_DVFS_STEPS > 2)
 	{267  ,1000000    ,1000000},
-	{330  ,1000000    ,1100000} };
-mali_dvfs_threshold_table mali_dvfs_threshold[MALI_DVFS_STEPS]={
-	{0   , 70},
-	{62  , 90},
-	{85  , 90},
-	{90  ,100}
+#if (MALI_DVFS_STEPS > 3)
+	{330  ,1000000    ,1100000},
+#if (MALI_DVFS_STEPS > 4)
+	{440  ,1000000    ,1200000}
+#endif
+#endif
+#endif
+#endif
 };
 
-/*dvfs status*/
-mali_dvfs_currentstatus maliDvfsStatus;
-int mali_dvfs_control=0;
-
+mali_dvfs_threshold_table mali_dvfs_threshold[MALI_DVFS_STEPS]={
+	{0   , 70},
+#if (MALI_DVFS_STEPS > 1)
+	{62  , 90},
+#if (MALI_DVFS_STEPS > 2)
+	{85  , 90},
+#if (MALI_DVFS_STEPS > 3)
+	{85  ,100}
+#if (MALI_DVFS_STEPS > 4)
+	{95  ,100}
+#endif
+#endif
+#endif
+#endif
+};
 
 #ifdef EXYNOS4_ASV_ENABLED
-
 #define ASV_8_LEVEL	8
 #define ASV_5_LEVEL	5
 
@@ -111,6 +135,10 @@ static unsigned int asv_3d_volt_8_table[ASV_8_LEVEL][MALI_DVFS_STEPS] = {
 	{ 925000,  950000,  950000, 1000000},	/* D1 */
 };
 #endif
+
+/*dvfs status*/
+mali_dvfs_currentstatus maliDvfsStatus;
+int mali_dvfs_control=0;
 
 u32 mali_dvfs_utilization = 255;
 
@@ -196,7 +224,7 @@ static mali_bool set_mali_dvfs_status(u32 step,mali_bool boostup)
 	int err;
 
 #ifdef CONFIG_REGULATOR
-	if (mali_regulator_get_usecount()==0) {
+	if (mali_regulator_get_usecount() == 0) {
 		MALI_DEBUG_PRINT(1, ("regulator use_count is 0 \n"));
 		return MALI_FALSE;
 	}
@@ -240,10 +268,9 @@ static void mali_platform_wating(u32 msec)
 	while(1) {
 		read_val = _mali_osk_mem_ioread32(clk_register_map, 0x00);
 		if ((read_val & 0x8000)==0x0000) break;
-
-		_mali_osk_time_ubusydelay(100); // 1000 -> 100 : 20101218
-	}
-	/* _mali_osk_time_ubusydelay(msec*1000);*/
+			_mali_osk_time_ubusydelay(100); // 1000 -> 100 : 20101218
+		}
+		/* _mali_osk_time_ubusydelay(msec*1000);*/
 }
 
 static mali_bool change_mali_dvfs_status(u32 step, mali_bool boostup )
@@ -285,9 +312,9 @@ static mali_bool mali_dvfs_table_update(void)
 	}
 
 	return MALI_TRUE;
-
 }
 #endif
+
 static unsigned int decideNextStatus(unsigned int utilization)
 {
 	static unsigned int level = 0; // 0:stay, 1:up
@@ -327,7 +354,6 @@ static unsigned int decideNextStatus(unsigned int utilization)
 
 	return level;
 }
-
 
 static mali_bool mali_dvfs_status(u32 utilization)
 {
