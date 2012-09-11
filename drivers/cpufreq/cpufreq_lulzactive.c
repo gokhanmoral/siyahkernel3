@@ -36,7 +36,7 @@
 #define LULZACTIVE_AUTHOR	"tegrak"
 
 // if you changed some codes for optimization, just write your name here.
-#define LULZACTIVE_TUNER "siyah"
+#define LULZACTIVE_TUNER "gokhanmoral"
 
 static atomic_t active_count = ATOMIC_INIT(0);
 
@@ -1010,6 +1010,7 @@ static int __init cpufreq_lulzactive_init(void)
 	pump_down_step = DEFAULT_PUMP_DOWN_STEP;
 	early_suspended = 0;
 	screen_off_min_step = DEFAULT_SCREEN_OFF_MIN_STEP;
+	timer_rate = DEFAULT_TIMER_RATE;
 
 
 	/* Initalize per-cpu timers */
