@@ -24,6 +24,7 @@
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
 #include <linux/cpufreq.h>
+#include <linux/kernel_stat.h>
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/tick.h>
@@ -43,7 +44,7 @@
 #define LULZACTIVE_AUTHOR	"tegrak"
 
 // if you changed some codes for optimization, just write your name here.
-#define LULZACTIVE_TUNER "siyah-robertobsc"
+#define LULZACTIVE_TUNER "gokhanmoral-robertobsc"
 
 static atomic_t active_count = ATOMIC_INIT(0);
 
@@ -53,9 +54,13 @@ struct cpufreq_lulzactive_cpuinfo {
 	u64 time_in_idle;
 	u64 idle_exit_time;
 	u64 timer_run_time;
+	cputime64_t idle_prev_cpu_nice;
 	int idling;
 	u64 freq_change_time;
+	u64 freq_change_up_time;
+	u64 freq_change_down_time;
 	u64 freq_change_time_in_idle;
+	cputime64_t freq_change_prev_cpu_nice;
 	struct cpufreq_policy *policy;
 	struct cpufreq_frequency_table *freq_table;
 	struct cpufreq_frequency_table lulzfreq_table[32];
@@ -309,6 +314,8 @@ static struct dbs_tuners {
 	unsigned int min_cpu_lock;
 	atomic_t hotplug_lock;
 	unsigned int dvfs_debug;
+	unsigned int ignore_nice;
+
 } dbs_tuners_ins = {
 	.hotplug_sampling_rate=DEF_SAMPLING_RATE,
 
@@ -319,6 +326,7 @@ static struct dbs_tuners {
 	.min_cpu_lock = DEF_MIN_CPU_LOCK,
 	.hotplug_lock = ATOMIC_INIT(0),
 	.dvfs_debug = 0,
+	.ignore_nice = 0,
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #endif
 };
@@ -383,6 +391,8 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 	u64 now_idle;
 	unsigned int new_freq;
 	unsigned int index;
+	cputime64_t cur_nice;
+	unsigned long cur_nice_jiffies;
 	unsigned long flags;
 	int ret;
 
@@ -424,6 +434,27 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 	if (delta_time < 1000)
 		goto rearm;
 
+	if (dbs_tuners_ins.ignore_nice) {
+
+		cur_nice = cputime64_sub(kstat_cpu(data).cpustat.nice,
+					 pcpu->idle_prev_cpu_nice);
+		/*
+		 * Assumption: nice time between sampling periods will
+		 * be less than 2^32 jiffies for 32 bit sys
+		 */
+		cur_nice_jiffies = (unsigned long)
+			cputime64_to_jiffies64(cur_nice);
+
+		delta_idle += jiffies_to_usecs(cur_nice_jiffies);
+
+		if (dbs_tuners_ins.dvfs_debug) {
+			printk(KERN_ERR "[LULZ TIMER] NICE TIME IN IDLE: %u\n",
+					jiffies_to_usecs(cur_nice_jiffies));
+		}
+
+	}
+
+
 	if (delta_idle > delta_time)
 		cpu_load = 0;
 	else
@@ -433,6 +464,26 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 						pcpu->freq_change_time_in_idle);
 	delta_time = (unsigned int) cputime64_sub(pcpu->timer_run_time,
 						  pcpu->freq_change_time);
+
+	if (dbs_tuners_ins.ignore_nice) {
+
+		cur_nice = cputime64_sub(kstat_cpu(data).cpustat.nice,
+					 pcpu->freq_change_prev_cpu_nice);
+
+		/*
+		 * Assumption: nice time between sampling periods will
+		 * be less than 2^32 jiffies for 32 bit sys
+		 */
+		cur_nice_jiffies = (unsigned long)
+			cputime64_to_jiffies64(cur_nice);
+
+		delta_idle += jiffies_to_usecs(cur_nice_jiffies);
+
+                if (dbs_tuners_ins.dvfs_debug) {
+                        printk(KERN_ERR "[LULZ TIMER] NICE TIME IN RUN: %u\n",
+                                        jiffies_to_usecs(cur_nice_jiffies));
+                }
+	}
 
 	if ((delta_time == 0) || (delta_idle > delta_time))
 		load_since_change = 0;
@@ -452,21 +503,25 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 	 * START lulzactive algorithm section
 	 */
 	if (cpu_load >= inc_cpu_load) {
-		if (pump_up_step && pcpu->policy->cur < pcpu->policy->max) {
-			ret = cpufreq_frequency_table_target(
-				pcpu->policy, pcpu->lulzfreq_table,
-				pcpu->policy->cur, CPUFREQ_RELATION_H,
-				&index);
-			if (ret < 0) {
-				goto rearm;
+		if (pump_up_step) {
+			if (pcpu->policy->cur < pcpu->policy->max) {
+				ret = cpufreq_frequency_table_target(
+					pcpu->policy, pcpu->lulzfreq_table,
+					pcpu->policy->cur, CPUFREQ_RELATION_H,
+					&index);
+				if (ret < 0) {
+					goto rearm;
+				}
+			
+				// apply pump_up_step by tegrak
+				index -= pump_up_step;
+				if (index < 0)
+					index = 0;
+			
+				new_freq = pcpu->lulzfreq_table[index].frequency;
 			}
-			
-			// apply pump_up_step by tegrak
-			index -= pump_up_step;
-			if (index < 0)
-				index = 0;
-			
-			new_freq = pcpu->lulzfreq_table[index].frequency;
+			else
+				new_freq = pcpu->policy->max;
 		}
 		else {
 			if (pcpu->policy->cur == pcpu->policy->min)
@@ -474,8 +529,15 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 			else
 				new_freq = pcpu->policy->max * cpu_load / 100;
 		}
+
+		if (dbs_tuners_ins.dvfs_debug) {
+			if (pcpu->policy->cur < pcpu->policy->max) {
+				printk(KERN_ERR "[PUMP UP] %s, CPU %d, %d>=%lu, from %d to %d\n",
+					__func__, pcpu->cpu, cpu_load, inc_cpu_load, pcpu->policy->cur, new_freq);
+			}
+		}
 	}
-	else {		
+	else if (cpu_load <= dec_cpu_load){		
 		if (pump_down_step) {
 			ret = cpufreq_frequency_table_target(
 				pcpu->policy, pcpu->lulzfreq_table,
@@ -498,7 +560,25 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 		else {
 			new_freq = pcpu->policy->cur * cpu_load / 100;
 		}		
+
+		if (dbs_tuners_ins.dvfs_debug) {
+			if (pcpu->policy->cur > pcpu->policy->min) {
+				printk(KERN_ERR "[PUMP DOWN] %s, CPU %d, %d<=%lu, from %d to %d\n",
+						__func__, pcpu->cpu, cpu_load, dec_cpu_load, pcpu->policy->cur, new_freq);
+			}
+		}
 	}
+	else
+	{
+		new_freq = pcpu->policy->cur; //pcpu->lulzfreq_table[index].frequency;
+
+		if (dbs_tuners_ins.dvfs_debug) {
+			printk (KERN_ERR "[PUMP MAINTAIN] load = %d, %d\n", cpu_load, new_freq);
+		}
+	}
+
+	
+
 	if (cpufreq_frequency_table_target(pcpu->policy, pcpu->lulzfreq_table,
 					   new_freq, CPUFREQ_RELATION_H,
 					   &index)) {
@@ -519,25 +599,44 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 	 * minimum sample time.
 	 */
 	if (new_freq < pcpu->target_freq) {
-		if (cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time)
-		    < down_sample_time)
+		if (cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_down_time)
+		    < down_sample_time) {
+			if (dbs_tuners_ins.dvfs_debug) {
+				printk (KERN_ERR "[PUMP REARM DOWN]: CPU %d, (%llu - %llu) < %lu\n",
+				pcpu->cpu, pcpu->timer_run_time, pcpu->freq_change_down_time, down_sample_time);
+			}
 			goto rearm;
+		}
 	}
 	else {
-		if (cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time) <
+		if (cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_up_time) <
 		    up_sample_time) {
+			if (dbs_tuners_ins.dvfs_debug)  {
+				printk (KERN_ERR "[PUMP REARM UP]: CPU %d, (%llu - %llu) < %lu\n",
+						pcpu->cpu, pcpu->timer_run_time, pcpu->freq_change_up_time, up_sample_time);
+			}
 			/* don't reset timer */
 			goto rearm;
 		}
 	}
 
 	if (new_freq < pcpu->target_freq) {
+        	if (dbs_tuners_ins.dvfs_debug) {
+	            printk (KERN_ERR "[PUMP DOWN NOW] CPU %d, after %u (run: %llu - last down: %llu), last freq change: %lu\n", 
+        	            pcpu->cpu, (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_down_time),
+                	    pcpu->timer_run_time, pcpu->freq_change_down_time, (unsigned long) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time));
+	        }
 		pcpu->target_freq = new_freq;
 		spin_lock_irqsave(&down_cpumask_lock, flags);
 		cpumask_set_cpu(data, &down_cpumask);
 		spin_unlock_irqrestore(&down_cpumask_lock, flags);
 		queue_work(down_wq, &freq_scale_down_work);
 	} else {
+		if (dbs_tuners_ins.dvfs_debug) {
+			printk (KERN_ERR "[PUMP UP NOW] CPU %d, after %u (run: %llu - last up: %llu), last freq change: %lu\n", 
+					pcpu->cpu, (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_up_time),
+					pcpu->timer_run_time, pcpu->freq_change_up_time, (unsigned long) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time));
+		}
 		pcpu->target_freq = new_freq;
 		spin_lock_irqsave(&up_cpumask_lock, flags);
 		cpumask_set_cpu(data, &up_cpumask);
@@ -571,6 +670,8 @@ rearm:
 
 		pcpu->time_in_idle = get_cpu_idle_time_us(
 			data, &pcpu->idle_exit_time);
+		if (dbs_tuners_ins.ignore_nice)
+			pcpu->idle_prev_cpu_nice = kstat_cpu(data).cpustat.nice;
 		mod_timer(&pcpu->cpu_timer,
 			  jiffies + usecs_to_jiffies(timer_rate));
 	}
@@ -606,6 +707,8 @@ static void cpufreq_lulzactive_idle_start(void)
 			pcpu->time_in_idle = get_cpu_idle_time_us(
 				smp_processor_id(), &pcpu->idle_exit_time);
 			pcpu->timer_idlecancel = 0;
+			if (dbs_tuners_ins.ignore_nice)
+				pcpu->idle_prev_cpu_nice = kstat_cpu(smp_processor_id()).cpustat.nice;
 			mod_timer(&pcpu->cpu_timer,
 				  jiffies + usecs_to_jiffies(timer_rate));
 		}
@@ -657,6 +760,8 @@ static void cpufreq_lulzactive_idle_end(void)
 			get_cpu_idle_time_us(smp_processor_id(),
 					     &pcpu->idle_exit_time);
 		pcpu->timer_idlecancel = 0;
+		if (dbs_tuners_ins.ignore_nice)
+			pcpu->idle_prev_cpu_nice = kstat_cpu(smp_processor_id()).cpustat.nice;
 		mod_timer(&pcpu->cpu_timer,
 			  jiffies + usecs_to_jiffies(timer_rate));
 	}
@@ -719,6 +824,17 @@ static int cpufreq_lulzactive_up_task(void *data)
 			pcpu->freq_change_time_in_idle =
 				get_cpu_idle_time_us(cpu,
 						     &pcpu->freq_change_time);
+			pcpu->freq_change_prev_cpu_nice = kstat_cpu(cpu).cpustat.nice;
+
+
+			/*
+			 *  The pcpu->freq_change_time is shared by scaling up and down,
+			 *  in a way that disrespect theit both sampling.
+			 *  If cpu rates are 20 scaled down and 40 and scale up;
+			 *  If cpu do scale down at 20 it will renew not only the scale down sampling
+			 *  but also the scale up; so scale up will not up at 40, only at 60.
+			 */
+			pcpu->freq_change_up_time = pcpu->freq_change_time;
 		}
 	}
 
@@ -765,6 +881,15 @@ static void cpufreq_lulzactive_freq_down(struct work_struct *work)
 		pcpu->freq_change_time_in_idle =
 			get_cpu_idle_time_us(cpu,
 					     &pcpu->freq_change_time);
+		pcpu->freq_change_prev_cpu_nice = kstat_cpu(cpu).cpustat.nice;
+		/*
+		 *  The pcpu->freq_change_time is shared by scaling up and down,
+		 *  in a way that disrespect theit both sampling.
+		 *  If cpu rates are 20 scaled down and 40 and scale up;
+		 *  If cpu do scale down at 20 it will renew not only the scale down sampling
+		 *  but also the scale up; so scale up will not up at 40, only at 60.
+		 */
+		pcpu->freq_change_down_time = pcpu->freq_change_time;
 	}
 }
 
@@ -815,6 +940,31 @@ static ssize_t store_inc_cpu_load(struct kobject *kobj,
 static struct global_attr inc_cpu_load_attr = __ATTR(inc_cpu_load, 0666,
 		show_inc_cpu_load, store_inc_cpu_load);
 
+// dec_cpu_load
+static ssize_t show_dec_cpu_load(struct kobject *kobj,
+                     struct attribute *attr, char *buf)
+{
+    return sprintf(buf, "%lu\n", dec_cpu_load);
+}
+
+static ssize_t store_dec_cpu_load(struct kobject *kobj,
+            struct attribute *attr, const char *buf, size_t count)
+{
+    if(strict_strtoul(buf, 0, &dec_cpu_load)==-EINVAL) return -EINVAL;
+
+    if (dec_cpu_load > 90) {
+        dec_cpu_load = 90;
+    }
+    else if (dec_cpu_load <= 0) {
+        dec_cpu_load = 10;
+    }
+
+    return count;
+}
+
+static struct global_attr dec_cpu_load_attr = __ATTR(dec_cpu_load, 0666,
+		show_dec_cpu_load, store_dec_cpu_load);
+
 // down_sample_time
 static ssize_t show_down_sample_time(struct kobject *kobj,
 				struct attribute *attr, char *buf)
@@ -859,6 +1009,14 @@ static ssize_t show_debug_mode(struct kobject *kobj,
 static ssize_t store_debug_mode(struct kobject *kobj,
 			struct attribute *attr, const char *buf, size_t count)
 {
+    unsigned int input;
+    int ret;
+    ret = sscanf(buf, "%u", &input);
+    if (ret != 1)
+        return -EINVAL;
+
+    dbs_tuners_ins.dvfs_debug = (input > 0);
+
 	return count;
 }
 
@@ -1122,6 +1280,7 @@ show_one(up_nr_cpus, up_nr_cpus);
 show_one(max_cpu_lock, max_cpu_lock);
 show_one(min_cpu_lock, min_cpu_lock);
 show_one(dvfs_debug, dvfs_debug);
+show_one(ignore_nice_load, ignore_nice);
 static ssize_t show_hotplug_lock(struct kobject *kobj,
 				struct attribute *attr, char *buf)
 {
@@ -1327,6 +1486,27 @@ static ssize_t store_dvfs_debug(struct kobject *a, struct attribute *b,
 	dbs_tuners_ins.dvfs_debug = input > 0;
 	return count;
 }
+static ssize_t store_ignore_nice_load(struct kobject *a, struct attribute *b,
+				      const char *buf, size_t count)
+{
+	unsigned int input;
+	int ret;
+
+	ret = sscanf(buf, "%u", &input);
+	if (ret != 1)
+		return -EINVAL;
+
+	if (input > 1)
+		input = 1;
+
+	if (input == dbs_tuners_ins.ignore_nice) { /* nothing to do */
+		return count;
+	}
+	dbs_tuners_ins.ignore_nice = input;
+
+	return count;
+}
+
 
 define_one_global_rw(hotplug_sampling_rate);
 #ifndef CONFIG_CPU_EXYNOS4210
@@ -1338,17 +1518,20 @@ define_one_global_rw(hotplug_lock);
 define_one_global_rw(dvfs_debug);
 define_one_global_rw(cpu_up_rate);
 define_one_global_rw(cpu_down_rate);
+define_one_global_rw(ignore_nice_load);
 
 
 static struct attribute *lulzactive_attributes[] = {
 	&hispeed_freq_attr.attr,
 	&inc_cpu_load_attr.attr,
+	&dec_cpu_load_attr.attr,
 	&up_sample_time_attr.attr,
 	&down_sample_time_attr.attr,
 	&pump_up_step_attr.attr,
 	&pump_down_step_attr.attr,
 	&screen_off_min_step_attr.attr,
 	&debug_mode_attr.attr,
+	&ignore_nice_load.attr,
 
     /*hotplug attributes*/
 
@@ -1678,12 +1861,17 @@ static int cpufreq_governor_lulzactive(struct cpufreq_policy *policy,
 			pcpu->freq_change_time_in_idle =
 				get_cpu_idle_time_us(j,
 						     &pcpu->freq_change_time);
+			pcpu->freq_change_up_time = pcpu->freq_change_down_time = pcpu->freq_change_time;
 			pcpu->governor_enabled = 1;
 			smp_wmb();
 			pcpu->lulzfreq_table_size = get_lulzfreq_table_size(pcpu);
 
 			// fix invalid screen_off_min_step
 			fix_screen_off_min_step(pcpu);
+			if (dbs_tuners_ins.ignore_nice) {
+				pcpu->freq_change_prev_cpu_nice =
+					kstat_cpu(j).cpustat.nice;
+			}
 		}
 
 		if (!hispeed_freq)
@@ -1691,6 +1879,7 @@ static int cpufreq_governor_lulzactive(struct cpufreq_policy *policy,
 
 		/*  starting hotplug */
 		pcpu = &per_cpu(cpuinfo, policy->cpu);
+		pcpu->cpu = policy->cpu;
 		mutex_init(&pcpu->timer_mutex);
 		hotplug_timer_init (pcpu);
 		/*
@@ -1849,6 +2038,7 @@ static int __init cpufreq_lulzactive_init(void)
 	pump_down_step = DEFAULT_PUMP_DOWN_STEP;
 	early_suspended = 0;
 	screen_off_min_step = DEFAULT_SCREEN_OFF_MIN_STEP;
+	timer_rate = DEFAULT_TIMER_RATE;
 	ret = init_rq_avg();
 	if(ret) return ret;
 
