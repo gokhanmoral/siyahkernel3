@@ -30,7 +30,7 @@
 static int pwm_duty_max;
 static int pwm_duty_min;
 
-static unsigned long pwm_val = 50; /* duty in percent */
+static unsigned long pwm_val = 100; /* duty in percent */
 static int pwm_duty; /* duty value */
 
 struct vibrator_drvdata {
