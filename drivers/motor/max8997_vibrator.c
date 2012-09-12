@@ -354,7 +354,7 @@ static int __devinit vibrator_probe(struct platform_device *pdev)
 	g_data = ddata;
 	pwm_duty_max = g_data->pdata->duty;
 	pwm_duty_min = pwm_duty_max/2;
-	pwm_duty = (pwm_duty_min + pwm_duty_max)/2;
+	pwm_duty = (pwm_val * pwm_duty_min) / 100 + pwm_duty_min;
 #endif
 
 	return 0;
