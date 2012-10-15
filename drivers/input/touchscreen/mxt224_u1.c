@@ -2150,10 +2150,13 @@ static void reset_gestures_detection_locked(bool including_detected)
 {
 	int gesture_no, finger_no;
 
+	has_gestures = false;
 	for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-		if (gestures_detected[gesture_no] && !including_detected)
+		if (gestures_detected[gesture_no] && !including_detected) {
+			has_gestures = true;
 			// Gesture already reported, skip
 			continue;
+		}
 
 		gestures_detected[gesture_no] = false;
 
@@ -3772,6 +3775,8 @@ static ssize_t wait_for_gesture_show(struct device *dev,
 			return s - buf;
 		}
 	}
+	// False-positive, avoid further wakeups until new gestures are detected
+	has_gestures = false;
 	spin_unlock_irqrestore(&gestures_lock, flags);
 
 	// Despite waking up, no gestures were detected
