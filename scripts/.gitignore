@@ -9,3 +9,5 @@ unifdef
 ihex2fw
 recordmcount
 docproc
+zconf.hash.c
+zconf.tab.c

@@ -6516,7 +6516,10 @@ static struct genl_ops nl80211_ops[] = {
 		.doit = nl80211_testmode_do,
 		.dumpit = nl80211_testmode_dump,
 		.policy = nl80211_policy,
+#ifdef CONFIG_MACH_PX
+#else
 		.flags = GENL_ADMIN_PERM,
+#endif
 		.internal_flags = NL80211_FLAG_NEED_WIPHY |
 				  NL80211_FLAG_NEED_RTNL,
 	},
