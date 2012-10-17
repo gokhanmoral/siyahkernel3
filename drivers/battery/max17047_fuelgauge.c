@@ -64,22 +64,11 @@
 #undef	DEBUG_FUELGAUGE_POLLING
 #define MAX17047_POLLING_INTERVAL	10000
 
-/* adjust fullcoc */
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
-#define ADJUST_FULLSOC
-#else
-#undef ADJUST_FULLSOC
-#endif
-
-#if defined(ADJUST_FULLSOC)
 /* adjust full soc */
 #define FULL_SOC_DEFAULT	9850
 #define FULL_SOC_LOW		9700
 #define FULL_SOC_HIGH		10000
 #define KEEP_SOC_DEFAULT	50 /* 0.5% */
-
-static void max17047_adjust_fullsoc(struct i2c_client *client);
-#endif
 
 struct max17047_fuelgauge_data {
 	struct i2c_client		*client;
@@ -108,8 +97,12 @@ struct max17047_fuelgauge_data {
 	unsigned int			rawsoc;
 	unsigned int			temperature;
 
-#if defined(ADJUST_FULLSOC)
+	/* adjust full soc */
 	int				full_soc;
+
+#ifdef USE_TRIM_ERROR_DETECTION
+	/* trim error state */
+	bool				trim_err;
 #endif
 
 #ifdef CONFIG_DEBUG_FS
@@ -272,52 +265,32 @@ static int max17047_get_rawsoc(struct i2c_client *client)
 static int max17047_get_soc(struct i2c_client *client)
 {
 	struct max17047_fuelgauge_data *fg_data = i2c_get_clientdata(client);
-	int rawsoc, soc;
+	int rawsoc, soc, fullsoc, empty;
 	pr_debug("%s\n", __func__);
 
 	rawsoc = max17047_get_rawsoc(fg_data->client);
 
-#if defined(ADJUST_FULLSOC)
-#if defined(CONFIG_MACH_C1_KOR_SKT) || \
-	defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
-	if (fg_data->full_soc <= 0)
-		fg_data->full_soc = FULL_SOC_DEFAULT;
-
-	soc = fg_data->soc =
-		((rawsoc < 0) ? 0 : (min((rawsoc * 100 /
-				fg_data->full_soc), 100)));
-#elif defined(CONFIG_MACH_M0_KOR_SKT) || \
-	defined(CONFIG_MACH_M0_KOR_KT)
-	if (fg_data->full_soc <= 0)
-		fg_data->full_soc = FULL_SOC_DEFAULT;
-
-	soc = fg_data->soc =
-		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
-				(fg_data->full_soc - 29)), 100)));
-#elif defined(CONFIG_MACH_M0_CTC)
-	if (fg_data->full_soc <= 0)
-		fg_data->full_soc = FULL_SOC_DEFAULT;
-
-	soc = fg_data->soc =
-		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
-			(fg_data->full_soc - 29)), 100)));
-#endif
-#else	/* !ADJUST_FULLSOC */
 #if defined(CONFIG_MACH_C1)
-	soc = fg_data->soc =
-		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
-						(10000 - 79)), 100)));
-
-#else	/* M0 */
-	/* prevent minus value and add 0.5% up raw soc */
-	soc = fg_data->soc =
-		((rawsoc < 29) ? 0 : (min(((rawsoc - 29) * 100 /
-						(10000 - 79)), 100)));
-#endif
+	empty = 0;
+#else	/* M0, T0,,, */
+	empty = 29;
 #endif
 
-	pr_debug("%s: SOC(%d, %d)\n", __func__, soc, rawsoc);
+	if (fg_data->full_soc <= 0)
+		fg_data->full_soc = FULL_SOC_DEFAULT;
+	fullsoc = fg_data->full_soc - empty;
+	rawsoc -= empty;
+
+/* adjust fullsoc value for fast termination */
+#if defined(USE_2STEP_TERM) && !defined(CONFIG_TARGET_LOCALE_KOR)
+	fullsoc *= 99;
+	fullsoc /= 100;
+#endif
+
+	soc = fg_data->soc =
+		((rawsoc < empty) ? 0 : (min((rawsoc * 100 / fullsoc), 100)));
+
+	pr_info("%s: SOC(%d, %d / %d)\n", __func__, soc, rawsoc, fullsoc);
 	return soc;
 }
 
@@ -350,6 +323,38 @@ static void max17047_reset_soc(struct i2c_client *client)
 	max17047_test_read(fg_data);
 
 	return;
+}
+
+static void max17047_adjust_fullsoc(struct i2c_client *client)
+{
+	struct max17047_fuelgauge_data *fg_data =
+		 i2c_get_clientdata(client);
+	int prev_full_soc = fg_data->full_soc;
+	int temp_soc = max17047_get_rawsoc(fg_data->client);
+	int keep_soc = 0;
+
+	if (temp_soc < 0) {
+		pr_err("%s : fg data error!(%d)\n", __func__, temp_soc);
+		fg_data->full_soc = FULL_SOC_DEFAULT;
+		return;
+	}
+
+	if (temp_soc < FULL_SOC_LOW)
+		fg_data->full_soc = FULL_SOC_LOW;
+	else if (temp_soc > FULL_SOC_HIGH) {
+		keep_soc = FULL_SOC_HIGH / 100;
+		fg_data->full_soc = (FULL_SOC_HIGH - keep_soc);
+	} else {
+		keep_soc = temp_soc / 100;
+		if (temp_soc > (FULL_SOC_LOW + keep_soc))
+			fg_data->full_soc = temp_soc - keep_soc;
+		else
+			fg_data->full_soc = FULL_SOC_LOW;
+	}
+
+	if (prev_full_soc != fg_data->full_soc)
+		pr_info("%s : p_full_soc(%d), full_soc(%d), keep_soc(%d)\n",
+			__func__, prev_full_soc, fg_data->full_soc, keep_soc);
 }
 
 /* SOC% alert, disabled(0xFF00) */
@@ -480,7 +485,6 @@ static void max17047_update_work(struct work_struct *work)
 
 	if (!battery_psy || !battery_psy->set_property) {
 		pr_err("%s: fail to get battery power supply\n", __func__);
-		mutex_unlock(&fg_data->irq_lock);
 		return;
 	}
 
@@ -531,8 +535,9 @@ static enum power_supply_property max17047_fuelgauge_props[] = {
 /* Temp: Init max17047 sample has trim value error. For detecting that. */
 #define TRIM_ERROR_DETECT_VOLTAGE1	2500000
 #define TRIM_ERROR_DETECT_VOLTAGE2	3600000
-static int max17047_detect_trim_error(struct max17047_fuelgauge_data *fg_data)
+static bool max17047_detect_trim_error(struct max17047_fuelgauge_data *fg_data)
 {
+	bool ret = false;
 	int vcell, soc;
 
 	vcell = max17047_get_vcell(fg_data->client);
@@ -540,12 +545,12 @@ static int max17047_detect_trim_error(struct max17047_fuelgauge_data *fg_data)
 
 	if (((vcell < TRIM_ERROR_DETECT_VOLTAGE1) ||
 		(vcell == TRIM_ERROR_DETECT_VOLTAGE2)) && (soc == 0)) {
-		pr_debug("%s: (maybe)It's a trim error version. "
+		pr_err("%s: (maybe)It's a trim error version. "
 			"VCELL(%d), SOC(%d)\n", __func__, vcell, soc);
-		return 1;
+		ret = true;
 	}
 
-	return 0;
+	return ret;
 }
 #endif
 
@@ -558,7 +563,7 @@ static int max17047_get_property(struct power_supply *psy,
 						  fuelgauge);
 
 #ifdef USE_TRIM_ERROR_DETECTION
-	if (max17047_detect_trim_error(fg_data)) {
+	if (fg_data->trim_err == true) {
 		switch (psp) {
 		case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		case POWER_SUPPLY_PROP_VOLTAGE_AVG:
@@ -599,18 +604,16 @@ static int max17047_get_property(struct power_supply *psy,
 		switch (val->intval) {
 		case SOC_TYPE_ADJUSTED:
 			val->intval = max17047_get_soc(fg_data->client);
-		break;
+			break;
 		case SOC_TYPE_RAW:
 			val->intval = max17047_get_rawsoc(fg_data->client);
-		break;
-#if defined(ADJUST_FULLSOC)
+			break;
 		case SOC_TYPE_FULL:
 			val->intval = fg_data->full_soc;
-		break;
-#endif
+			break;
 		default:
 			val->intval = max17047_get_soc(fg_data->client);
-		break;
+			break;
 		}
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
@@ -635,7 +638,6 @@ static int max17047_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 		max17047_reset_soc(fg_data->client);
 		break;
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
 	case POWER_SUPPLY_PROP_STATUS:
 		if (val->intval != POWER_SUPPLY_STATUS_FULL)
 			return -EINVAL;
@@ -643,7 +645,6 @@ static int max17047_set_property(struct power_supply *psy,
 		/* adjust full soc */
 		max17047_adjust_fullsoc(fg_data->client);
 		break;
-#endif
 	default:
 		return -EINVAL;
 	}
@@ -655,7 +656,6 @@ static irqreturn_t max17047_fuelgauge_isr(int irq, void *data)
 {
 	struct max17047_fuelgauge_data *fg_data = data;
 	struct i2c_client *client = fg_data->client;
-	union power_supply_propval value;
 	u8 i2c_data[2];
 	pr_info("%s: irq(%d)\n", __func__, irq);
 	mutex_lock(&fg_data->irq_lock);
@@ -664,46 +664,13 @@ static irqreturn_t max17047_fuelgauge_isr(int irq, void *data)
 	pr_info("%s: MAX17047_REG_STATUS(0x%02x%02x)\n", __func__,
 					i2c_data[1], i2c_data[0]);
 
+	cancel_delayed_work(&fg_data->update_work);
 	wake_lock(&fg_data->update_wake_lock);
 	schedule_delayed_work(&fg_data->update_work, msecs_to_jiffies(1000));
 
 	mutex_unlock(&fg_data->irq_lock);
 	return IRQ_HANDLED;
 }
-
-#if defined(ADJUST_FULLSOC)
-static void max17047_adjust_fullsoc(struct i2c_client *client)
-{
-	struct max17047_fuelgauge_data *fg_data =
-		 i2c_get_clientdata(client);
-	int prev_full_soc = fg_data->full_soc;
-	int temp_soc = max17047_get_rawsoc(fg_data->client);
-	int keep_soc = 0;
-
-	if (temp_soc < 0) {
-		pr_err("%s : fg data error!(%d)\n", __func__, temp_soc);
-		fg_data->full_soc = FULL_SOC_DEFAULT;
-		return;
-	}
-
-	if (temp_soc < FULL_SOC_LOW)
-		fg_data->full_soc = FULL_SOC_LOW;
-	else if (temp_soc > FULL_SOC_HIGH) {
-		keep_soc = FULL_SOC_HIGH / 100;
-		fg_data->full_soc = (FULL_SOC_HIGH - keep_soc);
-	} else {
-		keep_soc = temp_soc / 100;
-		if (temp_soc > (FULL_SOC_LOW + keep_soc))
-			fg_data->full_soc = temp_soc - keep_soc;
-		else
-			fg_data->full_soc = FULL_SOC_LOW;
-	}
-
-	if (prev_full_soc != fg_data->full_soc)
-		pr_info("%s : full_soc = %d, keep_soc = %d\n", __func__,
-			fg_data->full_soc, keep_soc);
-}
-#endif
 
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 #ifdef CONFIG_DEBUG_FS
@@ -857,13 +824,15 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 {
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
 	struct max17047_fuelgauge_data *fg_data;
-	int ret;
-	u8 i2c_data[2];
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
-	int rawsoc;
-	int firstsoc;
-#endif
-	pr_info("%s: max17047 Fuel gauge Driver Loading\n", __func__);
+	struct max17047_platform_data *pdata = client->dev.platform_data;
+	int ret = -ENODEV;
+	int rawsoc, firstsoc;
+	pr_info("%s: fuelgauge init\n", __func__);
+
+	if (!pdata) {
+		pr_err("%s: no platform data\n", __func__);
+		return -ENODEV;
+	}
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE))
 		return -EIO;
@@ -873,7 +842,7 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 		return -ENOMEM;
 
 	fg_data->client = client;
-	fg_data->pdata = client->dev.platform_data;
+	fg_data->pdata = pdata;
 
 	i2c_set_clientdata(client, fg_data);
 
@@ -882,7 +851,11 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 	wake_lock_init(&fg_data->update_wake_lock, WAKE_LOCK_SUSPEND,
 							       "fuel-update");
 
-#if defined(ADJUST_FULLSOC)
+#ifdef USE_TRIM_ERROR_DETECTION
+	/* trim error detect */
+	fg_data->trim_err = max17047_detect_trim_error(fg_data);
+#endif
+
 	/* Initialize full_soc, set this before fisrt SOC reading */
 	fg_data->full_soc = FULL_SOC_DEFAULT;
 	/* first full_soc update */
@@ -891,8 +864,7 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 		max17047_adjust_fullsoc(client);
 	firstsoc = max17047_get_soc(client);
 	pr_info("%s: rsoc=%d, fsoc=%d, soc=%d\n", __func__,
-		rawsoc, fg_data->full_soc, firstsoc);
-#endif
+			rawsoc, fg_data->full_soc, firstsoc);
 
 	if (fg_data->pdata->psy_name)
 		fg_data->fuelgauge.name =
@@ -918,6 +890,9 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 
 	/* Initialize fuelgauge alert */
 	max17047_alert_init(fg_data);
+
+	INIT_DELAYED_WORK_DEFERRABLE(&fg_data->update_work,
+					max17047_update_work);
 
 	/* Request IRQ */
 	fg_data->irq = gpio_to_irq(fg_data->pdata->irq_gpio);
@@ -946,8 +921,6 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 		goto err_enable_irq;
 	}
 
-	INIT_DELAYED_WORK_DEFERRABLE(&fg_data->update_work,
-					max17047_update_work);
 #ifdef DEBUG_FUELGAUGE_POLLING
 	INIT_DELAYED_WORK_DEFERRABLE(&fg_data->polling_work,
 					max17047_polling_work);
@@ -956,8 +929,7 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 	max17047_test_read(fg_data);
 #endif
 
-	max17047_i2c_read(client, MAX17047_REG_VERSION, i2c_data);
-	pr_info("max17047 fuelgauge(rev.%d%d) initialized.\n", i2c_data[0], i2c_data[1]);
+	pr_info("%s: probe complete\n", __func__);
 
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 #ifdef CONFIG_DEBUG_FS

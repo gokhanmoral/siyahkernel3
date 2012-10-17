@@ -593,7 +593,8 @@ static int misc_open(struct inode *inode, struct file *filp)
 	struct io_device *iod = to_io_device(filp->private_data);
 	filp->private_data = (void *)iod;
 
-	pr_info("[MODEM_IF] misc_open : %s\n", iod->name);
+	if (iod->format != IPC_BOOT && iod->format != IPC_RAMDUMP)
+		pr_info("[MODEM_IF] misc_open : %s\n", iod->name);
 
 	if (iod->link->init_comm)
 		return iod->link->init_comm(iod->link, iod);
@@ -604,7 +605,8 @@ static int misc_release(struct inode *inode, struct file *filp)
 {
 	struct io_device *iod = (struct io_device *)filp->private_data;
 
-	pr_info("[MODEM_IF] misc_release : %s\n", iod->name);
+	if (iod->format != IPC_BOOT && iod->format != IPC_RAMDUMP)
+		pr_info("[MODEM_IF] misc_release : %s\n", iod->name);
 
 	if (iod->link->terminate_comm)
 		iod->link->terminate_comm(iod->link, iod);

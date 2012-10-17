@@ -30,7 +30,7 @@
 #include <linux/delay.h>
 #include <linux/workqueue.h>
 #include <linux/device.h>
-#include <linux/ir_remote_con.h>
+#include <linux/ir_remote_con_mc96.h>
 #include <linux/earlysuspend.h>
 #include <linux/spinlock.h>
 #include "irda_fw.h"
@@ -74,14 +74,14 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 
 	ret = i2c_master_recv(client, buf_ir_test, MC96_READ_LENGTH);
 	if (ret < 0) {
-		printk(KERN_ERR "%s: err %d\n", __func__, ret);
+		printk(KERN_ERR "1. %s: err %d\n", __func__, ret);
 		ret = i2c_master_recv(client, buf_ir_test, MC96_READ_LENGTH);
 		if (ret < 0)
 			goto err_i2c_fail;
 	}
 	ret = buf_ir_test[2] << 8 | buf_ir_test[3];
 	if (ret < FW_VERSION) {
-		printk(KERN_INFO "%s: chip : %04x, bin : %04x, need update!\n",
+		printk(KERN_INFO "2. %s: chip : %04x, bin : %04x, need update!\n",
 						__func__, ret, FW_VERSION);
 		data->pdata->ir_vdd_onoff(0);
 		data->pdata->ir_wake_en(0);
@@ -90,12 +90,12 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 
 		ret = i2c_master_recv(client, buf_ir_test, MC96_READ_LENGTH);
 		if (ret < 0)
-			printk(KERN_ERR "%s: err %d\n", __func__, ret);
+			printk(KERN_ERR "3. %s: err %d\n", __func__, ret);
 
 		ret = buf_ir_test[6] << 8 | buf_ir_test[7];
 
 		if (ret == 0x01fe)
-			printk(KERN_INFO "%s: boot mode, FW download start\n",
+			printk(KERN_INFO "4. %s: boot mode, FW download start\n",
 							__func__);
 		else
 			goto err_bootmode;
@@ -118,12 +118,13 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 
 		ret = i2c_master_recv(client, buf_ir_test, MC96_READ_LENGTH);
 		if (ret < 0)
-			printk(KERN_ERR "%s: err %d\n", __func__, ret);
+			printk(KERN_ERR "5. %s: err %d\n", __func__, ret);
 
 		ret = buf_ir_test[6] << 8 | buf_ir_test[7];
 
 		if (ret == 0x02a3)
-			printk(KERN_INFO "%s: boot down complete\n", __func__);
+			printk(KERN_INFO "6. %s: boot down complete\n",
+				__func__);
 		else
 			goto err_bootmode;
 
@@ -134,12 +135,12 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 		ret = i2c_master_recv(client, buf_ir_test, MC96_READ_LENGTH);
 
 		ret = buf_ir_test[2] << 8 | buf_ir_test[3];
-		printk(KERN_INFO "%s: user mode dev: %04x\n", __func__, ret);
+		printk(KERN_INFO "7. %s: user mode dev: %04x\n", __func__, ret);
 		data->pdata->ir_vdd_onoff(0);
 		data->on_off = 0;
 
 	} else {
-		printk(KERN_INFO "%s: chip : %04x, bin : %04x, not update\n",
+		printk(KERN_INFO "8. %s: chip : %04x, bin : %04x, latest FW_version now\n",
 						__func__, ret, FW_VERSION);
 		data->pdata->ir_wake_en(0);
 		data->pdata->ir_vdd_onoff(0);

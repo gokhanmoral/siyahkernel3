@@ -2,8 +2,9 @@
 # Cryptographic API
 #
 
-# SEC FIPS MODE
+ifeq ($(USE_SEC_FIPS_MODE),true)
 FIPS=fips_
+endif
 obj-$(CONFIG_CRYPTO_FIPS) += fips_integrity.o
 
 obj-$(CONFIG_CRYPTO) += crypto.o

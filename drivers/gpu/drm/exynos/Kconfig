@@ -15,6 +15,12 @@ config DRM_EXYNOS_MEMSIZE
 	depends on DRM_EXYNOS
 	default "32768"
 
+config DRM_EXYNOS_IOMMU
+	bool "GEM IOMMU Support"
+	depends on DRM_EXYNOS
+	help
+	  Choose this option if you want to use GEM IOMMU feature for DRM.
+
 config DRM_EXYNOS_DMABUF
 	bool "GEM DMABUF Support"
 	depends on DRM_EXYNOS

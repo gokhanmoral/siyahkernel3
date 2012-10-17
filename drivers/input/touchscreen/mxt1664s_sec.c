@@ -60,6 +60,14 @@ static void not_support_cmd(void *device_data)
 				buff, strnlen(buff, sizeof(buff)));
 }
 
+static bool check_xy_range(struct mxt_data *data, u16 node)
+{
+	u8 x_line = node / data->info.matrix_ysize;
+	u8 y_line = node % data->info.matrix_ysize;
+	return (y_line < data->y_num) ?
+		(x_line < data->x_num) : false;
+}
+
 /* +  Vendor specific helper functions */
 static int mxt_xy_to_node(struct mxt_data *data)
 {
@@ -70,10 +78,10 @@ static int mxt_xy_to_node(struct mxt_data *data)
 	int node;
 
 	/* cmd_param[0][1] : [x][y] */
-	if (sysfs_data->cmd_param[0] < 0
-		|| sysfs_data->cmd_param[0] >= data->info.matrix_xsize
-		|| sysfs_data->cmd_param[1] < 0
-		|| sysfs_data->cmd_param[1] >= data->info.matrix_ysize) {
+	if (sysfs_data->cmd_param[0] < 0 ||
+		sysfs_data->cmd_param[0] >= data->x_num ||
+		sysfs_data->cmd_param[1] < 0 ||
+		sysfs_data->cmd_param[1] >= data->y_num) {
 		snprintf(buff, sizeof(buff) , "%s", "NG");
 		set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 		sysfs_data->cmd_state = CMD_STATUS_FAIL;
@@ -92,7 +100,7 @@ static int mxt_xy_to_node(struct mxt_data *data)
 	*  v
 	*  x number
 	*/
-	node = sysfs_data->cmd_param[0] * data->info.matrix_ysize
+	node = sysfs_data->cmd_param[0] * data->y_num
 			+ sysfs_data->cmd_param[1];
 
 	dev_info(&client->dev, "%s: node = %d\n", __func__, node);
@@ -104,11 +112,21 @@ static void mxt_node_to_xy(struct mxt_data *data, u16 *x, u16 *y)
 	struct i2c_client *client = data->client;
 	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
 
-	*x = sysfs_data->delta_max_node / data->info.matrix_ysize;
-	*y = sysfs_data->delta_max_node % data->info.matrix_ysize;
+	*x = sysfs_data->delta_max_node / data->y_num;
+	*y = sysfs_data->delta_max_node % data->y_num;
 
 	dev_info(&client->dev, "%s: node[%d] is X,Y=%d,%d\n", __func__,
 		sysfs_data->delta_max_node, *x, *y);
+}
+
+static bool mxt_check_last_line(struct mxt_data *data, u16 num)
+{
+#if TSP_INFORM_CHARGER
+	if ((data->x_num - 1) == (num / data->y_num))
+		return data->charging_mode;
+	else
+#endif
+		return false;
 }
 
 static int mxt_set_diagnostic_mode(struct mxt_data *data, u8 dbg_mode)
@@ -144,6 +162,7 @@ out:
 	return ret;
 }
 
+#if 0
 static int mxt_read_diagnostic_data(struct mxt_data *data,
 	u8 dbg_mode, u16 node, u16 *dbg_data)
 {
@@ -183,6 +202,7 @@ static int mxt_read_diagnostic_data(struct mxt_data *data,
 		if (ret)
 			goto out;
 		do {
+			msleep(20);
 			ret = mxt_read_mem(data,
 				dbg_object->start_address + MXT_DIAGNOSTIC_PAGE,
 				1, &cur_page);
@@ -208,6 +228,7 @@ static int mxt_read_diagnostic_data(struct mxt_data *data,
 out:
 	return ret;
 }
+#endif
 
 static void mxt_treat_dbg_data(struct mxt_data *data,
 	struct mxt_object *dbg_object, u8 dbg_mode, u8 read_point, u16 num)
@@ -222,7 +243,7 @@ static void mxt_treat_dbg_data(struct mxt_data *data,
 			DATA_PER_NODE, data_buffer);
 
 		sysfs_data->delta[num] =
-			((u16)data_buffer[1]<<8) + (u16)data_buffer[0];
+			((u16)data_buffer[1] << 8) + (u16)data_buffer[0];
 
 		dev_dbg(&client->dev, "delta[%d] = %d\n",
 			num, sysfs_data->delta[num]);
@@ -238,13 +259,18 @@ static void mxt_treat_dbg_data(struct mxt_data *data,
 			DATA_PER_NODE, data_buffer);
 
 		sysfs_data->reference[num] =
-			((u16)data_buffer[1]<<8) + (u16)data_buffer[0];
+			((u16)data_buffer[1] << 8) + (u16)data_buffer[0]
+			- REF_OFFSET_VALUE;
+
+		if (mxt_check_last_line(data, num))
+			sysfs_data->reference[num] *= 2;
 
 		/* check that reference is in spec or not */
 		if (sysfs_data->reference[num] < REF_MIN_VALUE
 			|| sysfs_data->reference[num] > REF_MAX_VALUE) {
 			dev_err(&client->dev, "reference[%d] is out of range ="
-				" %d\n", num, sysfs_data->reference[num]);
+				" %d(%d,%d)\n", num, sysfs_data->reference[num],
+				num / data->y_num, num % data->y_num);
 		}
 
 		if (sysfs_data->reference[num] > sysfs_data->ref_max_data)
@@ -264,8 +290,8 @@ static int mxt_read_all_diagnostic_data(struct mxt_data *data, u8 dbg_mode)
 	struct i2c_client *client = data->client;
 	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
 	struct mxt_object *dbg_object;
-	u8 read_page, end_page, read_point;
-	u16 node, num = 0;
+	u8 read_page, cur_page, end_page, read_point;
+	u16 node = 0, num = 0, cnt = 0;
 	int ret = 0;
 
 	/* to make the Page Num to 0 */
@@ -299,15 +325,27 @@ static int mxt_read_all_diagnostic_data(struct mxt_data *data, u8 dbg_mode)
 		for (node = 0; node < NODE_PER_PAGE; node++) {
 			read_point = (node * DATA_PER_NODE) + 2;
 
-			mxt_treat_dbg_data(data, dbg_object, dbg_mode,
-				read_point, num);
-			num++;
+			if (check_xy_range(data, cnt)) {
+				mxt_treat_dbg_data(data, dbg_object, dbg_mode,
+					read_point, num);
+				num++;
+			}
+			cnt++;
 		}
 		ret = mxt_set_diagnostic_mode(data, MXT_DIAG_PAGE_UP);
 		if (ret)
 			goto out;
-		else
+		do {
 			msleep(20);
+			ret = mxt_read_mem(data,
+				dbg_object->start_address + MXT_DIAGNOSTIC_PAGE,
+				1, &cur_page);
+			if (ret) {
+				dev_err(&client->dev,
+					"%s Read fail page\n", __func__);
+				goto out;
+			}
+		} while (cur_page != read_page + 1);
 	}
 
 	if (dbg_mode == MXT_DIAG_REFERENCE_MODE) {
@@ -375,10 +413,6 @@ static void fw_update(void *device_data)
 	}
 
 	switch (sysfs_data->cmd_param[0]) {
-	case MXT_FW_FROM_BUILT_IN:
-		goto not_support;
-	break;
-
 	case MXT_FW_FROM_UMS:
 		snprintf(fw_path, MXT_MAX_FW_PATH, "/sdcard/%s", MXT_FW_NAME);
 
@@ -410,6 +444,7 @@ static void fw_update(void *device_data)
 		set_fs(old_fs);
 	break;
 
+	case MXT_FW_FROM_BUILT_IN:
 	case MXT_FW_FROM_REQ_FW:
 		snprintf(fw_path, MXT_MAX_FW_PATH, "tsp_atmel/%s", MXT_FW_NAME);
 
@@ -475,8 +510,7 @@ static void get_fw_ver_bin(void *device_data)
 	char buff[40] = {0};
 
 	set_default_result(sysfs_data);
-	snprintf(buff, sizeof(buff), "version: %#02x build: %#02x",
-			MXT_FIRM_VERSION, MXT_FIRM_BUILD);
+	snprintf(buff, sizeof(buff), "%02x", MXT_FIRM_VERSION);
 
 	set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 	sysfs_data->cmd_state = CMD_STATUS_OK;
@@ -491,13 +525,10 @@ static void get_fw_ver_ic(void *device_data)
 	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
 
 	char buff[40] = {0};
-	int ver, build;
+	int ver = data->info.version;
 
 	set_default_result(sysfs_data);
-
-	ver = data->info.version;
-	build = data->info.build;
-	snprintf(buff, sizeof(buff), "version: %#02x build: %#02x", ver, build);
+	snprintf(buff, sizeof(buff), "%02x", ver);
 
 	set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 	sysfs_data->cmd_state = CMD_STATUS_OK;
@@ -507,10 +538,18 @@ static void get_fw_ver_ic(void *device_data)
 
 static void get_config_ver(void *device_data)
 {
-	/* need to be inplemented
-	* if firmware can support config version
-	*/
-	not_support_cmd(device_data);
+	struct mxt_data *data = (struct mxt_data *)device_data;
+	struct i2c_client *client = data->client;
+	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
+	char buff[40] = {0};
+
+	set_default_result(sysfs_data);
+	snprintf(buff, sizeof(buff), "%s", data->config_version);
+
+	set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
+	sysfs_data->cmd_state = CMD_STATUS_OK;
+	dev_info(&client->dev, "%s: %s(%d)\n", __func__,
+			buff, strnlen(buff, sizeof(buff)));
 }
 
 static void get_threshold(void *device_data)
@@ -524,9 +563,8 @@ static void get_threshold(void *device_data)
 
 	set_default_result(sysfs_data);
 
-	threshold = mxt_read_object(data,
+	mxt_read_object(data,
 		TOUCH_MULTITOUCHSCREEN_T9, 7, &threshold);
-
 	if (threshold < 0) {
 		snprintf(buff, sizeof(buff), "%s", "NG");
 		set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
@@ -622,7 +660,7 @@ static void get_chip_vendor(void *device_data)
 	snprintf(buff, sizeof(buff), "%s", "ATMEL");
 	set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 	sysfs_data->cmd_state = CMD_STATUS_OK;
-	dev_info(&client->dev, "%s: %s(%d)\n", __func__,
+	dev_dbg(&client->dev, "%s: %s(%d)\n", __func__,
 			buff, strnlen(buff, sizeof(buff)));
 }
 
@@ -639,7 +677,7 @@ static void get_chip_name(void *device_data)
 	snprintf(buff, sizeof(buff), "%s", "MXT1664S");
 	set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 	sysfs_data->cmd_state = CMD_STATUS_OK;
-	dev_info(&client->dev, "%s: %s(%d)\n", __func__,
+	dev_dbg(&client->dev, "%s: %s(%d)\n", __func__,
 			buff, strnlen(buff, sizeof(buff)));
 }
 
@@ -650,16 +688,16 @@ static void get_x_num(void *device_data)
 	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
 
 	char buff[16] = {0};
-	int val;
+	u8 val = 0;
 
 	set_default_result(sysfs_data);
-	val = data->info.matrix_xsize;
+	val = data->x_num;
 	if (val < 0) {
 		snprintf(buff, sizeof(buff), "%s", "NG");
 		set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 		sysfs_data->cmd_state = CMD_STATUS_FAIL;
 
-		dev_info(&client->dev,
+		dev_err(&client->dev,
 			 "%s: fail to read num of x (%d).\n", __func__, val);
 
 		return;
@@ -668,7 +706,7 @@ static void get_x_num(void *device_data)
 	set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 	sysfs_data->cmd_state = CMD_STATUS_OK;
 
-	dev_info(&client->dev, "%s: %s(%d)\n", __func__, buff,
+	dev_dbg(&client->dev, "%s: %s(%d)\n", __func__, buff,
 			strnlen(buff, sizeof(buff)));
 }
 
@@ -679,16 +717,16 @@ static void get_y_num(void *device_data)
 	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
 
 	char buff[16] = {0};
-	int val;
+	u8 val;
 
 	set_default_result(sysfs_data);
-	val = data->info.matrix_ysize;
+	val = data->y_num;
 	if (val < 0) {
 		snprintf(buff, sizeof(buff), "%s", "NG");
 		set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 		sysfs_data->cmd_state = CMD_STATUS_FAIL;
 
-		dev_info(&client->dev,
+		dev_err(&client->dev,
 			 "%s: fail to read num of y (%d).\n", __func__, val);
 
 		return;
@@ -697,7 +735,7 @@ static void get_y_num(void *device_data)
 	set_cmd_result(sysfs_data, buff, strnlen(buff, sizeof(buff)));
 	sysfs_data->cmd_state = CMD_STATUS_OK;
 
-	dev_info(&client->dev, "%s: %s(%d)\n", __func__, buff,
+	dev_dbg(&client->dev, "%s: %s(%d)\n", __func__, buff,
 			strnlen(buff, sizeof(buff)));
 }
 
@@ -728,10 +766,8 @@ static void get_reference(void *device_data)
 	struct mxt_data *data = (struct mxt_data *)device_data;
 	struct i2c_client *client = data->client;
 	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
-	u16 dgb_data;
 	char buff[16] = {0};
 	int node;
-	int ret;
 
 	set_default_result(sysfs_data);
 	/* add read function */
@@ -741,18 +777,12 @@ static void get_reference(void *device_data)
 		sysfs_data->cmd_state = CMD_STATUS_FAIL;
 		return;
 	} else {
-		ret = mxt_read_diagnostic_data(data,
-				MXT_DIAG_REFERENCE_MODE, node, &dgb_data);
-		if (ret) {
-			sysfs_data->cmd_state = CMD_STATUS_FAIL;
-			return;
-		} else {
-			snprintf(buff, sizeof(buff), "%u", dgb_data);
-			set_cmd_result(sysfs_data,
-				buff, strnlen(buff, sizeof(buff)));
+		snprintf(buff, sizeof(buff), "%u",
+			sysfs_data->reference[node]);
+		set_cmd_result(sysfs_data,
+			buff, strnlen(buff, sizeof(buff)));
 
-			sysfs_data->cmd_state = CMD_STATUS_OK;
-		}
+		sysfs_data->cmd_state = CMD_STATUS_OK;
 	}
 	dev_info(&client->dev, "%s: %s(%d)\n", __func__, buff,
 			strnlen(buff, sizeof(buff)));
@@ -779,10 +809,8 @@ static void get_delta(void *device_data)
 	struct mxt_data *data = (struct mxt_data *)device_data;
 	struct i2c_client *client = data->client;
 	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
-	u16 dgb_data;
 	char buff[16] = {0};
 	int node;
-	int ret;
 
 	set_default_result(sysfs_data);
 	/* add read function */
@@ -792,18 +820,12 @@ static void get_delta(void *device_data)
 		sysfs_data->cmd_state = CMD_STATUS_FAIL;
 		return;
 	} else {
-		ret = mxt_read_diagnostic_data(data,
-				MXT_DIAG_DELTA_MODE, node, &dgb_data);
-		if (ret) {
-			sysfs_data->cmd_state = CMD_STATUS_FAIL;
-			return;
-		} else {
-			snprintf(buff, sizeof(buff), "%d", (s16)dgb_data);
-			set_cmd_result(sysfs_data,
-				buff, strnlen(buff, sizeof(buff)));
+		snprintf(buff, sizeof(buff), "%d",
+			sysfs_data->delta[node]);
+		set_cmd_result(sysfs_data,
+			buff, strnlen(buff, sizeof(buff)));
 
-			sysfs_data->cmd_state = CMD_STATUS_OK;
-		}
+		sysfs_data->cmd_state = CMD_STATUS_OK;
 	}
 	dev_info(&client->dev, "%s: %s(%d)\n", __func__, buff,
 			strnlen(buff, sizeof(buff)));
@@ -940,7 +962,7 @@ static ssize_t show_cmd_status(struct device *dev,
 
 	char buff[16] = {0};
 
-	dev_info(&data->client->dev, "tsp cmd: status:%d\n",
+	dev_dbg(&data->client->dev, "tsp cmd: status:%d\n",
 			sysfs_data->cmd_state);
 
 	if (sysfs_data->cmd_state == CMD_STATUS_WAITING)
@@ -979,14 +1001,31 @@ static ssize_t show_cmd_result(struct device *dev, struct device_attribute
 	return snprintf(buf, TSP_BUF_SIZE, "%s\n", sysfs_data->cmd_result);
 }
 
+static ssize_t show_cmd_list(struct device *dev, struct device_attribute
+				    *devattr, char *buf)
+{
+	struct mxt_data *data = dev_get_drvdata(dev);
+	struct mxt_data_sysfs *sysfs_data = data->sysfs_data;
+	struct tsp_cmd *tsp_cmd_ptr = NULL;
+	int cnt = 0;
+
+	list_for_each_entry(tsp_cmd_ptr, &sysfs_data->cmd_list_head, list)
+		cnt += sprintf(buf + cnt,
+			"%s\n", tsp_cmd_ptr->cmd_name);
+
+	return cnt;
+}
+
 static DEVICE_ATTR(cmd, S_IWUSR | S_IWGRP, NULL, store_cmd);
 static DEVICE_ATTR(cmd_status, S_IRUGO, show_cmd_status, NULL);
 static DEVICE_ATTR(cmd_result, S_IRUGO, show_cmd_result, NULL);
+static DEVICE_ATTR(cmd_list, S_IRUGO, show_cmd_list, NULL);
 
 static struct attribute *touchscreen_attributes[] = {
 	&dev_attr_cmd.attr,
 	&dev_attr_cmd_status.attr,
 	&dev_attr_cmd_result.attr,
+	&dev_attr_cmd_list.attr,
 	NULL,
 };
 
@@ -1238,7 +1277,13 @@ static ssize_t mxt_debug_setting(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t count)
 {
-	return 0;
+	struct mxt_data *data = dev_get_drvdata(dev);
+	u32 mode = 0;
+
+	if (sscanf(buf, "%u", &mode) == 1)
+		data->debug_log = !!mode;
+
+	return count;
 }
 
 static ssize_t mxt_object_setting(struct device *dev,
@@ -1419,44 +1464,56 @@ free_mem:
 	return ret;
 }
 
-/* TODO: it will be applied */
 #if TSP_BOOSTER
 static void mxt_set_dvfs_off(struct work_struct *work)
 {
 	struct mxt_data *data =
-		container_of(work, struct mxt_data, booster.dvfs_dwork.work);
+		container_of(work, struct mxt_data,
+			booster.dvfs_dwork.work);
 
-	if (data->mxt_enabled) {
-		disable_irq(client->irq);
-
-		dev_info(&data->client->dev, "%s!!!\n", __func__);
-
-		if (data->booster.touch_cpu_lock_status) {
-			exynos_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
-			data->booster.touch_cpu_lock_status = false;
-		}
-		enable_irq(client->irq);
+	if (data->booster.touch_cpu_lock_status)
+		dev_lock(data->booster.bus_dev,
+			data->booster.dev, SEC_BUS_LOCK_FREQ);
+	else {
+		dev_unlock(data->booster.bus_dev, data->booster.dev);
+		exynos_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
 	}
 }
 
-static void mxt_set_dvfs_on(struct mxt_data *data)
+void mxt_set_dvfs_on(struct mxt_data *data, bool en)
 {
-	dev_info(&data->client->dev, "%s!!!\n", __func__);
+	if (0 == data->booster.cpu_lv)
+		exynos_cpufreq_get_level(SEC_DVFS_LOCK_FREQ,
+			&data->booster.cpu_lv);
 
-	cancel_delayed_work(&data->booster.dvfs_dwork);
-	exynos_cpufreq_lock(DVFS_LOCK_ID_TSP,
-		data->booster.cpu_lv);
-	data->booster.touch_cpu_lock_status = true;
+	if (en) {
+		if (!data->booster.touch_cpu_lock_status) {
+			cancel_delayed_work(&data->booster.dvfs_dwork);
+			dev_lock(data->booster.bus_dev,
+				data->booster.dev, SEC_BUS_LOCK_FREQ2);
+			exynos_cpufreq_lock(DVFS_LOCK_ID_TSP,
+				data->booster.cpu_lv);
+			data->booster.touch_cpu_lock_status = true;
+			schedule_delayed_work(&data->booster.dvfs_dwork,
+				 msecs_to_jiffies(SEC_DVFS_LOCK_TIMEOUT));
+		}
+	} else {
+		if (data->booster.touch_cpu_lock_status) {
+			schedule_delayed_work(&data->booster.dvfs_dwork,
+				msecs_to_jiffies(SEC_DVFS_LOCK_TIMEOUT));
+			data->booster.touch_cpu_lock_status = false;
+		}
+	}
 }
 
-static int mxt_init_dvfs(struct mxt_data *data)
+int mxt_init_dvfs(struct mxt_data *data)
 {
-	int ret;
-
 	INIT_DELAYED_WORK(&data->booster.dvfs_dwork,
 		mxt_set_dvfs_off);
-	return exynos_cpufreq_get_level(TOUCH_BOOSTER_LIMIT_CLK,
+	data->booster.bus_dev = dev_get("exynos-busfreq");
+	exynos_cpufreq_get_level(SEC_DVFS_LOCK_FREQ,
 		&data->booster.cpu_lv);
+	return 0;
 }
 #endif /* - TOUCH_BOOSTER */
 

@@ -77,7 +77,7 @@ mali_bool _mali_osk_profiling_have_recording(void)
 
 void _mali_osk_profiling_report_sw_counters(u32 *counters)
 {
-	trace_mali_sw_counters(0, 0, NULL, counters);
+	trace_mali_sw_counters(_mali_osk_get_pid(), _mali_osk_get_tid(), NULL, counters);
 }
 
 
@@ -125,8 +125,6 @@ _mali_osk_errcode_t _mali_ukk_sw_counters_report(_mali_uk_sw_counters_report_s *
  */
 int _mali_profiling_set_event(u32 counter_id, s32 event_id)
 {
-	/* @@@@ TODO: This must be updated to support Mali-450 (which has up to 3 L2 caches and 8 PP cores */
-
 	if (counter_id == COUNTER_VP_C0)
 	{
 		struct mali_gp_core* gp_core = mali_gp_get_global_gp_core();
@@ -149,7 +147,7 @@ int _mali_profiling_set_event(u32 counter_id, s32 event_id)
 			}
 		}
 	}
-	else if (counter_id >= COUNTER_FP0_C0 || counter_id <= COUNTER_FP3_C1) /* @@@@ TODO: Fix hardcoded limit to 4 PP cores */
+	else if (counter_id >= COUNTER_FP0_C0 && counter_id <= COUNTER_FP3_C1)
 	{
 		u32 core_id = (counter_id - COUNTER_FP0_C0) >> 1;
 		struct mali_pp_core* pp_core = mali_pp_get_global_pp_core(core_id);
@@ -172,7 +170,7 @@ int _mali_profiling_set_event(u32 counter_id, s32 event_id)
 			}
 		}
 	}
-	else if (counter_id >= COUNTER_L2_C0 || counter_id <= COUNTER_L2_C1) /* @@@@ TODO: Fix hardcoded limit to 1 L2 cache */
+	else if (counter_id >= COUNTER_L2_C0 && counter_id <= COUNTER_L2_C1)
 	{
 		u32 core_id = (counter_id - COUNTER_L2_C0) >> 1;
 		struct mali_l2_cache_core* l2_cache_core = mali_l2_cache_core_get_glob_l2_core(core_id);

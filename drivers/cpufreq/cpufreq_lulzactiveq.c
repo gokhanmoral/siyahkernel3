@@ -48,6 +48,21 @@
 
 static atomic_t active_count = ATOMIC_INIT(0);
 
+#ifdef MODULE
+#include <linux/kallsyms.h>
+static int (*gm_cpu_up)(unsigned int cpu);
+static unsigned long (*gm_nr_running)(void);
+static int (*gm_sched_setscheduler_nocheck)(struct task_struct *, int,
+                              const struct sched_param *);
+static void (*gm___put_task_struct)(struct task_struct *t);
+static int (*gm_wake_up_process)(struct task_struct *tsk);
+#define cpu_up (*gm_cpu_up)
+#define nr_running (*gm_nr_running)
+#define put_task_struct (*gm___put_task_struct)
+#define wake_up_process (*gm_wake_up_process)
+#define sched_setscheduler_nocheck (*gm_sched_setscheduler_nocheck)
+#endif
+
 struct cpufreq_lulzactive_cpuinfo {
 	struct timer_list cpu_timer;
 	int timer_idlecancel;
@@ -123,7 +138,7 @@ static unsigned long dec_cpu_load;
  * Increasing frequency table index
  * zero disables and causes to always jump straight to max frequency.
  */
-#define DEFAULT_PUMP_UP_STEP 0
+#define DEFAULT_PUMP_UP_STEP 2
 static unsigned long pump_up_step;
 
 /*
@@ -136,7 +151,7 @@ static unsigned long timer_rate;
  * Decreasing frequency table index
  * zero disables and will calculate frequency according to load heuristic.
  */
-#define DEFAULT_PUMP_DOWN_STEP 0
+#define DEFAULT_PUMP_DOWN_STEP 1
 static unsigned long pump_down_step;
 
 /*
@@ -266,14 +281,14 @@ static unsigned int get_nr_run_avg(void)
 
 #ifdef CONFIG_MACH_MIDAS
 static int hotplug_rq[4][2] = {
-	{0, 100}, {100, 200}, {200, 300}, {300, 0}
+	{0, 200}, {200, 300}, {300, 400}, {400, 0}
 };
 
 static int hotplug_freq[4][2] = {
 	{0, 500000},
 	{200000, 500000},
-	{200000, 500000},
-	{200000, 0}
+	{400000, 800000},
+	{500000, 0}
 };
 #else
 static int hotplug_rq[4][2] = {
@@ -2042,6 +2057,14 @@ static int __init cpufreq_lulzactive_init(void)
 	ret = init_rq_avg();
 	if(ret) return ret;
 
+#ifdef MODULE
+	gm_cpu_up = (int (*)(unsigned int cpu))kallsyms_lookup_name("cpu_up");
+	gm_nr_running = (unsigned long (*)(void))kallsyms_lookup_name("nr_running");
+	gm_sched_setscheduler_nocheck = (int (*)(struct task_struct *, int,
+    	const struct sched_param *))kallsyms_lookup_name("sched_setscheduler_nocheck");
+	gm___put_task_struct = (void (*)(struct task_struct *))kallsyms_lookup_name("__put_task_struct");
+	gm_wake_up_process = (int (*)(struct task_struct *))kallsyms_lookup_name("wake_up_process");
+#endif
 	hotplug_history = kzalloc(sizeof(struct cpu_usage_history), GFP_KERNEL);
 	if (!hotplug_history) {
 		pr_err("%s cannot create lulzactive hotplug history array\n", __func__);

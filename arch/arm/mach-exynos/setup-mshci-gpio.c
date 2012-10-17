@@ -32,17 +32,6 @@
 
 #define DIV_FSYS3	(S5P_VA_CMU + 0x0C54C)
 
-#if (defined(CONFIG_MACH_M0) && defined(CONFIG_TARGET_LOCALE_EUR)) || \
-	((defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_M0)) && \
-	defined(CONFIG_TARGET_LOCALE_KOR))
-#define EPLL_CON0_F	(S5P_VA_CMU + 0x0C110)
-
-void print_epll_con0(void)
-{
-	pr_info("EPLL_CON0 : 0x%x\n",__raw_readl(EPLL_CON0_F));
-}
-#endif
-
 void exynos4_setup_mshci_cfg_gpio(struct platform_device *dev, int width)
 {
 	unsigned int gpio;
@@ -98,10 +87,18 @@ void exynos4_setup_mshci_cfg_ddr(struct platform_device *dev, int ddr)
 #elif defined(CONFIG_EXYNOS4_MSHC_VPLL_46MHZ)
 		__raw_writel(0x01, DIV_FSYS3);
 #else
+#ifdef CONFIG_EXYNOS4_MSHC_SUPPORT_PQPRIME_EPLL
+		if (soc_is_exynos4412() &&
+				(samsung_rev() >= EXYNOS4412_REV_2_0))
+			/* This is code for support PegasusQ Prime dynamically.
+			 * PegasusQ Prime use EPLL rather than MPLL */
+			__raw_writel(0x00, DIV_FSYS3);
+		else
+#endif /* ifdef CONFIG_EXYNOS4_MSHC_SUPPORT_PQPRIME_EPLL */
 		if ((soc_is_exynos4412() || soc_is_exynos4212()) &&
-			samsung_rev() >= EXYNOS4412_REV_1_0) {
+				samsung_rev() >= EXYNOS4412_REV_1_0)
 			__raw_writel(0x1, DIV_FSYS3);
-		} else
+		else
 			__raw_writel(0x05, DIV_FSYS3);
 #endif
 	} else {
@@ -110,8 +107,16 @@ void exynos4_setup_mshci_cfg_ddr(struct platform_device *dev, int ddr)
 #elif defined(CONFIG_EXYNOS4_MSHC_VPLL_46MHZ)
 		__raw_writel(0x03, DIV_FSYS3);
 #else
+#ifdef CONFIG_EXYNOS4_MSHC_SUPPORT_PQPRIME_EPLL
+		if (soc_is_exynos4412() &&
+				(samsung_rev() >= EXYNOS4412_REV_2_0))
+			/* This is code for support PegasusQ Prime dynamically.
+			 * PegasusQ Prime use EPLL rather than MPLL */
+			__raw_writel(0x01, DIV_FSYS3);
+		else
+#endif /* ifdef CONFIG_EXYNOS4_MSHC_SUPPORT_PQPRIME_EPLL */
 		if ((soc_is_exynos4412() || soc_is_exynos4212()) &&
-			samsung_rev() >= EXYNOS4412_REV_1_0)
+				samsung_rev() >= EXYNOS4412_REV_1_0)
 			__raw_writel(0x3, DIV_FSYS3);
 		else
 			__raw_writel(0xb, DIV_FSYS3);

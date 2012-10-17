@@ -492,6 +492,17 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 		case MALI_IOC_PROFILING_REPORT_SW_COUNTERS:
 			err = profiling_report_sw_counters_wrapper(session_data, (_mali_uk_sw_counters_report_s __user *)arg);
 			break;
+#else
+		case MALI_IOC_PROFILING_START:              /* FALL-THROUGH */
+		case MALI_IOC_PROFILING_ADD_EVENT:          /* FALL-THROUGH */
+		case MALI_IOC_PROFILING_STOP:               /* FALL-THROUGH */
+		case MALI_IOC_PROFILING_GET_EVENT:          /* FALL-THROUGH */
+		case MALI_IOC_PROFILING_CLEAR:              /* FALL-THROUGH */
+		case MALI_IOC_PROFILING_GET_CONFIG:         /* FALL-THROUGH */
+		case MALI_IOC_PROFILING_REPORT_SW_COUNTERS: /* FALL-THROUGH */
+			MALI_DEBUG_PRINT(2, ("Profiling not supported\n"));
+			err = -ENOTTY;
+			break;
 #endif
 
 		case MALI_IOC_MEM_INIT:

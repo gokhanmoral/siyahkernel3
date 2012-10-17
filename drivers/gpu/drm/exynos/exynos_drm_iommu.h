@@ -32,31 +32,27 @@ struct exynos_iommu_gem_data {
 };
 
 /* get all pages to gem object and map them to iommu table. */
-dma_addr_t exynos_drm_iommu_map_gem(struct exynos_drm_subdrv *subdrv,
-				struct drm_file *filp,
-				struct list_head *iommu_list,
-				struct exynos_iommu_gem_data *gem_data);
+dma_addr_t exynos_drm_iommu_map_gem(struct drm_device *drm_dev,
+					struct drm_gem_object *obj);
 
 /* unmap device address space to gem object from iommu table. */
-void exynos_drm_iommu_unmap_gem(struct exynos_drm_subdrv *subdrv,
-				struct drm_file *filp,
-				void *obj, dma_addr_t dma_addr);
+void exynos_drm_iommu_unmap_gem(struct drm_gem_object *obj);
 
 /* map physical memory region pointed by paddr to iommu table. */
-dma_addr_t exynos_drm_iommu_map(struct device *dev, dma_addr_t paddr,
+dma_addr_t exynos_drm_iommu_map(void *in_vmm, dma_addr_t paddr,
 					size_t size);
 
-/* unmap device address space pointed by dma_addr from iommu table. */
-void exynos_drm_iommu_unmap(struct device *dev, dma_addr_t dma_addr);
+/* unmap device address space pointed by dev_addr from iommu table. */
+void exynos_drm_iommu_unmap(void *in_vmm, dma_addr_t dev_addr);
 
 /* setup device address space for device iommu. */
-int exynos_drm_iommu_setup(struct device *dev);
+void *exynos_drm_iommu_setup(unsigned long s_iova, unsigned long size);
 
-int exynos_drm_iommu_activate(struct device *dev);
+int exynos_drm_iommu_activate(void *in_vmm, struct device *dev);
 
-void exynos_drm_iommu_deactivate(struct device *dev);
+void exynos_drm_iommu_deactivate(void *in_vmm, struct device *dev);
 
 /* clean up allocated device address space for device iommu. */
-void exynos_drm_iommu_cleanup(struct device *dev);
+void exynos_drm_iommu_cleanup(void *in_vmm);
 
 #endif

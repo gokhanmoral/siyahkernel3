@@ -26,6 +26,7 @@
 #include "mali_cluster.h"
 #include "mali_group.h"
 #include "mali_pm.h"
+#include "mali_pmu.h"
 #include "mali_scheduler.h"
 #ifdef CONFIG_MALI400_GPU_UTILIZATION
 #include "mali_kernel_utilization.h"
@@ -34,10 +35,6 @@
 #if MALI_TIMELINE_PROFILING_ENABLED
 #include "mali_osk_profiling.h"
 #endif
-
-/**
- */
-_MALI_OSK_LIST_HEAD(mali_sessions);
 
 /** Pointer to table of resource definitions available to the Mali driver.
  *  _mali_osk_resources_init() sets up the pointer to this table.
@@ -62,13 +59,14 @@ static void cleanup_system_info(_mali_system_info *cleanup);
 static _mali_osk_lock_t *system_info_lock = NULL;
 static _mali_system_info *system_info = NULL;
 static u32 system_info_size = 0;
+static u32 first_pp_offset = 0;
 
 #define HANG_CHECK_MSECS_DEFAULT 500 /* 500 ms */
 #define WATCHDOG_MSECS_DEFAULT 4000 /* 4 s */
 
-/* timers related */
-int mali_hang_check_interval = HANG_CHECK_MSECS_DEFAULT;
+/* timer related */
 int mali_max_job_runtime = WATCHDOG_MSECS_DEFAULT;
+int mali_hang_check_interval = HANG_CHECK_MSECS_DEFAULT;
 
 static _mali_osk_resource_t *mali_find_resource(_mali_osk_resource_type_t type, u32 offset)
 {
@@ -86,18 +84,28 @@ static _mali_osk_resource_t *mali_find_resource(_mali_osk_resource_type_t type, 
 	return NULL;
 }
 
-
-static _mali_osk_errcode_t mali_parse_product_info(void)
+static u32 mali_count_resources(_mali_osk_resource_type_t type)
 {
-	/*
-	 * Mali-200 has the PP core first, while Mali-300, Mali-400 and Mali-450 have the GP core first.
-	 * Look at the version register for the first core in order to determine the GPU
-	 */
+	int i;
+	u32 retval = 0;
 
+	for (i = 0; i < num_resources; i++)
+	{
+		if (type == arch_configuration[i].type)
+		{
+			retval++;
+		}
+	}
+
+	return retval;
+}
+
+
+static _mali_osk_errcode_t mali_parse_gpu_base_and_first_pp_offset_address(void)
+{
 	int i;
 	_mali_osk_resource_t *first_gp_resource = NULL;
 	_mali_osk_resource_t *first_pp_resource = NULL;
-	u32 first_pp_offset;
 
 	for (i = 0; i < num_resources; i++)
 	{
@@ -135,6 +143,12 @@ static _mali_osk_errcode_t mali_parse_product_info(void)
 		global_gpu_base_address = first_pp_resource->base;
 		first_pp_offset = 0x0;
 	}
+	MALI_SUCCESS;
+}
+
+static _mali_osk_errcode_t mali_parse_product_info(void)
+{
+	_mali_osk_resource_t *first_pp_resource = NULL;
 
 	/* Find the first PP core */
 	first_pp_resource = mali_find_resource(MALI_PP, first_pp_offset);
@@ -523,6 +537,27 @@ static _mali_osk_errcode_t mali_parse_config_groups(void)
 	return _MALI_OSK_ERR_OK;
 }
 
+static _mali_osk_errcode_t mali_parse_config_pmu(void)
+{
+	_mali_osk_errcode_t err = _MALI_OSK_ERR_OK;
+	_mali_osk_resource_t *resource_pmu;
+	u32 number_of_pp_cores;
+	u32 number_of_l2_caches;
+
+	resource_pmu = mali_find_resource(PMU, 0x02000);
+	number_of_pp_cores = mali_count_resources(MALI_PP);
+	number_of_l2_caches = mali_count_resources(MALI_L2);
+
+	if (NULL != resource_pmu)
+	{
+		if (NULL == mali_pmu_create(resource_pmu, number_of_pp_cores, number_of_l2_caches))
+		{
+			err = _MALI_OSK_ERR_FAULT;
+		}
+	}
+	return err;
+}
+
 static _mali_osk_errcode_t mali_parse_config_memory(void)
 {
 	int i;
@@ -569,10 +604,13 @@ static _mali_osk_errcode_t mali_parse_config_memory(void)
 _mali_osk_errcode_t mali_initialize_subsystems(void)
 {
 	_mali_osk_errcode_t err;
+	mali_bool is_pmu_enabled;
 
 	MALI_CHECK_NON_NULL(system_info_lock = _mali_osk_lock_init( (_mali_osk_lock_flags_t)(_MALI_OSK_LOCKFLAG_SPINLOCK
 	                                           | _MALI_OSK_LOCKFLAG_NONINTERRUPTABLE), 0, 0 ), _MALI_OSK_ERR_FAULT);
-	_MALI_OSK_INIT_LIST_HEAD(&mali_sessions);
+
+	err = mali_session_initialize();
+	if (_MALI_OSK_ERR_OK != err) goto session_init_failed;
 
 #if MALI_TIMELINE_PROFILING_ENABLED
 	err = _mali_osk_profiling_init(mali_boot_profiling ? MALI_TRUE : MALI_FALSE);
@@ -598,6 +636,16 @@ _mali_osk_errcode_t mali_initialize_subsystems(void)
 	/* Configure memory early. Memory allocation needed for mali_mmu_initialize. */
 	err = mali_parse_config_memory();
 	if (_MALI_OSK_ERR_OK != err) goto parse_memory_config_failed;
+
+	/* Parsing the GPU base address and first pp offset */
+	err = mali_parse_gpu_base_and_first_pp_offset_address();
+	if (_MALI_OSK_ERR_OK != err) goto parse_gpu_base_address_failed;
+
+	/* Initialize the MALI PMU */
+	err = mali_parse_config_pmu();
+	if (_MALI_OSK_ERR_OK != err) goto parse_pmu_config_failed;
+
+	is_pmu_enabled = mali_pmu_get_global_pmu_core() != NULL ? MALI_TRUE : MALI_FALSE;
 
 	/* Initialize the power management module */
 	err = mali_pm_initialize();
@@ -670,7 +718,12 @@ mmu_init_failed:
 product_info_parsing_failed:
 	mali_pm_terminate();
 pm_init_failed:
-	/* @@@@ todo: Undo of memory parsing is done in mali_memory_terminate()??? */
+	if (is_pmu_enabled)
+	{
+		mali_pmu_delete(mali_pmu_get_global_pmu_core());
+	}
+parse_pmu_config_failed:
+parse_gpu_base_address_failed:
 parse_memory_config_failed:
 	mali_memory_terminate();
 memory_init_failed:
@@ -681,11 +734,14 @@ build_system_info_failed:
 #if MALI_TIMELINE_PROFILING_ENABLED
 	_mali_osk_profiling_term();
 #endif
+	mali_session_terminate();
+session_init_failed:
 	return err;
 }
 
 void mali_terminate_subsystems(void)
 {
+	struct mali_pmu_core *pmu;
 	MALI_DEBUG_PRINT(2, ("terminate_subsystems() called\n"));
 
 	/* shut down subsystems in reverse order from startup */
@@ -709,6 +765,12 @@ void mali_terminate_subsystems(void)
 
 	mali_mmu_terminate();
 
+	pmu = mali_pmu_get_global_pmu_core();
+	if (NULL != pmu)
+	{
+		mali_pmu_delete(pmu);
+	}
+
 	mali_pm_terminate();
 
 	mali_memory_terminate();
@@ -720,6 +782,8 @@ void mali_terminate_subsystems(void)
 #if MALI_TIMELINE_PROFILING_ENABLED
 	_mali_osk_profiling_term();
 #endif
+
+	mali_session_terminate();
 
 	if (NULL != system_info_lock)
 	{
@@ -1025,7 +1089,7 @@ _mali_osk_errcode_t _mali_ukk_open(void **context)
 	session_data = (struct mali_session_data *)_mali_osk_calloc(1, sizeof(struct mali_session_data));
 	MALI_CHECK_NON_NULL(session_data, _MALI_OSK_ERR_NOMEM);
 
-	MALI_DEBUG_PRINT(3, ("Session starting\n"));
+	MALI_DEBUG_PRINT(2, ("Session starting\n"));
 
 	/* create a response queue for this session */
 	session_data->ioctl_queue = _mali_osk_notification_queue_init();
@@ -1053,7 +1117,6 @@ _mali_osk_errcode_t _mali_ukk_open(void **context)
 
 	if (0 != mali_dlbu_phys_addr)
 	{
-		/* TODO: Make this mapping read only */
 		mali_mmu_pagedir_update(session_data->page_directory, MALI_DLB_VIRT_ADDR, mali_dlbu_phys_addr, _MALI_OSK_MALI_PAGE_SIZE);
 	}
 
@@ -1068,7 +1131,7 @@ _mali_osk_errcode_t _mali_ukk_open(void **context)
 	*context = (void*)session_data;
 
 	/* Add session to the list of all sessions. */
-	_mali_osk_list_add(&session_data->link, &mali_sessions);
+	mali_session_add(session_data);
 
 	MALI_DEBUG_PRINT(3, ("Session started\n"));
 	MALI_SUCCESS;
@@ -1080,10 +1143,10 @@ _mali_osk_errcode_t _mali_ukk_close(void **context)
 	MALI_CHECK_NON_NULL(context, _MALI_OSK_ERR_INVALID_ARGS);
 	session = (struct mali_session_data *)*context;
 
-	MALI_DEBUG_PRINT(2, ("Session ending\n"));
+	MALI_DEBUG_PRINT(3, ("Session ending\n"));
 
 	/* Remove session from list of all sessions. */
-	_mali_osk_list_delinit(&session->link);
+	mali_session_remove(session);
 
 	/* Abort queued and running jobs */
 	mali_gp_scheduler_abort_session(session);

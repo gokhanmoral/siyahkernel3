@@ -44,6 +44,7 @@ ifeq ($(CONFIG_BUSFREQ_OPP),y)
 obj-$(CONFIG_ARCH_EXYNOS4)	+= busfreq_opp_exynos4.o busfreq_opp_4x12.o
 obj-$(CONFIG_ARCH_EXYNOS5)	+= busfreq_opp_exynos5.o busfreq_opp_5250.o
 endif
+obj-$(CONFIG_DISPFREQ_OPP)	+= dispfreq_opp_exynos4.o
 obj-$(CONFIG_BUSFREQ_LOCK_WRAPPER)	+= dev-slp.o
 
 obj-$(CONFIG_SMP)		+= platsmp.o headsmp.o
@@ -57,7 +58,6 @@ obj-$(CONFIG_LEGACY_HOTPLUG_POLICY)	+= pm-hotplug.o
 obj-$(CONFIG_WITH_DVFS_POLICY)		+= dvfs-hotplug.o
 obj-$(CONFIG_DVFS_NR_RUNNING_POLICY)	+= dynamic-dvfs-nr_running-hotplug.o
 obj-$(CONFIG_NR_RUNNING_POLICY)		+= dynamic-nr_running-hotplug.o
-obj-$(CONFIG_LEGACY_HP_POLICY)		+= legacy-hotplug.o
 
 # machine support
 
@@ -65,17 +65,20 @@ obj-$(CONFIG_MACH_SMDKC210)		+= mach-smdkv310.o
 obj-$(CONFIG_MACH_SMDKV310)		+= mach-smdkv310.o
 obj-$(CONFIG_MACH_ARMLEX4210)		+= mach-armlex4210.o
 obj-$(CONFIG_MACH_UNIVERSAL_C210)	+= mach-universal_c210.o
-obj-$(CONFIG_MACH_TRATS)		+= mach-trats.o sec-common.o sec-switch_max8997.o \
+obj-$(CONFIG_MACH_TRATS)		+= board-trats.o sec-common.o sec-switch_max8997.o \
 					   u1-wlan.o u1_regulator_consumer.o sec-reboot.o
-ifeq ($(CONFIG_MACH_U1CAMERA_BD),y)
-obj-$(CONFIG_MACH_U1)			+= mach-u1cam.o
-else
-obj-$(CONFIG_MACH_U1)			+= mach-u1.o
-endif
-obj-$(CONFIG_MACH_U1)			+= sec-common.o sec-switch_max8997.o
+obj-$(CONFIG_MACH_U1)			+= mach-u1.o sec-common.o sec-switch_max8997.o
+obj-$(CONFIG_WIMAX_CMC)			+= u1-wimax.o
+ifneq ($(CONFIG_MACH_U1_NA_SPR),y)
+ifneq ($(CONFIG_MACH_U1_NA_USCC),y)
 obj-$(CONFIG_MACH_U1_BD)		+= u1-gpio.o board-gps-gsd4t.o
+else
+obj-$(CONFIG_MACH_U1_BD)		+= u1-gpio.o
+endif
+else
+obj-$(CONFIG_MACH_U1_BD)		+= u1-gpio.o
+endif
 obj-$(CONFIG_MACH_Q1_BD)		+= q1-gpio.o board-gps-bcm475x.o
-obj-$(CONFIG_MACH_U1CAMERA_BD)		+= u1camera-gpio.o board-gps-bcm475x.o
 obj-$(CONFIG_MACH_U1)			+= u1-wlan.o
 obj-$(CONFIG_MACH_PX)			+= mach-px.o sec-common.o board-gps-bcm475x.o px-switch.o
 obj-$(CONFIG_MACH_P2)			+= p2-gpio.o
@@ -84,6 +87,7 @@ obj-$(CONFIG_MACH_P8)			+= p8-gpio.o
 obj-$(CONFIG_MACH_P8LTE)		+= p8lte-gpio.o
 obj-$(CONFIG_MACH_P10)			+= board-p10-wlan.o board-gps-bcm475x.o
 obj-$(CONFIG_PANEL_U1)			+= u1-panel.o u1-panel_a2.o u1-panel_m2.o
+obj-$(CONFIG_PANEL_U1_NA_SPR)           += u1-na-spr-panel.o
 obj-$(CONFIG_MACH_U1)			+= u1_regulator_consumer.o
 obj-$(CONFIG_MACH_PX)			+= u1_regulator_consumer.o
 obj-$(CONFIG_MACH_NURI)			+= mach-nuri.o
@@ -92,10 +96,10 @@ ifeq ($(CONFIG_MACH_P4NOTE),y)
 obj-$(CONFIG_MACH_MIDAS)		+= mach-p4notepq.o px-switch.o p4note-jack.o
 else
 ifeq ($(CONFIG_MACH_IRON),y)
-obj-$(CONFIG_MACH_MIDAS)		+= board-grande.o
+obj-$(CONFIG_MACH_MIDAS)		+= board-grande.o grande-jack.o
 else
 ifeq ($(CONFIG_MACH_GRANDE),y)
-obj-$(CONFIG_MACH_MIDAS)		+= board-grande.o
+obj-$(CONFIG_MACH_MIDAS)		+= board-grande.o grande-jack.o
 else
 obj-$(CONFIG_MACH_MIDAS)		+= mach-midas.o
 endif
@@ -106,6 +110,7 @@ obj-$(CONFIG_MACH_SLP_PQ)		+= board-slp-pq.o
 obj-$(CONFIG_MACH_REDWOOD)		+= board-redwood.o
 obj-$(CONFIG_MACH_SLP_PQ_LTE)		+= board-slp-pq.o
 obj-$(CONFIG_MACH_SLP_NAPLES)		+= board-slp-naples.o
+obj-$(CONFIG_MACH_SLP_T0_LTE)		+= board-slp-t0-lte.o
 obj-$(CONFIG_CHARGER_MANAGER)		+= charger-slp.o
 obj-$(CONFIG_SLP)			+= sec-reboot.o
 obj-$(CONFIG_MACH_SMDK5210)		+= mach-smdk5210.o
@@ -132,18 +137,60 @@ obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o board-gps-bcm475x.o \
 					   board-grande-camera.o board-grande-thermistor.o \
 					   board-grande-lcd.o board-grande-sound.o
 else
+ifeq ($(CONFIG_MACH_M3),y)
+obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o \
+					   midas-tsp.o board-midas-wlan.o \
+					   midas-camera.o midas-thermistor.o \
+					   midas-mhl.o midas-lcd.o midas-sound.o
+else
+ifeq ($(CONFIG_MACH_T0),y)
+obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o \
+					   midas-tsp.o board-midas-wlan.o \
+					   midas-camera.o midas-thermistor.o \
+					   midas-mhl.o midas-lcd.o t0-sound.o
+obj-$(CONFIG_SEC_MODEM)			+= board-gps-bcm475x.o
+else
+ifeq ($(CONFIG_MACH_P4NOTE),y)
+obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o\
+					   midas-tsp.o board-midas-wlan.o \
+					   midas-camera.o midas-thermistor.o \
+					   midas-mhl.o midas-lcd.o midas-sound.o
+obj-$(CONFIG_SEC_MODEM)			+= board-gps-bcm475x.o
+else
+ifeq ($(CONFIG_MACH_SLP_T0_LTE),y)
+obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o \
+					   board-midas-wlan.o \
+					   midas-camera.o midas-thermistor.o \
+					   midas-mhl.o midas-lcd.o
+else
+ifeq ($(CONFIG_MACH_SLP_PQ),y)
+obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o board-gps-bcm475x.o \
+					   board-midas-wlan.o \
+					   midas-camera.o midas-thermistor.o \
+					   midas-mhl.o midas-lcd.o
+else
 obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o board-gps-bcm475x.o \
 					   midas-tsp.o board-midas-wlan.o \
 					   midas-camera.o midas-thermistor.o \
 					   midas-mhl.o midas-lcd.o midas-sound.o
 endif
 endif
+endif
+endif
+endif
+endif
+endif
 obj-$(CONFIG_IRON_BD)			+= board-iron-gpio.o board-grande-power.o
 obj-$(CONFIG_GRANDE_BD)			+= board-grande-gpio.o board-grande-power.o
 obj-$(CONFIG_P4NOTE_00_BD)		+= p4note-gpio.o p4note-power.o
-obj-$(CONFIG_GC1_00_BD)			+= gc1-gpio.o gc1-power.o
-obj-$(CONFIG_T0_00_BD)			+= t0-gpio.o midas-power.o
+obj-$(CONFIG_GC1_00_BD)			+= gc1-gpio.o gc1-power.o gc1-jack.o
+obj-$(CONFIG_MACH_T0)			+= t0-gpio.o t0-power.o
+obj-$(CONFIG_MACH_BAFFIN)			+= baffin-gpio.o baffin-power.o
+ifeq ($(CONFIG_MACH_M3),y)
+obj-$(CONFIG_MIDAS_COMMON_BD)		+= m3-gpio.o midas-power.o
+else
 obj-$(CONFIG_MIDAS_COMMON_BD)		+= midas-gpio.o midas-power.o
+endif
 obj-$(CONFIG_EXTCON)			+= midas-extcon.o
 
 obj-$(CONFIG_NAPLES_COMMON)		+= naples-gpio.o sec-common.o midas-gps.o \
@@ -227,19 +274,17 @@ obj-$(CONFIG_EXYNOS4_SETUP_MIPI_DSIM)	+= setup-mipidsim.o
 obj-$(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION) += secmem-allocdev.o
 obj-$(CONFIG_EXYNOS_C2C)		+= setup-c2c.o
 obj-$(CONFIG_SEC_MODEM_M0_C2C)		+= board-midas-modems.o
-ifeq ($(CONFIG_MACH_P4NOTE),y)
-obj-$(CONFIG_SEC_MODEM_M0)		+= board-p4notepq-modems.o
-else
 obj-$(CONFIG_SEC_MODEM_M0)		+= board-m0-modems.o
-endif
 obj-$(CONFIG_SEC_MODEM_M0_TD)           += board-m0-td-modems.o
+obj-$(CONFIG_SEC_MODEM_T0_TD_DUAL)           += board-m0-modems.o board-m0-td-modems.o
 obj-$(CONFIG_SEC_MODEM_M0_CTC)		+= board-m0ctc-modems.o
+obj-$(CONFIG_SEC_MODEM_T0_CU_DUOS)	+= board-m0-modems.o board-t0cu-duos-modems.o
+obj-$(CONFIG_SEC_MODEM_T0_OPEN_DUOS)      += board-m0-modems.o board-t0cu-duos-modems.o
 obj-$(CONFIG_SEC_MODEM_IRON)		+= board-iron-modems.o
 #obj-$(CONFIG_SEC_MODEM_M1)		+= board-m1-modems.o
 obj-$(CONFIG_SEC_MODEM_GAIA)		+= board-gaia-modems.o
 obj-$(CONFIG_SEC_MODEM_M1)		+= board-c1-modems.o
 obj-$(CONFIG_SEC_MODEM_C1)		+= board-c1-modems.o
-obj-$(CONFIG_SEC_MODEM_C1_VZW)		+= board-c1vzw-modems.o
 obj-$(CONFIG_SEC_MODEM_C1_LGT)		+= board-c1lgt-modems.o
 obj-$(CONFIG_SEC_MODEM_U1)		+= board-u1-modems.o
 obj-$(CONFIG_SEC_MODEM_U1_LGT)		+= board-u1-lgt-modems.o
@@ -257,11 +302,20 @@ obj-$(CONFIG_BT_BCM4330)		+= board-bluetooth-bcm4330.o
 obj-$(CONFIG_BT_BCM4334)		+= board-bluetooth-bcm4334.o
 obj-$(CONFIG_BT_BCM43241)		+= board-bluetooth-bcm43241.o
 obj-$(CONFIG_GPS_BCM47511)		+= bcm47511.o
+obj-$(CONFIG_GPS_BCM4752)		+= bcm4752.o
 obj-$(CONFIG_GPS_GSD4T)			+= gsd4t.o
 obj-$(CONFIG_SEC_THERMISTOR)		+= sec_thermistor.o
 obj-$(CONFIG_EXYNOS_SYSREG_PM)		+= sysreg.o
 
 obj-$(CONFIG_EXYNOS4_DEV_TMU)           += dev-slp-tmu.o
 obj-$(CONFIG_QC_MODEM_MDM9X15)	+= mdm2.o mdm_common.o mdm_device.o
-obj-$(CONFIG_MSM_SUBSYSTEM_RESTART)	+= subsystem_notif.o subsystem_restart.o
+obj-$(CONFIG_MSM_SUBSYSTEM_RESTART)	+= subsystem_restart.o
 obj-$(CONFIG_MDM_HSIC_PM)		+= mdm_hsic_pm.o
+ifeq ($(CONFIG_MACH_T0),y)
+obj-$(CONFIG_INPUT_WACOM)		+= midas-wacom.o
+endif
+
+obj-$(CONFIG_CORESIGHT_ETM) += coresight.o coresight-etb.o coresight-tpiu.o coresight-funnel.o coresight-etm.o
+
+# for audio platform data driver
+obj-$(CONFIG_EXYNOS_SOUND_PLATFORM_DATA)	+= exynos_sound_platform_data.o

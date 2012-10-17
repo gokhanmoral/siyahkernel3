@@ -806,8 +806,7 @@ static int __devinit max77686_rtc_probe(struct platform_device *pdev)
 #ifdef MAX77686_RTC_WTSR_SMPL
 	if (max77686->wtsr_smpl & MAX77686_WTSR_ENABLE)
 		max77686_rtc_enable_wtsr(info, true);
-#if !defined(CONFIG_MACH_C1_KOR_SKT) && !defined(CONFIG_MACH_C1_KOR_KT) && \
-	!defined(CONFIG_MACH_C1_KOR_LGT) && !defined(CONFIG_MACH_M0_KOR_SKT)
+#if !defined(CONFIG_TARGET_LOCALE_KOR)
 	if (max77686->wtsr_smpl & MAX77686_SMPL_ENABLE)
 		max77686_rtc_enable_smpl(info, true);
 #endif

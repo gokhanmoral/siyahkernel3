@@ -1478,11 +1478,6 @@ static int ath6kl_htc_rx_alloc(struct htc_target *target,
 			ath6kl_err("payload len %d exceeds max htc : %d !\n",
 				   htc_hdr->payld_len,
 				   (u32) HTC_MAX_PAYLOAD_LENGTH);
-#ifdef CONFIG_MACH_PX
-			cfg80211_priv_event(vif->ndev, "HANG", GFP_ATOMIC);
-			ath6kl_hif_rx_control(target->dev, false);
-			ssleep(3);
-#endif
 			status = -ENOMEM;
 			break;
 		}
@@ -2159,11 +2154,6 @@ int ath6kl_htc_rxmsg_pending_handler(struct htc_target *target,
 		if (id >= ENDPOINT_MAX) {
 			ath6kl_err("MsgPend, invalid endpoint in look-ahead: %d\n",
 				   id);
-#ifdef CONFIG_MACH_PX
-			cfg80211_priv_event(vif->ndev, "HANG", GFP_ATOMIC);
-			ath6kl_hif_rx_control(target->dev, false);
-			ssleep(3);
-#endif
 			status = -ENOMEM;
 			break;
 		}

@@ -976,12 +976,20 @@ static struct vpll_div_data vpll_div_4212[] = {
 	{54000000, 2, 72, 4, 0, 0, 0, 0},
 	{108000000, 2, 72, 3, 0, 0, 0, 0},
 	{160000000, 3, 160, 3, 0, 0, 0, 0},
+	{200000000, 3, 200, 3, 0, 0, 0, 0},
 	{266000000, 3, 133, 2, 0, 0, 0, 0},
 	{275000000, 2, 92, 2, 43692, 0, 0, 0},
 	{300000000, 2, 100, 2, 0, 0, 0, 0},
 	{333000000, 2, 111, 2, 0, 0, 0, 0},
 	{350000000, 3, 175, 2, 0, 0, 0, 0},
+	{400000000, 3, 100, 1, 0, 0, 0, 0},
 	{440000000, 3, 110, 1, 0, 0, 0, 0},
+	{500000000, 2, 166, 2, 0, 0, 0, 0},
+	{533000000, 3, 133, 1, 16384, 0, 0, 0},
+	{600000000, 2, 100, 1, 16384, 0, 0, 0},
+	{640000000, 3, 160, 1, 16384, 0, 0, 0},
+	{666000000, 2, 111, 1, 16384, 0, 0, 0},
+	{700000000, 3, 175, 1, 16384, 0, 0, 0},
 };
 
 static unsigned long exynos4212_vpll_get_rate(struct clk *clk)
@@ -1038,11 +1046,8 @@ static int exynos4212_clock_suspend(void)
 {
 	s3c_pm_do_save(exynos4212_clock_save, ARRAY_SIZE(exynos4212_clock_save));
 	s3c_pm_do_save(exynos4212_vpll_save, ARRAY_SIZE(exynos4212_vpll_save));
-#if (defined(CONFIG_MACH_M0) && defined(CONFIG_TARGET_LOCALE_EUR)) || \
-	((defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_M0)) && \
-	defined(CONFIG_TARGET_LOCALE_KOR))
 	s3c_pm_do_save(exynos4212_epll_save, ARRAY_SIZE(exynos4212_epll_save));
-#endif
+
 	return 0;
 }
 
@@ -1051,11 +1056,8 @@ static void exynos4212_clock_resume(void)
 	unsigned int tmp;
 
 	s3c_pm_do_restore_core(exynos4212_vpll_save, ARRAY_SIZE(exynos4212_vpll_save));
-#if (defined(CONFIG_MACH_M0) && defined(CONFIG_TARGET_LOCALE_EUR)) || \
-	((defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_M0)) && \
-	defined(CONFIG_TARGET_LOCALE_KOR))
 	s3c_pm_do_restore_core(exynos4212_epll_save, ARRAY_SIZE(exynos4212_epll_save));
-#endif
+
 	/* waiting epll & vpll locking time */
 	do {
 		tmp = __raw_readl(EXYNOS4_EPLL_CON0);

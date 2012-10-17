@@ -72,11 +72,16 @@ static char *supply_list[] = {
 	"battery",
 };
 
+/* Get LP charging mode state */
+unsigned int lpcharge;
+
 static enum power_supply_property sec_battery_properties[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_TECHNOLOGY,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_CURRENT_AVG,
 	POWER_SUPPLY_PROP_CAPACITY,
 };
 
@@ -103,8 +108,8 @@ struct battery_info {
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 	u32 batt_vfsoc;
 	u32 batt_soc;
-	u32 batt_current_avg;
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	u32 batt_current_avg;
 };
 
 struct battery_data {
@@ -159,6 +164,7 @@ struct battery_data {
 	/* 0:Default, 1:Only charger, 2:Only PMIC */
 	int cable_detect_source;
 	int pmic_cable_state;
+	int dock_type;
 	bool is_low_batt_alarm;
 };
 
@@ -187,6 +193,7 @@ static int bat_temp_force_state;
 
 static bool check_UV_charging_case(void);
 static void sec_bat_status_update(struct power_supply *bat_ps);
+static void fullcharge_discharge_comp(struct battery_data *battery);
 
 static int get_cached_charging_status(struct battery_data *battery)
 {
@@ -239,7 +246,7 @@ static int check_ta_conn(struct battery_data *battery)
 #ifdef CONFIG_SAMSUNG_LPM_MODE
 static void lpm_mode_check(struct battery_data *battery)
 {
-	battery->charging_mode_booting = \
+	battery->charging_mode_booting = lpcharge =
 				battery->pdata->check_lp_charging_boot();
 	pr_info("%s : charging_mode_booting(%d)\n", __func__,
 			battery->charging_mode_booting);
@@ -331,10 +338,13 @@ enum charger_type sec_get_dedicted_charger_type(struct battery_data *battery)
 			battery->pdata->charger.accessory_line);
 		pr_info("%s: accessory line(%d)\n", __func__, accessory_line);
 
-		if (accessory_line == 0)	/* HDMI dock cable connected*/
+		if (battery->dock_type == DOCK_DESK) {
+			pr_info("%s: deskdock(%d) charging\n",
+					__func__, battery->dock_type);
 			result = CHARGER_DOCK;
-		else
+		} else {
 			result = CHARGER_AC;
+		}
 #else
 		result = CHARGER_AC;                      /* TA connected. */
 #endif
@@ -382,6 +392,9 @@ static void sec_TA_work_handler(struct work_struct *work)
 	/* Prevent unstable VBUS signal from PC */
 	ta_state =  check_ta_conn(battery);
 	if (ta_state == 0) {
+		/* Check for immediate discharge after fullcharge */
+		fullcharge_discharge_comp(battery);
+
 		msleep(TA_DISCONNECT_RECHECK_TIME);
 		if (ta_state != check_ta_conn(battery)) {
 			pr_info("%s: unstable ta_state(%d), ignore it.\n",
@@ -469,6 +482,29 @@ static int is_over_abs_time(struct battery_data *battery)
 		return 0;
 }
 
+/* fullcharge_discharge_comp: During the small window between
+ *  Full Charge and Recharge if the cable is connected , we always show
+ *  100% SOC to the UI , evven though in background its discharging.
+ * If the user pulls out the TA in between this small window he should
+ * see a sudden drop from 100% to a disacharged state of 95% - 98%.
+ * We fake the SOC on Fulll cap and let FG manage the differences on
+ * long run.
+ * Also during the start of recharging phase if the TA is disconnected SOC
+ * can sudden;y drop down to a lower value. In that case also the user
+ * expects to see a 100% so we update Full Cap again.
+*/
+static void fullcharge_discharge_comp(struct battery_data *battery)
+{
+	int fg_vcell = get_fuelgauge_value(FG_VOLTAGE);
+
+	if (battery->info.batt_is_full) {
+		pr_info("%s: Resetting FULLCAP !!\n", __func__);
+		fg_reset_fullcap_in_fullcharge();
+	}
+
+	return;
+}
+
 static int sec_get_bat_level(struct power_supply *bat_ps)
 {
 	struct battery_data *battery = container_of(bat_ps,
@@ -541,8 +577,8 @@ static int sec_get_bat_level(struct power_supply *bat_ps)
 	fg_vfsoc = get_fuelgauge_value(FG_VF_SOC);
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 	battery->info.batt_vfsoc = fg_vfsoc;
-	battery->info.batt_current_avg = avg_current;
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	battery->info.batt_current_avg = avg_current;
 
 /* P4-Creative does not set full flag by force */
 #if !defined(CONFIG_MACH_P4NOTE)
@@ -1012,8 +1048,7 @@ static int sec_bat_get_charging_status(struct battery_data *battery)
 	case CHARGER_AC:
 	case CHARGER_MISC:
 	case CHARGER_DOCK:
-		if (battery->info.batt_is_full ||
-			battery->info.level == 100)
+		if (battery->info.batt_is_full)
 			return POWER_SUPPLY_STATUS_FULL;
 		else if (battery->info.batt_improper_ta)
 			return POWER_SUPPLY_STATUS_DISCHARGING;
@@ -1035,6 +1070,15 @@ static int sec_bat_set_property(struct power_supply *ps,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
+#if defined(CONFIG_MACH_P4NOTE)
+		battery->dock_type = val->intval;
+		pr_info("dock type(%d)\n", battery->dock_type);
+		/* if need current update state, set */
+		if (battery->dock_type == DOCK_DESK) {
+			sec_get_cable_status(battery);
+			sec_cable_changed(battery);
+		}
+#else
 		battery->pmic_cable_state = val->intval;
 		pr_info("PMIC cable state: %d\n", battery->pmic_cable_state);
 		if (battery->cable_detect_source == 2) {
@@ -1044,6 +1088,7 @@ static int sec_bat_set_property(struct power_supply *ps,
 			sec_cable_changed(battery);
 		}
 		battery->cable_detect_source = 0;
+#endif
 		break;
 	default:
 		return -EINVAL;
@@ -1071,6 +1116,12 @@ static int sec_bat_get_property(struct power_supply *bat_ps,
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+		val->intval = battery->info.batt_current;
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_AVG:
+		val->intval = battery->info.batt_current_avg;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 #if defined(CONFIG_MACH_P4NOTE)
@@ -1614,10 +1665,12 @@ static void sec_bat_status_update(struct power_supply *bat_ps)
 	power_supply_changed(bat_ps);
 	pr_debug("call power_supply_changed");
 
-	pr_info("BAT : soc(%d), vcell(%dmV), curr(%dmA), temp(%d.%d), chg(%d)",
+	pr_info("BAT : soc(%d), vcell(%dmV), curr(%dmA), "
+		"avg curr(%dmA), temp(%d.%d), chg(%d)",
 		battery->info.level,
 		battery->info.batt_vol,
 		battery->info.batt_current,
+		battery->info.batt_current_avg,
 		battery->info.batt_temp/10,
 		battery->info.batt_temp%10,
 		battery->info.charging_enabled);
@@ -1794,17 +1847,15 @@ void fuelgauge_recovery_handler(struct work_struct *work)
 
 	if (battery->info.level > 0) {
 		pr_err("%s: Reduce the Reported SOC by 1 unit, wait for 30s\n",
-		__func__);
+								__func__);
 		if (!battery->info.charging_enabled)
 			wake_lock_timeout(&battery->vbus_wake_lock, HZ);
 		current_soc = get_fuelgauge_value(FG_LEVEL);
 		if (current_soc) {
 			pr_info("%s: Returning to Normal discharge path.\n",
 				__func__);
-			pr_info(" Actual SOC(%d) non-zero.\n",
-			current_soc);
+			pr_info(" Actual SOC(%d) non-zero.\n", current_soc);
 			battery->is_low_batt_alarm = false;
-			return;
 		} else {
 			battery->info.level--;
 			pr_err("%s: New Reduced Reported SOC  (%d).\n",
@@ -1816,12 +1867,22 @@ void fuelgauge_recovery_handler(struct work_struct *work)
 		}
 	} else {
 		if (!get_charger_status(battery)) {
-			pr_err("Set battery level as 0, power off.\n");
+			pr_err("%s: 0%% wo/ charging, will be power off\n",
+								__func__);
 			battery->info.level = 0;
 			wake_lock_timeout(&battery->vbus_wake_lock, HZ);
 			power_supply_changed(&battery->psy_battery);
+		} else {
+			pr_info("%s: 0%% w/ charging, exit low bat alarm\n",
+								__func__);
+			/* finish low battery alarm state */
+			battery->is_low_batt_alarm = false;
 		}
 	}
+
+	pr_info("%s: low batt alarm(%d)\n", __func__,
+				battery->is_low_batt_alarm);
+	return;
 }
 
 #define STABLE_LOW_BATTERY_DIFF	3
@@ -1966,17 +2027,20 @@ static int sec_bat_read_proc(char *buf, char **start,
 	cur_time = ktime_to_timespec(ktime);
 
 	len = sprintf(buf,
-		"%lu\t%u\t%u\t%u\t%u\t%u\t%d\t%d\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
+		"%lu\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t%d\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t0x%04x\t0x%04x\n",
 		cur_time.tv_sec,
 		battery->info.batt_vol, battery->info.level,
 		battery->info.batt_soc, battery->info.batt_vfsoc,
+		max17042_chip_data->info.psoc,
 		battery->info.batt_temp,
 		battery->info.batt_current, battery->info.batt_current_avg,
 		battery->info.charging_source, battery->info.batt_improper_ta,
 		battery->info.charging_enabled, battery->info.charging_current,
 		sec_bat_get_charging_status(battery), battery->info.batt_health,
 		battery->info.batt_is_full, battery->info.batt_is_recharging,
-		battery->info.abstimer_is_active, battery->info.siop_activated
+		battery->info.abstimer_is_active, battery->info.siop_activated,
+		get_fuelgauge_capacity(CAPACITY_TYPE_FULL),
+		get_fuelgauge_capacity(CAPACITY_TYPE_REP)
 		);
 
 	return len;

@@ -107,6 +107,7 @@ struct fuelgauge_info {
 	int low_batt_comp_cnt[LOW_BATT_COMP_RANGE_NUM][LOW_BATT_COMP_LEVEL_NUM];
 	int check_start_vol;
 	int low_batt_comp_flag;
+	int psoc;
 };
 
 struct max17042_chip {
@@ -375,5 +376,5 @@ extern void fg_fullcharged_compensation(u32 is_recharging, u32 pre_update);
 extern void fg_check_vf_fullcap_range(void);
 extern int fg_check_cap_corruption(void);
 extern void fg_set_full_charged(void);
-
+extern void fg_reset_fullcap_in_fullcharge(void);
 #endif

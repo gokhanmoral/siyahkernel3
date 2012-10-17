@@ -1111,8 +1111,13 @@ static inline void hci_cs_inquiry(struct hci_dev *hdev, __u8 status)
 		hci_req_complete(hdev, HCI_OP_INQUIRY, status);
 		hci_conn_check_pending(hdev);
 		hci_dev_lock(hdev);
-		if (test_bit(HCI_MGMT, &hdev->dev_flags))
+		if (test_bit(HCI_MGMT, &hdev->dev_flags)) {
+			/* [GGSM/sc47.yun] P120828-6815. Discovery fail issue */
+			BT_ERR("Discovery can't be done with other commands");
+			hci_discovery_set_state(hdev, DISCOVERY_STOPPING);
+
 			mgmt_start_discovery_failed(hdev, status);
+		}
 		hci_dev_unlock(hdev);
 		return;
 	}
@@ -2937,9 +2942,7 @@ static inline void hci_sync_conn_complete_evt(struct hci_dev *hdev, struct sk_bu
 	case 0x1c:	/* SCO interval rejected */
 	case 0x1a:	/* Unsupported Remote Feature */
 	case 0x1f:	/* Unspecified error */
-		if (conn->out && conn->attempt < 2) {
-			/* wbs */
-			if (!conn->hdev->is_wbs)
+		if (conn->out && conn->attempt < 2 && !conn->hdev->is_wbs) {
 				conn->pkt_type = (hdev->esco_type & SCO_ESCO_MASK) |
 					(hdev->esco_type & EDR_ESCO_MASK);
 			hci_setup_sync(conn, conn->link->handle);

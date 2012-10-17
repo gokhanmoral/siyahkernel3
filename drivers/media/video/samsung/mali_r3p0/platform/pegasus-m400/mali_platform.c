@@ -346,7 +346,9 @@ void mali_clk_put(mali_bool binc_mali_clock)
 mali_bool mali_clk_set_rate(unsigned int clk, unsigned int mhz)
 {
 	unsigned long rate = 0;
+#if MALI_INTERNAL_TIMELINE_PROFILING_ENABLED
 	unsigned long previous_rate = 0;
+#endif
 	mali_bool bis_vpll = MALI_TRUE;
 
 #ifndef CONFIG_VPLL_USE_FOR_TVENC

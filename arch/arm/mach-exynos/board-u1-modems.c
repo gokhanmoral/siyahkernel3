@@ -265,8 +265,6 @@ void set_host_states(struct platform_device *pdev, int type)
 	}
 
 	if (active_ctl.gpio_initialized) {
-		if (type)
-			set_slave_wake();
 		pr_err("[MODEM_IF]Active States =%d, %s\n", type, pdev->name);
 		gpio_direction_output(modem_link_pm_data.gpio_link_active,
 			type);

@@ -85,6 +85,35 @@ static ssize_t store_waketime(struct device *dev,
 static struct device_attribute attr_waketime =
 	__ATTR(waketime, S_IRUGO | S_IWUSR, show_waketime, store_waketime);
 
+static ssize_t show_loopback(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct miscdevice *miscdev = dev_get_drvdata(dev);
+	struct modem_shared *msd =
+		container_of(miscdev, struct io_device, miscdev)->msd;
+	unsigned char *ip = (unsigned char *)&msd->loopback_ipaddr;
+	char *p = buf;
+
+	p += sprintf(buf, "%u.%u.%u.%u\n", ip[0], ip[1], ip[2], ip[3]);
+
+	return p - buf;
+}
+
+static ssize_t store_loopback(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct miscdevice *miscdev = dev_get_drvdata(dev);
+	struct modem_shared *msd =
+		container_of(miscdev, struct io_device, miscdev)->msd;
+
+	msd->loopback_ipaddr = ipv4str_to_be32(buf, count);
+
+	return count;
+}
+
+static struct device_attribute attr_loopback =
+	__ATTR(loopback, S_IRUGO | S_IWUSR, show_loopback, store_loopback);
+
 static int get_header_size(struct io_device *iod)
 {
 	switch (iod->format) {
@@ -300,7 +329,7 @@ static int rx_hdlc_data_check(struct io_device *iod, struct link_device *ld,
 		 * make skb for header info first
 		 */
 		if (iod->format == IPC_RFS && !hdr->frag_len) {
-			skb = rx_alloc_skb(head_size, GFP_ATOMIC, iod, ld);
+			skb = rx_alloc_skb(head_size, iod, ld);
 			if (unlikely(!skb))
 				return -ENOMEM;
 			memcpy(skb_put(skb, head_size), hdr->hdr, head_size);
@@ -311,17 +340,11 @@ static int rx_hdlc_data_check(struct io_device *iod, struct link_device *ld,
 		 * MAX_RXDATA_SIZE, this packet will split to
 		 * multiple packets
 		 */
-		if (iod->use_handover)
-			alloc_size += sizeof(struct ethhdr);
-
-		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		skb = rx_alloc_skb(alloc_size, iod, ld);
 		if (unlikely(!skb)) {
 			fragdata(iod, ld)->realloc_offset = continue_len;
 			return -ENOMEM;
 		}
-
-		if (iod->use_handover)
-			skb_reserve(skb, sizeof(struct ethhdr));
 		fragdata(iod, ld)->skb_recv = skb;
 	}
 
@@ -357,7 +380,7 @@ static int rx_hdlc_data_check(struct io_device *iod, struct link_device *ld,
 
 		alloc_size = min(rest_len, MAX_RXDATA_SIZE);
 
-		skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+		skb = rx_alloc_skb(alloc_size, iod, ld);
 		if (unlikely(!skb)) {
 			fragdata(iod, ld)->realloc_offset = done_len;
 			return -ENOMEM;
@@ -399,8 +422,7 @@ static int rx_multi_fmt_frame(struct sk_buff *rx_skb)
 			return 0;
 		} else {
 			struct fmt_hdr *fh = NULL;
-			skb = rx_alloc_skb(MAX_MULTI_FMT_SIZE, GFP_ATOMIC,
-					iod, ld);
+			skb = rx_alloc_skb(MAX_MULTI_FMT_SIZE, iod, ld);
 			if (!skb) {
 				mif_err("<%d> alloc_skb fail\n",
 					__LINE__);
@@ -482,8 +504,7 @@ static int rx_multi_fmt_frame_sipc42(struct sk_buff *rx_skb)
 			return 0;
 		} else {
 			struct fmt_hdr *fh = NULL;
-			skb = rx_alloc_skb(MAX_MULTI_FMT_SIZE, GFP_ATOMIC,
-					real_iod, ld);
+			skb = rx_alloc_skb(MAX_MULTI_FMT_SIZE, real_iod, ld);
 			if (!skb) {
 				mif_err("alloc_skb fail\n");
 				return -ENOMEM;
@@ -631,6 +652,9 @@ static int rx_multipdp(struct sk_buff *skb)
 	struct io_device *real_iod = NULL;
 
 	ch = raw_header->channel;
+	if (ch == DATA_LOOPBACK_CHANNEL && ld->msd->loopback_ipaddr)
+		ch = RMNET0_CH_ID;
+
 	real_iod = link_get_iod_with_channel(ld, 0x20 | ch);
 	if (!real_iod) {
 		mif_err("wrong channel %d\n", ch);
@@ -828,7 +852,7 @@ static int rx_rfs_packet(struct io_device *iod, struct link_device *ld,
 		}
 	}
 
-	skb = rx_alloc_skb(size, GFP_ATOMIC, iod, ld);
+	skb = rx_alloc_skb(size, iod, ld);
 	if (unlikely(!skb)) {
 		mif_err("alloc_skb fail\n");
 		return -ENOMEM;
@@ -890,7 +914,7 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 	case IPC_BOOT:
 	case IPC_RAMDUMP:
 		/* save packet to sk_buff */
-		skb = rx_alloc_skb(len, GFP_ATOMIC, iod, ld);
+		skb = rx_alloc_skb(len, iod, ld);
 		if (skb) {
 			mif_debug("boot len : %d\n", len);
 
@@ -909,7 +933,7 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 		while (rest_len) {
 			alloc_size = min_t(unsigned int, MAX_RXDATA_SIZE,
 				rest_len);
-			skb = rx_alloc_skb(alloc_size, GFP_ATOMIC, iod, ld);
+			skb = rx_alloc_skb(alloc_size, iod, ld);
 			if (!skb) {
 				mif_err("fail alloc skb (%d)\n", __LINE__);
 				return -ENOMEM;
@@ -1026,6 +1050,9 @@ static unsigned int misc_poll(struct file *filp, struct poll_table_struct *wait)
 	} else if ((iod->mc->phone_state == STATE_CRASH_RESET) ||
 			(iod->mc->phone_state == STATE_CRASH_EXIT) ||
 			(iod->mc->phone_state == STATE_NV_REBUILDING) ||
+#if defined(CONFIG_SEC_DUAL_MODEM_MODE)
+			(iod->mc->phone_state == STATE_MODEM_SWITCH) ||
+#endif
 			(iod->mc->sim_state.changed)) {
 		if (iod->format == IPC_RAW) {
 			msleep(20);
@@ -1043,6 +1070,9 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct io_device *iod = (struct io_device *)filp->private_data;
 	struct link_device *ld = get_current_link(iod);
 	char cpinfo_buf[530] = "CP Crash ";
+	unsigned long size;
+	int ret;
+	char str[TASK_COMM_LEN];
 
 	mif_debug("cmd = 0x%x\n", cmd);
 
@@ -1068,8 +1098,8 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return iod->mc->ops.modem_boot_off(iod->mc);
 
 	/* TODO - will remove this command after ril updated */
-	case IOCTL_MODEM_START:
-		mif_debug("misc_ioctl : IOCTL_MODEM_START\n");
+	case IOCTL_MODEM_BOOT_DONE:
+		mif_debug("misc_ioctl : IOCTL_MODEM_BOOT_DONE\n");
 		return 0;
 
 	case IOCTL_MODEM_STATUS:
@@ -1080,10 +1110,13 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		    (p_state == STATE_CRASH_EXIT)) {
 			mif_err("<%s> send err state : %d\n",
 				iod->name, p_state);
-		} else if (iod->mc->sim_state.changed) {
+		} else if (iod->mc->sim_state.changed &&
+			!strcmp(get_task_comm(str, get_current()), "rild")) {
 			int s_state = iod->mc->sim_state.online ?
 					STATE_SIM_ATTACH : STATE_SIM_DETACH;
 			iod->mc->sim_state.changed = false;
+
+			mif_info("SIM states (%d) to %s\n", s_state, str);
 			return s_state;
 		} else if (p_state == STATE_NV_REBUILDING) {
 			mif_info("send nv rebuild state : %d\n",
@@ -1136,6 +1169,38 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IOCTL_MODEM_DUMP_RESET:
 		mif_err("misc_ioctl : IOCTL_MODEM_DUMP_RESET\n");
 		return iod->mc->ops.modem_dump_reset(iod->mc);
+
+#if defined(CONFIG_SEC_DUAL_MODEM_MODE)
+	case IOCTL_MODEM_SWITCH_MODEM:
+		mif_err("misc_ioctl : IOCTL_MODEM_SWITCH_MODEM\n");
+		iod->mc->phone_state = STATE_MODEM_SWITCH;
+		wake_up(&iod->wq);
+		return 0;
+#endif
+
+	case IOCTL_MIF_LOG_DUMP:
+		size = MAX_MIF_BUFF_SIZE;
+		ret = copy_to_user((void __user *)arg, &size,
+			sizeof(unsigned long));
+		if (ret < 0)
+			return -EFAULT;
+
+		mif_dump_log(iod->mc->msd, iod);
+		return 0;
+
+	case IOCTL_MIF_DPRAM_DUMP:
+#ifdef CONFIG_LINK_DEVICE_DPRAM
+		if (iod->mc->mdm_data->link_types & LINKTYPE(LINKDEV_DPRAM)) {
+			size = iod->mc->mdm_data->dpram_ctl->dp_size;
+			ret = copy_to_user((void __user *)arg, &size,
+				sizeof(unsigned long));
+			if (ret < 0)
+				return -EFAULT;
+			mif_dump_dpram(iod);
+			return 0;
+		}
+#endif
+		return -EINVAL;
 
 	default:
 		 /* If you need to handle the ioctl for specific link device,
@@ -1420,6 +1485,7 @@ static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 	struct io_device *iod = vnet->iod;
 	struct link_device *ld = get_current_link(iod);
 	struct raw_hdr hd;
+	struct iphdr *ip_header = NULL;
 
 	/* When use `handover' with Network Bridge,
 	 * user -> TCP/IP(kernel) -> bridge device -> TCP/IP(kernel) -> this.
@@ -1433,9 +1499,17 @@ static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 			skb_pull(skb, sizeof(struct ethhdr));
 	}
 
+	/* ip loop-back */
+	ip_header = (struct iphdr *)skb->data;
+	if (iod->msd->loopback_ipaddr &&
+		ip_header->daddr == iod->msd->loopback_ipaddr) {
+		swap(ip_header->saddr, ip_header->daddr);
+		hd.channel = DATA_LOOPBACK_CHANNEL;
+	} else {
+		hd.channel = iod->id & 0x1F;
+	}
 	hd.len = skb->len + sizeof(hd);
 	hd.control = 0;
-	hd.channel = iod->id & 0x1F;
 
 	headroom = sizeof(hd) + sizeof(hdlc_start);
 	tailroom = sizeof(hdlc_end);
@@ -1573,9 +1647,13 @@ int sipc4_init_io_device(struct io_device *iod)
 		ret = device_create_file(iod->miscdev.this_device,
 				&attr_waketime);
 		if (ret)
-			mif_err("failed to create sysfs file : %s\n",
+			mif_err("failed to create `waketime' file : %s\n",
 					iod->name);
-
+		ret = device_create_file(iod->miscdev.this_device,
+				&attr_loopback);
+		if (ret)
+			mif_err("failed to create `loopback file' : %s\n",
+					iod->name);
 		break;
 
 	default:

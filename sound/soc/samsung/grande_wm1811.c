@@ -1,5 +1,5 @@
 /*
- *  midas_wm1811.c
+ *  grande_wm1811.c
  *
  *  Copyright (c) 2011 Samsung Electronics Co. Ltd
  *
@@ -32,6 +32,7 @@
 #include <linux/mfd/wm8994/core.h>
 #include <linux/mfd/wm8994/registers.h>
 #include <linux/mfd/wm8994/pdata.h>
+#include <linux/mfd/wm8994/gpio.h>
 
 #if defined(CONFIG_SND_USE_MUIC_SWITCH)
 #include <linux/mfd/max77693-private.h>
@@ -67,7 +68,7 @@ static struct wm8958_micd_rate midas_det_rates[] = {
 static struct wm8958_micd_rate midas_jackdet_rates[] = {
 	{ MIDAS_DEFAULT_MCLK2,     true,  0,  0 },
 	{ MIDAS_DEFAULT_MCLK2,    false,  0,  0 },
-	{ MIDAS_DEFAULT_SYNC_CLK,  true, 12, 12 },
+	{ MIDAS_DEFAULT_SYNC_CLK,  true, 11, 11 },
 	{ MIDAS_DEFAULT_SYNC_CLK, false,  7,  8 },
 };
 
@@ -90,6 +91,12 @@ static int lineout_mode;
 const char *lineout_mode_text[] = {
 	"Off", "On"
 };
+
+static int modem_mode;
+const char *modem_mode_text[] = {
+	"CP1", "CP2"
+};
+
 
 #ifndef CONFIG_SEC_DEV_JACK
 /* To support PBA function test */
@@ -171,6 +178,46 @@ static void midas_gpio_init(void)
 	gpio_set_value(GPIO_LINEOUT_EN, 0);
 	gpio_free(GPIO_LINEOUT_EN);
 #endif
+
+	err = gpio_request(GPIO_AUDIO_PCM_SEL, "AUDIO_PCM_SEL");
+	if (err) {
+		pr_err(KERN_ERR "AUDIO_PCM_SEL GPIO set error!\n");
+		return;
+	}
+	gpio_direction_output(GPIO_AUDIO_PCM_SEL, 1);
+	gpio_set_value(GPIO_AUDIO_PCM_SEL, 0);
+	gpio_free(GPIO_AUDIO_PCM_SEL);
+}
+
+
+static const struct soc_enum modem_mode_enum[] = {
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(modem_mode_text), modem_mode_text),
+};
+
+static int get_modem_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = modem_mode;
+	return 0;
+}
+
+static int set_modem_mode(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+
+	modem_mode = ucontrol->value.integer.value[0];
+
+	if (modem_mode) {
+		gpio_set_value(GPIO_AUDIO_PCM_SEL, 1);
+	} else {
+		gpio_set_value(GPIO_AUDIO_PCM_SEL, 0);
+		/*msleep(50);*/
+	}
+	dev_info(codec->dev, "set modem select : %s\n",
+		modem_mode_text[modem_mode]);
+	return 0;
+
 }
 
 static const struct soc_enum lineout_mode_enum[] = {
@@ -190,17 +237,6 @@ static int set_lineout_mode(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
 	lineout_mode = ucontrol->value.integer.value[0];
-
-#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
-	if (lineout_mode) {
-		wm8994_vmid_mode(codec, WM8994_VMID_FORCE);
-		gpio_set_value(GPIO_LINEOUT_EN, 1);
-	} else {
-		gpio_set_value(GPIO_LINEOUT_EN, 0);
-		msleep(50);
-		wm8994_vmid_mode(codec, WM8994_VMID_NORMAL);
-	}
-#endif
 	dev_dbg(codec->dev, "set lineout mode : %s\n",
 		lineout_mode_text[lineout_mode]);
 	return 0;
@@ -384,6 +420,16 @@ static int midas_lineout_switch(struct snd_soc_dapm_widget *w,
 	}
 #endif
 
+#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		gpio_set_value(GPIO_LINEOUT_EN, 1);
+		break;
+	case SND_SOC_DAPM_PRE_PMD:
+		gpio_set_value(GPIO_LINEOUT_EN, 0);
+		break;
+	}
+#endif
 	return 0;
 }
 
@@ -795,24 +841,7 @@ static int midas_wm1811_aif2_hw_params(struct snd_pcm_substream *substream,
 		prate = 8000;
 	}
 
-#if defined(CONFIG_LTE_MODEM_CMC221) || defined(CONFIG_MACH_M0_CTC)
-#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
-	/* Set the codec DAI configuration */
-	if (aif2_mode == 0) {
-		if (kpcs_mode == 1)
-			ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
-				| SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBS_CFS);
-		else
-			ret = snd_soc_dai_set_fmt(codec_dai,
-				SND_SOC_DAIFMT_DSP_A
-				| SND_SOC_DAIFMT_IB_NF
-				| SND_SOC_DAIFMT_CBS_CFS);
-	} else
-		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
-				| SND_SOC_DAIFMT_NB_NF
-				| SND_SOC_DAIFMT_CBM_CFM);
-#else
+#if defined(CONFIG_MACH_GRANDE) || defined(CONFIG_MACH_M0_DUOSCTC)
 	if (aif2_mode == 0)
 		/* Set the codec DAI configuration */
 		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_A
@@ -822,7 +851,22 @@ static int midas_wm1811_aif2_hw_params(struct snd_pcm_substream *substream,
 		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_A
 				| SND_SOC_DAIFMT_IB_NF
 				| SND_SOC_DAIFMT_CBM_CFM);
-#endif
+#elif defined(CONFIG_MACH_IRON)
+	/* Set the codec DAI configuration, aif2_mode:0 is slave */
+	/* modem_mode:1 is CP2 */
+	if (aif2_mode == 0) {
+		if (modem_mode == 1)
+			ret = snd_soc_dai_set_fmt(codec_dai,
+				SND_SOC_DAIFMT_DSP_A | SND_SOC_DAIFMT_IB_NF
+				| SND_SOC_DAIFMT_CBS_CFS);
+		else
+			ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
+				| SND_SOC_DAIFMT_NB_NF
+				| SND_SOC_DAIFMT_CBS_CFS);
+	} else
+		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
+					| SND_SOC_DAIFMT_NB_NF
+					| SND_SOC_DAIFMT_CBM_CFM);
 #else
 	/* Set the codec DAI configuration, aif2_mode:0 is slave */
 	if (aif2_mode == 0)
@@ -838,8 +882,12 @@ static int midas_wm1811_aif2_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
-#if defined(CONFIG_LTE_MODEM_CMC221) || defined(CONFIG_MACH_M0_CTC)
-	if (kpcs_mode == 1) {
+#if defined(CONFIG_MACH_GRANDE) || defined(CONFIG_MACH_M0_DUOSCTC)
+	bclk = 2048000;
+#elif defined(CONFIG_MACH_IRON)
+	if (modem_mode == 1)
+		bclk = 2048000;
+	else
 		switch (prate) {
 		case 8000:
 			bclk = 256000;
@@ -850,9 +898,6 @@ static int midas_wm1811_aif2_hw_params(struct snd_pcm_substream *substream,
 		default:
 			return -EINVAL;
 		}
-	} else {
-	bclk = 2048000;
-	}
 #else
 	switch (prate) {
 	case 8000:
@@ -932,6 +977,8 @@ static const struct snd_kcontrol_new midas_controls[] = {
 	SOC_ENUM_EXT("LineoutSwitch Mode", lineout_mode_enum[0],
 		get_lineout_mode, set_lineout_mode),
 
+	SOC_ENUM_EXT("ModemSwitch Mode", modem_mode_enum[0],
+		get_modem_mode, set_modem_mode),
 };
 
 const struct snd_soc_dapm_widget midas_dapm_widgets[] = {
@@ -968,6 +1015,19 @@ const struct snd_soc_dapm_route midas_dapm_routes[] = {
 	{ "HDMI", NULL, "LINEOUT1N" },
 	{ "HDMI", NULL, "LINEOUT1P" },
 
+#if defined(CONFIG_MACH_M0_DUOSCTC)
+	{ "IN2LP:VXRN", NULL, "Main Mic" },
+	{ "IN2LN", NULL, "Main Mic" },
+
+	{ "IN1RP", NULL, "MICBIAS1" },
+	{ "IN1RN", NULL, "MICBIAS1" },
+	{ "MICBIAS1", NULL, "Sub Mic" },
+
+	{ "IN1LP", NULL, "MICBIAS2" },
+	{ "MICBIAS2", NULL, "Headset Mic" },
+	{ "IN1LN", NULL, "MICBIAS2" },
+	{ "MICBIAS2", NULL, "Headset Mic" },
+#else
 	{ "IN1LP", NULL, "MICBIAS1" },
 	{ "IN1LN", NULL, "MICBIAS1" },
 	{ "MICBIAS1", NULL, "Main Mic" },
@@ -977,7 +1037,7 @@ const struct snd_soc_dapm_route midas_dapm_routes[] = {
 
 	{ "IN2LP:VXRN", NULL, "MICBIAS2" },
 	{ "MICBIAS2", NULL, "Headset Mic" },
-
+#endif
 	{ "AIF1DAC1L", NULL, "S5P RP" },
 	{ "AIF1DAC1R", NULL, "S5P RP" },
 
@@ -1206,7 +1266,7 @@ static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 				     MIDAS_DEFAULT_MCLK2, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		dev_err(codec->dev, "Failed to boot clocking\n");
-#ifndef CONFIG_SEC_DEV_JACK
+
 	/* Force AIF1CLK on as it will be master for jack detection */
 	if (wm8994->revision > 1) {
 		ret = snd_soc_dapm_force_enable_pin(&codec->dapm, "AIF1CLK");
@@ -1214,7 +1274,7 @@ static int midas_wm1811_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 			dev_err(codec->dev, "Failed to enable AIF1CLK: %d\n",
 					ret);
 	}
-#endif
+
 	ret = snd_soc_dapm_disable_pin(&codec->dapm, "S5P RP");
 	if (ret < 0)
 		dev_err(codec->dev, "Failed to disable S5P RP: %d\n", ret);
@@ -1366,18 +1426,11 @@ static struct snd_soc_dai_link midas_dai[] = {
 
 static int midas_card_suspend_pre(struct snd_soc_card *card)
 {
-#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
 	struct snd_soc_codec *codec = card->rtd->codec;
 	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
 
-	if (lineout_mode == 1 &&
-		wm8994->vmid_mode == WM8994_VMID_FORCE) {
-		dev_dbg(codec->dev,
-			"%s: entering force vmid mode\n", __func__);
-		gpio_set_value(GPIO_LINEOUT_EN, 0);
-		msleep(50);
-		wm8994_vmid_mode(codec, WM8994_VMID_NORMAL);
-	}
+#ifdef CONFIG_SEC_DEV_JACK
+	snd_soc_dapm_disable_pin(&codec->dapm, "AIF1CLK");
 #endif
 
 	return 0;
@@ -1464,17 +1517,35 @@ static int midas_card_resume_pre(struct snd_soc_card *card)
 
 static int midas_card_resume_post(struct snd_soc_card *card)
 {
-#ifdef CONFIG_SND_USE_LINEOUT_SWITCH
 	struct snd_soc_codec *codec = card->rtd->codec;
 	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
+	int reg = 0;
+#if !defined(CONFIG_MACH_M0_DUOSCTC)
+	snd_soc_write(codec, 0x102, 0x3);
+	snd_soc_write(codec, 0xcb,  0x5151);
+	snd_soc_write(codec, 0xd3, 0x3f3f);
+	snd_soc_write(codec, 0xd4,  0x3f3f);
+	snd_soc_write(codec, 0xd5,  0x3f3f);
+	snd_soc_write(codec, 0xd6,  0x3226);
+	snd_soc_write(codec, 0x102,  0x0);
+	snd_soc_write(codec, 0xd1,  0x87);
+	snd_soc_write(codec, 0x3b,  0x9);
+	snd_soc_write(codec, 0x3c,  0x2);
+#endif
 
-	if (lineout_mode == 1 &&
-		wm8994->vmid_mode == WM8994_VMID_NORMAL) {
-		dev_dbg(codec->dev,
-			"%s: entering normal vmid mode\n", __func__);
-		wm8994_vmid_mode(codec, WM8994_VMID_FORCE);
-		gpio_set_value(GPIO_LINEOUT_EN, 1);
+	/* workaround for jack detection
+	 * sometimes WM8994_GPIO_1 type changed wrong function type
+	 * so if type mismatched, update to IRQ type
+	 */
+	reg = snd_soc_read(codec, WM8994_GPIO_1);
+
+	if ((reg & WM8994_GPN_FN_MASK) != WM8994_GP_FN_IRQ) {
+		dev_err(codec->dev, "%s: GPIO1 type 0x%x\n", __func__, reg);
+		snd_soc_write(codec, WM8994_GPIO_1, WM8994_GP_FN_IRQ);
 	}
+
+#ifdef CONFIG_SEC_DEV_JACK
+	snd_soc_dapm_force_enable_pin(&codec->dapm, "AIF1CLK");
 #endif
 
 	return 0;

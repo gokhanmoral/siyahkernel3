@@ -90,13 +90,7 @@ unsigned int log_en;
 module_param_named(log_en, log_en, uint, 0644);
 
 #if defined(CONFIG_MACH_MIDAS) || defined(CONFIG_SLP)
-#if defined(CONFIG_MACH_T0_EUR_LTE) || defined(CONFIG_MACH_T0_USA_ATT) \
-|| defined(CONFIG_MACH_T0_USA_TMO) || defined(CONFIG_MACH_T0_USA_VZW) \
-|| defined(CONFIG_MACH_T0_USA_SPR) || defined(CONFIG_MACH_T0_USA_USCC)
-#define CPUDILE_ENABLE_MASK (0)
-#else
 #define CPUDILE_ENABLE_MASK (ENABLE_LPA)
-#endif
 #else
 #define CPUDILE_ENABLE_MASK (ENABLE_AFTR | ENABLE_LPA)
 #endif
@@ -348,6 +342,9 @@ static int check_usb_op(void)
 }
 
 #ifdef CONFIG_SND_SAMSUNG_RP
+#if defined(CONFIG_MACH_U1_NA_SPR)
+#include "../../../sound/soc/samsung/srp-types.h"
+#endif
 extern int srp_get_op_level(void);	/* By srp driver */
 #endif
 
@@ -413,6 +410,10 @@ static int exynos4_check_operation(void)
 #ifdef CONFIG_SND_SAMSUNG_RP
 	if (srp_get_op_level())
 		return 1;
+#if defined(CONFIG_MACH_U1_NA_SPR)
+	if (!srp_get_status(IS_RUNNING))
+		return 1;
+#endif
 #endif
 	if (check_usb_op())
 		return 1;
@@ -861,12 +862,18 @@ static int exynos4_check_entermode(void)
 	return ret;
 }
 
+#ifdef CONFIG_CORESIGHT_ETM
+extern int etm_enable(int pm_enable);
+extern int etm_disable(int pm_enable);
+#endif
+
 static int exynos4_enter_lowpower(struct cpuidle_device *dev,
 				  struct cpuidle_state *state)
 {
 	struct cpuidle_state *new_state = state;
 	unsigned int enter_mode;
 	unsigned int tmp;
+	int ret;
 
 	/* This mode only can be entered when only Core0 is online */
 	if (num_online_cpus() != 1) {
@@ -886,10 +893,20 @@ static int exynos4_enter_lowpower(struct cpuidle_device *dev,
 	enter_mode = exynos4_check_entermode();
 	if (!enter_mode)
 		return exynos4_enter_idle(dev, new_state);
-	else if (enter_mode == S5P_CHECK_DIDLE)
-		return exynos4_enter_core0_aftr(dev, new_state);
-	else
-		return exynos4_enter_core0_lpa(dev, new_state);
+	else {
+#ifdef CONFIG_CORESIGHT_ETM
+		etm_disable(0);
+#endif
+		if (enter_mode == S5P_CHECK_DIDLE)
+			ret = exynos4_enter_core0_aftr(dev, new_state);
+		else
+			ret = exynos4_enter_core0_lpa(dev, new_state);
+#ifdef CONFIG_CORESIGHT_ETM
+		etm_enable(0);
+#endif
+	}
+
+	return ret;
 }
 
 static int exynos4_cpuidle_notifier_event(struct notifier_block *this,

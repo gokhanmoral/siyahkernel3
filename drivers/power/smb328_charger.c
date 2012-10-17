@@ -78,16 +78,17 @@ static int smb328_get_charging_status(struct i2c_client *client)
 
 	smb328_i2c_read(chg->client,
 		SMB328A_BATTERY_CHARGING_STATUS_A, &data_a);
-	dev_dbg(&client->dev, "%s : charging status A(0x%02x)\n",
+	dev_info(&client->dev, "%s : charging status A(0x%02x)\n",
 		__func__, data_a);
 	smb328_i2c_read(chg->client,
 		SMB328A_BATTERY_CHARGING_STATUS_B, &data_b);
-	dev_dbg(&client->dev, "%s : charging status B(0x%02x)\n",
+	dev_info(&client->dev, "%s : charging status B(0x%02x)\n",
 		__func__, data_b);
 	smb328_i2c_read(chg->client,
 		SMB328A_BATTERY_CHARGING_STATUS_C, &data_c);
-	dev_dbg(&client->dev, "%s : charging status C(0x%02x)\n",
+	dev_info(&client->dev, "%s : charging status C(0x%02x)\n",
 		__func__, data_c);
+
 	/* check for safety timer in USB charging */
 	/* If safety timer is activated in USB charging, reset charger */
 #if 1
@@ -147,15 +148,15 @@ static int smb328_get_charging_health(struct i2c_client *client)
 
 	smb328_i2c_read(chg->client,
 		SMB328A_BATTERY_CHARGING_STATUS_A, &data_a);
-	dev_dbg(&client->dev, "%s : charging status A(0x%02x)\n",
+	dev_info(&client->dev, "%s : charging status A(0x%02x)\n",
 		__func__, data_a);
 	smb328_i2c_read(chg->client,
 		SMB328A_BATTERY_CHARGING_STATUS_B, &data_b);
-	dev_dbg(&client->dev, "%s : charging status B(0x%02x)\n",
+	dev_info(&client->dev, "%s : charging status B(0x%02x)\n",
 		__func__, data_b);
 	smb328_i2c_read(chg->client,
 		SMB328A_BATTERY_CHARGING_STATUS_C, &data_c);
-	dev_dbg(&client->dev, "%s : charging status C(0x%02x)\n",
+	dev_info(&client->dev, "%s : charging status C(0x%02x)\n",
 		__func__, data_c);
 
 	/* Is enabled ? */
@@ -251,7 +252,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (data != 0x0) {
 				data = 0x0;
@@ -260,7 +261,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -271,7 +272,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			data = 0x98;	/* turn off charger */
 			if (smb328_i2c_write(client, reg, data) < 0)
@@ -279,7 +280,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 			val = smb328_i2c_read(client, reg, &data);
 			if (val >= 0) {
 				data = (u8)val;
-				dev_dbg(&client->dev,
+				dev_info(&client->dev,
 					"%s : => reg (0x%x) = 0x%x\n",
 					__func__, reg, data);
 			}
@@ -290,7 +291,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			data = 0xaa;
 			if (smb328_i2c_write(client, reg, data) < 0)
@@ -298,7 +299,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 			val = smb328_i2c_read(client, reg, &data);
 			if (val >= 0) {
 				data = (u8)val;
-				dev_dbg(&client->dev,
+				dev_info(&client->dev,
 					"%s : => reg (0x%x) = 0x%x\n",
 					__func__, reg, data);
 			}
@@ -308,7 +309,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (chip->cable_type == CABLE_TYPE_AC) {
 				/* fast 1000mA, termination 200mA */
@@ -328,7 +329,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -339,7 +340,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (chip->cable_type == CABLE_TYPE_AC) {
 				/* input 1A, threshold 4.25V, AICL enable */
@@ -362,7 +363,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -373,7 +374,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (data != 0xca) {
 				data = 0xca; /* 4.2V float voltage */
@@ -382,7 +383,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -393,7 +394,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 #if 1
 			if (data != 0xda) {
@@ -407,7 +408,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -418,7 +419,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			/* 0x4c -> 0x4e (watchdog timer enabled - SUMMIT) */
 			if (data != 0x4e) {
@@ -428,7 +429,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -439,7 +440,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (data != 0x0) {
 #if defined(CONFIG_MACH_Q1_CHN)
@@ -452,7 +453,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -463,7 +464,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			set_data = 0xf5;
 			if (chip->cable_type == CABLE_TYPE_AC)
@@ -479,7 +480,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -490,7 +491,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (data != 0xf6) {
 				/* this can be changed with top-off setting */
@@ -500,7 +501,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -511,7 +512,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (data != 0x0) {
 				data = 0x0;
@@ -520,7 +521,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -531,7 +532,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			if (data != 0x0) {
 				data = 0x0;
@@ -540,7 +541,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 				val = smb328_i2c_read(client, reg, &data);
 				if (val >= 0) {
 					data = (u8)val;
-					dev_dbg(&client->dev,
+					dev_info(&client->dev,
 						"%s : => reg (0x%x) = 0x%x\n",
 						__func__, reg, data);
 				}
@@ -551,7 +552,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 		val = smb328_i2c_read(client, reg, &data);
 		if (val >= 0) {
 			data = (u8)val;
-			dev_dbg(&client->dev, "%s : reg (0x%x) = 0x%x\n",
+			dev_info(&client->dev, "%s : reg (0x%x) = 0x%x\n",
 				__func__, reg, data);
 			/* turn on charger */
 			if (chip->cable_type == CABLE_TYPE_AC)
@@ -565,7 +566,7 @@ static void smb328a_charger_function_conrol(struct i2c_client *client)
 			val = smb328_i2c_read(client, reg, &data);
 			if (val >= 0) {
 				data = (u8)val;
-				dev_dbg(&client->dev,
+				dev_info(&client->dev,
 					"%s : => reg (0x%x) = 0x%x\n",
 					__func__, reg, data);
 			}
@@ -748,7 +749,7 @@ static int smb328_get_property(struct power_supply *psy,
 		return -EINVAL;
 	}
 
-	dev_dbg(&chip->client->dev, "%s: smb328_get_property (%d,%d)\n",
+	dev_info(&chip->client->dev, "%s: smb328_get_property (%d,%d)\n",
 		__func__, psp, val->intval);
 
 	return 0;

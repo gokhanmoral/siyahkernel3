@@ -154,7 +154,11 @@ static unsigned int get_nr_run_avg(void)
 #define DEF_FREQUENCY_MIN_SAMPLE_RATE		(10000)
 #define MIN_FREQUENCY_UP_THRESHOLD		(11)
 #define MAX_FREQUENCY_UP_THRESHOLD		(100)
+#ifndef CONFIG_CPU_EXYNOS4210
 #define DEF_SAMPLING_RATE			(50000)
+#else
+#define DEF_SAMPLING_RATE			(100000)
+#endif
 #define MIN_SAMPLING_RATE			(10000)
 #define MAX_HOTPLUG_RATE			(40u)
 
@@ -165,18 +169,18 @@ static unsigned int get_nr_run_avg(void)
 #define DEF_UP_NR_CPUS				(1)
 #define DEF_CPU_UP_RATE				(10)
 #define DEF_CPU_DOWN_RATE			(20)
-#define DEF_FREQ_STEP				(40)
+#define DEF_FREQ_STEP				(25)
 #define DEF_START_DELAY				(0)
 
 #define UP_THRESHOLD_AT_MIN_FREQ		(60)
-#define FREQ_FOR_RESPONSIVENESS			(500000)
+#define FREQ_FOR_RESPONSIVENESS			(400000)
 
 #define HOTPLUG_DOWN_INDEX			(0)
 #define HOTPLUG_UP_INDEX			(1)
 
 #ifdef CONFIG_MACH_MIDAS
 static int hotplug_rq[4][2] = {
-	{0, 100}, {100, 200}, {200, 300}, {300, 0}
+	{0, 150}, {150, 300}, {300, 400}, {400, 0}
 };
 
 static int hotplug_freq[4][2] = {
@@ -220,7 +224,6 @@ struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
 	cputime64_t prev_cpu_iowait;
 	cputime64_t prev_cpu_wall;
-	unsigned int prev_cpu_wall_delta;
 	cputime64_t prev_cpu_nice;
 	struct cpufreq_policy *cur_policy;
 	struct delayed_work work;
@@ -258,6 +261,8 @@ static struct dbs_tuners {
 	unsigned int freq_step;
 	unsigned int cpu_up_rate;
 	unsigned int cpu_down_rate;
+	unsigned int cpu_up_freq;
+	unsigned int cpu_down_freq;
 	unsigned int up_nr_cpus;
 	unsigned int max_cpu_lock;
 	unsigned int min_cpu_lock;
@@ -278,6 +283,8 @@ static struct dbs_tuners {
 	.freq_step = DEF_FREQ_STEP,
 	.cpu_up_rate = DEF_CPU_UP_RATE,
 	.cpu_down_rate = DEF_CPU_DOWN_RATE,
+	.cpu_up_freq = DEF_CPU_UP_FREQ,
+	.cpu_down_freq = DEF_CPU_DOWN_FREQ,
 	.up_nr_cpus = DEF_UP_NR_CPUS,
 	.max_cpu_lock = DEF_MAX_CPU_LOCK,
 	.min_cpu_lock = DEF_MIN_CPU_LOCK,
@@ -477,9 +484,9 @@ show_one(down_differential, down_differential);
 show_one(freq_step, freq_step);
 show_one(cpu_up_rate, cpu_up_rate);
 show_one(cpu_down_rate, cpu_down_rate);
-#ifndef CONFIG_CPU_EXYNOS4210
+show_one(cpu_up_freq, cpu_up_freq);
+show_one(cpu_down_freq, cpu_down_freq);
 show_one(up_nr_cpus, up_nr_cpus);
-#endif
 show_one(max_cpu_lock, max_cpu_lock);
 show_one(min_cpu_lock, min_cpu_lock);
 show_one(dvfs_debug, dvfs_debug);
@@ -708,8 +715,30 @@ static ssize_t store_cpu_down_rate(struct kobject *a, struct attribute *b,
 	return count;
 }
 
+static ssize_t store_cpu_up_freq(struct kobject *a, struct attribute *b,
+				 const char *buf, size_t count)
+{
+	unsigned int input;
+	int ret;
+	ret = sscanf(buf, "%u", &input);
+	if (ret != 1)
+		return -EINVAL;
+	dbs_tuners_ins.cpu_up_freq = min(input, dbs_tuners_ins.max_freq);
+	return count;
+}
 
-#ifndef CONFIG_CPU_EXYNOS4210
+static ssize_t store_cpu_down_freq(struct kobject *a, struct attribute *b,
+				   const char *buf, size_t count)
+{
+	unsigned int input;
+	int ret;
+	ret = sscanf(buf, "%u", &input);
+	if (ret != 1)
+		return -EINVAL;
+	dbs_tuners_ins.cpu_down_freq = max(input, dbs_tuners_ins.min_freq);
+	return count;
+}
+
 static ssize_t store_up_nr_cpus(struct kobject *a, struct attribute *b,
 				const char *buf, size_t count)
 {
@@ -721,7 +750,6 @@ static ssize_t store_up_nr_cpus(struct kobject *a, struct attribute *b,
 	dbs_tuners_ins.up_nr_cpus = min(input, num_possible_cpus());
 	return count;
 }
-#endif
 
 static ssize_t store_max_cpu_lock(struct kobject *a, struct attribute *b,
 				  const char *buf, size_t count)
@@ -831,9 +859,9 @@ define_one_global_rw(down_differential);
 define_one_global_rw(freq_step);
 define_one_global_rw(cpu_up_rate);
 define_one_global_rw(cpu_down_rate);
-#ifndef CONFIG_CPU_EXYNOS4210
+define_one_global_rw(cpu_up_freq);
+define_one_global_rw(cpu_down_freq);
 define_one_global_rw(up_nr_cpus);
-#endif
 define_one_global_rw(max_cpu_lock);
 define_one_global_rw(min_cpu_lock);
 define_one_global_rw(hotplug_lock);
@@ -852,9 +880,9 @@ static struct attribute *dbs_attributes[] = {
 	&freq_step.attr,
 	&cpu_up_rate.attr,
 	&cpu_down_rate.attr,
-#ifndef CONFIG_CPU_EXYNOS4210
+	&cpu_up_freq.attr,
+	&cpu_down_freq.attr,
 	&up_nr_cpus.attr,
-#endif
 	/* priority: hotplug_lock > max_cpu_lock > min_cpu_lock
 	   Exception: hotplug_lock on early_suspend uses min_cpu_lock */
 	&max_cpu_lock.attr,
@@ -1117,10 +1145,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		unsigned int idle_time, wall_time, iowait_time;
 		unsigned int load, load_freq;
 		int freq_avg;
-		bool deep_sleep_detected = false;
-		/* the evil magic numbers, only 2 at least */
-		const unsigned int deep_sleep_backoff = 10;
-		const unsigned int deep_sleep_factor = 5;
 
 		j_dbs_info = &per_cpu(od_cpu_dbs_info, j);
 		prev_wall_time = j_dbs_info->prev_cpu_wall;
@@ -1133,32 +1157,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		wall_time = (unsigned int) cputime64_sub(cur_wall_time,
 							 prev_wall_time);
 		j_dbs_info->prev_cpu_wall = cur_wall_time;
-
-		/*
-		 * Ignore wall delta jitters in both directions.  An
-		 * exceptionally long wall_time will likely result
-		 * idle but it was waken up to do work so the next
-		 * slice is less likely to want to run at low
-		 * frequency. Let's evaluate the next slice instead of
-		 * the idle long one that passed already and it's too
-		 * late to reduce in frequency.  As opposed an
-		 * exceptionally short slice that just run at low
-		 * frequency is unlikely to be idle, but we may go
-		 * back to idle pretty soon and that not idle slice
-		 * already passed. If short slices will keep coming
-		 * after a series of long slices the exponential
-		 * backoff will converge faster and we'll react faster
-		 * to high load. As opposed we'll decay slower
-		 * towards low load and long idle times.
-		 */
-		if (j_dbs_info->prev_cpu_wall_delta >
-		    wall_time * deep_sleep_factor ||
-		    j_dbs_info->prev_cpu_wall_delta * deep_sleep_factor <
-		    wall_time)
-			deep_sleep_detected = true;
-		j_dbs_info->prev_cpu_wall_delta =
-			(j_dbs_info->prev_cpu_wall_delta * deep_sleep_backoff
-			 + wall_time) / (deep_sleep_backoff+1);
 
 		idle_time = (unsigned int) cputime64_sub(cur_idle_time,
 							 prev_idle_time);
@@ -1184,9 +1182,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 			j_dbs_info->prev_cpu_nice = kstat_cpu(j).cpustat.nice;
 			idle_time += jiffies_to_usecs(cur_nice_jiffies);
 		}
-
-		if (deep_sleep_detected)
-			continue;
 
 		if (dbs_tuners_ins.io_is_busy && idle_time >= iowait_time)
 			idle_time -= iowait_time;

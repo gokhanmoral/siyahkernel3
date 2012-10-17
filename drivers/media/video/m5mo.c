@@ -112,8 +112,9 @@ static const struct m5mo_frmsizeenum preview_frmsizes[] = {
 };
 
 static const struct m5mo_frmsizeenum capture_frmsizes[] = {
-	{ M5MO_CAPTURE_VGA,	640,	480,	0x09 },
-	{ M5MO_CAPTURE_WVGA,	800,	480,	0x0A },
+	{ M5MO_CAPTURE_VGA,	640,		480,		0x09 },
+	{ M5MO_CAPTURE_WVGA,	800,		480,		0x0A },
+	{ M5MO_CAPTURE_SXGA,	1280,	960,		0x14 },
 	{ M5MO_CAPTURE_W2MP,	2048,	1232,	0x2C },
 	{ M5MO_CAPTURE_3MP,	2048,	1536,	0x1B },
 	{ M5MO_CAPTURE_W7MP,	3264,	1968,	0x2D },

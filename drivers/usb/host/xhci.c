@@ -527,7 +527,6 @@ legacy_irq:
 		}
 		hcd->irq = pdev->irq;
 	}
->>>>>>> linux-3.0.31
 
 #ifdef CONFIG_USB_XHCI_HCD_DEBUGGING
 	init_timer(&xhci->event_ring_timer);

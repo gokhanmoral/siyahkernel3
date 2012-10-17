@@ -27,26 +27,16 @@
 #include "mali_linux_pm.h"
 
 
-/* @@@@ todo: don't poll inn the device stuct like this hack! FIX! */
 extern struct platform_device mali_gpu_device;
-
-
 
 #ifdef CONFIG_PM_RUNTIME
 static mali_bool have_runtime_reference = MALI_FALSE;
 #endif
 
-
 void _mali_osk_pm_dev_enable(void)
 {
 #ifdef CONFIG_PM_RUNTIME
-#if 0
-	/* Can only be used if we only support 2.6.37 and onwards */
-	pm_runtime_set_autosuspend_delay(&(mali_gpu_device.dev), 2000); /* @@@@ todo: make it a configurable option, and align with the existing light/deep sleep timeouts */
-	pm_runtime_use_autosuspend(&(mali_gpu_device.dev));
-#endif
 	pm_runtime_enable(&(mali_gpu_device.dev));
-	/* @@@@ we should probably use pm_runtime_set_active() somewhere since default is off??? Or is it ok, since we will power on on first job anyway, and init seq isn't that big of a deal??? */
 #endif
 }
 

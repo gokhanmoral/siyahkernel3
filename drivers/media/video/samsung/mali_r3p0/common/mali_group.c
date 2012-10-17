@@ -43,6 +43,7 @@ struct mali_group
 	struct mali_mmu_core *mmu;
 	struct mali_session_data *session;
 	int page_dir_ref_count;
+	mali_bool power_is_on;
 #if defined(USING_MALI200)
 	mali_bool pagedir_activation_failed;
 #endif
@@ -62,8 +63,15 @@ struct mali_group
 static struct mali_group *mali_global_groups[MALI_MAX_NUMBER_OF_GROUPS];
 static u32 mali_global_num_groups = 0;
 
+enum mali_group_activate_pd_status
+{
+	MALI_GROUP_ACTIVATE_PD_STATUS_FAILED,
+	MALI_GROUP_ACTIVATE_PD_STATUS_OK_KEPT_PD,
+	MALI_GROUP_ACTIVATE_PD_STATUS_OK_SWITCHED_PD,
+};
+
 /* local helper functions */
-static mali_bool mali_group_activate_page_directory(struct mali_group *group, struct mali_session_data *session);
+static enum mali_group_activate_pd_status mali_group_activate_page_directory(struct mali_group *group, struct mali_session_data *session);
 static void mali_group_deactivate_page_directory(struct mali_group *group, struct mali_session_data *session);
 static void mali_group_recovery_reset(struct mali_group *group);
 static void mali_group_complete_jobs(struct mali_group *group, mali_bool complete_gp, mali_bool complete_pp, bool success);
@@ -113,6 +121,10 @@ struct mali_group *mali_group_create(struct mali_cluster *cluster, struct mali_m
 			group->mmu = mmu; /* This group object now owns the MMU object */
 			group->session = NULL;
 			group->page_dir_ref_count = 0;
+			group->power_is_on = MALI_TRUE;
+
+			group->gp_state = MALI_GROUP_CORE_STATE_IDLE;
+			group->pp_state = MALI_GROUP_CORE_STATE_IDLE;
 #if defined(USING_MALI200)
 			group->pagedir_activation_failed = MALI_FALSE;
 #endif
@@ -174,9 +186,12 @@ void mali_group_delete(struct mali_group *group)
 	_mali_osk_free(group);
 }
 
+/* Called from mali_cluster_reset() when the system is re-turned on */
 void mali_group_reset(struct mali_group *group)
 {
 	mali_group_lock(group);
+
+	group->session = NULL;
 
 	if (NULL != group->mmu)
 	{
@@ -209,19 +224,26 @@ struct mali_pp_core* mali_group_get_pp_core(struct mali_group *group)
 _mali_osk_errcode_t mali_group_start_gp_job(struct mali_group *group, struct mali_gp_job *job)
 {
 	struct mali_session_data *session;
+	enum mali_group_activate_pd_status activate_status;
 
 	MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->gp_state);
 
 	mali_pm_core_event(MALI_CORE_EVENT_GP_START);
 
-	mali_group_lock(group);
-
 	session = mali_gp_job_get_session(job);
 
-	if (MALI_TRUE == mali_group_activate_page_directory(group, session))
-	{
-		mali_cluster_l2_cache_invalidate_all(group->cluster, mali_gp_job_get_id(job));
+	mali_group_lock(group);
 
+	mali_cluster_l2_cache_invalidate_all(group->cluster, mali_gp_job_get_id(job));
+
+	activate_status = mali_group_activate_page_directory(group, session);
+	if (MALI_GROUP_ACTIVATE_PD_STATUS_FAILED != activate_status)
+	{
+		/* if session is NOT kept Zapping is done as part of session switch */
+		if (MALI_GROUP_ACTIVATE_PD_STATUS_OK_KEPT_PD == activate_status)
+		{
+			mali_mmu_zap_tlb_without_stall(group->mmu);
+		}
 		mali_gp_job_start(group->gp_core, job);
 		group->gp_running_job = job;
 		group->gp_state = MALI_GROUP_CORE_STATE_WORKING;
@@ -243,16 +265,28 @@ _mali_osk_errcode_t mali_group_start_gp_job(struct mali_group *group, struct mal
 
 _mali_osk_errcode_t mali_group_start_pp_job(struct mali_group *group, struct mali_pp_job *job, u32 sub_job)
 {
+	struct mali_session_data *session;
+	enum mali_group_activate_pd_status activate_status;
+
 	MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->pp_state);
 
 	mali_pm_core_event(MALI_CORE_EVENT_PP_START);
 
+	session = mali_pp_job_get_session(job);
+
 	mali_group_lock(group);
 
-	if (MALI_TRUE == mali_group_activate_page_directory(group, mali_pp_job_get_session(job)))
-	{
-		mali_cluster_l2_cache_invalidate_all(group->cluster, mali_pp_job_get_id(job));
+	mali_cluster_l2_cache_invalidate_all(group->cluster, mali_pp_job_get_id(job));
 
+	activate_status = mali_group_activate_page_directory(group, session);
+	if (MALI_GROUP_ACTIVATE_PD_STATUS_FAILED != activate_status)
+	{
+		/* if session is NOT kept Zapping is done as part of session switch */
+		if (MALI_GROUP_ACTIVATE_PD_STATUS_OK_KEPT_PD == activate_status)
+		{
+			MALI_DEBUG_PRINT(3, ("PP starting job PD_Switch 0 Flush 1 Zap 1\n"));
+			mali_mmu_zap_tlb_without_stall(group->mmu);
+		}
 		mali_pp_job_start(group->pp_core, job, sub_job);
 		group->pp_running_job = job;
 		group->pp_running_sub_job = sub_job;
@@ -285,7 +319,7 @@ void mali_group_resume_gp_with_new_heap(struct mali_group *group, u32 job_id, u3
 	}
 
 	mali_cluster_l2_cache_invalidate_all_force(group->cluster);
-	mali_mmu_zap_tlb(group->mmu);
+	mali_mmu_zap_tlb_without_stall(group->mmu);
 
 	mali_gp_resume_with_new_heap(group->gp_core, start_addr, end_addr);
 	group->gp_state = MALI_GROUP_CORE_STATE_WORKING;
@@ -353,6 +387,7 @@ void mali_group_abort_session(struct mali_group *group, struct mali_session_data
 
 	mali_group_unlock(group);
 
+	/* These functions takes and releases the group lock */
 	if (0 != abort_gp)
 	{
 		mali_group_abort_gp_job(group, gp_job_id);
@@ -361,6 +396,10 @@ void mali_group_abort_session(struct mali_group *group, struct mali_session_data
 	{
 		mali_group_abort_pp_job(group, pp_job_id);
 	}
+
+	mali_group_lock(group);
+	mali_group_remove_session_if_unused(group, session);
+	mali_group_unlock(group);
 }
 
 enum mali_group_core_state mali_group_gp_state(struct mali_group *group)
@@ -465,48 +504,130 @@ static inline mali_bool mali_group_other_reschedule_needed(struct mali_group *gr
 	}
 }
 
-static mali_bool mali_group_activate_page_directory(struct mali_group *group, struct mali_session_data *session)
+static enum mali_group_activate_pd_status mali_group_activate_page_directory(struct mali_group *group, struct mali_session_data *session)
 {
+	enum mali_group_activate_pd_status retval;
 	MALI_ASSERT_GROUP_LOCKED(group);
 
-	MALI_DEBUG_PRINT(4, ("Mali group: Activating page directory 0x%08X from session 0x%08X on group 0x%08X\n", session->page_directory, session, group));
+	MALI_DEBUG_PRINT(5, ("Mali group: Activating page directory 0x%08X from session 0x%08X on group 0x%08X\n", mali_session_get_page_directory(session), session, group));
 	MALI_DEBUG_ASSERT(0 <= group->page_dir_ref_count);
 
 	if (0 != group->page_dir_ref_count)
 	{
 		if (group->session != session)
 		{
-			MALI_DEBUG_PRINT(4, ("Mali group: Failed to activate page directory 0x%08X on group 0x%08X\n", session->page_directory, group));
-			return MALI_FALSE;
+			MALI_DEBUG_PRINT(4, ("Mali group: Activating session FAILED: 0x%08x on group 0x%08X. Existing session: 0x%08x\n", session, group, group->session));
+			return MALI_GROUP_ACTIVATE_PD_STATUS_FAILED;
+		}
+		else
+		{
+			MALI_DEBUG_PRINT(4, ("Mali group: Activating session already activated: 0x%08x on group 0x%08X. New Ref: %d\n", session, group, 1+group->page_dir_ref_count));
+			retval = MALI_GROUP_ACTIVATE_PD_STATUS_OK_KEPT_PD;
+
 		}
 	}
 	else
 	{
-		MALI_DEBUG_ASSERT(NULL == group->session);
-		group->session = session;
-		mali_mmu_activate_page_directory(group->mmu, mali_session_get_page_directory(session));
+		/* There might be another session here, but it is ok to overwrite it since group->page_dir_ref_count==0 */
+		if (group->session != session)
+		{
+			mali_bool activate_success;
+			MALI_DEBUG_PRINT(5, ("Mali group: Activate session: %08x previous: %08x on group 0x%08X. Ref: %d\n", session, group->session, group, 1+group->page_dir_ref_count));
+
+			activate_success = mali_mmu_activate_page_directory(group->mmu, mali_session_get_page_directory(session));
+			MALI_DEBUG_ASSERT(activate_success);
+			if ( MALI_FALSE== activate_success ) return MALI_FALSE;
+			group->session = session;
+			retval = MALI_GROUP_ACTIVATE_PD_STATUS_OK_SWITCHED_PD;
+		}
+		else
+		{
+			MALI_DEBUG_PRINT(4, ("Mali group: Activate existing session 0x%08X on group 0x%08X. Ref: %d\n", session->page_directory, group, 1+group->page_dir_ref_count));
+			retval = MALI_GROUP_ACTIVATE_PD_STATUS_OK_KEPT_PD;
+		}
 	}
 
 	group->page_dir_ref_count++;
-	return MALI_TRUE;
+	return retval;
 }
 
 static void mali_group_deactivate_page_directory(struct mali_group *group, struct mali_session_data *session)
 {
 	MALI_ASSERT_GROUP_LOCKED(group);
 
-	MALI_DEBUG_ASSERT(session == group->session);
 	MALI_DEBUG_ASSERT(0 < group->page_dir_ref_count);
+	MALI_DEBUG_ASSERT(session == group->session);
 
 	group->page_dir_ref_count--;
 
+	/* As an optimization, the MMU still points to the group->session even if (0 == group->page_dir_ref_count),
+	   and we do not call mali_mmu_activate_empty_page_directory(group->mmu); */
+	MALI_DEBUG_ASSERT(0 <= group->page_dir_ref_count);
+}
+
+void mali_group_remove_session_if_unused(struct mali_group *group, struct mali_session_data *session)
+{
+	MALI_ASSERT_GROUP_LOCKED(group);
+
 	if (0 == group->page_dir_ref_count)
 	{
-		MALI_DEBUG_PRINT(4, ("Mali group: Deactivating page directory 0x%08X on group %08X\n", session->page_directory, group));
-		mali_mmu_activate_empty_page_directory(group->mmu);
-		group->session = NULL;
+		MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->gp_state);
+		MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->pp_state);
+
+		if (group->session == session)
+		{
+			MALI_DEBUG_ASSERT(MALI_TRUE == group->power_is_on);
+			MALI_DEBUG_PRINT(3, ("Mali group: Deactivating unused session 0x%08X on group %08X\n", session, group));
+			mali_mmu_activate_empty_page_directory(group->mmu);
+			group->session = NULL;
+		}
 	}
 }
+
+void mali_group_power_on(void)
+{
+	int i;
+	for (i = 0; i < mali_global_num_groups; i++)
+	{
+		struct mali_group *group = mali_global_groups[i];
+		mali_group_lock(group);
+		MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->gp_state);
+		MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->pp_state);
+		MALI_DEBUG_ASSERT_POINTER(group->cluster);
+		group->power_is_on = MALI_TRUE;
+		mali_cluster_power_is_enabled_set(group->cluster, MALI_TRUE);
+		mali_group_unlock(group);
+	}
+	MALI_DEBUG_PRINT(3,("group: POWER ON\n"));
+}
+
+mali_bool mali_group_power_is_on(struct mali_group *group)
+{
+	MALI_ASSERT_GROUP_LOCKED(group);
+	return group->power_is_on;
+}
+
+void mali_group_power_off(void)
+{
+	int i;
+	/* It is necessary to set group->session = NULL; so that the powered off MMU is not written to on map /unmap */
+	/* It is necessary to set group->power_is_on=MALI_FALSE so that pending bottom_halves does not access powered off cores. */
+	for (i = 0; i < mali_global_num_groups; i++)
+	{
+		struct mali_group *group = mali_global_groups[i];
+		mali_group_lock(group);
+		MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->gp_state);
+		MALI_DEBUG_ASSERT(MALI_GROUP_CORE_STATE_IDLE == group->pp_state);
+		MALI_DEBUG_ASSERT_POINTER(group->cluster);
+		group->session = NULL;
+		MALI_DEBUG_ASSERT(MALI_TRUE == group->power_is_on);
+		group->power_is_on = MALI_FALSE;
+		mali_cluster_power_is_enabled_set(group->cluster, MALI_FALSE);
+		mali_group_unlock(group);
+	}
+	MALI_DEBUG_PRINT(3,("group: POWER OFF\n"));
+}
+
 
 static void mali_group_recovery_reset(struct mali_group *group)
 {
@@ -548,6 +669,7 @@ static void mali_group_recovery_reset(struct mali_group *group)
 
 	/* Reset MMU */
 	mali_mmu_reset(group->mmu);
+	group->session = NULL;
 }
 
 /* Group lock need to be taken before calling mali_group_complete_jobs. Will release the lock here. */
@@ -589,7 +711,7 @@ static void mali_group_complete_jobs(struct mali_group *group, mali_bool complet
 		}
 		else
 		{
-			need_group_reset = true;
+			need_group_reset = MALI_TRUE;
 			MALI_DEBUG_PRINT(3, ("Mali group: Failed to reset GP, need to reset entire group\n"));
 			pp_success = MALI_FALSE; /* This might kill PP as well, so this should fail */
 		}
@@ -625,17 +747,17 @@ static void mali_group_complete_jobs(struct mali_group *group, mali_bool complet
 		}
 		else
 		{
-			need_group_reset = true;
+			need_group_reset = MALI_TRUE;
 			MALI_DEBUG_PRINT(3, ("Mali group: Failed to reset PP, need to reset entire group\n"));
 			gp_success = MALI_FALSE; /* This might kill GP as well, so this should fail */
 		}
 	}
 	else if (complete_gp && complete_pp)
 	{
-		need_group_reset = true;
+		need_group_reset = MALI_TRUE;
 	}
 
-	if (need_group_reset)
+	if (MALI_TRUE == need_group_reset)
 	{
 		struct mali_gp_job *gp_job_to_return = group->gp_running_job;
 		struct mali_pp_job *pp_job_to_return = group->pp_running_job;
@@ -643,8 +765,6 @@ static void mali_group_complete_jobs(struct mali_group *group, mali_bool complet
 		mali_bool schedule_other = MALI_FALSE;
 
 		MALI_DEBUG_PRINT(3, ("Mali group: Resetting entire group\n"));
-
-		mali_group_recovery_reset(group);
 
 		group->gp_state = MALI_GROUP_CORE_STATE_IDLE;
 		group->gp_running_job = NULL;
@@ -659,6 +779,9 @@ static void mali_group_complete_jobs(struct mali_group *group, mali_bool complet
 		{
 			mali_group_deactivate_page_directory(group, mali_pp_job_get_session(pp_job_to_return));
 		}
+
+		/* The reset has to be done after mali_group_deactivate_page_directory() */
+		mali_group_recovery_reset(group);
 
 		if (mali_group_other_reschedule_needed(group) && (NULL == gp_job_to_return || NULL == pp_job_to_return))
 		{

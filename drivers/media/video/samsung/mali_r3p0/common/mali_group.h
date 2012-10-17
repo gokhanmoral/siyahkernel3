@@ -131,6 +131,13 @@ void mali_group_bottom_half(struct mali_group *group, enum mali_group_event_t ev
 
 struct mali_mmu_core *mali_group_get_mmu(struct mali_group *group);
 struct mali_session_data *mali_group_get_session(struct mali_group *group);
+
+void mali_group_remove_session_if_unused(struct mali_group *group, struct mali_session_data *session_data);
+
+void mali_group_power_on(void);
+void mali_group_power_off(void);
+mali_bool mali_group_power_is_on(struct mali_group *group);
+
 struct mali_group *mali_group_get_glob_group(u32 index);
 u32 mali_group_get_glob_num_groups(void);
 

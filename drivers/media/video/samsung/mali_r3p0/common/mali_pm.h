@@ -15,7 +15,6 @@
 
 enum mali_core_event
 {
-	/* MALI_CORE_EVENT_JOB_IN_QUEUE, @@@@ needed??? */
 	MALI_CORE_EVENT_GP_START,
 	MALI_CORE_EVENT_GP_STOP,
 	MALI_CORE_EVENT_PP_START,
@@ -24,7 +23,6 @@ enum mali_core_event
 
 enum mali_pm_event
 {
-	/* MALI_PM_EVENT_JOB_IN_QUEUE, @@@@ needed ??? */
 	MALI_PM_EVENT_CORES_WORKING,
 	MALI_PM_EVENT_CORES_IDLE,
 	MALI_PM_EVENT_TIMER_LIGHT_SLEEP,

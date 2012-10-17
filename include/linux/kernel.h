@@ -757,7 +757,8 @@ extern char *mach_panic_string;
 #define FEATURE_BIT_ROM 0 //0:Samsung 1:AOSP(CM7|MIUI|Others)
 #define FEATURE_BIT_AOSP_TYPE 1 //1-CM7 0-OtherAOSP|MIUI
 
-#define SAMSUNGROM if( (rom_feature_set & (1<<FEATURE_BIT_ROM) ) == 0 )
+#define SAMSUNGROMEXPR ((rom_feature_set & (1<<FEATURE_BIT_ROM) ) == 0)
+#define SAMSUNGROM if( SAMSUNGROMEXPR )
 #define AOSPROM if( (rom_feature_set & (1<<FEATURE_BIT_ROM) )== (1<<FEATURE_BIT_ROM) )
 #define CYANOGENMOD if( (rom_feature_set & (1<<FEATURE_BIT_AOSP_TYPE) ) == (1<<FEATURE_BIT_AOSP_TYPE) )
 //more to come...

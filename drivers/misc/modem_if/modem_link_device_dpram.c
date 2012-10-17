@@ -31,6 +31,79 @@
 #include "modem_link_device_dpram.h"
 #include "modem_utils.h"
 
+/*
+** Function prototypes for basic DPRAM operations
+*/
+static inline void clear_intr(struct dpram_link_device *dpld);
+static inline u16 recv_intr(struct dpram_link_device *dpld);
+static inline void send_intr(struct dpram_link_device *dpld, u16 mask);
+
+static inline u16 get_magic(struct dpram_link_device *dpld);
+static inline void set_magic(struct dpram_link_device *dpld, u16 val);
+static inline u16 get_access(struct dpram_link_device *dpld);
+static inline void set_access(struct dpram_link_device *dpld, u16 val);
+
+static inline u32 get_tx_head(struct dpram_link_device *dpld, int id);
+static inline u32 get_tx_tail(struct dpram_link_device *dpld, int id);
+static inline void set_tx_head(struct dpram_link_device *dpld, int id, u32 in);
+static inline void set_tx_tail(struct dpram_link_device *dpld, int id, u32 out);
+static inline u8 *get_tx_buff(struct dpram_link_device *dpld, int id);
+static inline u32 get_tx_buff_size(struct dpram_link_device *dpld, int id);
+
+static inline u32 get_rx_head(struct dpram_link_device *dpld, int id);
+static inline u32 get_rx_tail(struct dpram_link_device *dpld, int id);
+static inline void set_rx_head(struct dpram_link_device *dpld, int id, u32 in);
+static inline void set_rx_tail(struct dpram_link_device *dpld, int id, u32 out);
+static inline u8 *get_rx_buff(struct dpram_link_device *dpld, int id);
+static inline u32 get_rx_buff_size(struct dpram_link_device *dpld, int id);
+
+static inline u16 get_mask_req_ack(struct dpram_link_device *dpld, int id);
+static inline u16 get_mask_res_ack(struct dpram_link_device *dpld, int id);
+static inline u16 get_mask_send(struct dpram_link_device *dpld, int id);
+
+static inline bool dpram_circ_valid(u32 size, u32 in, u32 out);
+
+static void handle_cp_crash(struct dpram_link_device *dpld);
+static int trigger_force_cp_crash(struct dpram_link_device *dpld);
+static void dpram_dump_memory(struct link_device *ld, char *buff);
+
+/*
+** Functions for debugging
+*/
+static inline void log_dpram_status(struct dpram_link_device *dpld)
+{
+	pr_info("mif: %s: {M:0x%X A:%d} {FMT TI:%u TO:%u RI:%u RO:%u} "
+		"{RAW TI:%u TO:%u RI:%u RO:%u} {INT:0x%X}\n",
+		dpld->ld.mc->name,
+		get_magic(dpld), get_access(dpld),
+		get_tx_head(dpld, IPC_FMT), get_tx_tail(dpld, IPC_FMT),
+		get_rx_head(dpld, IPC_FMT), get_rx_tail(dpld, IPC_FMT),
+		get_tx_head(dpld, IPC_RAW), get_tx_tail(dpld, IPC_RAW),
+		get_rx_head(dpld, IPC_RAW), get_rx_tail(dpld, IPC_RAW),
+		recv_intr(dpld));
+}
+
+static void set_dpram_map(struct dpram_link_device *dpld,
+			struct mif_irq_map *map)
+{
+	map->magic = get_magic(dpld);
+	map->access = get_access(dpld);
+
+	map->fmt_tx_in = get_tx_head(dpld, IPC_FMT);
+	map->fmt_tx_out = get_tx_tail(dpld, IPC_FMT);
+	map->fmt_rx_in = get_rx_head(dpld, IPC_FMT);
+	map->fmt_rx_out = get_rx_tail(dpld, IPC_FMT);
+	map->raw_tx_in = get_tx_head(dpld, IPC_RAW);
+	map->raw_tx_out = get_tx_tail(dpld, IPC_RAW);
+	map->raw_rx_in = get_rx_head(dpld, IPC_RAW);
+	map->raw_rx_out = get_rx_tail(dpld, IPC_RAW);
+
+	map->cp2ap = recv_intr(dpld);
+}
+
+/*
+** RXB (DPRAM RX buffer) functions
+*/
 static struct dpram_rxb *rxbq_create_pool(unsigned size, int count)
 {
 	struct dpram_rxb *rxb;
@@ -126,11 +199,14 @@ static inline void rxb_clear(struct dpram_rxb *rxb)
 	rxb->len = 0;
 }
 
+/*
+** DPRAM operations
+*/
 static int dpram_register_isr(unsigned irq, irqreturn_t (*isr)(int, void*),
 				unsigned long flag, const char *name,
 				struct dpram_link_device *dpld)
 {
-	int ret = 0;
+	int ret;
 
 	ret = request_irq(irq, isr, flag, name, dpld);
 	if (ret) {
@@ -149,13 +225,13 @@ static int dpram_register_isr(unsigned irq, irqreturn_t (*isr)(int, void*),
 
 static inline void clear_intr(struct dpram_link_device *dpld)
 {
-	if (dpld->dpctl->clear_intr)
+	if (likely(dpld->dpctl->clear_intr))
 		dpld->dpctl->clear_intr();
 }
 
 static inline u16 recv_intr(struct dpram_link_device *dpld)
 {
-	if (dpld->dpctl->recv_intr)
+	if (likely(dpld->dpctl->recv_intr))
 		return dpld->dpctl->recv_intr();
 	else
 		return ioread16(dpld->mbx2ap);
@@ -163,7 +239,7 @@ static inline u16 recv_intr(struct dpram_link_device *dpld)
 
 static inline void send_intr(struct dpram_link_device *dpld, u16 mask)
 {
-	if (dpld->dpctl->send_intr)
+	if (likely(dpld->dpctl->send_intr))
 		dpld->dpctl->send_intr(mask);
 	else
 		iowrite16(mask, dpld->mbx2cp);
@@ -174,9 +250,9 @@ static inline u16 get_magic(struct dpram_link_device *dpld)
 	return ioread16(dpld->magic);
 }
 
-static inline void set_magic(struct dpram_link_device *dpld, u16 value)
+static inline void set_magic(struct dpram_link_device *dpld, u16 val)
 {
-	iowrite16(value, dpld->magic);
+	iowrite16(val, dpld->magic);
 }
 
 static inline u16 get_access(struct dpram_link_device *dpld)
@@ -184,9 +260,9 @@ static inline u16 get_access(struct dpram_link_device *dpld)
 	return ioread16(dpld->access);
 }
 
-static inline void set_access(struct dpram_link_device *dpld, u16 value)
+static inline void set_access(struct dpram_link_device *dpld, u16 val)
 {
-	iowrite16(value, dpld->access);
+	iowrite16(val, dpld->access);
 }
 
 static inline u32 get_tx_head(struct dpram_link_device *dpld, int id)
@@ -199,44 +275,52 @@ static inline u32 get_tx_tail(struct dpram_link_device *dpld, int id)
 	return ioread16(dpld->dev[id]->txq.tail);
 }
 
-static inline void set_tx_head(struct dpram_link_device *dpld, int id, u32 head)
+static inline void set_tx_head(struct dpram_link_device *dpld, int id, u32 in)
 {
-	int cnt = 100;
+	int cnt = 3;
 	u32 val = 0;
 
-	iowrite16((u16)head, dpld->dev[id]->txq.head);
+	iowrite16((u16)in, dpld->dev[id]->txq.head);
 
 	do {
 		/* Check head value written */
 		val = ioread16(dpld->dev[id]->txq.head);
-		if (likely(val == head))
-			break;
+		if (likely(val == in))
+			return;
 
-		mif_info("ERR: txq.head(%d) != head(%d)\n", val, head);
+		mif_err("ERR: %s txq.head(%d) != in(%d)\n",
+			get_dev_name(id), val, in);
+		udelay(100);
 
 		/* Write head value again */
-		iowrite16((u16)head, dpld->dev[id]->txq.head);
+		iowrite16((u16)in, dpld->dev[id]->txq.head);
 	} while (cnt--);
+
+	trigger_force_cp_crash(dpld);
 }
 
-static inline void set_tx_tail(struct dpram_link_device *dpld, int id, u32 tail)
+static inline void set_tx_tail(struct dpram_link_device *dpld, int id, u32 out)
 {
-	int cnt = 100;
+	int cnt = 3;
 	u32 val = 0;
 
-	iowrite16((u16)tail, dpld->dev[id]->txq.tail);
+	iowrite16((u16)out, dpld->dev[id]->txq.tail);
 
 	do {
 		/* Check tail value written */
 		val = ioread16(dpld->dev[id]->txq.tail);
-		if (likely(val == tail))
-			break;
+		if (likely(val == out))
+			return;
 
-		mif_info("ERR: txq.tail(%d) != tail(%d)\n", val, tail);
+		mif_err("ERR: %s txq.tail(%d) != out(%d)\n",
+			get_dev_name(id), val, out);
+		udelay(100);
 
 		/* Write tail value again */
-		iowrite16((u16)tail, dpld->dev[id]->txq.tail);
+		iowrite16((u16)out, dpld->dev[id]->txq.tail);
 	} while (cnt--);
+
+	trigger_force_cp_crash(dpld);
 }
 
 static inline u8 *get_tx_buff(struct dpram_link_device *dpld, int id)
@@ -259,44 +343,52 @@ static inline u32 get_rx_tail(struct dpram_link_device *dpld, int id)
 	return ioread16(dpld->dev[id]->rxq.tail);
 }
 
-static inline void set_rx_head(struct dpram_link_device *dpld, int id, u32 head)
+static inline void set_rx_head(struct dpram_link_device *dpld, int id, u32 in)
 {
-	int cnt = 100;
+	int cnt = 3;
 	u32 val = 0;
 
-	iowrite16((u16)head, dpld->dev[id]->rxq.head);
+	iowrite16((u16)in, dpld->dev[id]->rxq.head);
 
 	do {
 		/* Check head value written */
 		val = ioread16(dpld->dev[id]->rxq.head);
-		if (val == head)
-			break;
+		if (val == in)
+			return;
 
-		mif_info("ERR: rxq.head(%d) != head(%d)\n", val, head);
+		mif_err("ERR: %s rxq.head(%d) != in(%d)\n",
+			get_dev_name(id), val, in);
+		udelay(100);
 
 		/* Write head value again */
-		iowrite16((u16)head, dpld->dev[id]->rxq.head);
+		iowrite16((u16)in, dpld->dev[id]->rxq.head);
 	} while (cnt--);
+
+	trigger_force_cp_crash(dpld);
 }
 
-static inline void set_rx_tail(struct dpram_link_device *dpld, int id, u32 tail)
+static inline void set_rx_tail(struct dpram_link_device *dpld, int id, u32 out)
 {
-	int cnt = 100;
+	int cnt = 3;
 	u32 val = 0;
 
-	iowrite16((u16)tail, dpld->dev[id]->rxq.tail);
+	iowrite16((u16)out, dpld->dev[id]->rxq.tail);
 
 	do {
 		/* Check tail value written */
 		val = ioread16(dpld->dev[id]->rxq.tail);
-		if (val == tail)
-			break;
+		if (val == out)
+			return;
 
-		mif_info("ERR: rxq.tail(%d) != tail(%d)\n", val, tail);
+		mif_err("ERR: %s rxq.tail(%d) != out(%d)\n",
+			get_dev_name(id), val, out);
+		udelay(100);
 
 		/* Write tail value again */
-		iowrite16((u16)tail, dpld->dev[id]->rxq.tail);
+		iowrite16((u16)out, dpld->dev[id]->rxq.tail);
 	} while (cnt--);
+
+	trigger_force_cp_crash(dpld);
 }
 
 static inline u8 *get_rx_buff(struct dpram_link_device *dpld, int id)
@@ -324,6 +416,113 @@ static inline u16 get_mask_send(struct dpram_link_device *dpld, int id)
 	return dpld->dev[id]->mask_send;
 }
 
+static inline bool dpram_circ_valid(u32 size, u32 in, u32 out)
+{
+	if (in >= size)
+		return false;
+
+	if (out >= size)
+		return false;
+
+	return true;
+}
+
+/* Get free space in the TXQ as well as in & out pointers */
+static inline int dpram_get_txq_space(struct dpram_link_device *dpld, int dev,
+		u32 qsize, u32 *in, u32 *out)
+{
+	struct link_device *ld = &dpld->ld;
+	int cnt = 3;
+	u32 head;
+	u32 tail;
+	int space;
+
+	do {
+		head = get_tx_head(dpld, dev);
+		tail = get_tx_tail(dpld, dev);
+
+		space = (head < tail) ? (tail - head - 1) :
+			(qsize + tail - head - 1);
+		mif_debug("%s: %s_TXQ qsize[%u] in[%u] out[%u] space[%u]\n",
+			ld->name, get_dev_name(dev), qsize, head, tail, space);
+
+		if (dpram_circ_valid(qsize, head, tail)) {
+			*in = head;
+			*out = tail;
+			return space;
+		}
+
+		mif_info("%s: CAUTION! <%pf> "
+			"%s_TXQ invalid (size:%d in:%d out:%d)\n",
+			ld->name, __builtin_return_address(0),
+			get_dev_name(dev), qsize, head, tail);
+
+		udelay(100);
+	} while (cnt--);
+
+	*in = 0;
+	*out = 0;
+	return -EINVAL;
+}
+
+static void dpram_reset_tx_circ(struct dpram_link_device *dpld, int dev)
+{
+	set_tx_head(dpld, dev, 0);
+	set_tx_tail(dpld, dev, 0);
+	if (dev == IPC_FMT)
+		trigger_force_cp_crash(dpld);
+}
+
+/* Get data size in the RXQ as well as in & out pointers */
+static inline int dpram_get_rxq_rcvd(struct dpram_link_device *dpld, int dev,
+		u32 qsize, u32 *in, u32 *out)
+{
+	struct link_device *ld = &dpld->ld;
+	int cnt = 3;
+	u32 head;
+	u32 tail;
+	u32 rcvd;
+
+	do {
+		head = get_rx_head(dpld, dev);
+		tail = get_rx_tail(dpld, dev);
+		if (head == tail) {
+			*in = head;
+			*out = tail;
+			return 0;
+		}
+
+		rcvd = (head > tail) ? (head - tail) : (qsize - tail + head);
+		mif_debug("%s: %s_RXQ qsize[%u] in[%u] out[%u] rcvd[%u]\n",
+			ld->name, get_dev_name(dev), qsize, head, tail, rcvd);
+
+		if (dpram_circ_valid(qsize, head, tail)) {
+			*in = head;
+			*out = tail;
+			return rcvd;
+		}
+
+		mif_info("%s: CAUTION! <%pf> "
+			"%s_RXQ invalid (size:%d in:%d out:%d)\n",
+			ld->name, __builtin_return_address(0),
+			get_dev_name(dev), qsize, head, tail);
+
+		udelay(100);
+	} while (cnt--);
+
+	*in = 0;
+	*out = 0;
+	return -EINVAL;
+}
+
+static void dpram_reset_rx_circ(struct dpram_link_device *dpld, int dev)
+{
+	set_rx_head(dpld, dev, 0);
+	set_rx_tail(dpld, dev, 0);
+	if (dev == IPC_FMT)
+		trigger_force_cp_crash(dpld);
+}
+
 /*
 ** CAUTION : dpram_allow_sleep() MUST be invoked after dpram_wake_up() success
 */
@@ -331,16 +530,23 @@ static int dpram_wake_up(struct dpram_link_device *dpld)
 {
 	struct link_device *ld = &dpld->ld;
 
-	set_sromc_access(true);
-
 	if (!dpld->dpctl->wakeup)
 		return 0;
 
 	if (dpld->dpctl->wakeup() < 0) {
-		mif_info("%s: ERR! <%pF> DPRAM wakeup fail\n",
+		mif_err("%s: ERR! <%pf> DPRAM wakeup fail once\n",
 			ld->name, __builtin_return_address(0));
-		set_sromc_access(false);
-		return -EACCES;
+
+		if (dpld->dpctl->sleep)
+			dpld->dpctl->sleep();
+
+		udelay(10);
+
+		if (dpld->dpctl->wakeup() < 0) {
+			mif_err("%s: ERR! <%pf> DPRAM wakeup fail twice\n",
+				ld->name, __builtin_return_address(0));
+			return -EACCES;
+		}
 	}
 
 	atomic_inc(&dpld->accessing);
@@ -351,15 +557,12 @@ static void dpram_allow_sleep(struct dpram_link_device *dpld)
 {
 	struct link_device *ld = &dpld->ld;
 
-	if (!dpld->dpctl->sleep) {
-		set_sromc_access(false);
+	if (!dpld->dpctl->sleep)
 		return;
-	}
 
 	if (atomic_dec_return(&dpld->accessing) <= 0) {
 		dpld->dpctl->sleep();
 		atomic_set(&dpld->accessing, 0);
-		set_sromc_access(false);
 		mif_debug("%s: DPRAM sleep possible\n", ld->name);
 	}
 }
@@ -374,10 +577,10 @@ static int dpram_check_access(struct dpram_link_device *dpld)
 	if (likely(magic == DPRAM_MAGIC_CODE && access == 1))
 		return 0;
 
-	for (i = 1; i <= 10; i++) {
+	for (i = 1; i <= 100; i++) {
 		mif_info("%s: ERR! magic:%X access:%X -> retry:%d\n",
 			ld->name, magic, access, i);
-		mdelay(1);
+		udelay(100);
 
 		magic = get_magic(dpld);
 		access = get_access(dpld);
@@ -395,125 +598,61 @@ static bool dpram_ipc_active(struct dpram_link_device *dpld)
 
 	/* Check DPRAM mode */
 	if (ld->mode != LINK_MODE_IPC) {
-		mif_info("%s: ERR! <%pF> ld->mode != LINK_MODE_IPC\n",
+		mif_info("%s: <%pf> ld->mode != LINK_MODE_IPC\n",
 			ld->name, __builtin_return_address(0));
 		return false;
 	}
 
 	if (dpram_check_access(dpld) < 0) {
-		mif_info("%s: ERR! <%pF> dpram_check_access fail\n",
+		mif_info("%s: ERR! <%pf> dpram_check_access fail\n",
 			ld->name, __builtin_return_address(0));
 		return false;
 	}
 
 	return true;
-}
-
-static inline bool dpram_circ_valid(u32 size, u32 in, u32 out)
-{
-	if (in >= size)
-		return false;
-
-	if (out >= size)
-		return false;
-
-	return true;
-}
-
-/* get free space in the TXQ as well as in & out pointers */
-static inline int get_txq_space(struct dpram_link_device *dpld, int dev,
-		u32 qsize, u32 *in, u32 *out)
-{
-	struct link_device *ld = &dpld->ld;
-
-	*in = get_tx_head(dpld, dev);
-	*out = get_tx_tail(dpld, dev);
-
-	if (!dpram_circ_valid(qsize, *in, *out)) {
-		mif_info("%s: ERR! <%pF> "
-			"%s_TXQ invalid (size:%d in:%d out:%d)\n",
-			ld->name, __builtin_return_address(0),
-			get_dev_name(dev), qsize, *in, *out);
-		set_tx_head(dpld, dev, 0);
-		set_tx_tail(dpld, dev, 0);
-		*in = 0;
-		*out = 0;
-		return -EINVAL;
-	}
-
-	return (*in < *out) ? (*out - *in - 1) : (qsize + *out - *in - 1);
-}
-
-static void set_dpram_map(struct dpram_link_device *dpld,
-	struct mif_irq_map *map)
-{
-	map->magic = get_magic(dpld);
-	map->access = get_access(dpld);
-
-	map->fmt_tx_in = get_tx_head(dpld, IPC_FMT);
-	map->fmt_tx_out = get_tx_tail(dpld, IPC_FMT);
-	map->fmt_rx_in = get_rx_head(dpld, IPC_FMT);
-	map->fmt_rx_out = get_rx_tail(dpld, IPC_FMT);
-	map->raw_tx_in = get_tx_head(dpld, IPC_RAW);
-	map->raw_tx_out = get_tx_tail(dpld, IPC_RAW);
-	map->raw_rx_in = get_rx_head(dpld, IPC_RAW);
-	map->raw_rx_out = get_rx_tail(dpld, IPC_RAW);
-
-	map->cp2ap = recv_intr(dpld);
 }
 
 static void dpram_ipc_write(struct dpram_link_device *dpld, int dev,
 		u32 qsize, u32 in, u32 out, struct sk_buff *skb)
 {
 	struct link_device *ld = &dpld->ld;
-	u8 __iomem *dst = get_tx_buff(dpld, dev);
+	u8 __iomem *buff = get_tx_buff(dpld, dev);
 	u8 *src = skb->data;
 	u32 len = skb->len;
+	u32 inp;
 	struct mif_irq_map map;
-
-	/* check queue status */
-	mif_debug("%s: {FMT %u %u %u %u} {RAW %u %u %u %u} ...\n", ld->name,
-		get_tx_head(dpld, IPC_FMT), get_tx_tail(dpld, IPC_FMT),
-		get_rx_head(dpld, IPC_FMT), get_rx_tail(dpld, IPC_FMT),
-		get_tx_head(dpld, IPC_RAW), get_tx_tail(dpld, IPC_RAW),
-		get_rx_head(dpld, IPC_RAW), get_rx_tail(dpld, IPC_RAW));
-
-	if (dev == IPC_FMT) {
-		set_dpram_map(dpld, &map);
-		mif_irq_log(ld->mc->msd, map, "ipc_write", sizeof("ipc_write"));
-		mif_ipc_log(MIF_IPC_AP2CP, ld->mc->msd, skb->data, skb->len);
-/*
-		mif_info("%s: [M:0x%X|A:%u] F[TI:%u TO:%u | RI:%u RO:%u] "
-			"R[TI:%u TO:%u | RI:%u RO:%u]\n",
-			ld->name, get_magic(dpld), get_access(dpld),
-			get_tx_head(dpld, IPC_FMT), get_tx_tail(dpld, IPC_FMT),
-			get_rx_head(dpld, IPC_FMT), get_rx_tail(dpld, IPC_FMT),
-			get_tx_head(dpld, IPC_RAW), get_tx_tail(dpld, IPC_RAW),
-			get_rx_head(dpld, IPC_RAW), get_rx_tail(dpld, IPC_RAW));
-		pr_ipc(__func__, src, (len > 16 ? 16 : len));
-*/
-	}
 
 	if (in < out) {
 		/* +++++++++ in ---------- out ++++++++++ */
-		memcpy((dst + in), src, len);
+		memcpy((buff + in), src, len);
 	} else {
 		/* ------ out +++++++++++ in ------------ */
 		u32 space = qsize - in;
 
 		/* 1) in -> buffer end */
-		memcpy((dst + in), src, ((len > space) ? space : len));
+		memcpy((buff + in), src, ((len > space) ? space : len));
 
 		/* 2) buffer start -> out */
 		if (len > space)
-			memcpy(dst, (src + space), (len - space));
+			memcpy(buff, (src + space), (len - space));
 	}
 
 	/* update new in pointer */
-	in += len;
-	if (in >= qsize)
-		in -= qsize;
-	set_tx_head(dpld, dev, in);
+	inp = in + len;
+	if (inp >= qsize)
+		inp -= qsize;
+	set_tx_head(dpld, dev, inp);
+
+	if (dev == IPC_FMT) {
+		set_dpram_map(dpld, &map);
+		mif_irq_log(ld->mc->msd, map, "ipc_write", sizeof("ipc_write"));
+		mif_ipc_log(MIF_IPC_AP2CP, ld->mc->msd, skb->data, skb->len);
+	}
+
+	if (ld->aligned && memcmp16_to_io((buff + in), src, 4)) {
+		mif_err("%s: memcmp16_to_io fail\n", ld->name);
+		trigger_force_cp_crash(dpld);
+	}
 }
 
 static int dpram_try_ipc_tx(struct dpram_link_device *dpld, int dev)
@@ -521,142 +660,61 @@ static int dpram_try_ipc_tx(struct dpram_link_device *dpld, int dev)
 	struct link_device *ld = &dpld->ld;
 	struct sk_buff_head *txq = ld->skb_txq[dev];
 	struct sk_buff *skb;
+	unsigned long int flags;
 	u32 qsize = get_tx_buff_size(dpld, dev);
 	u32 in;
 	u32 out;
 	int space;
 	int copied = 0;
-	u16 mask = 0;
+
+	spin_lock_irqsave(&dpld->tx_lock[dev], flags);
 
 	while (1) {
+		space = dpram_get_txq_space(dpld, dev, qsize, &in, &out);
+		if (unlikely(space < 0)) {
+			spin_unlock_irqrestore(&dpld->tx_lock[dev], flags);
+			dpram_reset_tx_circ(dpld, dev);
+			return space;
+		}
+
 		skb = skb_dequeue(txq);
 		if (unlikely(!skb))
 			break;
 
-		space = get_txq_space(dpld, dev, qsize, &in, &out);
-		if (unlikely(space < 0)) {
-			skb_queue_head(txq, skb);
-			return -ENOSPC;
-		}
-
 		if (unlikely(space < skb->len)) {
 			atomic_set(&dpld->res_required[dev], 1);
 			skb_queue_head(txq, skb);
-			mask = get_mask_req_ack(dpld, dev);
+			spin_unlock_irqrestore(&dpld->tx_lock[dev], flags);
 			mif_info("%s: %s "
 				"qsize[%u] in[%u] out[%u] free[%u] < len[%u]\n",
 				ld->name, get_dev_name(dev),
 				qsize, in, out, space, skb->len);
-			break;
+			return -ENOSPC;
 		}
 
-		/* TX if there is enough room in the queue
-		*/
-		mif_debug("%s: %s "
-			"qsize[%u] in[%u] out[%u] free[%u] >= len[%u]\n",
-			ld->name, get_dev_name(dev),
-			qsize, in, out, space, skb->len);
-
+		/* TX if there is enough room in the queue */
 		dpram_ipc_write(dpld, dev, qsize, in, out, skb);
-
 		copied += skb->len;
-
 		dev_kfree_skb_any(skb);
 	}
 
-	if (mask)
-		return -ENOSPC;
-	else
-		return copied;
-}
+	spin_unlock_irqrestore(&dpld->tx_lock[dev], flags);
 
-static void dpram_trigger_crash(struct dpram_link_device *dpld)
-{
-	struct link_device *ld = &dpld->ld;
-	struct io_device *iod;
-	int i;
-
-	for (i = 0; i < dpld->max_ipc_dev; i++) {
-		mif_info("%s: purging %s_skb_txq\b", ld->name, get_dev_name(i));
-		skb_queue_purge(ld->skb_txq[i]);
-	}
-
-	iod = link_get_iod_with_format(ld, IPC_FMT);
-	iod->modem_state_changed(iod, STATE_CRASH_EXIT);
-
-	iod = link_get_iod_with_format(ld, IPC_BOOT);
-	iod->modem_state_changed(iod, STATE_CRASH_EXIT);
-
-	iod = link_get_iod_with_channel(ld, PS_DATA_CH_0);
-	if (iod)
-		iodevs_for_each(iod->msd, iodev_netif_stop, 0);
-}
-
-static int dpram_trigger_force_cp_crash(struct dpram_link_device *dpld)
-{
-	struct link_device *ld = &dpld->ld;
-	int ret;
-	int cnt = 5000;
-
-	ld->mode = LINK_MODE_ULOAD;
-	mif_info("%s\n", ld->name);
-
-	dpram_wake_up(dpld);
-
-	send_intr(dpld, INT_CMD(INT_CMD_CRASH_EXIT));
-
-	while (cnt--) {
-		ret = try_wait_for_completion(&dpld->crash_start_complete);
-		if (ret)
-			break;
-		udelay(1000);
-	}
-
-	if (!ret) {
-		mif_info("%s: ERR! No CRASH_EXIT ACK from CP\n", ld->name);
-		dpram_trigger_crash(dpld);
-	}
-
-	return 0;
+	return copied;
 }
 
 static void dpram_ipc_rx_task(unsigned long data)
 {
-	struct link_device *ld;
-	struct dpram_link_device *dpld;
-	struct dpram_rxb *rxb;
+	struct dpram_link_device *dpld = (struct dpram_link_device *)data;
+	struct link_device *ld = &dpld->ld;
 	struct io_device *iod;
-	u32 qlen;
+	struct dpram_rxb *rxb;
+	unsigned qlen;
 	int i;
 
-	dpld = (struct dpram_link_device *)data;
-	ld = &dpld->ld;
-
 	for (i = 0; i < dpld->max_ipc_dev; i++) {
-		if (i == IPC_RAW)
-			iod = link_get_iod_with_format(ld, IPC_MULTI_RAW);
-		else
-			iod = link_get_iod_with_format(ld, i);
-
+		iod = dpld->iod[i];
 		qlen = rxbq_size(&dpld->rxbq[i]);
-		/*
-		if (qlen > 0 && i == IPC_FMT) {
-			mif_info("%s: [M:0x%X|A:%u] "
-				"F[TI:%u TO:%u | RI:%u RO:%u] "
-				"R[TI:%u TO:%u | RI:%u RO:%u]\n",
-				ld->name,
-				dpld->logbuff.magic, dpld->logbuff.access,
-				dpld->logbuff.fmt_tx_in,
-				dpld->logbuff.fmt_tx_out,
-				dpld->logbuff.fmt_rx_in,
-				dpld->logbuff.fmt_rx_out,
-				dpld->logbuff.raw_tx_in,
-				dpld->logbuff.raw_tx_out,
-				dpld->logbuff.raw_rx_in,
-				dpld->logbuff.raw_rx_out);
-		}
-		*/
-
 		while (qlen > 0) {
 			rxb = rxbq_get_data_rxb(&dpld->rxbq[i]);
 			iod->recv(iod, ld, rxb->data, rxb->len);
@@ -687,105 +745,29 @@ static void dpram_ipc_read(struct dpram_link_device *dpld, int dev, u8 *dst,
 	}
 }
 
-static void log_dpram_irq(struct dpram_link_device *dpld, u16 int2ap)
-{
-	struct sk_buff *skb;
-	struct mif_event_buff *evtb;
-	struct dpram_irq_buff *irqb;
-	struct link_device *ld = &dpld->ld;
-
-	skb = alloc_skb(MAX_MIF_EVT_BUFF_SIZE, GFP_ATOMIC);
-	if (!skb)
-		return;
-
-	evtb = (struct mif_event_buff *)skb_put(skb, MAX_MIF_EVT_BUFF_SIZE);
-	memset(evtb, 0, MAX_MIF_EVT_BUFF_SIZE);
-
-	do_gettimeofday(&evtb->tv);
-	evtb->evt = MIF_IRQ_EVT;
-
-	strncpy(evtb->mc, ld->mc->name, MAX_MIF_NAME_LEN);
-	strncpy(evtb->ld, ld->name, MAX_MIF_NAME_LEN);
-	evtb->link_type = ld->link_type;
-
-	irqb = &evtb->dpram_irqb;
-
-	irqb->magic = get_magic(dpld);
-	irqb->access = get_access(dpld);
-
-	irqb->qsp[IPC_FMT].txq.in = get_tx_head(dpld, IPC_FMT);
-	irqb->qsp[IPC_FMT].txq.out = get_tx_tail(dpld, IPC_FMT);
-	irqb->qsp[IPC_FMT].rxq.in = get_rx_head(dpld, IPC_FMT);
-	irqb->qsp[IPC_FMT].rxq.out = get_rx_tail(dpld, IPC_FMT);
-
-	irqb->qsp[IPC_RAW].txq.in = get_tx_head(dpld, IPC_RAW);
-	irqb->qsp[IPC_RAW].txq.out = get_tx_tail(dpld, IPC_RAW);
-	irqb->qsp[IPC_RAW].rxq.in = get_rx_head(dpld, IPC_RAW);
-	irqb->qsp[IPC_RAW].rxq.out = get_rx_tail(dpld, IPC_RAW);
-
-	irqb->int2ap = int2ap;
-
-	evtb->rcvd = sizeof(struct dpram_irq_buff);
-	evtb->len = sizeof(struct dpram_irq_buff);
-
-#if 0
-	mif_irq_log(ld->mc, skb);
-	mif_flush_logs(ld->mc);
-#endif
-}
-
 /*
   ret < 0  : error
   ret == 0 : no data
   ret > 0  : valid data
 */
-static int dpram_ipc_recv_data(struct dpram_link_device *dpld, int dev,
-				u16 non_cmd)
+static int dpram_ipc_recv_data_with_rxb(struct dpram_link_device *dpld, int dev)
 {
 	struct link_device *ld = &dpld->ld;
 	struct dpram_rxb *rxb;
 	u8 __iomem *src = get_rx_buff(dpld, dev);
 	u32 qsize = get_rx_buff_size(dpld, dev);
-	u32 in = get_rx_head(dpld, dev);
-	u32 out = get_rx_tail(dpld, dev);
-	u32 rcvd = 0;
+	u32 in;
+	u32 out;
+	u32 rcvd;
 	struct mif_irq_map map;
 
-	if (in == out)
-		return 0;
+	rcvd = dpram_get_rxq_rcvd(dpld, dev, qsize, &in, &out);
+	if (rcvd <= 0)
+		return rcvd;
 
 	if (dev == IPC_FMT) {
 		set_dpram_map(dpld, &map);
 		mif_irq_log(ld->mc->msd, map, "ipc_recv", sizeof("ipc_recv"));
-		/*
-		dpld->logbuff.magic = get_magic(dpld);
-		dpld->logbuff.access = get_access(dpld);
-
-		dpld->logbuff.fmt_tx_in = get_tx_head(dpld, IPC_FMT);
-		dpld->logbuff.fmt_tx_out = get_tx_tail(dpld, IPC_FMT);
-		dpld->logbuff.fmt_rx_in = get_rx_head(dpld, IPC_FMT);
-		dpld->logbuff.fmt_rx_out = get_rx_tail(dpld, IPC_FMT);
-
-		dpld->logbuff.raw_tx_in = get_tx_head(dpld, IPC_RAW);
-		dpld->logbuff.raw_tx_out = get_tx_tail(dpld, IPC_RAW);
-		dpld->logbuff.raw_rx_in = get_rx_head(dpld, IPC_RAW);
-		dpld->logbuff.raw_rx_out = get_rx_tail(dpld, IPC_RAW);
-		*/
-	}
-
-	/* Get data length in DPRAM*/
-	rcvd = (in > out) ? (in - out) : (qsize - out + in);
-
-	mif_debug("%s: %s qsize[%u] in[%u] out[%u] rcvd[%u]\n",
-		ld->name, get_dev_name(dev), qsize, in, out, rcvd);
-
-	/* Check each queue */
-	if (!dpram_circ_valid(qsize, in, out)) {
-		mif_info("%s: ERR! %s_RXQ invalid (size:%d in:%d out:%d)\n",
-			ld->name, get_dev_name(dev), qsize, in, out);
-		set_rx_head(dpld, dev, 0);
-		set_rx_tail(dpld, dev, 0);
-		return -EINVAL;
 	}
 
 	/* Allocate an rxb */
@@ -808,21 +790,90 @@ static int dpram_ipc_recv_data(struct dpram_link_device *dpld, int dev,
 	return rcvd;
 }
 
-static void dpram_purge_rx_circ(struct dpram_link_device *dpld, int dev)
-{
-	u32 in = get_rx_head(dpld, dev);
-	set_rx_tail(dpld, dev, in);
-}
-
-static void non_command_handler(struct dpram_link_device *dpld, u16 non_cmd)
+/*
+  ret < 0  : error
+  ret == 0 : no data
+  ret > 0  : valid data
+*/
+static int dpram_ipc_recv_data_with_skb(struct dpram_link_device *dpld, int dev)
 {
 	struct link_device *ld = &dpld->ld;
-	int i;
-	int ret = 0;
+	struct io_device *iod = dpld->iod[dev];
+	struct sk_buff *skb;
+	u8 __iomem *src = get_rx_buff(dpld, dev);
+	u32 qsize = get_rx_buff_size(dpld, dev);
 	u32 in;
 	u32 out;
-	u16 mask = 0;
-	u16 req_mask = 0;
+	u32 rcvd;
+	int rest;
+	u8 *frm;
+	u8 *dst;
+	unsigned int len;
+	unsigned int pad;
+	unsigned int tot;
+	struct mif_irq_map map;
+
+	rcvd = dpram_get_rxq_rcvd(dpld, dev, qsize, &in, &out);
+	if (rcvd <= 0)
+		return rcvd;
+
+	if (dev == IPC_FMT) {
+		set_dpram_map(dpld, &map);
+		mif_irq_log(ld->mc->msd, map, "ipc_recv", sizeof("ipc_recv"));
+	}
+
+	rest = rcvd;
+	while (rest > 0) {
+		frm = src + out;
+		if (unlikely(!sipc5_start_valid(frm[0]))) {
+			mif_err("%s: ERR! %s invalid start 0x%02X\n",
+				ld->name, get_dev_name(dev), frm[0]);
+			skb_queue_purge(&dpld->skb_rxq[dev]);
+			return -EBADMSG;
+		}
+
+		len = sipc5_get_frame_sz16(frm);
+		if (unlikely(len > rest)) {
+			mif_err("%s: ERR! %s len %d > rest %d\n",
+				ld->name, get_dev_name(dev), len, rest);
+			skb_queue_purge(&dpld->skb_rxq[dev]);
+			return -EBADMSG;
+		}
+
+		pad = sipc5_calc_padding_size(len);
+		tot = len + pad;
+
+		/* Allocate an skb */
+		skb = dev_alloc_skb(tot);
+		if (!skb) {
+			mif_err("%s: ERR! %s dev_alloc_skb fail\n",
+				ld->name, get_dev_name(dev));
+			return -ENOMEM;
+		}
+
+		/* Read data from each DPRAM buffer */
+		dst = skb_put(skb, tot);
+		dpram_ipc_read(dpld, dev, dst, src, out, tot, qsize);
+		skb_trim(skb, len);
+		iod->recv_skb(iod, ld, skb);
+
+		/* Calculate and set new out */
+		rest -= tot;
+		out += tot;
+		if (out >= qsize)
+			out -= qsize;
+	}
+
+	set_rx_tail(dpld, dev, out);
+
+	return rcvd;
+}
+
+static void non_command_handler(struct dpram_link_device *dpld, u16 intr)
+{
+	struct link_device *ld = &dpld->ld;
+	int i = 0;
+	int ret = 0;
 	u16 tx_mask = 0;
 
 	if (!dpram_ipc_active(dpld))
@@ -830,46 +881,101 @@ static void non_command_handler(struct dpram_link_device *dpld, u16 non_cmd)
 
 	/* Read data from DPRAM */
 	for (i = 0; i < dpld->max_ipc_dev; i++) {
-		ret = dpram_ipc_recv_data(dpld, i, non_cmd);
+		if (dpld->use_skb)
+			ret = dpram_ipc_recv_data_with_skb(dpld, i);
+		else
+			ret = dpram_ipc_recv_data_with_rxb(dpld, i);
 		if (ret < 0)
-			dpram_purge_rx_circ(dpld, i);
+			dpram_reset_rx_circ(dpld, i);
 
 		/* Check and process REQ_ACK (at this time, in == out) */
-		if (non_cmd & get_mask_req_ack(dpld, i)) {
+		if (intr & get_mask_req_ack(dpld, i)) {
 			mif_debug("%s: send %s_RES_ACK\n",
 				ld->name, get_dev_name(i));
-			mask = get_mask_res_ack(dpld, i);
-			send_intr(dpld, INT_NON_CMD(mask));
+			tx_mask |= get_mask_res_ack(dpld, i);
 		}
 	}
 
-	/* Schedule soft IRQ for RX */
-	tasklet_hi_schedule(&dpld->rx_tsk);
+	if (!dpld->use_skb) {
+		/* Schedule soft IRQ for RX */
+		tasklet_hi_schedule(&dpld->rx_tsk);
+	}
 
 	/* Try TX via DPRAM */
 	for (i = 0; i < dpld->max_ipc_dev; i++) {
 		if (atomic_read(&dpld->res_required[i]) > 0) {
-			in = get_tx_head(dpld, i);
-			out = get_tx_tail(dpld, i);
-			if (likely(in == out)) {
-				ret = dpram_try_ipc_tx(dpld, i);
-				if (ret > 0) {
-					atomic_set(&dpld->res_required[i], 0);
-					tx_mask |= get_mask_send(dpld, i);
-				} else {
-					req_mask |= get_mask_req_ack(dpld, i);
-				}
-			} else {
-				req_mask |= get_mask_req_ack(dpld, i);
+			ret = dpram_try_ipc_tx(dpld, i);
+			if (ret > 0) {
+				atomic_set(&dpld->res_required[i], 0);
+				tx_mask |= get_mask_send(dpld, i);
+			} else if (ret == -ENOSPC) {
+				tx_mask |= get_mask_req_ack(dpld, i);
 			}
 		}
 	}
 
-	if (req_mask || tx_mask) {
-		tx_mask |= req_mask;
+	if (tx_mask) {
 		send_intr(dpld, INT_NON_CMD(tx_mask));
 		mif_debug("%s: send intr 0x%04X\n", ld->name, tx_mask);
 	}
+}
+
+static void handle_cp_crash(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+	struct io_device *iod;
+	int i;
+
+	for (i = 0; i < dpld->max_ipc_dev; i++) {
+		mif_info("%s: purging %s_skb_txq\b", ld->name, get_dev_name(i));
+		skb_queue_purge(ld->skb_txq[i]);
+	}
+
+	iod = link_get_iod_with_format(ld, IPC_FMT);
+	iod->modem_state_changed(iod, STATE_CRASH_EXIT);
+
+	iod = link_get_iod_with_format(ld, IPC_BOOT);
+	iod->modem_state_changed(iod, STATE_CRASH_EXIT);
+
+	iod = link_get_iod_with_channel(ld, PS_DATA_CH_0);
+	if (iod)
+		iodevs_for_each(iod->msd, iodev_netif_stop, 0);
+}
+
+static void handle_no_crash_ack(unsigned long arg)
+{
+	struct dpram_link_device *dpld = (struct dpram_link_device *)arg;
+	struct link_device *ld = &dpld->ld;
+
+	mif_err("%s: ERR! No CRASH_EXIT ACK from CP\n", ld->mc->name);
+
+	if (!wake_lock_active(&dpld->wlock))
+		wake_lock(&dpld->wlock);
+
+	handle_cp_crash(dpld);
+}
+
+static int trigger_force_cp_crash(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+
+	if (ld->mode == LINK_MODE_ULOAD) {
+		mif_err("%s: CP crash is already in progress\n", ld->mc->name);
+		return 0;
+	}
+
+	ld->mode = LINK_MODE_ULOAD;
+	mif_err("%s: called by %pf\n", ld->name, __builtin_return_address(0));
+
+	if (dpld->dp_type == CP_IDPRAM)
+		dpram_wake_up(dpld);
+
+	send_intr(dpld, INT_CMD(INT_CMD_CRASH_EXIT));
+
+	mif_add_timer(&dpld->crash_ack_timer, FORCE_CRASH_ACK_TIMEOUT,
+			handle_no_crash_ack, (unsigned long)dpld);
+
+	return 0;
 }
 
 static int dpram_init_ipc(struct dpram_link_device *dpld)
@@ -890,7 +996,23 @@ static int dpram_init_ipc(struct dpram_link_device *dpld)
 		set_rx_tail(dpld, i, 0);
 	}
 
+	/* Initialize variables for efficient TX/RX processing */
+	for (i = 0; i < dpld->max_ipc_dev; i++)
+		dpld->iod[i] = link_get_iod_with_format(ld, i);
+	dpld->iod[IPC_RAW] = link_get_iod_with_format(ld, IPC_MULTI_RAW);
+
+	if (dpld->iod[IPC_RAW]->recv_skb)
+		dpld->use_skb = true;
+
+	for (i = 0; i < dpld->max_ipc_dev; i++) {
+		spin_lock_init(&dpld->tx_lock[i]);
+		atomic_set(&dpld->res_required[i], 0);
+		skb_queue_purge(&dpld->skb_rxq[i]);
+	}
+
 	/* Enable IPC */
+	atomic_set(&dpld->accessing, 0);
+
 	set_magic(dpld, DPRAM_MAGIC_CODE);
 	set_access(dpld, 1);
 	if (get_magic(dpld) != DPRAM_MAGIC_CODE || get_access(dpld) != 1)
@@ -898,12 +1020,8 @@ static int dpram_init_ipc(struct dpram_link_device *dpld)
 
 	ld->mode = LINK_MODE_IPC;
 
-	for (i = 0; i < dpld->max_ipc_dev; i++) {
-		spin_lock_init(&dpld->tx_lock[i]);
-		atomic_set(&dpld->res_required[i], 0);
-	}
-
-	atomic_set(&dpld->accessing, 0);
+	if (wake_lock_active(&dpld->wlock))
+		wake_unlock(&dpld->wlock);
 
 	return 0;
 }
@@ -919,7 +1037,11 @@ static void cmd_crash_reset_handler(struct dpram_link_device *dpld)
 	struct io_device *iod = NULL;
 
 	ld->mode = LINK_MODE_ULOAD;
-	mif_info("%s: Recv 0xC7 (CRASH_RESET)\n", ld->name);
+
+	if (!wake_lock_active(&dpld->wlock))
+		wake_lock(&dpld->wlock);
+
+	mif_err("%s: Recv 0xC7 (CRASH_RESET)\n", ld->name);
 
 	iod = link_get_iod_with_format(ld, IPC_FMT);
 	iod->modem_state_changed(iod, STATE_CRASH_RESET);
@@ -931,18 +1053,36 @@ static void cmd_crash_reset_handler(struct dpram_link_device *dpld)
 static void cmd_crash_exit_handler(struct dpram_link_device *dpld)
 {
 	struct link_device *ld = &dpld->ld;
+	u32 size = dpld->dpctl->dp_size;
+	char *dpram_buff = NULL;
 
 	ld->mode = LINK_MODE_ULOAD;
-	mif_info("%s: Recv 0xC9 (CRASH_EXIT)\n", ld->name);
 
-	dpram_wake_up(dpld);
+	if (!wake_lock_active(&dpld->wlock))
+		wake_lock(&dpld->wlock);
 
-	complete_all(&dpld->crash_start_complete);
+	mif_err("%s: Recv 0xC9 (CRASH_EXIT)\n", ld->name);
 
-	if (dpld->ext_op && dpld->ext_op->log_disp)
-		dpld->ext_op->log_disp(dpld);
+	if (dpld->dp_type == CP_IDPRAM)
+		dpram_wake_up(dpld);
 
-	dpram_trigger_crash(dpld);
+	dpram_buff = kzalloc(size + (MAX_MIF_SEPA_SIZE * 2), GFP_ATOMIC);
+	if (!dpram_buff) {
+		mif_err("DPRAM dump failed!!\n");
+	} else {
+		memset(dpram_buff, 0, size + (MAX_MIF_SEPA_SIZE * 2));
+		memcpy(dpram_buff, MIF_SEPARATOR_DPRAM, MAX_MIF_SEPA_SIZE);
+		memcpy(dpram_buff + MAX_MIF_SEPA_SIZE, &size, sizeof(u32));
+		dpram_buff += (MAX_MIF_SEPA_SIZE * 2);
+		dpram_dump_memory(ld, dpram_buff);
+	}
+
+	del_timer(&dpld->crash_ack_timer);
+
+	if (dpld->ext_op && dpld->ext_op->crash_log)
+		dpld->ext_op->crash_log(dpld);
+
+	handle_cp_crash(dpld);
 }
 
 static void cmd_phone_start_handler(struct dpram_link_device *dpld)
@@ -1071,7 +1211,7 @@ static void udl_command_handler(struct dpram_link_device *dpld, u16 cmd)
 	}
 
 	switch (UDL_CMD_MASK(cmd)) {
-	case UDL_CMD_RECEIVE_READY:
+	case UDL_CMD_RECV_READY:
 		mif_debug("%s: Send CP-->AP RECEIVE_READY\n", ld->name);
 		send_intr(dpld, CMD_IMG_START_REQ);
 		break;
@@ -1080,45 +1220,95 @@ static void udl_command_handler(struct dpram_link_device *dpld, u16 cmd)
 	}
 }
 
-static irqreturn_t dpram_irq_handler(int irq, void *data)
+static inline void dpram_ipc_rx(struct dpram_link_device *dpld, u16 intr)
+{
+	if (unlikely(INT_CMD_VALID(intr)))
+		command_handler(dpld, intr);
+	else
+		non_command_handler(dpld, intr);
+}
+
+static inline void dpram_intr_handler(struct dpram_link_device *dpld, u16 intr)
+{
+	char *name = dpld->ld.name;
+
+	if (unlikely(intr == INT_POWERSAFE_FAIL)) {
+		mif_info("%s: intr == INT_POWERSAFE_FAIL\n", name);
+		return;
+	}
+
+	if (unlikely(EXT_UDL_CMD(intr))) {
+		if (likely(EXT_INT_VALID(intr))) {
+			if (UDL_CMD_VALID(intr))
+				udl_command_handler(dpld, intr);
+			else if (EXT_CMD_VALID(intr))
+				ext_command_handler(dpld, intr);
+			else
+				mif_info("%s: ERR! invalid intr 0x%04X\n",
+					name, intr);
+		} else {
+			mif_info("%s: ERR! invalid intr 0x%04X\n", name, intr);
+		}
+		return;
+	}
+
+	if (likely(INT_VALID(intr)))
+		dpram_ipc_rx(dpld, intr);
+	else
+		mif_info("%s: ERR! invalid intr 0x%04X\n", name, intr);
+}
+
+static irqreturn_t ap_idpram_irq_handler(int irq, void *data)
 {
 	struct dpram_link_device *dpld = (struct dpram_link_device *)data;
 	struct link_device *ld = (struct link_device *)&dpld->ld;
-	u16 int2ap = 0;
+	u16 int2ap = recv_intr(dpld);
 
-	if (!ld->mc || ld->mc->phone_state == STATE_OFFLINE)
+	if (unlikely(ld->mode == LINK_MODE_OFFLINE))
 		return IRQ_HANDLED;
 
-	if (dpram_wake_up(dpld) < 0)
+	dpram_intr_handler(dpld, int2ap);
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t cp_idpram_irq_handler(int irq, void *data)
+{
+	struct dpram_link_device *dpld = (struct dpram_link_device *)data;
+	struct link_device *ld = (struct link_device *)&dpld->ld;
+	u16 int2ap;
+
+	if (unlikely(ld->mode == LINK_MODE_OFFLINE))
 		return IRQ_HANDLED;
+
+	if (dpram_wake_up(dpld) < 0) {
+		log_dpram_status(dpld);
+		trigger_force_cp_crash(dpld);
+		return IRQ_HANDLED;
+	}
 
 	int2ap = recv_intr(dpld);
 
+	dpram_intr_handler(dpld, int2ap);
+
 	clear_intr(dpld);
 
-	if (int2ap == INT_POWERSAFE_FAIL) {
-		mif_info("%s: int2ap == INT_POWERSAFE_FAIL\n", ld->name);
-		goto exit_isr;
-	} else if (int2ap == 0x1234 || int2ap == 0xDBAB || int2ap == 0xABCD) {
-		if (dpld->ext_op && dpld->ext_op->dload_cmd_handler) {
-			dpld->ext_op->dload_cmd_handler(dpld, int2ap);
-			goto exit_isr;
-		}
-	}
-
-	if (UDL_CMD_VALID(int2ap))
-		udl_command_handler(dpld, int2ap);
-	else if (EXT_INT_VALID(int2ap) && EXT_CMD_VALID(int2ap))
-		ext_command_handler(dpld, int2ap);
-	else if (INT_CMD_VALID(int2ap))
-		command_handler(dpld, int2ap);
-	else if (INT_VALID(int2ap))
-		non_command_handler(dpld, int2ap);
-	else
-		mif_info("%s: ERR! invalid intr 0x%04X\n", ld->name, int2ap);
-
-exit_isr:
 	dpram_allow_sleep(dpld);
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t ext_dpram_irq_handler(int irq, void *data)
+{
+	struct dpram_link_device *dpld = (struct dpram_link_device *)data;
+	struct link_device *ld = (struct link_device *)&dpld->ld;
+	u16 int2ap = recv_intr(dpld);
+
+	if (unlikely(ld->mode == LINK_MODE_OFFLINE))
+		return IRQ_HANDLED;
+
+	dpram_intr_handler(dpld, int2ap);
+
 	return IRQ_HANDLED;
 }
 
@@ -1126,69 +1316,54 @@ static void dpram_send_ipc(struct link_device *ld, int dev,
 			struct io_device *iod, struct sk_buff *skb)
 {
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
-	struct sk_buff_head *txq;
-	unsigned long int flags;
+	struct sk_buff_head *txq = ld->skb_txq[dev];
 	int ret;
 	u16 mask;
 
-	if (iod->io_typ == IODEV_NET) {
-		u8 *pkt = skb->data + get_sipc5_hdr_size(skb->data);
-		if (unlikely(is_dns_packet(pkt))) {
-			u8 str[64];
-			snprintf(str, 64, "%s: %s: DNS", __func__, ld->name);
-			pr_ipc(str, pkt, 20);
-		}
-	}
-
-	if (unlikely(dev >= dpld->max_ipc_dev)) {
-		mif_info("%s: ERR! dev %d >= max_ipc_dev(%s)\n",
-			ld->name, dev, get_dev_name(dpld->max_ipc_dev));
-		return;
-	}
-
-	if (dpram_wake_up(dpld) < 0) {
-		dpram_trigger_force_cp_crash(dpld);
-		return;
-	}
-
-	if (!dpram_ipc_active(dpld))
-		goto exit;
-
-	txq = ld->skb_txq[dev];
+	skb_queue_tail(txq, skb);
 	if (txq->qlen > 1024) {
 		mif_debug("%s: %s txq->qlen %d > 1024\n",
 			ld->name, get_dev_name(dev), txq->qlen);
 	}
 
-	skb_queue_tail(txq, skb);
+	if (dpld->dp_type == CP_IDPRAM) {
+		if (dpram_wake_up(dpld) < 0) {
+			trigger_force_cp_crash(dpld);
+			return;
+		}
+	}
+
+	if (!dpram_ipc_active(dpld))
+		goto exit;
 
 	if (atomic_read(&dpld->res_required[dev]) > 0) {
 		mif_debug("%s: %s_TXQ is full\n", ld->name, get_dev_name(dev));
 		goto exit;
 	}
 
-	spin_lock_irqsave(&dpld->tx_lock[dev], flags);
 	ret = dpram_try_ipc_tx(dpld, dev);
 	if (ret > 0) {
 		mask = get_mask_send(dpld, dev);
 		send_intr(dpld, INT_NON_CMD(mask));
-	} else {
+	} else if (ret == -ENOSPC) {
 		mask = get_mask_req_ack(dpld, dev);
 		send_intr(dpld, INT_NON_CMD(mask));
 		mif_info("%s: Send REQ_ACK 0x%04X\n", ld->name, mask);
+	} else {
+		mif_info("%s: dpram_try_ipc_tx fail (err %d)\n", ld->name, ret);
 	}
-	spin_unlock_irqrestore(&dpld->tx_lock[dev], flags);
 
 exit:
-	dpram_allow_sleep(dpld);
+	if (dpld->dp_type == CP_IDPRAM)
+		dpram_allow_sleep(dpld);
 }
 
-static int dpram_send_binary(struct link_device *ld, struct sk_buff *skb)
+static int dpram_send_cp_binary(struct link_device *ld, struct sk_buff *skb)
 {
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
 
-	if (dpld->ext_op && dpld->ext_op->download_skb)
-		return dpld->ext_op->download_skb(dpld, skb);
+	if (dpld->ext_op && dpld->ext_op->download_binary)
+		return dpld->ext_op->download_binary(dpld, skb);
 	else
 		return -ENODEV;
 }
@@ -1196,23 +1371,23 @@ static int dpram_send_binary(struct link_device *ld, struct sk_buff *skb)
 static int dpram_send(struct link_device *ld, struct io_device *iod,
 		struct sk_buff *skb)
 {
-	enum dev_format fmt = iod->format;
+	enum dev_format dev = iod->format;
 	int len = skb->len;
 
-	switch (fmt) {
+	switch (dev) {
 	case IPC_FMT:
 	case IPC_RAW:
 	case IPC_RFS:
-		if (likely(ld->mc->phone_state == STATE_ONLINE)) {
-			dpram_send_ipc(ld, fmt, iod, skb);
+		if (likely(ld->mode == LINK_MODE_IPC)) {
+			dpram_send_ipc(ld, dev, iod, skb);
 		} else {
-			mif_info("%s: phone_state != STATE_ONLINE\n", ld->name);
+			mif_info("%s: ld->mode != LINK_MODE_IPC\n", ld->name);
 			dev_kfree_skb_any(skb);
 		}
 		return len;
 
 	case IPC_BOOT:
-		return dpram_send_binary(ld, skb);
+		return dpram_send_cp_binary(ld, skb);
 
 	default:
 		mif_info("%s: ERR! no TXQ for %s\n", ld->name, iod->name);
@@ -1221,21 +1396,10 @@ static int dpram_send(struct link_device *ld, struct io_device *iod,
 	}
 }
 
-static int dpram_set_dload_magic(struct link_device *ld, struct io_device *iod)
-{
-	struct dpram_link_device *dpld = to_dpram_link_device(ld);
-
-	ld->mode = LINK_MODE_DLOAD;
-
-	iowrite32(DP_MAGIC_DMDL, dpld->dl_map.magic);
-
-	return 0;
-}
-
 static int dpram_force_dump(struct link_device *ld, struct io_device *iod)
 {
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
-	dpram_trigger_force_cp_crash(dpld);
+	trigger_force_cp_crash(dpld);
 	return 0;
 }
 
@@ -1245,7 +1409,9 @@ static void dpram_dump_memory(struct link_device *ld, char *buff)
 	u8 __iomem *base = dpld->dpctl->dp_base;
 	u32 size = dpld->dpctl->dp_size;
 
-	dpram_wake_up(dpld);
+	if (dpld->dp_type == CP_IDPRAM)
+		dpram_wake_up(dpld);
+
 	memcpy(buff, base, size);
 }
 
@@ -1273,122 +1439,27 @@ static int dpram_dump_update(struct link_device *ld, struct io_device *iod,
 static int dpram_ioctl(struct link_device *ld, struct io_device *iod,
 		unsigned int cmd, unsigned long arg)
 {
-	int err = -EFAULT;
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
+	int err = 0;
 
 	mif_info("%s: cmd 0x%08X\n", ld->name, cmd);
 
 	switch (cmd) {
-	case IOCTL_DPRAM_SEND_BOOT:
-		if (dpld->ext_op && dpld->ext_op->download_boot) {
-			err = dpld->ext_op->download_boot(dpld, (void *)arg);
-			if (err < 0) {
-				mif_info("%s: ERR! download_boot fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		break;
-
-	case IOCTL_DPRAM_PHONE_POWON:
-		if (dpld->ext_op && dpld->ext_op->prepare_download) {
-			err = dpld->ext_op->prepare_download(dpld);
-			if (err < 0) {
-				mif_info("%s: ERR! prepare_download fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		break;
-
-	case IOCTL_DPRAM_PHONEIMG_LOAD:
-		if (dpld->ext_op && dpld->ext_op->download_bin) {
-			err = dpld->ext_op->download_bin(dpld, (void *)arg);
-			if (err < 0) {
-				mif_info("%s: ERR! download_bin fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		break;
-
-	case IOCTL_DPRAM_NVDATA_LOAD:
-		if (dpld->ext_op && dpld->ext_op->download_nv) {
-			err = dpld->ext_op->download_nv(dpld, (void *)arg);
-			if (err < 0) {
-				mif_info("%s: ERR! download_nv fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		break;
-
-	case IOCTL_DPRAM_PHONE_BOOTSTART:
-		if (dpld->ext_op && dpld->ext_op->cp_boot_start) {
-			err = dpld->ext_op->cp_boot_start(dpld);
-			if (err < 0) {
-				mif_info("%s: ERR! cp_boot_start fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		if (dpld->ext_op && dpld->ext_op->cp_boot_post_process) {
-			err = dpld->ext_op->cp_boot_post_process(dpld);
-			if (err < 0) {
-				mif_info("%s: ERR! cp_boot_post_process fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		break;
-
-	case IOCTL_DPRAM_PHONE_UPLOAD_STEP1:
-		disable_irq_nosync(dpld->irq);
-
-		if (dpld->ext_op && dpld->ext_op->upload_step1) {
-			err = dpld->ext_op->upload_step1(dpld);
-			if (err < 0) {
-				clear_intr(dpld);
-				enable_irq(dpld->irq);
-				mif_info("%s: ERR! upload_step1 fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		break;
-
-	case IOCTL_DPRAM_PHONE_UPLOAD_STEP2:
-		if (dpld->ext_op->upload_step2) {
-			err = dpld->ext_op->upload_step2(dpld, (void *)arg);
-			if (err < 0) {
-				clear_intr(dpld);
-				enable_irq(dpld->irq);
-				mif_info("%s: ERR! upload_step2 fail\n",
-					ld->name);
-				goto exit;
-			}
-		}
-		break;
-
 	case IOCTL_DPRAM_INIT_STATUS:
 		mif_debug("%s: get dpram init status\n", ld->name);
 		return dpld->dpram_init_status;
 
-	case IOCTL_MODEM_DL_START:
-		err = dpram_set_dload_magic(ld, iod);
-		if (err < 0) {
-			mif_info("%s: ERR! dpram_set_dload_magic fail\n",
-				ld->name);
-			goto exit;
+	default:
+		if (dpld->ext_ioctl) {
+			err = dpld->ext_ioctl(dpld, iod, cmd, arg);
+		} else {
+			mif_err("%s: ERR! invalid cmd 0x%08X\n", ld->name, cmd);
+			err = -EINVAL;
 		}
 
-	default:
 		break;
 	}
 
-	return 0;
-
-exit:
 	return err;
 }
 
@@ -1530,6 +1601,7 @@ static void dpram_setup_common_op(struct dpram_link_device *dpld)
 	dpld->get_mask_req_ack = get_mask_req_ack;
 	dpld->get_mask_res_ack = get_mask_res_ack;
 	dpld->get_mask_send = get_mask_send;
+	dpld->ipc_rx_handler = dpram_ipc_rx;
 }
 
 static int dpram_link_init(struct link_device *ld, struct io_device *iod)
@@ -1578,7 +1650,6 @@ struct link_device *dpram_create_link_device(struct platform_device *pdev)
 		goto err;
 	}
 	ld = &dpld->ld;
-	task_data = (unsigned long)dpld;
 
 	/* Retrieve modem data and DPRAM control data from the modem data */
 	ld->mdm_data = mdm_data;
@@ -1624,6 +1695,8 @@ struct link_device *dpram_create_link_device(struct platform_device *pdev)
 	dpram_setup_common_op(dpld);
 	dpld->dpram_dump = dpram_dump_memory;
 	dpld->ext_op = dpram_get_ext_op(mdm_data->modem_type);
+	if (dpld->ext_op && dpld->ext_op->ioctl)
+		dpld->ext_ioctl = dpld->ext_op->ioctl;
 
 	/* Retrieve DPRAM resource */
 	if (!dpctl->dp_base) {
@@ -1666,13 +1739,15 @@ struct link_device *dpram_create_link_device(struct platform_device *pdev)
 	init_completion(&dpld->modem_pif_init_done);
 	init_completion(&dpld->udl_start_complete);
 	init_completion(&dpld->udl_cmd_complete);
-	init_completion(&dpld->crash_start_complete);
 	init_completion(&dpld->dump_start_complete);
 	init_completion(&dpld->dump_recv_done);
 
+	task_data = (unsigned long)dpld;
 	tasklet_init(&dpld->rx_tsk, dpram_ipc_rx_task, task_data);
-	if (dpld->ext_op && dpld->ext_op->dl_task)
-		tasklet_init(&dpld->dl_tsk, dpld->ext_op->dl_task, task_data);
+
+	/* Prepare SKB queue head for RX processing */
+	for (i = 0; i < dpld->max_ipc_dev; i++)
+		skb_queue_head_init(&dpld->skb_rxq[i]);
 
 	/* Prepare RXB queue */
 	qsize = DPRAM_MAX_RXBQ_SIZE;
@@ -1719,12 +1794,21 @@ struct link_device *dpram_create_link_device(struct platform_device *pdev)
 
 	/* Register DPRAM interrupt handler */
 	snprintf(dpld->irq_name, DP_MAX_NAME_LEN, "%s_irq", ld->name);
-	ret = dpram_register_isr(dpld->irq, dpram_irq_handler, dpld->irq_flags,
+	if (dpld->ext_op && dpld->ext_op->irq_handler)
+		dpld->irq_handler = dpld->ext_op->irq_handler;
+	else if (dpld->dp_type == CP_IDPRAM)
+		dpld->irq_handler = cp_idpram_irq_handler;
+	else if (dpld->dp_type == AP_IDPRAM)
+		dpld->irq_handler = ap_idpram_irq_handler;
+	else
+		dpld->irq_handler = ext_dpram_irq_handler;
+
+	ret = dpram_register_isr(dpld->irq, dpld->irq_handler, dpld->irq_flags,
 				dpld->irq_name, dpld);
 	if (ret)
 		goto err;
-
-	return ld;
+	else
+		return ld;
 
 err:
 	if (dpld) {

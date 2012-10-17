@@ -188,7 +188,7 @@ _mali_osk_errcode_t mali_pp_stop_bus_wait(struct mali_pp_core *core)
 
 	if (request_loop_count == i)
 	{
-		MALI_PRINT_ERROR(("Mali PP: Failed to stop bus on %s\n", core->hw_core.description));
+		MALI_PRINT_ERROR(("Mali PP: Failed to stop bus on %s. Status: 0x%08x\n", core->hw_core.description, mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_STATUS)));
 		return _MALI_OSK_ERR_FAULT;
 	}
 	return _MALI_OSK_ERR_OK;
@@ -203,7 +203,7 @@ _mali_osk_errcode_t mali_pp_hard_reset(struct mali_pp_core *core)
 	int i;
 
 	MALI_DEBUG_ASSERT_POINTER(core);
-	MALI_DEBUG_PRINT(4, ("Mali PP: Hard reset of core %s\n", core->hw_core.description));
+	MALI_DEBUG_PRINT(2, ("Mali PP: Hard reset of core %s\n", core->hw_core.description));
 	MALI_ASSERT_GROUP_LOCKED(core->group);
 
 	mali_pp_post_process_job(core); /* @@@@ is there some cases where it is unsafe to post process the job here? */
@@ -293,7 +293,7 @@ _mali_osk_errcode_t mali_pp_reset(struct mali_pp_core *core)
 
 	if (request_loop_count == i)
 	{
-		MALI_PRINT_ERROR(("Mali PP: Failed to reset core %s, unable to recover\n", core->hw_core.description));
+		MALI_DEBUG_PRINT(2, ("Mali PP: Failed to reset core %s, Status: 0x%08x\n", core->hw_core.description, mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_STATUS)));
 		return _MALI_OSK_ERR_FAULT;
 	}
 #else
@@ -505,18 +505,14 @@ static void mali_pp_bottom_half(void *data)
 
 	mali_group_lock(core->group); /* Group lock grabbed in core handlers, but released in common group handler */
 
-	irq_readout = mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_INT_RAWSTAT) & MALI200_REG_VAL_IRQ_MASK_USED;
-
-	/* Temporary hack for a flaw in the current Mali-450 FPGA implementation. Some times we get INVALID_PLIST_CMD right before we get FRAME_COMPLETE! */
-	if (irq_readout == 0x200 && _MALI_PRODUCT_ID_MALI450 == mali_kernel_core_get_product_id())
+	if ( MALI_FALSE == mali_group_power_is_on(core->group) )
 	{
-		int i;
-		for (i = 0; i < 10000 && irq_readout == 0x200; i++)
-		{
-			irq_readout = mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_INT_RAWSTAT) & MALI200_REG_VAL_IRQ_MASK_USED;
-		}
-		MALI_DEBUG_PRINT(2, ("Mali PP: work around for Mali-450 INVALID_PLIST_CMD triggered\n"));
+		MALI_PRINT_ERROR(("Interrupt bottom half of %s when core is OFF.", core->hw_core.description));
+		mali_group_unlock(core->group);
+		return;
 	}
+
+	irq_readout = mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_INT_RAWSTAT) & MALI200_REG_VAL_IRQ_MASK_USED;
 
 	MALI_DEBUG_PRINT(4, ("Mali PP: Bottom half IRQ 0x%08X from core %s\n", irq_readout, core->hw_core.description));
 
@@ -549,6 +545,10 @@ static void mali_pp_bottom_half(void *data)
 			MALI_DEBUG_PRINT(2, ("Mali PP: Job %d timed out on core %s\n",
 			                 mali_pp_job_get_id(core->running_job), core->hw_core.description));
 			mali_group_bottom_half(core->group, GROUP_EVENT_PP_JOB_TIMED_OUT); /* Will release group lock */
+		}
+		else
+		{
+			mali_group_unlock(core->group);
 		}
 		core->core_timed_out = MALI_FALSE;
 		return;
@@ -688,6 +688,13 @@ static void mali_pp_print_registers(struct mali_pp_core *core)
 	MALI_DEBUG_PRINT(2, ("Mali PP: Register MALI200_REG_ADDR_MGMT_PERF_CNT_1_ENABLE = 0x%08X\n", mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_PERF_CNT_1_ENABLE)));
 	MALI_DEBUG_PRINT(2, ("Mali PP: Register MALI200_REG_ADDR_MGMT_PERF_CNT_1_SRC = 0x%08X\n", mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_PERF_CNT_1_SRC)));
 	MALI_DEBUG_PRINT(2, ("Mali PP: Register MALI200_REG_ADDR_MGMT_PERF_CNT_1_VALUE = 0x%08X\n", mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_PERF_CNT_1_VALUE)));
+}
+#endif
+
+#if 0
+void mali_pp_print_state(struct mali_pp_core *core)
+{
+	MALI_DEBUG_PRINT(2, ("Mali PP: State: 0x%08x\n", mali_hw_core_register_read(&core->hw_core, MALI200_REG_ADDR_MGMT_STATUS) ));
 }
 #endif
 

@@ -216,7 +216,7 @@ static void mali_pp_scheduler_schedule(void)
 
 		sub_job = mali_pp_job_get_first_unstarted_sub_job(job);
 
-		MALI_DEBUG_PRINT(3, ("Mali PP scheduler: Starting job %u (0x%08X) part %u/%u\n", mali_pp_job_get_id(job), job, sub_job + 1, mali_pp_job_get_sub_job_count(job)));
+		MALI_DEBUG_PRINT(4, ("Mali PP scheduler: Starting job %u (0x%08X) part %u/%u\n", mali_pp_job_get_id(job), job, sub_job + 1, mali_pp_job_get_sub_job_count(job)));
 		if (_MALI_OSK_ERR_OK == mali_group_start_pp_job(slots[i].group, job, sub_job))
 		{
 			MALI_DEBUG_PRINT(4, ("Mali PP scheduler: Job %u (0x%08X) part %u/%u started\n", mali_pp_job_get_id(job), job, sub_job + 1, mali_pp_job_get_sub_job_count(job)));

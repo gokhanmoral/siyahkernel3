@@ -164,7 +164,7 @@ config TOUCHSCREEN_ATMEL_MXT224_U1
 
 config TOUCHSCREEN_GESTURES
         bool "Enable detection of touch gestures"
-        depends on TOUCHSCREEN_ATMEL_MXT224_U1
+        depends on TOUCHSCREEN_ATMEL_MXT224_U1 || TOUCHSCREEN_MELFAS
         ---help---
           This option enables the mxt224_u1 touchscreen device to
           detect and report touch gestures.
@@ -172,6 +172,18 @@ config TOUCHSCREEN_GESTURES
           detections are available through sysfs entries.
 
 config TOUCHSCREEN_ATMEL_MXT224_GRANDE
+        tristate "Atmel mXT I2C Touchscreen for GRANDE"
+        depends on I2C
+        help
+          Say Y here if you have Atmel mXT series I2C touchscreen,
+          such as AT42QT602240/ATMXT224, connected to your system.
+
+          If unsure, say N.
+
+          To compile this driver as a module, choose M here: the
+          module will be called atmel_mxt224_u1_ts.
+
+config TOUCHSCREEN_ATMEL_MXT224S_GRANDE
         tristate "Atmel mXT I2C Touchscreen for GRANDE"
         depends on I2C
         help
@@ -955,6 +967,16 @@ config TOUCHSCREEN_SYNAPTICS_S7301
 		To compile this driver as a module, choose M here: the
 		module will be called melfas_ts.
 
+config TOUCHSCREEN_CYTTSP4
+	tristate "Cypress GEN4 Touchscreen Interface"
+	depends on I2C
+	help
+		Say Y her if you want support for Cypress GEN4
+		touchcreen controllers.
+
+		To compile this driver as a module, shoose M here: the
+		module will be called cyttsp4.
+
 config SEC_TOUCHSCREEN_DVFS_LOCK
 	tristate "SEC AP dvfs control"
 	depends on CPU_FREQ
@@ -969,6 +991,18 @@ config KEYPAD_MELFAS_TOUCH
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called melfas_touchkey.
+
+config TOUCHSCREEN_ATMEL_MXT540S
+	tristate "Atmel mXT 540S I2C Touchscreen"
+	depends on I2C
+	help
+	  Say Y here if you have Atmel mXT series I2C touchscreen,
+	  such as ATMEL MXT540S, connected to your system.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mxt540s.
 
 source "drivers/input/touchscreen/wacom/Kconfig"
 

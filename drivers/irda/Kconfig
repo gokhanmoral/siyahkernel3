@@ -28,3 +28,11 @@ config IR_REMOCON_GPIO_EUR
 	help
 	  Say Y here to enable the GPIO-based driver for IR_LED of EUR model.
 
+config IR_REMOCON_GPIO_TMO
+        bool "GPIO-based IR LED driver of TMO model"
+        depends on IR_REMOCON && IR_REMOCON_GPIO
+        default n
+        help
+          Say Y here to enable the GPIO-based driver for IR_LED of TMO model.
+
+

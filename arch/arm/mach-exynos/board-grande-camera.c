@@ -83,7 +83,7 @@ subsys_initcall(camera_class_init);
 #define USE_8M_CAM_SENSOR_CORE_REVISION	0x07
 #elif defined(CONFIG_MACH_C1_USA_ATT)
 #define FRONT_CAM_MCLK_DEVIDED_REVISION	0x05
-#elif defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#elif defined(CONFIG_MACH_M3)
 #define FRONT_CAM_MCLK_DEVIDED_REVISION	0x0A
 #else
 #define FRONT_CAM_MCLK_DEVIDED_REVISION	0x08
@@ -377,6 +377,15 @@ static int s5k6a3_power_on(void)
 	CAM_CHECK_ERR_RET(ret, "enable vt_cam_1.8v");
 	udelay(1000);
 
+	/* VT_2.8V */
+	regulator = regulator_get(NULL, "vt_cam_2.8v");
+	if (IS_ERR(regulator))
+		return -ENODEV;
+	ret = regulator_enable(regulator);
+	regulator_put(regulator);
+	CAM_CHECK_ERR_RET(ret, "enable vt_cam_2.8v");
+	udelay(100);
+
 	/* VT_RESET */
 	ret = gpio_direction_output(GPIO_CAM_VT_nRST, 1);
 	CAM_CHECK_ERR_RET(ret, "output GPIO_CAM_VT_nRST");
@@ -411,6 +420,15 @@ static int s5k6a3_power_down(void)
 	/* VT_RESET */
 	ret = gpio_direction_output(GPIO_CAM_VT_nRST, 0);
 	CAM_CHECK_ERR_RET(ret, "output GPIO_CAM_VT_nRST");
+
+	/* VT_2.8V */
+	regulator = regulator_get(NULL, "vt_cam_2.8v");
+	if (IS_ERR(regulator))
+		return -ENODEV;
+	if (regulator_is_enabled(regulator))
+		ret = regulator_force_disable(regulator);
+	regulator_put(regulator);
+	CAM_CHECK_ERR(ret, "disable vt_cam_2.8v");
 
 	/* VT_CORE_1.8V */
 	regulator = regulator_get(NULL, "vt_cam_1.8v");
@@ -720,6 +738,7 @@ static int s5c73m3_power_on(void)
 	ret = gpio_direction_output(GPIO_ISP_CORE_EN, 1);
 	CAM_CHECK_ERR_RET(ret, "output GPIO_ISP_CORE_EN");
 
+#if !defined(CONFIG_MACH_GRANDE)
 	regulator = regulator_get(NULL, "cam_isp_core_1.2v");
 	if (IS_ERR(regulator))
 		return -ENODEV;
@@ -727,6 +746,7 @@ static int s5c73m3_power_on(void)
 	ret = regulator_enable(regulator);
 	regulator_put(regulator);
 	CAM_CHECK_ERR_RET(ret, "enable cam_isp_core_1.2v");
+#endif
 
 	/* CAM_SENSOR_A2.8V */
 	ret = gpio_direction_output(GPIO_CAM_IO_EN, 1);
@@ -877,6 +897,7 @@ static int s5c73m3_power_down(void)
 	ret = gpio_direction_output(GPIO_CAM_IO_EN, 0);
 	CAM_CHECK_ERR_RET(ret, "output GPIO_CAM_IO_EN");
 
+#if !defined(CONFIG_MACH_GRANDE)
 	/* CAM_ISP_CORE_1.2V */
 	regulator = regulator_get(NULL, "cam_isp_core_1.2v");
 	if (IS_ERR(regulator))
@@ -885,6 +906,7 @@ static int s5c73m3_power_down(void)
 		ret = regulator_force_disable(regulator);
 	regulator_put(regulator);
 	CAM_CHECK_ERR(ret, "disable cam_isp_core_1.2v");
+#endif
 
 	ret = gpio_direction_output(GPIO_ISP_CORE_EN, 0);
 	CAM_CHECK_ERR_RET(ret, "output GPIO_CAM_ISP_CORE_EN");
@@ -921,11 +943,6 @@ error_out:
 
 static int s5c73m3_get_i2c_busnum(void)
 {
-#if 0
-	if (system_rev == 0x03) /*M0, M1 REV00*/
-		return 18;
-	else
-#endif
 	return 0;
 }
 
@@ -943,6 +960,7 @@ static struct s5c73m3_platform_data s5c73m3_plat = {
 	.set_vdd_core = s5c73m3_set_vdd_core,
 	.is_vdd_core_set = s5c73m3_is_vdd_core_set,
 	.is_isp_reset = s5c73m3_is_isp_reset,
+	.power_on_off = s5c73m3_power,
 };
 
 static struct i2c_board_info s5c73m3_i2c_info = {

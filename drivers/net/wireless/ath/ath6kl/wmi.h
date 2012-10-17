@@ -114,6 +114,7 @@ struct wmi {
 	struct ath6kl *parent_dev;
 	u8 pwr_mode;
 	spinlock_t lock;
+	struct mutex lock_mgmt;
 	enum htc_endpoint_id ep_id;
 	struct sq_threshold_params
 	    sq_threshld[SIGNAL_QUALITY_METRICS_NUM_MAX];
@@ -974,7 +975,7 @@ struct wmi_bss_filter_cmd {
 } __packed;
 
 /* WMI_SET_PROBED_SSID_CMDID */
-#define MAX_PROBED_SSID_INDEX   9
+#define MAX_PROBED_SSIDS   16
 
 enum wmi_ssid_flag {
 	/* disables entry */
@@ -988,7 +989,7 @@ enum wmi_ssid_flag {
 };
 
 struct wmi_probed_ssid_cmd {
-	/* 0 to MAX_PROBED_SSID_INDEX */
+	/* 0 to MAX_PROBED_SSIDS - 1 */
 	u8 entry_index;
 
 	/* see, enum wmi_ssid_flg */
@@ -1489,7 +1490,11 @@ enum wmi_bi_ftype {
 	PROBEREQ_FTYPE,
 };
 
+#ifdef CONFIG_MACH_PX
+#define DEF_LRSSI_SCAN_PERIOD		( 5 * 1000 )
+#else
 #define DEF_LRSSI_SCAN_PERIOD		 5
+#endif
 #define DEF_LRSSI_ROAM_THRESHOLD	20
 #define DEF_LRSSI_ROAM_FLOOR		60
 #ifdef CONFIG_MACH_PX

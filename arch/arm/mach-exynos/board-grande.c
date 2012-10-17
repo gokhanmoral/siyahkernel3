@@ -111,7 +111,7 @@ struct s3cfb_extdsp_lcd {
 
 #include <mach/gpio-midas.h>
 
-#include <mach/midas-power.h>
+#include <mach/grande-power.h>
 
 #ifdef CONFIG_SEC_THERMISTOR
 #include <mach/sec_thermistor.h>
@@ -122,6 +122,9 @@ struct s3cfb_extdsp_lcd {
 
 #include <mach/midas-lcd.h>
 #include <mach/midas-sound.h>
+#if defined(CONFIG_SEC_DEV_JACK)
+#include <mach/grande-jack.h>
+#endif
 
 #ifdef CONFIG_USB_HOST_NOTIFY
 #include <linux/host_notify.h>
@@ -183,6 +186,32 @@ static struct s3c2410_uartcfg smdk4212_uartcfgs[] __initdata = {
 		.ufcon		= SMDK4212_UFCON_DEFAULT,
 	},
 };
+
+#if defined(CONFIG_S3C64XX_DEV_SPI)
+#if defined(CONFIG_VIDEO_S5C73M3_SPI)
+
+static struct s3c64xx_spi_csinfo spi1_csi[] = {
+	[0] = {
+		.line = EXYNOS4_GPB(5),
+		.set_level = gpio_set_value,
+		.fb_delay = 0x00,
+	},
+};
+
+static struct spi_board_info spi1_board_info[] __initdata = {
+	{
+		.modalias = "s5c73m3_spi",
+		.platform_data = NULL,
+		.max_speed_hz = 50000000,
+		.bus_num = 1,
+		.chip_select = 0,
+		.mode = SPI_MODE_0,
+		.controller_data = &spi1_csi[0],
+	}
+};
+#endif
+#endif
+
 static struct i2c_board_info i2c_devs8_emul[];
 
 #if defined(CONFIG_KEYPAD_MELFAS_TOUCH)
@@ -208,7 +237,6 @@ static void flip_init_hw(void)
 {
 	int ret;
 
-	#if defined(CONFIG_TOUCHSCREEN_ATMEL_MXT224_GRANDE)
 	s3c_gpio_cfgpin(GPIO_LCD_SEL, S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(GPIO_LCD_SEL, S3C_GPIO_PULL_NONE);
 
@@ -219,8 +247,12 @@ static void flip_init_hw(void)
 	/* s3c_gpio_setpull(gpio, S3C_GPIO_PULL_UP); */
 	s3c_gpio_setpull(GPIO_HALL_SW, S3C_GPIO_PULL_NONE);
 	s5p_register_gpio_interrupt(GPIO_HALL_SW);
-	gpio_direction_input(GPIO_HALL_SW);
-	#endif
+
+	s3c_gpio_cfgpin(GPIO_LCD_SEL, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_LCD_SEL, S3C_GPIO_PULL_NONE);
+
+	s3c_gpio_cfgpin(GPIO_TSP_SEL, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_TSP_SEL, S3C_GPIO_PULL_NONE);
 
 }
 #endif
@@ -376,10 +408,8 @@ static void __init smdk4212_usbgadget_init(void)
 	struct android_usb_platform_data *android_pdata =
 		s3c_device_android_usb.dev.platform_data;
 	if (android_pdata) {
-#if defined(CONFIG_MACH_M0_CTC)
-		/*FOR CTC PC-MODEM START*/
-		unsigned int newluns = 3;
-		/*FOR CTC PC-MODEM END*/
+#if defined(CONFIG_USB_CDFS_SUPPORT)
+		unsigned int newluns = 1;
 #else
 		unsigned int newluns = 2;
 #endif
@@ -663,6 +693,54 @@ static struct i2c_board_info i2c_devs19_emul[] __initdata = {
 };
 #endif
 
+#ifdef CONFIG_REGULATOR_LP8720
+#ifdef GPIO_FOLDER_PMIC_EN
+static struct i2c_gpio_platform_data gpio_i2c_data22 = {
+	.scl_pin = GPIO_FOLDER_PMIC_SCL,
+	.sda_pin = GPIO_FOLDER_PMIC_SDA,
+};
+
+struct platform_device s3c_device_i2c22 = {
+	.name = "i2c-gpio",
+	.id = 22,
+	.dev.platform_data = &gpio_i2c_data22,
+};
+
+static struct i2c_board_info i2c_devs22_emul[] __initdata = {
+	{
+		I2C_BOARD_INFO("lp8720", 0xFA>>1),
+		.platform_data = &folder_pmic_info,
+	},
+};
+#endif	/* GPIO_FOLDER_PMIC_EN */
+
+#ifdef GPIO_SUB_PMIC_EN
+static struct i2c_gpio_platform_data gpio_i2c_data23 = {
+	.scl_pin = GPIO_SUB_PMIC_SCL,
+	.sda_pin = GPIO_SUB_PMIC_SDA,
+};
+
+struct platform_device s3c_device_i2c23 = {
+	.name = "i2c-gpio",
+	.id = 23,
+	.dev.platform_data = &gpio_i2c_data23,
+};
+
+static struct i2c_board_info i2c_devs23_emul[] __initdata = {
+	{
+		I2C_BOARD_INFO("lp8720", 0xFA>>1),
+		.platform_data = &sub_pmic_info,
+	},
+#if defined(CONFIG_REGULATOR_MAX8952_GRANDE)
+	{
+		/* MAX8952(MODE3) for Grande */
+		I2C_BOARD_INFO("max8952_grande", 0xC0>>1),
+	},
+#endif
+};
+#endif	/* GPIO_SUB_PMIC_EN */
+#endif	/* CONFIG_REGULATOR_LP8720 */
+
 #ifdef CONFIG_ANDROID_RAM_CONSOLE
 static struct resource ram_console_resource[] = {
 	{
@@ -726,13 +804,8 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 
 	.recharge_voltage = 4300000,	/* it will be cacaluated in probe */
 
-#if defined(CONFIG_MACH_M0_CTC)
-	.abstimer_charge_duration = 8 * 60 * 60,
-	.abstimer_recharge_duration = 2 * 60 * 60,
-#else
 	.abstimer_charge_duration = 6 * 60 * 60,
-	.abstimer_recharge_duration = 1.5 * 60 * 60,
-#endif
+	.abstimer_recharge_duration = 2 * 60 * 60,
 
 	.cb_det_src = CABLE_DET_CHARGER,
 
@@ -756,6 +829,11 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 	 */
 	.covert_adc = convert_adc,
 #endif
+
+	.vf_det_src = VF_DET_CHARGER,
+	.vf_det_ch = 0,	/* if src == VF_DET_ADC */
+	.vf_det_th_l = 500,
+	.vf_det_th_h = 1500,
 
 	.suspend_chging = true,
 
@@ -784,14 +862,18 @@ static struct platform_device samsung_device_battery = {
 	}
 
 struct gpio_keys_button midas_buttons[] = {
-#if !defined(CONFIG_MACH_GRANDE) && !defined(CONFIG_MACH_IRON)
 	GPIO_KEYS(KEY_VOLUMEUP, GPIO_VOL_UP,
 		  1, 0, sec_debug_check_crash_key),
 	GPIO_KEYS(KEY_VOLUMEDOWN, GPIO_VOL_DOWN,
 		  1, 0, sec_debug_check_crash_key),
-#endif
-	GPIO_KEYS(KEY_POWER, GPIO_nPOWER,
+	GPIO_KEYS(KEY_END, GPIO_nPOWER,
 		  1, 1, sec_debug_check_crash_key),
+	GPIO_KEYS(KEY_POWER, GPIO_HOLD,
+		  1, 1, sec_debug_check_crash_key),
+#if !defined(CONFIG_MACH_IRON)
+	GPIO_KEYS(KEY_3G, GPIO_3G_DET,
+		  1, 1, sec_debug_check_crash_key),
+#endif
 };
 
 struct gpio_keys_platform_data midas_gpiokeys_platform_data = {
@@ -809,11 +891,16 @@ static struct platform_device midas_keypad = {
 #if defined(CONFIG_MACH_GRANDE) || defined(CONFIG_MACH_IRON)
 static uint32_t smdk4x12_keymap[] __initdata = {
 /* KEY(row, col, keycode) */
-	KEY(2, 3, KEY_SEND), KEY(8, 3, KEY_BACKSPACE), KEY(12, 3, KEY_ENTER), KEY(4, 3, KEY_NETWORK), KEY(11, 3, KEY_ENTER), KEY(13, 3, KEY_CAMERA),
-	KEY(2, 4, KEY_1),	KEY(8, 4, KEY_2),	KEY(12, 4, KEY_3), KEY(4, 4, KEY_RIGHT), KEY(11, 4, KEY_DOWN),
-	KEY(2, 5, KEY_4),	KEY(8, 5, KEY_5), KEY(12, 5, KEY_6), KEY(4, 5, KEY_BACK), KEY(11, 5, KEY_LEFT), KEY(13, 5, KEY_SCREENLOCK),
-	KEY(2, 6, KEY_7),	KEY(8, 6, KEY_8),	KEY(12, 6, KEY_9), KEY(4, 6, KEY_UP), KEY(11, 6, KEY_VOLUMEUP),
-	KEY(2, 7, KEY_STAR), KEY(8, 7, KEY_0), KEY(12, 7, KEY_POUND), KEY(4, 7, KEY_MENU), KEY(11, 7, KEY_VOLUMEDOWN),
+	KEY(2, 3, KEY_SEND), KEY(8, 3, KEY_BACKSPACE), KEY(12, 3, KEY_HOME), KEY(4, 3, KEY_NETWORK), KEY(11, 3, KEY_ENTER),
+	KEY(2, 4, KEY_1),	KEY(8, 4, KEY_2),	KEY(12, 4, KEY_3), KEY(11, 4, KEY_DOWN),
+	KEY(2, 5, KEY_4),	KEY(8, 5, KEY_5), KEY(12, 5, KEY_6), KEY(4, 5, KEY_BACK),
+	KEY(2, 6, KEY_7),	KEY(8, 6, KEY_8),	KEY(12, 6, KEY_9), KEY(4, 6, KEY_UP),
+	KEY(2, 7, KEY_STAR), KEY(8, 7, KEY_0), KEY(12, 7, KEY_POUND), KEY(4, 7, KEY_MENU),
+	#if defined(CONFIG_MACH_IRON)
+	KEY(4, 4, KEY_LEFT), KEY(11, 5, KEY_RIGHT),
+	#else
+	KEY(4, 4, KEY_RIGHT), KEY(11, 5, KEY_LEFT),
+	#endif
 };
 
 static struct matrix_keymap_data smdk4x12_keymap_data __initdata = {
@@ -892,6 +979,23 @@ static struct platform_device s3c_device_i2c9 = {
 };
 
 #ifdef CONFIG_SENSORS_AK8975C
+static struct i2c_gpio_platform_data i2c10_platdata = {
+	.sda_pin	= GPIO_MSENSOR_SDA_18V,
+	.scl_pin	= GPIO_MSENSOR_SCL_18V,
+	.udelay	= 2, /* 250KHz */
+	.sda_is_open_drain	= 0,
+	.scl_is_open_drain	= 0,
+	.scl_is_output_only = 0,
+};
+
+static struct platform_device s3c_device_i2c10 = {
+	.name	= "i2c-gpio",
+	.id	= 10,
+	.dev.platform_data	= &i2c10_platdata,
+};
+#endif
+
+#ifdef CONFIG_SENSORS_AK8963C
 static struct i2c_gpio_platform_data i2c10_platdata = {
 	.sda_pin	= GPIO_MSENSOR_SDA_18V,
 	.scl_pin	= GPIO_MSENSOR_SCL_18V,
@@ -1048,6 +1152,10 @@ static struct platform_device *midas_devices[] __initdata = {
 #ifdef CONFIG_SENSORS_AK8975C
 	&s3c_device_i2c10,
 #endif
+#ifdef CONFIG_SENSORS_AK8963C
+	&s3c_device_i2c10,
+#endif
+
 #ifdef CONFIG_SENSORS_LPS331
 	&s3c_device_i2c11,
 #endif
@@ -1070,7 +1178,14 @@ static struct platform_device *midas_devices[] __initdata = {
 #ifdef CONFIG_LEDS_AN30259A
 	&s3c_device_i2c21,
 #endif
-
+#ifdef CONFIG_REGULATOR_LP8720
+#ifdef GPIO_FOLDER_PMIC_EN
+	&s3c_device_i2c22,
+#endif	/* GPIO_FOLDER_PMIC_EN */
+#ifdef GPIO_SUB_PMIC_EN
+	&s3c_device_i2c23,
+#endif	/* GPIO_SUB_PMIC_EN */
+#endif
 #if defined CONFIG_USB_EHCI_S5P && !defined CONFIG_LINK_DEVICE_HSIC
 	&s5p_device_ehci,
 #endif
@@ -1618,6 +1733,14 @@ static void __init midas_machine_init(void)
 {
 	struct clk *ppmu_clk = NULL;
 
+#if defined(CONFIG_S3C64XX_DEV_SPI)
+#if defined(CONFIG_VIDEO_S5C73M3_SPI)
+	unsigned int gpio;
+	struct clk *sclk = NULL;
+	struct clk *prnt = NULL;
+	struct device *spi1_dev = &exynos_device_spi1.dev;
+#endif
+#endif
 	/*
 	  * prevent 4x12 ISP power off problem
 	  * ISP_SYS Register has to be 0 before ISP block power off.
@@ -1706,6 +1829,17 @@ static void __init midas_machine_init(void)
 	|| defined(CONFIG_FM_SI4705_MODULE)
 	i2c_register_board_info(19, i2c_devs19_emul,
 				ARRAY_SIZE(i2c_devs19_emul));
+#endif
+
+#ifdef CONFIG_REGULATOR_LP8720
+#ifdef GPIO_FOLDER_PMIC_EN
+	i2c_register_board_info(22, i2c_devs22_emul,
+				ARRAY_SIZE(i2c_devs22_emul));
+#endif	/* GPIO_FOLDER_PMIC_EN */
+#ifdef GPIO_SUB_PMIC_EN
+	i2c_register_board_info(23, i2c_devs23_emul,
+				ARRAY_SIZE(i2c_devs23_emul));
+#endif	/* GPIO_SUB_PMIC_EN */
 #endif
 
 #if defined(GPIO_OLED_DET)
@@ -1857,6 +1991,41 @@ static void __init midas_machine_init(void)
 
 #if defined(CONFIG_PN65N_NFC)
 	platform_device_register(&s3c_device_i2c12);
+#endif
+
+#if defined(CONFIG_SEC_DEV_JACK)
+	grande_jack_init();
+#endif
+
+#if defined(CONFIG_S3C64XX_DEV_SPI)
+#if defined(CONFIG_VIDEO_S5C73M3_SPI)
+	sclk = clk_get(spi1_dev, "dout_spi1");
+	if (IS_ERR(sclk))
+		dev_err(spi1_dev, "failed to get sclk for SPI-1\n");
+	prnt = clk_get(spi1_dev, "mout_mpll_user");
+	if (IS_ERR(prnt))
+		dev_err(spi1_dev, "failed to get prnt\n");
+	if (clk_set_parent(sclk, prnt))
+		printk(KERN_ERR "Unable to set parent %s of clock %s.\n",
+		       prnt->name, sclk->name);
+
+	clk_set_rate(sclk, 88 * 1000 * 1000);
+	clk_put(sclk);
+	clk_put(prnt);
+
+	if (!gpio_request(EXYNOS4_GPB(5), "SPI_CS1")) {
+		gpio_direction_output(EXYNOS4_GPB(5), 1);
+		s3c_gpio_cfgpin(EXYNOS4_GPB(5), S3C_GPIO_SFN(1));
+		s3c_gpio_setpull(EXYNOS4_GPB(5), S3C_GPIO_PULL_UP);
+		exynos_spi_set_info(1, EXYNOS_SPI_SRCCLK_SCLK,
+				    ARRAY_SIZE(spi1_csi));
+	}
+
+	for (gpio = EXYNOS4_GPB(4); gpio < EXYNOS4_GPB(8); gpio++)
+		s5p_gpio_set_drvstr(gpio, S5P_GPIO_DRVSTR_LV3);
+
+	spi_register_board_info(spi1_board_info, ARRAY_SIZE(spi1_board_info));
+#endif
 #endif
 
 #ifdef CONFIG_BUSFREQ_OPP

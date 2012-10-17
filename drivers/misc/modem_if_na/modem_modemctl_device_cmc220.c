@@ -226,8 +226,7 @@ int cmc220_init_modemctl_device(struct modem_ctl *mc,
 	mc->gpio_host_wakeup = pdata->gpio_host_wakeup;
 
 	pdev = to_platform_device(mc->dev);
-	mc->irq_phone_active = platform_get_irq(pdev, 0);
-	mc->irq_host_wakeup = platform_get_irq(pdev, 1);
+	mc->irq_phone_active = gpio_to_irq(mc->gpio_phone_active);
 
 	cmc220_get_ops(mc);
 
@@ -237,7 +236,7 @@ int cmc220_init_modemctl_device(struct modem_ctl *mc,
 
 	ret = request_irq(mc->irq_phone_active, phone_active_irq_handler,
 			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-			"phone_active", mc);
+			"lte_phone_active", mc);
 	if (ret) {
 		pr_err("[MODEM_IF] Failed to allocate an interrupt(%d)\n",
 							mc->irq_phone_active);

@@ -13,6 +13,7 @@
 #include <linux/mfd/max77693-private.h>
 #include <linux/power_supply.h>
 #include "midas.h"
+#include <plat/udc-hs.h>
 
 /*Event of receiving*/
 #define PSY_BAT_NAME "battery"
@@ -52,7 +53,8 @@ static void sii9234_cfg_gpio(void)
 	gpio_set_value(GPIO_MHL_RST, GPIO_LEVEL_LOW);
 
 #if !defined(CONFIG_MACH_C1_KOR_LGT) && !defined(CONFIG_SAMSUNG_MHL_9290)
-#if !defined(CONFIG_MACH_P4NOTE) && !defined(CONFIG_MACH_T0)
+#if !defined(CONFIG_MACH_P4NOTE) && !defined(CONFIG_MACH_T0) && \
+	!defined(CONFIG_MACH_M3) && !defined(CONFIG_MACH_SLP_T0_LTE)
 	s3c_gpio_cfgpin(GPIO_MHL_SEL, S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(GPIO_MHL_SEL, S3C_GPIO_PULL_NONE);
 	gpio_set_value(GPIO_MHL_SEL, GPIO_LEVEL_LOW);
@@ -90,6 +92,28 @@ static void sii9234_power_onoff(bool on)
 }
 
 #ifdef __MHL_NEW_CBUS_MSC_CMD__
+#if defined(CONFIG_MFD_MAX77693)
+static int sii9234_usb_op(bool on, int value)
+{
+	pr_info("func:%s bool on(%d) int value(%d)\n", __func__, on, value);
+	if (on) {
+		if (value == 1)
+			max77693_muic_usb_cb(USB_CABLE_ATTACHED);
+		else if (value == 2)
+			max77693_muic_usb_cb(USB_POWERED_HOST_ATTACHED);
+		else
+			return 0;
+	} else {
+		if (value == 1)
+			max77693_muic_usb_cb(USB_CABLE_DETACHED);
+		else if (value == 2)
+			max77693_muic_usb_cb(USB_POWERED_HOST_DETACHED);
+		else
+			return 0;
+	}
+	return 1;
+}
+#endif
 static void sii9234_vbus_present(bool on, int value)
 {
 	struct power_supply *psy = power_supply_get_by_name(PSY_CHG_NAME);
@@ -188,11 +212,7 @@ static struct sii9234_platform_data sii9234_pdata = {
 	.hw_onoff = sii9234_power_onoff,
 	.hw_reset = sii9234_reset,
 	.enable_vbus = NULL,
-#if defined(__MHL_NEW_CBUS_MSC_CMD__)
-	.vbus_present = sii9234_vbus_present,
-#else
 	.vbus_present = NULL,
-#endif
 #ifdef CONFIG_SAMSUNG_MHL_UNPOWERED
 	.get_vbus_status = sii9234_get_vbus_status,
 	.sii9234_otg_control = sii9234_otg_control,
@@ -236,7 +256,9 @@ static int __init midas_mhl_init(void)
 		printk(KERN_ERR "[MHL] adding i2c fail - nodevice\n");
 		return -ENODEV;
 	}
-#if defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_T0)
+#if defined(CONFIG_MACH_T0_EUR_OPEN) || defined(CONFIG_MACH_T0_CHN_OPEN)
+	sii9234_pdata.ddc_i2c_num = 6;
+#elif defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_T0)
 	sii9234_pdata.ddc_i2c_num = 5;
 #else
 	sii9234_pdata.ddc_i2c_num = (system_rev == 3 ? 16 : 5);

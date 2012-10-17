@@ -292,7 +292,7 @@ static struct i2c_board_info i2c_2mic[] __initdata = {
 	},
 };
 
-#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_C1_KOR_LGT)
 static struct i2c_gpio_platform_data gpio_i2c_fm34 = {
 	.sda_pin = GPIO_FM34_SDA,
 	.scl_pin = GPIO_FM34_SCL,
@@ -322,7 +322,7 @@ static struct i2c_board_info i2c_2mic[] __initdata = {
 #endif
 
 static struct platform_device *midas_sound_devices[] __initdata = {
-#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_C1_KOR_LGT)
 #ifdef CONFIG_FM34_WE395
 	&s3c_device_fm34,
 #endif
@@ -344,19 +344,10 @@ void __init midas_sound_init(void)
 	i2c_register_board_info(I2C_NUM_CODEC, i2c_wm1811,
 					ARRAY_SIZE(i2c_wm1811));
 #else /* for CONFIG_ARCH_EXYNOS4 */
-#ifdef CONFIG_MACH_P4NOTE
 	i2c_wm1811[0].irq = 0;
 	SET_PLATDATA_CODEC(NULL);
 	i2c_register_board_info(I2C_NUM_CODEC, i2c_wm1811,
 					ARRAY_SIZE(i2c_wm1811));
-
-#else
-	if (system_rev != 3 && system_rev >= 0) {
-		SET_PLATDATA_CODEC(NULL);
-		i2c_register_board_info(I2C_NUM_CODEC, i2c_wm1811,
-						ARRAY_SIZE(i2c_wm1811));
-	}
-#endif
 #endif/* CONFIG_ARCH_EXYNOS5 */
 
 #ifdef CONFIG_FM34_WE395

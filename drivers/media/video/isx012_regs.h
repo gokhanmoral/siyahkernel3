@@ -9,14 +9,14 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * Change Date: 2012.04.19
+ * Change Date: 2012.06.28
  */
 
 #ifndef __ISX012_REGS_H__ 
 #define __ISX012_REGS_H__
 
 #define	AE_OFSETVAL 3450	//for tuning // max 5.1times
-#define	AE_MAXDIFF 5000	//for tuning // max =< 5000
+#define	AE_MAXDIFF 4000	//for tuning // max =< 5000
 #define GLOWLIGHT_DEFAULT 0x002B	//for tuning
 #define GLOWLIGHT_ISO50 0xB52A	//for tuning
 #define GLOWLIGHT_ISO100 0x9DBA	//for tuning
@@ -253,7 +253,7 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 {0x6616,0x01,0x01},    // AF_DIRECTBACK_F :On=1
 {0x661B,0x03,0x01},    // AF_OPDDATA_SAVE :
 {0x661C,0x00,0x01},    // AF_MONOTONY_POS :
-{0x663E,0x01,0x01},    // AF_SEARCH_SECOND_DIR :
+{0x663E,0x00,0x01},    // AF_SEARCH_SECOND_DIR :
 {0x663F,0x01,0x01},    // AF_DIRECTBACK_SECOND_F :
 {0x6674,0x00,0x01},    // AF_MONICHG_MOVE_F : AF off시 zero position으로 갈지(01) 현위치에 있을지(00) 정함
 {0x6675,0x01,0x01},    // CAP_AF_CANCEL_F : 1로 설정시 capture모드에서 AF자동 캔슬
@@ -272,9 +272,9 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 {0x664C,0xFF,0x01},    // AF_UPRATE_ON_PEAK_DETECT_HBPF :
 {0x665A,0x00C8,0x02},    // AF_LENSPOS_ON_AFNG :
 {0x665C,0x0018,0x02},    // AF_DRV_AMOUNT_TONEAR_F :
-{0x665E,0x0006,0x02},    // AF_DRV_AMOUNT_TONEAR_S :
+{0x665E,0x0003,0x02},    // AF_DRV_AMOUNT_TONEAR_S :
 {0x6660,0x0018,0x02},    // AF_DRV_AMOUNT_TOFAR_F :
-{0x6662,0x0006,0x02},    // AF_DRV_AMOUNT_TOFAR_S :
+{0x6662,0x0003,0x02},    // AF_DRV_AMOUNT_TOFAR_S :
 {0x6666,0x00C8,0x02},    // AF_AREA_LOW_TYPE1 :
 {0x6668,0x02BC,0x02},    // AF_AREA_HIGH_TYPE1 :
 {0x669A,0x01F4,0x02},    // AF_OPD_MONOTONYUP_HBPF_TH :
@@ -289,8 +289,8 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 {0x6706,0x0003,0x02},    // AF_LVD_HBPF_RATE1_2ND :
 {0x6708,0x0003,0x02},    // AF_LVD_HBPF_RATE2_2ND :
 {0x670A,0x00,0x01},    // AF_LVD_HBPF_SHIFT_2ND :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 //chooys add
 {0x6677,0x00,0x01},    // AF_SEND_PARTITION : Use=1
 {0x6678,0x20,0x01},    // AF_SENDNUM_ALL
@@ -302,6 +302,9 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 // AF opd_TH
 {0x660E,0x5A,0x01},    // AF_HBPF_PEAK_OPD_TH_MIN
 {0x6610,0x5A,0x01},    // AF_HBPF_PEAK_OPD_TH_MAX
+
+{0x66E4,0xC8,0x01},
+{0x66E5,0xC8,0x01},
 
 //AF opd window setting
 {0x6A30,0x044E,0x02},    // AF_OPD0_HDELAY :
@@ -383,7 +386,7 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 {0x0328,0x52,0x01},    // SHTCTRLTIME2_TYPE1 :
 {0x0329,0x23,0x01},    // AGCGAIN2_TYPE1 :
 {0x032A,0x3E,0x01},    // SHTCTRLTIME3_TYPE1 :
-{0x032B,0x42,0x01},    // AGCGAIN3_TYPE1 :
+{0x032B,0x3F,0x01},    // AGCGAIN3_TYPE1 :
 
 // normal preview AE line
 {0x032C,0x7C,0x01},    // SHTCTRLTIME1_TYPE2
@@ -391,7 +394,7 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 {0x032E,0x7C,0x01},    // SHTCTRLTIME2_TYPE2
 {0x032F,0x3D,0x01},    // AGCGAIN2_TYPE2
 {0x0330,0x3E,0x01},    // SHTCTRLTIME3_TYPE2
-{0x0331,0x42,0x01},    // AGCGAIN3_TYPE2
+{0x0331,0x3F,0x01},    // AGCGAIN3_TYPE2
 
 // flash ae line
 {0x0332,0x42,0x01},    // SHTCTRLTIME1_TYPE3 :
@@ -423,7 +426,7 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 {0x0346,0xFF,0x01},    // SHTCTRLTIME2_TYPE6 :
 {0x0347,0x00,0x01},    // AGCGAIN2_TYPE6 :
 {0x0348,0xFA,0x01},    // SHTCTRLTIME3_TYPE6 :
-{0x0349,0x3D,0x01},    // AGCGAIN3_TYPE6 :
+{0x0349,0x3B,0x01},    // AGCGAIN3_TYPE6 :
 
 // fire mode line
 {0x0356,0x01,0x01},    // SHTCTRLTIME1_TYPE9 :
@@ -2367,6 +2370,9 @@ static const isx012_regset_t ISX012_Init_Reg[] =
 {0x62A3,0xA4,0x01},    // INOUT_WEIGHT_AREA_ED : 164
 {0x62A4,0x92,0x01},    // IN_LUMST : 146
 {0x62A5,0x9C,0x01},    // OUT_LUMST : 156
+
+//ISO output setting
+{0x5E3F,0x00,0x01},    // ISOSENS_OUT_SEL :
 };
 
 // ISX012-0
@@ -2843,6 +2849,11 @@ static const isx012_regset_t ISX012_Preview_SizeSetting[] =
 
 static const isx012_regset_t ISX012_Preview_Mode[] =
 {
+{0x5000,0x00,0x01}, /* CPUEXT, added by SAMSUNG TN */
+{0x5E32,0x0F,0x01}, /* for Fast-AE reset */
+{0x5E3D,0x0A,0x01}, /* for Fast-AE reset */
+{0x0181,0x00,0x01},    // CAP_HALF_AE_CTRL
+
 {0x0089,0x00,0x01},    //OUTFMT_MONI
 {0x0083,0x01,0x01},    //SENSMODE_MONI
 {0x0086,0x02,0x01},    //FPSTYPE_MONI
@@ -4050,11 +4061,9 @@ static const isx012_regset_t ISX012_Camcorder_Mode_OFF[] = {
 
 static const isx012_regset_t ISX012_Halfrelease_Mode[] =
 {
-{0x6674,0x01,0x01},    // AF_MONICHG_MOVE_F
-{0xFFFF,0x0A,0x01},//$wait, 10
 {0x00B2,0x03,0x01},    //AFMODE_MONI : AF OFF
 {0x00B3,0x00,0x01},    //AFMODE_HREL :
-{0xFFFF,0x21,0x01},//$wait, 33
+{0xFFFF,0x42,0x01},//$wait, 66
 {0x0081,0x01,0x01},    //MODESEL
 };
 
@@ -4080,7 +4089,6 @@ static const isx012_regset_t ISX012_Lowlux_night_Halfrelease_Mode[] =
 
 static const isx012_regset_t ISX012_AF_Cancel_Macro_ON[] =
 {
-{0x6674,0x00,0x01},    // AF_MONICHG_MOVE_F
 {0x00B2,0x02,0x01},    //AFMODE_MONI : Manual AF mode
 {0x0081,0x00,0x01},    //MODESEL : Monitoring mode
 {0x6648,0x02BC,0x02},    //AF_MANUAL_POS : MANUA AF search start position
@@ -4089,7 +4097,6 @@ static const isx012_regset_t ISX012_AF_Cancel_Macro_ON[] =
 
 static const isx012_regset_t ISX012_AF_Cancel_Macro_OFF[] =
 {
-{0x6674,0x00,0x01},    // AF_MONICHG_MOVE_F
 {0x00B2,0x02,0x01},    //AFMODE_MONI : Manual AF mode
 {0x0081,0x00,0x01},    //MODESEL : Monitoring mode
 {0x6648,0x00C8,0x02},    //AF_MANUAL_POS : MANUA AF search start position
@@ -4127,7 +4134,7 @@ static const isx012_regset_t ISX012_AF_Macro_ON[] =
 
 static const isx012_regset_t ISX012_AF_SAF[] =
 {
-{0x00B1,0x01,0x01},    //AF_RESTART_F
+{0x00B2,0x03,0x01},    //AFMODE_MONI : AF OFF
 {0x00B3,0x00,0x01},    //AFMODE_HREL :
 {0xFFFF,0x21,0x01},//$wait, 33
 {0x0081,0x01,0x01},    //MODESEL
@@ -4136,21 +4143,15 @@ static const isx012_regset_t ISX012_AF_SAF[] =
 static const isx012_regset_t ISX012_AF_SAF_OFF[] =
 {
 {0xFFFF,0x42,0x01},//$wait, 66
-{0x6674,0x00,0x01},    // AF_MONICHG_MOVE_F
-{0xFFFF,0x0A,0x01},//$wait, 10
 {0x00B2,0x03,0x01},    //AFMODE_MONI : AF OFF
 {0x00B3,0x03,0x01},    //AFMODE_HREL : AF OFF
-{0xFFFF,0x21,0x01},    //$wait,33
 };
 
 static const isx012_regset_t ISX012_AF_TouchSAF_OFF[] =
 {
 {0xFFFF,0x42,0x01},//$wait, 66
-{0x6674,0x00,0x01},    // AF_MONICHG_MOVE_F
-{0xFFFF,0x0A,0x01},//$wait, 10
 {0x00B2,0x03,0x01},    //AFMODE_MONI : AF OFF
 {0x00B3,0x03,0x01},    //AFMODE_HREL : AF OFF
-{0xFFFF,0x21,0x01},    //$wait,33
 {0x0081,0x00,0x01},    //MODESEL
 };
 
@@ -4436,10 +4437,10 @@ static const isx012_regset_t ISX012_Capture_Mode[] =
 static const isx012_regset_t ISX012_Lowlux_Night_Capture_Mode[] =
 {
 {0x03A0,0xA0,0x01},    //UISATURATION_TYPE3 :
-{0x039D,0xF6,0x01},    //UIHUE_TYPE3 :
+{0x039D,0xF4,0x01},    //UIHUE_TYPE3 :
 {0x982A,0xFFD8,0x02},    // CS_CBLLEV_A :
 {0x9830,0xFFD8,0x02},    // CS_CRLLEV_A :
-{0x9805,0x08,0x01},    // CS_SLP_C_A :
+{0x9805,0x06,0x01},    // CS_SLP_C_A :
 {0x008A,0x00,0x01},    //OUTFMT_CAP
 {0x0084,0x00,0x01},    //SENSMODE_CAP
 {0x0087,0x03,0x01},    //FPSTYPE_CAP
@@ -4478,8 +4479,8 @@ static const isx012_regset_t isx012_Scene_Default[] =
 {0x02A8,0x00,0x01},    //ISO_TYPE1 : Auto
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x00,0x01},    //SCENE_SELECT
 };
@@ -4492,8 +4493,8 @@ static const isx012_regset_t isx012_Scene_Landscape[] =
 {0x03A6,0x2C,0x01},    //UISHARPNESS_NEG_TYPE3 : +1
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x01,0x01},    //SCENE_SELECT
 };
@@ -4503,8 +4504,8 @@ static const isx012_regset_t isx012_Scene_Sports[] =
 {0x02A8,0x00,0x01},    //ISO_TYPE1 : Auto
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x02,0x01},    //SCENE_SELECT
 };
@@ -4515,8 +4516,8 @@ static const isx012_regset_t isx012_Scene_Party_Indoor[] =
 {0x039F,0x9E,0x01},    //UISATURATION_TYPE2 :
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x04,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x00,0x01},    //SCENE_SELECT
 };
@@ -4527,8 +4528,8 @@ static const isx012_regset_t isx012_Scene_Beach_Snow[] =
 {0x039F,0x9E,0x01},    //UISATURATION_TYPE2 :
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x04,0x01},    //SCENE_SELECT
 };
@@ -4540,8 +4541,8 @@ static const isx012_regset_t isx012_Scene_Sunset[] =
 {0x0394,0x00,0x01},    //PICT1_SN6 :
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x05,0x01},    //SCENE_SELECT
 };
@@ -4553,8 +4554,8 @@ static const isx012_regset_t isx012_Scene_Duskdawn[] =
 {0x0394,0x00,0x01},    //PICT1_SN6 :
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x05,0x01},    //SCENE_SELECT
 };
@@ -4566,8 +4567,8 @@ static const isx012_regset_t isx012_Scene_Candle_Light[] =
 {0x0394,0x00,0x01},    //PICT1_SN6 :
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x05,0x01},    //SCENE_SELECT
 };
@@ -4580,8 +4581,8 @@ static const isx012_regset_t isx012_Scene_Fall_Color[] =
 {0x0394,0x04,0x01},    //PICT1_SN6 :
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x05,0x01},    //SCENE_SELECT
 };
@@ -4591,8 +4592,8 @@ static const isx012_regset_t isx012_Scene_Portrait[] =
 {0x02A8,0x00,0x01},    //ISO_TYPE1 : Auto
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x50,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x00,0x01},    //SCENE_SELECT
 };
@@ -4602,8 +4603,8 @@ static const isx012_regset_t isx012_Scene_Nightshot[] =
 {0x02A8,0x00,0x01},    //ISO_TYPE1 : Auto
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x000C,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x000C,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x00,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x07,0x01},    //SCENE_SELECT
 };
@@ -4613,8 +4614,8 @@ static const isx012_regset_t isx012_Scene_Fireworks[] =
 {0x02A8,0x00,0x01},    //ISO_TYPE1 : AUTO
 {0x5E06,0x04,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x00,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x08,0x01},    //SCENE_SELECT
 };
@@ -4626,8 +4627,8 @@ static const isx012_regset_t isx012_Scene_Text[] =
 {0x03A6,0x38,0x01},    //UISHARPNESS_NEG_TYPE3 : +2
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0xA0,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x00,0x01},    //SCENE_SELECT
 };
@@ -4637,8 +4638,8 @@ static const isx012_regset_t isx012_Scene_Backlight[] =
 {0x02A8,0x00,0x01},    //ISO_TYPE1 : Auto
 {0x5E06,0x02,0x01},    //SHTCTRLMAG3
 {0x038F,0x00,0x01},    //PICT1_SN1 :
-{0x6742,0x001E,0x02},    // AF_SEARCH_OFFSET_FAR :
-{0x6744,0x0018,0x02},    // AF_SEARCH_OFFSET_NEAR :
+{0x6742,0x0012,0x02},    // AF_SEARCH_OFFSET_FAR :
+{0x6744,0x0006,0x02},    // AF_SEARCH_OFFSET_NEAR :
 {0x500B,0x01,0x01},    // FAST_SHT_MODE_SEL
 {0x0280,0x00,0x01},    //SCENE_SELECT
 };
@@ -4725,14 +4726,17 @@ static const isx012_regset_t ISX012_Image_Quality_Table[] =
 
 static const isx012_regset_t ISX012_Sensor_Off_VCM[] =
 {
+{0x6674,0x00,0x01},    // AF_MONICHG_MOVE_F
 {0x00B2,0x02,0x01},    //AFMODE_MONI : Manual AF mode
 {0x0081,0x00,0x01},    //MODESEL : Monitoring mode
-{0x6600,0x0000,0x02},
-{0x6666,0x0000,0x02},
-{0x6648,0x0020,0x02}, /* AF_MANUAL_POS : MANUA AF search start position */
-{0xFFFF,0x01,0x01},    //$wait, 1
+{0x6600,0x0000,0x02},    // AF_SEARCH_AREA_LOW
+{0x6666,0x0000,0x02},    // AF_AREA_LOW_TYPE1
+{0x6648,0x00C8,0x02},    // AF_MANUAL_POS :
 {0x00B1,0x01,0x01},    //AF_RESTART_F
-{0xFFFF,0x96,0x01},    //$wait, 150
+{0xFFFF,0x64,0x01},    // $wait, 100
+{0x6648,0x0019,0x02},    // AF_MANUAL_POS :
+{0x00B1,0x01,0x01},    // AF_RESTART_F
+{0xFFFF,0x64,0x01},    // $wait, 100
 };
 
 static const isx012_regset_t isx012_1280_Preview_E[] =
@@ -4750,7 +4754,6 @@ static const isx012_regset_t isx012_800_Preview[] =
 {
 {0x0090,0x0320,0x02},	 //HSIZE_MONI : 800
 {0x0096,0x01E0,0x02},	 //VSIZE_MONI : 480
-
 };
 
 static const isx012_regset_t isx012_720_Preview[] =
@@ -4802,6 +4805,11 @@ static const isx012_regset_t isx012_2_4M_WIDE_Capture[] =
 static const isx012_regset_t isx012_1_5M_WIDE_Capture[] =
 {
 {0x0282,0x20,0x01},    //AWB_SN1
+};
+
+static const isx012_regset_t isx012_960_720_Capture[] = {
+{0x0092,0x03C0,0x02}, /* HSIZE_CAP : 960 */
+{0x0098,0x02D0,0x02}, /* VSIZE_CAP : 720 */
 };
 
 static const isx012_regset_t isx012_1M_Capture[] =
@@ -5025,6 +5033,12 @@ static const isx012_regset_t isx012_fps_auto[] =
 {
 {0x0308,0x11,0x01}, /* AELINE_MONI_SN1_2 */
 {0x018E,0x0012,0x02}, /* VADJ_SENS_1_2 */
+};
+
+static const isx012_regset_t isx012_fps_7fix[] =
+{
+{0x0308,0x02,0x01}, /* AELINE_MONI_SN1_2 */
+{0x018E,0x0D59,0x02}, /* VADJ_SENS_1_2 */
 };
 
 static const isx012_regset_t isx012_fps_15fix[] =
@@ -11195,6 +11209,26 @@ static const isx012_regset_t ISX012_Flash_AELINE[] =
 {0x031B,0x23,0x01},    // AELINE_CAP_SN3_4 :
 {0x031D,0x52,0x01},    // AELINE_CAP_SN7_8 :
 {0x031F,0x02,0x01},    // AELINE_CAP_SN11_12 :
+};
+
+static const isx012_regset_t ISX012_ae_manual_mode[] =
+{
+{0x0294,0x02,0x01}, /* AE_SN1 */
+{0x0297,0x02,0x01}, /* AE_SN4 */
+{0x029A,0x02,0x01}, /* AE_SN7 */
+{0x029E,0x02,0x01}, /* AE_SN11 */
+{0xFFFF,0x42,0x01}, /* $wait, 66 */
+};
+
+static const isx012_regset_t ISX012_flash_fast_ae_awb[] =
+{
+{0x5E32,0x0A,0x01},
+{0x5E3D,0x05,0x01},
+
+{0x0181,0x01,0x01},    // CAP_HALF_AE_CTRL
+{0x00B2,0x03,0x01},    //AFMODE_MONI : AF OFF
+{0x00B3,0x03,0x01},    //AFMODE_HREL : AF OFF
+{0x0081,0x01,0x01},    //MODESEL
 };
 
 static const isx012_regset_t ISX012_Lowlux_Night_Reset[] =

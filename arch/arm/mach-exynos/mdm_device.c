@@ -9,40 +9,10 @@
 #include <mach/mdm2.h>
 #include "mdm_private.h"
 
-#ifdef CONFIG_MACH_M3
-static struct resource mdm_resources[] = {
-	{
-		.start	= MDM2AP_ERRFATAL,
-		.end	= MDM2AP_ERRFATAL,
-		.name	= "MDM2AP_ERRFATAL",
-		.flags	= IORESOURCE_IO,
-	},
-	{
-		.start	= AP2MDM_ERRFATAL,
-		.end	= AP2MDM_ERRFATAL,
-		.name	= "AP2MDM_ERRFATAL",
-		.flags	= IORESOURCE_IO,
-	},
-	{
-		.start	= MDM2AP_STATUS,
-		.end	= MDM2AP_STATUS,
-		.name	= "MDM2AP_STATUS",
-		.flags	= IORESOURCE_IO,
-	},
-	{
-		.start	= AP2MDM_STATUS,
-		.end	= AP2MDM_STATUS,
-		.name	= "AP2MDM_STATUS",
-		.flags	= IORESOURCE_IO,
-	},
-	{
-		.start	= AP2MDM_PMIC_RESET_N,
-		.end	= AP2MDM_PMIC_RESET_N,
-		.name	= "AP2MDM_PMIC_RESET_N",
-		.flags	= IORESOURCE_IO,
-	},
-};
-#else
+#include <linux/cpufreq_pegasusq.h>
+#include <mach/cpufreq.h>
+#include <mach/dev.h>
+
 static struct resource mdm_resources[] = {
 	{
 		.start	= GPIO_MDM2AP_ERR_FATAL,
@@ -71,47 +41,52 @@ static struct resource mdm_resources[] = {
 	{
 		.start	= GPIO_AP2MDM_PON_RESET_N,
 		.end	= GPIO_AP2MDM_PON_RESET_N,
-		.name	= "AP2MDM_PMIC_RESET_N",
+		.name	= "AP2MDM_SOFT_RESET",
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.start	= GPIO_AP2MDM_PMIC_RESET_N,
+		.end	= GPIO_AP2MDM_PMIC_RESET_N,
+		.name	= "AP2MDM_PMIC_PWR_EN",
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.start	= GPIO_AP2MDM_WAKEUP,
+		.end	= GPIO_AP2MDM_WAKEUP,
+		.name	= "AP2MDM_WAKEUP",
 		.flags	= IORESOURCE_IO,
 	},
 };
-#endif
 
 #ifdef CONFIG_MDM_HSIC_PM
 static struct resource mdm_pm_resource[] = {
 	{
-#ifdef CONFIG_MACH_M3
-		.start	= EXYNOS4_GPF2(2),
-		.end	= EXYNOS4_GPF2(2),
-#else
 		.start	= GPIO_AP2MDM_HSIC_PORT_ACTIVE,
 		.end	= GPIO_AP2MDM_HSIC_PORT_ACTIVE,
-#endif
 		.name	= "AP2MDM_HSIC_ACTIVE",
 		.flags	= IORESOURCE_IO,
 	},
 	{
-#ifdef CONFIG_MACH_M3
-		.start	= EXYNOS4_GPX1(2),
-		.end	= EXYNOS4_GPX1(2),
-#else
 		.start	= GPIO_MDM2AP_HSIC_PWR_ACTIVE,
 		.end	= GPIO_MDM2AP_HSIC_PWR_ACTIVE,
-#endif
 		.name	= "MDM2AP_DEVICE_PWR_ACTIVE",
 		.flags	= IORESOURCE_IO,
 	},
 	{
-#ifdef CONFIG_MACH_M3
-		.start	= EXYNOS4_GPX0(5),
-		.end	= EXYNOS4_GPX0(5),
-#else
 		.start	= GPIO_MDM2AP_HSIC_RESUME_REQ,
 		.end	= GPIO_MDM2AP_HSIC_RESUME_REQ,
-#endif
 		.name	= "MDM2AP_RESUME_REQ",
 		.flags	= IORESOURCE_IO,
 	},
+};
+
+static int exynos_frequency_lock(struct device *dev);
+static int exynos_frequency_unlock(struct device *dev);
+
+static struct mdm_hsic_pm_platform_data mdm_hsic_pm_pdata = {
+	.freqlock = ATOMIC_INIT(0),
+	.freq_lock = exynos_frequency_lock,
+	.freq_unlock = exynos_frequency_unlock,
 };
 
 struct platform_device mdm_pm_device = {
@@ -125,9 +100,89 @@ struct platform_device mdm_pm_device = {
 static struct mdm_platform_data mdm_platform_data = {
 	.mdm_version = "3.0",
 	.ramdump_delay_ms = 2000,
+	.early_power_on = 1,
+	.sfr_query = 0,
+	.vddmin_resource = NULL,
+#ifdef CONFIG_USB_EHCI_S5P
 	.peripheral_platform_device_ehci = &s5p_device_ehci,
+#endif
+#ifdef CONFIG_USB_OHCI_S5P
 	.peripheral_platform_device_ohci = &s5p_device_ohci,
+#endif
+	.ramdump_timeout_ms = 120000,
 };
+
+static int exynos_frequency_lock(struct device *dev)
+{
+	unsigned int level, cpufreq = 1400; /* 200 ~ 1400 */
+	unsigned int busfreq = 400200; /* 100100 ~ 400200 */
+	int ret = 0;
+	struct device *busdev = dev_get("exynos-busfreq");
+
+	if (atomic_read(&mdm_hsic_pm_pdata.freqlock) == 0) {
+		/* cpu frequency lock */
+		ret = exynos_cpufreq_get_level(cpufreq * 1000, &level);
+		if (ret < 0) {
+			pr_err("ERR: exynos_cpufreq_get_level fail: %d\n",
+					ret);
+			goto exit;
+		}
+
+		ret = exynos_cpufreq_lock(DVFS_LOCK_ID_USB_IF, level);
+		if (ret < 0) {
+			pr_err("ERR: exynos_cpufreq_lock fail: %d\n", ret);
+			goto exit;
+		}
+
+		/* bus frequncy lock */
+		if (!busdev) {
+			pr_err("ERR: busdev is not exist\n");
+			ret = -ENODEV;
+			goto exit;
+		}
+
+		ret = dev_lock(busdev, dev, busfreq);
+		if (ret < 0) {
+			pr_err("ERR: dev_lock error: %d\n", ret);
+			goto exit;
+		}
+
+		/* lock minimum number of cpu cores */
+		cpufreq_pegasusq_min_cpu_lock(2);
+
+		atomic_set(&mdm_hsic_pm_pdata.freqlock, 1);
+		pr_debug("level=%d, cpufreq=%d MHz, busfreq=%06d\n",
+				level, cpufreq, busfreq);
+	}
+exit:
+	return ret;
+}
+
+static int exynos_frequency_unlock(struct device *dev)
+{
+	int ret = 0;
+	struct device *busdev = dev_get("exynos-busfreq");
+
+	if (atomic_read(&mdm_hsic_pm_pdata.freqlock) == 1) {
+		/* cpu frequency unlock */
+		exynos_cpufreq_lock_free(DVFS_LOCK_ID_USB_IF);
+
+		/* bus frequency unlock */
+		ret = dev_unlock(busdev, dev);
+		if (ret < 0) {
+			pr_err("ERR: dev_unlock error: %d\n", ret);
+			goto exit;
+		}
+
+		/* unlock minimum number of cpu cores */
+		cpufreq_pegasusq_min_cpu_unlock();
+
+		atomic_set(&mdm_hsic_pm_pdata.freqlock, 0);
+		pr_debug("success\n");
+	}
+exit:
+	return ret;
+}
 
 struct platform_device mdm_device = {
 	.name		= "mdm2_modem",
@@ -141,6 +196,10 @@ static int __init init_mdm_modem(void)
 	int ret;
 	pr_info("%s: registering modem dev, pm dev\n", __func__);
 
+	mdm_pm_device.dev.platform_data = &mdm_hsic_pm_pdata;
+	((struct mdm_hsic_pm_platform_data *)
+	 mdm_pm_device.dev.platform_data)->dev =
+		&mdm_pm_device.dev;
 #ifdef CONFIG_MDM_HSIC_PM
 	ret = platform_device_register(&mdm_pm_device);
 	if (ret < 0) {

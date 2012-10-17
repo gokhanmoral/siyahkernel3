@@ -70,8 +70,8 @@ USING_MALI_PMM_TESTSUITE ?= 0
 USING_MALI_PMU ?= 0
 USING_GPU_UTILIZATION ?= 0
 OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB ?= 6
-USING_PROFILING ?= 1
-USING_INTERNAL_PROFILING ?= 1
+USING_PROFILING ?= 0
+USING_INTERNAL_PROFILING ?= 0
 USING_TRACEPOINTS ?= 0
 USING_MALI_MAJOR_PREDEFINE = 1
 USING_MALI_DVFS_ENABLED ?= 1
@@ -186,7 +186,6 @@ EXTRA_CFLAGS += -I$(MALI_INCLUDE_PREFIX)common/pmm
 ifeq ($(CONFIG_VIDEO_UMP),y)
 OSKFILES=\
         $(FILES_PREFIX)$(OSKOS)/mali_osk_irq.o \
-        $(FILES_PREFIX)$(OSKOS)/mali_osk_wait_queue.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_low_level_mem.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_mali.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_notification.o \
@@ -196,7 +195,6 @@ else
 OSKFILES=\
         $(FILES_PREFIX)$(OSKOS)/mali_osk_atomics.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_irq.o \
-        $(FILES_PREFIX)$(OSKOS)/mali_osk_wait_queue.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_locks.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_low_level_mem.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_math.o \
@@ -232,6 +230,7 @@ mali-y := \
 	linux/mali_kernel_linux.o \
 	$(OSKOS)/mali_osk_indir_mmap.o \
 	common/mali_kernel_descriptor_mapping.o \
+	common/mali_session.o \
 	common/mali_device_pause_resume.o \
 	common/mali_kernel_vsync.o \
 	linux/mali_ukk_vsync.o \
@@ -255,9 +254,11 @@ mali-y := \
 	common/mali_group.o \
 	common/mali_dlbu.o \
 	common/mali_pm.o \
+	common/mali_pmu.o \
 	common/mali_user_settings_db.o \
 	$(OSKOS)/mali_osk_pm.o \
 	linux/mali_kernel_pm.o \
+	$(OSKOS)/mali_osk_wait_queue.o \
 	$(MALI_PLATFORM_FILE) \
 	$(OSKFILES) \
 	$(UKKFILES) 

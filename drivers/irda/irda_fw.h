@@ -1,5 +1,5 @@
 /*
- * espresso_irda_fw.h - AVOB IRDA control unit Firmware.
+ * irda_fw.h - ABOV IRDA control unit Firmware.
  *
  * ISP reflashing code based on original code from Melfas.
  *
@@ -21,7 +21,7 @@ const size_t IRDA_binary_nLength = FRAME_COUNT*(64+6);
 
 const  u8 IRDA_binary[] = {
 
-	/* Model name       : ESPRESSO_LTE */
+	/* Model name       : NOTE10.1 WIFI */
 	/* Module revision  : 0x31 */
 	/* Firmware version : 0x4D */
 

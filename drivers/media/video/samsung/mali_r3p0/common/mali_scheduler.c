@@ -32,16 +32,5 @@ void mali_scheduler_terminate(void)
 u32 mali_scheduler_get_new_id(void)
 {
 	u32 job_id = _mali_osk_atomic_inc_return(&mali_job_autonumber);
-
-	/* It is an error to increment the counter beyond (1<<23)-1. To avoid doing
-	 * this, when the counter hits (1<<23)-1000, it is reset to 0. The large
-	 * margin is used to make it extremely unlikely that other threads increase
-	 * the counter past (1<<23)-1 while the check is being done. By doing this,
-	 * we avoid having to lock this entire region. */
-	if (job_id == (1<<23)-1000)
-	{
-		_mali_osk_atomic_init(&mali_job_autonumber, 0);
-	}
-
 	return job_id;
 }

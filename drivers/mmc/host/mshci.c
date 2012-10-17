@@ -1134,7 +1134,7 @@ static void mshci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	/* We shouldn't wait for data inihibit for stop commands, even
 	   though they might use busy signaling */
-	if (mrq->cmd->opcode == 12) {
+	if ((mrq->cmd->opcode == 12) || (mrq->cmd->opcode == 13)) {
 		/* nothing to do */
 	} else {
 		for (;;) {
@@ -2045,7 +2045,11 @@ int mshci_add_host(struct mshci_host *host)
 	mmc->ops = &mshci_ops;
 	mmc->f_min = 400000;
 	mmc->f_max = host->max_clk;
+#ifdef CONFIG_MACH_U1
 	mmc->caps |= MMC_CAP_SDIO_IRQ;
+#else
+	mmc->caps |= MMC_CAP_SDIO_IRQ | MMC_CAP_ERASE;
+#endif
 
 	mmc->caps |= MMC_CAP_4_BIT_DATA;
 

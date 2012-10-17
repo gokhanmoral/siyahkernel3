@@ -26,6 +26,15 @@ config PM_WATCHDOG_TIMEOUT
 	  Enable PM watchdog timer to catch lockup during early_suspend,
 	  late_resume and suspend_finish.
 
+config FAST_BOOT
+	bool "Force suspend and show fake turn off which is same with suspend"
+	depends on SUSPEND
+	default n
+	---help---
+	  This allows you go to suspend instead to turn off. If this is
+	  done, it goes to wake up instead to turn on. This works with power
+	  source.
+
 config HAS_WAKELOCK
 	bool
 

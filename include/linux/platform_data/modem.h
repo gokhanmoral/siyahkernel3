@@ -24,6 +24,7 @@ enum modem_t {
 	SEC_CMC221,
 	QC_MDM6600,
 	QC_ESC6270,
+	SPRD_SC8803,
 	DUMMY,
 	MAX_MODEM_TYPE
 };
@@ -55,6 +56,7 @@ enum modem_link {
 	LINKDEV_USB,
 	LINKDEV_HSIC,
 	LINKDEV_C2C,
+	LINKDEV_PLD,
 	LINKDEV_MAX,
 };
 #define LINKTYPE(modem_link) (1u << (modem_link))
@@ -62,6 +64,7 @@ enum modem_link {
 enum modem_network {
 	UMTS_NETWORK,
 	CDMA_NETWORK,
+	TDSCDMA_NETWORK,
 	LTE_NETWORK,
 };
 
@@ -118,18 +121,24 @@ struct modemlink_pm_data {
 	void *hub_pm_data;
 	bool has_usbhub;
 
-	/* frequency lock */
+	/* cpu/bus frequency lock */
 	atomic_t freqlock;
-	int (*cpufreq_lock)(void);
-	int (*cpufreq_unlock)(void);
+	int (*freq_lock)(struct device *dev);
+	int (*freq_unlock)(struct device *dev);
 
 	int autosuspend_delay_ms; /* if zero, the default value is used */
+	void (*ehci_reg_dump)(struct device *);
 };
 
 struct modemlink_pm_link_activectl {
 	int gpio_initialized;
 	int gpio_request_host_active;
 };
+
+#define RES_CP_ACTIVE_IRQ_ID	0
+#define RES_DPRAM_MEM_ID	1
+#define RES_DPRAM_IRQ_ID	2
+#define RES_DPRAM_SFR_ID	3
 
 enum dpram_type {
 	EXT_DPRAM,
@@ -172,6 +181,19 @@ struct dpram_ipc_device {
 };
 
 struct dpram_ipc_map {
+#if defined(CONFIG_LINK_DEVICE_PLD)
+	u16 __iomem *mbx_ap2cp;
+	u16 __iomem *magic_ap2cp;
+	u16 __iomem *access_ap2cp;
+
+	u16 __iomem *mbx_cp2ap;
+	u16 __iomem *magic_cp2ap;
+	u16 __iomem *access_cp2ap;
+
+	struct dpram_ipc_device dev[MAX_IPC_DEV];
+
+	u16 __iomem *address_buffer;
+#else
 	u16 __iomem *magic;
 	u16 __iomem *access;
 
@@ -179,6 +201,7 @@ struct dpram_ipc_map {
 
 	u16 __iomem *mbx_cp2ap;
 	u16 __iomem *mbx_ap2cp;
+#endif
 };
 
 struct modemlink_dpram_control {
@@ -230,8 +253,20 @@ struct modem_data {
 #endif
 	unsigned gpio_cp_warm_reset;
 	unsigned gpio_sim_detect;
-#ifdef CONFIG_LINK_DEVICE_DPRAM
+#if defined(CONFIG_LINK_DEVICE_DPRAM) || defined(CONFIG_LINK_DEVICE_PLD)
 	unsigned gpio_dpram_int;
+#endif
+
+#ifdef CONFIG_LINK_DEVICE_PLD
+	unsigned gpio_fpga1_creset;
+	unsigned gpio_fpga1_cdone;
+	unsigned gpio_fpga1_rst_n;
+	unsigned gpio_fpga1_cs_n;
+
+	unsigned gpio_fpga2_creset;
+	unsigned gpio_fpga2_cdone;
+	unsigned gpio_fpga2_rst_n;
+	unsigned gpio_fpga2_cs_n;
 #endif
 
 #ifdef CONFIG_LTE_MODEM_CMC221
@@ -250,6 +285,21 @@ struct modem_data {
 	struct regulator *cp_vbus;
 #endif
 
+#ifdef CONFIG_TDSCDMA_MODEM_SPRD8803
+	unsigned gpio_ipc_mrdy;
+	unsigned gpio_ipc_srdy;
+	unsigned gpio_ipc_sub_mrdy;
+	unsigned gpio_ipc_sub_srdy;
+	unsigned gpio_ap_cp_int1;
+	unsigned gpio_ap_cp_int2;
+#endif
+
+#ifdef CONFIG_SEC_DUAL_MODEM_MODE
+	unsigned gpio_sim_io_sel;
+	unsigned gpio_cp_ctrl1;
+	unsigned gpio_cp_ctrl2;
+#endif
+
 	/* Switch with 2 links in a modem */
 	unsigned gpio_dynamic_switching;
 
@@ -258,7 +308,7 @@ struct modem_data {
 	enum modem_t        modem_type;
 	enum modem_link     link_types;
 	char               *link_name;
-#ifdef CONFIG_LINK_DEVICE_DPRAM
+#if defined(CONFIG_LINK_DEVICE_DPRAM) || defined(CONFIG_LINK_DEVICE_PLD)
 	/* Link to DPRAM control functions dependent on each platform */
 	struct modemlink_dpram_control *dpram_ctl;
 #endif
@@ -281,6 +331,8 @@ struct modem_data {
 
 	/* Debugging option */
 	bool use_mif_log;
+	/* SIM Detect polarity */
+	bool sim_polarity;
 };
 
 #define LOG_TAG "mif: "

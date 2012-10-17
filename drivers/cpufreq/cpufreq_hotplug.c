@@ -90,6 +90,12 @@ static DEFINE_MUTEX(dbs_mutex);
 
 static struct workqueue_struct	*khotplug_wq;
 
+#ifdef MODULE
+#include <linux/kallsyms.h>
+static int (*gm_cpu_up)(unsigned int cpu);
+#define cpu_up (*gm_cpu_up)
+#endif
+
 static struct dbs_tuners {
 	unsigned int sampling_rate;
 	unsigned int up_threshold;
@@ -516,7 +522,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	/* check if auxiliary CPU is needed based on avg_load */
 	if (avg_load > dbs_tuners_ins.up_threshold) {
 		/* should we enable auxillary CPUs? */
-		if (num_online_cpus() < 2 && hotplug_in_avg_load >
+		if (num_online_cpus() < num_possible_cpus() && hotplug_in_avg_load >
 				dbs_tuners_ins.up_threshold) {
 			queue_work_on(this_dbs_info->cpu, khotplug_wq,
 					&this_dbs_info->cpu_up_work);
@@ -573,12 +579,14 @@ out:
 
 static void do_cpu_up(struct work_struct *work)
 {
-	cpu_up(1);
+	int i = num_online_cpus();
+	if( i < num_possible_cpus() && !cpu_online(i) ) cpu_up(i);
 }
 
 static void do_cpu_down(struct work_struct *work)
 {
-	cpu_down(1);
+	int i = num_online_cpus() - 1;
+	if( i > 0 && cpu_online(i) ) cpu_down(i);
 }
 
 static void do_dbs_timer(struct work_struct *work)
@@ -714,6 +722,9 @@ static int __init cpufreq_gov_dbs_init(void)
 	u64 idle_time;
 	int cpu = get_cpu();
 
+#ifdef MODULE
+	gm_cpu_up = (int (*)(unsigned int cpu))kallsyms_lookup_name("cpu_up");
+#endif
 	idle_time = get_cpu_idle_time_us(cpu, &wall);
 	put_cpu();
 	if (idle_time != -1ULL) {

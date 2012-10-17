@@ -23,9 +23,13 @@ enum cpufreq_level_index {
 };
 
 enum busfreq_level_request {
-	BUS_L0,		/* MEM 400MHz BUS 200MHz */
-	BUS_L1,		/* MEM 267MHz BUS 160MHz */
-	BUS_L2,		/* MEM 133MHz BUS 133MHz */
+	BUS_L0,		/* MEM 400MHz BUS 266MHz */
+	BUS_L1,		/* MEM 400MHz BUS 200MHz */
+	BUS_L2,		/* MEM 267MHz BUS 200MHz */
+	BUS_L3,		/* MEM 267MHz BUS 160MHz */
+	BUS_L4,		/* MEM 160MHz BUS 160MHz */
+	BUS_L5,		/* MEM 133MHz BUS 133MHz */
+	BUS_L6,		/* MEM 100MHz BUS 100MHz */
 	BUS_LEVEL_END,
 };
 
@@ -103,8 +107,6 @@ struct exynos_dvfs_info {
 	unsigned int	max_support_idx;
 	unsigned int	min_support_idx;
 	unsigned int	gov_support_freq;
-	unsigned int	max_current_idx;
-	unsigned int	min_current_idx;
 	struct clk	*cpu_clk;
 	unsigned int	*volt_table;
 	struct cpufreq_frequency_table	*freq_table;

@@ -152,8 +152,18 @@ static int check_keyboard_dock(struct sec_keyboard_callbacks *cb, bool val)
 	int try_cnt = 0;
 	int max_cnt = 14;
 
-	if (NULL == data->serio)
-		return 0;
+	if (NULL == data->serio) {
+		for (try_cnt = 0; try_cnt < max_cnt; try_cnt++) {
+			msleep(50);
+			if (data->tx_ready)
+				break;
+
+			if (gpio_get_value(data->acc_int_gpio)) {
+				printk(KERN_DEBUG "[Keyboard] acc is disconnected.\n");
+				return 0;
+			}
+		}
+	}
 
 	if (!val)
 		data->dockconnected = false;

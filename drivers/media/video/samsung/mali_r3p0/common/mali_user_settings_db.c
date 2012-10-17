@@ -21,7 +21,8 @@ static void mali_user_settings_notify(_mali_uk_user_setting_t setting, u32 value
 {
 	struct mali_session_data *session, *tmp;
 
-	_MALI_OSK_LIST_FOREACHENTRY(session, tmp, &mali_sessions, struct mali_session_data, link)
+	mali_session_lock();
+	MALI_SESSION_FOREACH(session, tmp, link)
 	{
 		_mali_osk_notification_t *notobj = _mali_osk_notification_create(_MALI_NOTIFICATION_SETTINGS_CHANGED, sizeof(_mali_uk_settings_changed_s));
 		_mali_uk_settings_changed_s *data = notobj->result_buffer;
@@ -30,6 +31,7 @@ static void mali_user_settings_notify(_mali_uk_user_setting_t setting, u32 value
 
 		mali_session_send_notification(session, notobj);
 	}
+	mali_session_unlock();
 }
 
 void mali_set_user_setting(_mali_uk_user_setting_t setting, u32 value)

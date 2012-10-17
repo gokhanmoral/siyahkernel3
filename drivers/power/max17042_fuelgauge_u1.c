@@ -337,9 +337,10 @@ static void max17042_get_soc(struct i2c_client *client)
 	if (chip->is_enable) {
 		if (max17042_read_reg(client, MAX17042_REG_SOC_VF, data) < 0)
 			return;
-		dev_dbg(&chip->client->dev, "%s : soc(%02x%02x)\n",
+#ifndef PRODUCT_SHIP
+		dev_info(&chip->client->dev, "%s : soc(%02x%02x)\n",
 				__func__, data[1], data[0]);
-
+#endif
 		soc = (data[1] * 100) + (data[0] * 100 / 256);
 
 		chip->raw_soc = min(soc / 100, 100);
@@ -398,7 +399,7 @@ static void max17042_get_soc(struct i2c_client *client)
 			/*raw 1.6% ~ 97.6% */
 			soc = (soc > 100) ? ((soc - 60) * 100 / 9700) : 0;
 			/*raw 1.5% ~ 95% */
-			/*soc = (soc < 150) ? 0 : ((soc - 150) * 100 / 9350) + 1; */
+		/*soc = (soc < 150) ? 0 : ((soc - 150) * 100 / 9350) + 1; */
 		}
 #else
 		/* adjusted soc by adding 0.45 */
@@ -412,8 +413,10 @@ static void max17042_get_soc(struct i2c_client *client)
 
 	chip->soc = soc;
 
-	dev_dbg(&client->dev, "%s : use raw (%d), soc (%d)\n",
+#ifndef PRODUCT_SHIP
+	dev_info(&client->dev, "%s : use raw (%d), soc (%d)\n",
 		__func__, chip->raw_soc, soc);
+#endif
 }
 
 static void max17042_get_temperature(struct i2c_client *client)
@@ -423,7 +426,8 @@ static void max17042_get_temperature(struct i2c_client *client)
 	s32 temper = 0;
 
 	if (chip->is_enable) {
-		if (max17042_read_reg(client, MAX17042_REG_TEMPERATURE, data) < 0)
+		if (max17042_read_reg(client,
+			MAX17042_REG_TEMPERATURE, data) < 0)
 			return;
 
 		/* data[] store 2's compliment format number */
@@ -629,7 +633,8 @@ static ssize_t sec_fg_store(struct device *dev,
 			union power_supply_propval value;
 
 			if (!psy) {
-				pr_err("%s: fail to get battery ps\n", __func__);
+				pr_err("%s: fail to get battery ps\n",
+					__func__);
 				return -ENODEV;
 			}
 

@@ -51,6 +51,10 @@
 #include <linux/delay.h>
 #include <linux/bootmem.h>
 
+#ifdef CONFIG_DMA_CMA
+#include <linux/dma-contiguous.h>
+#endif
+
 #include <asm/mach/arch.h>
 #include <asm/mach-types.h>
 
@@ -81,6 +85,8 @@
 
 #if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
 #include <mach/tdmb_pdata.h>
+#elif defined(CONFIG_ISDBT)
+#include <media/isdbt_pdata.h>
 #endif
 
 #include <mach/map.h>
@@ -122,8 +128,10 @@ struct s3cfb_extdsp_lcd {
 #include <mach/sec_debug.h>
 
 #include <mach/gpio-midas.h>
-#ifdef CONFIG_MACH_GC1
+#if defined(CONFIG_MACH_GC1)
 #include <mach/gc1-power.h>
+#elif defined(CONFIG_MACH_T0)
+#include <mach/t0-power.h>
 #else
 #include <mach/midas-power.h>
 #endif
@@ -137,17 +145,20 @@ struct s3cfb_extdsp_lcd {
 #include <mach/midas-lcd.h>
 #include <mach/midas-sound.h>
 
+#ifdef CONFIG_INPUT_WACOM
+#include <mach/midas-wacom.h>
+#endif
+
 #ifdef CONFIG_USB_HOST_NOTIFY
 #include <linux/host_notify.h>
 #endif
 
-#if defined(CONFIG_PHONE_IPC_SPI)
-#include <linux/phone_svn/ipc_spi.h>
-#include <linux/irq.h>
-#endif
-
 #ifdef CONFIG_KEYBOARD_CYPRESS_TOUCH
 #include <linux/i2c/touchkey_i2c.h>
+#endif
+
+#if defined(CONFIG_MACH_GC1)
+#include <mach/gc1-jack.h>
 #endif
 
 #include "board-mobile.h"
@@ -209,7 +220,7 @@ static struct s3c64xx_spi_csinfo spi1_csi[] = {
 	[0] = {
 		.line = EXYNOS4_GPB(5),
 		.set_level = gpio_set_value,
-		.fb_delay = 0x2,
+		.fb_delay = 0x00,
 	},
 };
 
@@ -226,8 +237,9 @@ static struct spi_board_info spi1_board_info[] __initdata = {
 };
 #endif
 
-#if defined(CONFIG_PHONE_IPC_SPI) \
-	|| defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
+#if defined(CONFIG_LINK_DEVICE_SPI)  \
+	|| defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) \
+	|| defined(CONFIG_ISDBT) || defined(CONFIG_LINK_DEVICE_PLD)
 static struct s3c64xx_spi_csinfo spi2_csi[] = {
 	[0] = {
 		.line = EXYNOS4_GPC1(2),
@@ -246,9 +258,19 @@ static struct spi_board_info spi2_board_info[] __initdata = {
 		.mode = SPI_MODE_0,
 		.controller_data = &spi2_csi[0],
 	},
+#elif defined(CONFIG_ISDBT)
+	{
+		.modalias = "fc8150_spi",
+		.platform_data = NULL,
+		.max_speed_hz = 5000000,
+		.bus_num = 2,
+		.chip_select = 0,
+		.mode = SPI_MODE_0,
+		.controller_data = &spi2_csi[0],
+	},
 #else
 	{
-		.modalias = "ipc_spi",
+		.modalias = "modem_if_spi",
 		.platform_data = NULL,
 		.bus_num = 2,
 		.chip_select = 0,
@@ -266,38 +288,39 @@ static struct i2c_board_info i2c_devs8_emul[];
 #ifdef CONFIG_KEYBOARD_CYPRESS_TOUCH
 static void touchkey_init_hw(void)
 {
-#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)\
-|| defined(CONFIG_MACH_C1)
-#if defined(CONFIG_MACH_M0_CHNOPEN) || defined(CONFIG_MACH_M0_HKTW)\
-|| defined(CONFIG_TARGET_LOCALE_KOR)
-/* do nothing */
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1)
+#if defined(CONFIG_MACH_M0_CHNOPEN) || defined(CONFIG_MACH_M0_HKTW) || \
+	defined(CONFIG_TARGET_LOCALE_KOR)
+	/* do nothing */
 #elif defined(CONFIG_MACH_C1)
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT)
 	if (system_rev < 8)
-		return ;
+		return;
 #elif defined(CONFIG_MACH_C1_KOR_LGT)
 	if (system_rev < 5)
-		return ;
+		return;
 #else
 	if (system_rev < 7)
-		return ;
+		return;
 #endif
 #else
-	/*rev 1.0*/
 	if (system_rev < 11)
-		return ;
+		return; /* rev 1.0 */
 #endif
 #endif
-#if defined(CONFIG_TARGET_LOCALE_KOR)\
-	|| defined(CONFIG_MACH_M0)\
-	|| defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)\
-	|| defined(CONFIG_MACH_C1)\
-	|| defined(CONFIG_MACH_T0)
+
+#if defined(CONFIG_TARGET_LOCALE_KOR) || \
+	defined(CONFIG_MACH_M0) || \
+	defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M3) || \
+	defined(CONFIG_MACH_T0) || \
+	defined(CONFIG_MACH_BAFFIN)
 	gpio_request(GPIO_3_TOUCH_EN, "gpio_3_touch_en");
 #if defined(CONFIG_MACH_C1_KOR_LGT)
 	gpio_request(GPIO_3_TOUCH_LDO_EN, "gpio_3_touch_ldo_en");
 #endif
 #endif
+
 	gpio_request(GPIO_3_TOUCH_INT, "3_TOUCH_INT");
 	s3c_gpio_setpull(GPIO_3_TOUCH_INT, S3C_GPIO_PULL_NONE);
 	s5p_register_gpio_interrupt(GPIO_3_TOUCH_INT);
@@ -309,7 +332,6 @@ static void touchkey_init_hw(void)
 
 	s3c_gpio_setpull(GPIO_3_TOUCH_SCL, S3C_GPIO_PULL_DOWN);
 	s3c_gpio_setpull(GPIO_3_TOUCH_SDA, S3C_GPIO_PULL_DOWN);
-
 }
 
 static int touchkey_suspend(void)
@@ -322,10 +344,10 @@ static int touchkey_suspend(void)
 	if (regulator_is_enabled(regulator))
 		regulator_force_disable(regulator);
 
-	#if defined(CONFIG_MACH_C1_KOR_LGT)
+#if defined(CONFIG_MACH_C1_KOR_LGT)
 	gpio_request(GPIO_3_TOUCH_LDO_EN, "gpio_3_touch_ldo_en");
 	gpio_direction_output(GPIO_3_TOUCH_LDO_EN, 0);
-	#endif
+#endif
 
 	s3c_gpio_setpull(GPIO_3_TOUCH_SCL, S3C_GPIO_PULL_DOWN);
 	s3c_gpio_setpull(GPIO_3_TOUCH_SDA, S3C_GPIO_PULL_DOWN);
@@ -361,7 +383,8 @@ static int touchkey_power_on(bool on)
 
 	if (on) {
 		gpio_direction_output(GPIO_3_TOUCH_INT, 1);
-		irq_set_irq_type(gpio_to_irq(GPIO_3_TOUCH_INT), IRQF_TRIGGER_FALLING);
+		irq_set_irq_type(gpio_to_irq(GPIO_3_TOUCH_INT),
+			IRQF_TRIGGER_FALLING);
 		s3c_gpio_cfgpin(GPIO_3_TOUCH_INT, S3C_GPIO_SFN(0xf));
 		s3c_gpio_setpull(GPIO_3_TOUCH_INT, S3C_GPIO_PULL_NONE);
 	} else
@@ -422,8 +445,12 @@ static void tdmb_set_config_poweron(void)
 	s3c_gpio_cfgpin(GPIO_TDMB_EN, S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(GPIO_TDMB_EN, S3C_GPIO_PULL_NONE);
 	gpio_set_value(GPIO_TDMB_EN, GPIO_LEVEL_LOW);
-
-	s3c_gpio_cfgpin(GPIO_TDMB_INT, S3C_GPIO_SFN(GPIO_TDMB_INT_AF));
+#if defined(CONFIG_MACH_T0)
+	s3c_gpio_cfgpin(GPIO_TDMB_RST_N, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_TDMB_RST_N, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_TDMB_RST_N, GPIO_LEVEL_LOW);
+#endif
+	s3c_gpio_cfgpin(GPIO_TDMB_INT, S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(GPIO_TDMB_INT, S3C_GPIO_PULL_NONE);
 
 	s3c_gpio_cfgpin(GPIO_TDMB_SPI_CLK, S3C_GPIO_SFN(5));
@@ -439,6 +466,12 @@ static void tdmb_set_config_poweroff(void)
 	s3c_gpio_setpull(GPIO_TDMB_EN, S3C_GPIO_PULL_NONE);
 	gpio_set_value(GPIO_TDMB_EN, GPIO_LEVEL_LOW);
 
+#if defined(CONFIG_MACH_T0)
+	s3c_gpio_cfgpin(GPIO_TDMB_RST_N, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_TDMB_RST_N, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_TDMB_RST_N, GPIO_LEVEL_LOW);
+#endif
+
 	s3c_gpio_cfgpin(GPIO_TDMB_INT, S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(GPIO_TDMB_INT, S3C_GPIO_PULL_NONE);
 	gpio_set_value(GPIO_TDMB_INT, GPIO_LEVEL_LOW);
@@ -453,6 +486,15 @@ static void tdmb_gpio_on(void)
 	gpio_set_value(GPIO_TDMB_EN, GPIO_LEVEL_LOW);
 	usleep_range(1000, 1000);
 	gpio_set_value(GPIO_TDMB_EN, GPIO_LEVEL_HIGH);
+
+#if defined(CONFIG_MACH_T0)
+	usleep_range(1000, 1000);
+	gpio_set_value(GPIO_TDMB_RST_N, GPIO_LEVEL_LOW);
+	usleep_range(2000, 2000);
+	gpio_set_value(GPIO_TDMB_RST_N, GPIO_LEVEL_HIGH);
+	usleep_range(1000, 1000);
+#endif
+
 }
 
 static void tdmb_gpio_off(void)
@@ -460,6 +502,10 @@ static void tdmb_gpio_off(void)
 	printk(KERN_DEBUG "tdmb_gpio_off\n");
 
 	tdmb_set_config_poweroff();
+#if defined(CONFIG_MACH_T0)
+	gpio_set_value(GPIO_TDMB_RST_N, GPIO_LEVEL_LOW);
+	usleep_range(1000, 1000);
+#endif
 
 	gpio_set_value(GPIO_TDMB_EN, GPIO_LEVEL_LOW);
 }
@@ -479,92 +525,123 @@ static struct platform_device tdmb_device = {
 
 static int __init tdmb_dev_init(void)
 {
+#if defined(CONFIG_MACH_T0) && defined(CONFIG_TDMB_ANT_DET)
+	unsigned int tdmb_ant_det_gpio;
+	unsigned int tdmb_ant_det_irq;
+	if (system_rev >= 6) {
+		tdmb_ant_det_gpio = GPIO_TDMB_ANT_DET_REV08;
+		tdmb_ant_det_irq = GPIO_TDMB_IRQ_ANT_DET_REV08;
+	} else {
+		s5p_register_gpio_interrupt(GPIO_TDMB_ANT_DET);
+		tdmb_ant_det_gpio = GPIO_TDMB_ANT_DET;
+		tdmb_ant_det_irq = GPIO_TDMB_IRQ_ANT_DET;
+	}
+	s3c_gpio_cfgpin(tdmb_ant_det_gpio, S3C_GPIO_SFN(0xf));
+	s3c_gpio_setpull(tdmb_ant_det_gpio, S3C_GPIO_PULL_NONE);
+	tdmb_pdata.gpio_ant_det = tdmb_ant_det_gpio;
+	tdmb_pdata.irq_ant_det = tdmb_ant_det_irq;
+#endif
 	tdmb_set_config_poweroff();
+
 	s5p_register_gpio_interrupt(GPIO_TDMB_INT);
 	tdmb_pdata.irq = GPIO_TDMB_IRQ;
 	platform_device_register(&tdmb_device);
 
 	return 0;
 }
-#endif
-
-#if defined(CONFIG_PHONE_IPC_SPI)
-static void ipc_spi_cfg_gpio(void);
-
-static struct ipc_spi_platform_data ipc_spi_data = {
-	.gpio_ipc_mrdy = GPIO_IPC_MRDY,
-	.gpio_ipc_srdy = GPIO_IPC_SRDY,
-	.gpio_ipc_sub_mrdy = GPIO_IPC_SUB_MRDY,
-	.gpio_ipc_sub_srdy = GPIO_IPC_SUB_SRDY,
-
-	.cfg_gpio = ipc_spi_cfg_gpio,
-};
-
-static struct resource ipc_spi_res[] = {
-	[0] = {
-		.start = IRQ_IPC_SRDY,
-		.end = IRQ_IPC_SRDY,
-		.flags = IORESOURCE_IRQ,
-	},
-};
-
-static struct platform_device ipc_spi_device = {
-	.name = "onedram",
-	.id = -1,
-	.num_resources = ARRAY_SIZE(ipc_spi_res),
-	.resource = ipc_spi_res,
-	.dev = {
-		.platform_data = &ipc_spi_data,
-	},
-};
-
-static void ipc_spi_cfg_gpio(void)
+#elif defined(CONFIG_ISDBT)
+static void isdbt_set_config_poweron(void)
 {
-	int err = 0;
+	s3c_gpio_cfgpin(GPIO_ISDBT_EN, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_ISDBT_EN, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_ISDBT_EN, GPIO_LEVEL_LOW);
+	s3c_gpio_cfgpin(GPIO_ISDBT_RST_N, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_ISDBT_RST_N, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_ISDBT_RST_N, GPIO_LEVEL_LOW);
+	s3c_gpio_cfgpin(GPIO_ISDBT_INT, S3C_GPIO_SFN(GPIO_ISDBT_INT_AF));
+	s3c_gpio_setpull(GPIO_ISDBT_INT, S3C_GPIO_PULL_NONE);
 
-	unsigned gpio_ipc_mrdy = ipc_spi_data.gpio_ipc_mrdy;
-	unsigned gpio_ipc_srdy = ipc_spi_data.gpio_ipc_srdy;
-	unsigned gpio_ipc_sub_mrdy = ipc_spi_data.gpio_ipc_sub_mrdy;
-	unsigned gpio_ipc_sub_srdy = ipc_spi_data.gpio_ipc_sub_srdy;
+	s3c_gpio_cfgpin(GPIO_ISDBT_SPI_CLK, S3C_GPIO_SFN(5));
+	s3c_gpio_cfgpin(GPIO_ISDBT_SPI_MISO, S3C_GPIO_SFN(5));
+	s3c_gpio_cfgpin(GPIO_ISDBT_SPI_MOSI, S3C_GPIO_SFN(5));
+	s3c_gpio_setpull(GPIO_ISDBT_SPI_CLK, S3C_GPIO_PULL_DOWN);
+	s3c_gpio_setpull(GPIO_ISDBT_SPI_MISO, S3C_GPIO_PULL_DOWN);
+	s3c_gpio_setpull(GPIO_ISDBT_SPI_MOSI, S3C_GPIO_PULL_DOWN);
 
-	err = gpio_request(gpio_ipc_mrdy, "IPC_MRDY");
-	if (err) {
-		printk(KERN_ERR "ipc_spi_cfg_gpio - fail to request gpio %s : %d\n",
-			"IPC_MRDY", err);
-	} else {
-		gpio_direction_output(gpio_ipc_mrdy, 0);
-	}
+	printk(KERN_DEBUG "isdbt_set_config_poweron\n");
 
-	err = gpio_request(gpio_ipc_srdy, "IPC_SRDY");
-	if (err) {
-		printk(KERN_ERR "ipc_spi_cfg_gpio - fail to request gpio %s : %d\n",
-			"IPC_SRDY", err);
-	} else {
-		gpio_direction_input(gpio_ipc_srdy);
-		s3c_gpio_cfgpin(gpio_ipc_srdy, S3C_GPIO_SFN(0xF));
-		s3c_gpio_setpull(gpio_ipc_srdy, S3C_GPIO_PULL_DOWN);
-	}
+}
+static void isdbt_set_config_poweroff(void)
+{
+	s3c_gpio_cfgpin(GPIO_ISDBT_EN, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_ISDBT_EN, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_ISDBT_EN, GPIO_LEVEL_LOW);
 
-	err = gpio_request(gpio_ipc_sub_mrdy, "IPC_SUB_MRDY");
-	if (err) {
-		printk(KERN_ERR "ipc_spi_cfg_gpio - fail to request gpio %s : %d\n",
-			"IPC_SUB_MRDY", err);
-	} else {
-		gpio_direction_output(gpio_ipc_sub_mrdy, 0);
-	}
+	s3c_gpio_cfgpin(GPIO_ISDBT_RST_N, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_ISDBT_RST_N, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_ISDBT_RST_N, GPIO_LEVEL_LOW);
 
-	err = gpio_request(gpio_ipc_sub_srdy, "IPC_SUB_SRDY");
-	if (err) {
-		printk(KERN_ERR "ipc_spi_cfg_gpio - fail to request gpio %s : %d\n",
-			"IPC_SUB_SRDY", err);
-	} else {
-		gpio_direction_input(gpio_ipc_sub_srdy);
-		s3c_gpio_cfgpin(gpio_ipc_sub_srdy, S3C_GPIO_SFN(0xF));
-		s3c_gpio_setpull(gpio_ipc_sub_srdy, S3C_GPIO_PULL_DOWN);
-	}
+	s3c_gpio_cfgpin(GPIO_ISDBT_INT, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_ISDBT_INT, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_ISDBT_INT, GPIO_LEVEL_LOW);
 
-	irq_set_irq_type(gpio_to_irq(GPIO_IPC_SRDY), IRQ_TYPE_EDGE_RISING);
-	irq_set_irq_type(gpio_to_irq(GPIO_IPC_SUB_SRDY), IRQ_TYPE_EDGE_RISING);
+
+	printk(KERN_DEBUG "isdbt_set_config_poweroff\n");
+}
+
+static void isdbt_gpio_on(void)
+{
+	printk(KERN_DEBUG "isdbt_gpio_on\n");
+
+	isdbt_set_config_poweron();
+
+	gpio_set_value(GPIO_ISDBT_EN, GPIO_LEVEL_LOW);
+	usleep_range(1000, 1000);
+	gpio_set_value(GPIO_ISDBT_EN, GPIO_LEVEL_HIGH);
+
+	usleep_range(1000, 1000);
+	gpio_set_value(GPIO_ISDBT_RST_N, GPIO_LEVEL_LOW);
+	usleep_range(2000, 2000);
+	gpio_set_value(GPIO_ISDBT_RST_N, GPIO_LEVEL_HIGH);
+	usleep_range(1000, 1000);
+
+}
+
+static void isdbt_gpio_off(void)
+{
+	printk(KERN_DEBUG "isdbt_gpio_off\n");
+
+	isdbt_set_config_poweroff();
+
+	gpio_set_value(GPIO_ISDBT_RST_N, GPIO_LEVEL_LOW);
+	usleep_range(1000, 1000);
+
+	gpio_set_value(GPIO_ISDBT_EN, GPIO_LEVEL_LOW);
+}
+
+static struct isdbt_platform_data isdbt_pdata = {
+	.gpio_on = isdbt_gpio_on,
+	.gpio_off = isdbt_gpio_off,
+};
+
+static struct platform_device isdbt_device = {
+	.name			= "isdbt",
+	.id				= -1,
+	.dev			= {
+		.platform_data = &isdbt_pdata,
+	},
+};
+
+static int __init isdbt_dev_init(void)
+{
+	isdbt_set_config_poweroff();
+	s5p_register_gpio_interrupt(GPIO_ISDBT_INT);
+	isdbt_pdata.irq = GPIO_ISDBT_IRQ;
+	platform_device_register(&isdbt_device);
+
+	printk(KERN_DEBUG "isdbt_dev_init\n");
+
+	return 0;
 }
 #endif
 
@@ -748,7 +825,12 @@ static struct s3c_mshci_platdata exynos4_mshc_pdata __initdata = {
 	.max_width		= 8,
 	.host_caps		= MMC_CAP_8_BIT_DATA | MMC_CAP_1_8V_DDR |
 				  MMC_CAP_UHS_DDR50 | MMC_CAP_CMD23,
-	.host_caps2		= MMC_CAP2_PACKED_CMD,
+#ifdef CONFIG_MMC_MSHCI_ENABLE_CACHE
+	.host_caps2		= MMC_CAP2_ADAPT_PACKED | MMC_CAP2_PACKED_CMD |
+				  MMC_CAP2_CACHE_CTRL,
+#else
+	.host_caps2		= MMC_CAP2_ADAPT_PACKED | MMC_CAP2_PACKED_CMD,
+#endif
 #elif defined(CONFIG_EXYNOS4_MSHC_8BIT)
 	.max_width		= 8,
 	.host_caps		= MMC_CAP_8_BIT_DATA | MMC_CAP_CMD23,
@@ -793,16 +875,20 @@ static void __init smdk4212_usbgadget_init(void)
 	struct android_usb_platform_data *android_pdata =
 		s3c_device_android_usb.dev.platform_data;
 	if (android_pdata) {
-#if defined(CONFIG_MACH_M0_CTC)
-		/*FOR CTC PC-MODEM START*/
-		unsigned int newluns = 3;
-		/*FOR CTC PC-MODEM END*/
+		unsigned int cdfs = 0;
+#if defined(CONFIG_MACH_M0_CTC) || defined(CONFIG_MACH_T0_CHN_CTC)
+		unsigned int newluns = 1;
+		cdfs = 1;   /* China CTC required CDFS */
+#elif defined(CONFIG_MACH_T0_USA_VZW)
+		unsigned int newluns = 0;
+		cdfs = 1;   /* VZW required CDFS */
 #else
 		unsigned int newluns = 2;
 #endif
 		printk(KERN_DEBUG "usb: %s: default luns=%d, new luns=%d\n",
 				__func__, android_pdata->nluns, newluns);
 		android_pdata->nluns = newluns;
+		android_pdata->cdfs_support = cdfs;
 	} else {
 		printk(KERN_DEBUG "usb: %s android_pdata is not available\n",
 				__func__);
@@ -811,7 +897,7 @@ static void __init smdk4212_usbgadget_init(void)
 	s5p_usbgadget_set_platdata(pdata);
 
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
+	defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN)
 	pdata = s3c_device_usbgadget.dev.platform_data;
 	if (pdata) {
 		/* Squelch Threshold Tune [13:11] (111 : -20%) */
@@ -825,16 +911,58 @@ static void __init smdk4212_usbgadget_init(void)
 }
 #endif
 
+#ifdef CONFIG_MACH_GC1
+static void motor_init_hw(void)
+{
+	if (gpio_request(EXYNOS4_GPD0(0), "VIBTONE_PWM") < 0)
+		printk(KERN_ERR "[VIB] gpio requst is failed\n");
+	else {
+		gpio_direction_output(EXYNOS4_GPD0(0), 0);
+		printk(KERN_DEBUG "[VIB] gpio request is succeed\n");
+	}
+}
+
+static void motor_en(bool enable)
+{
+	gpio_direction_output(EXYNOS4_GPD0(0), enable);
+	printk(KERN_DEBUG "[VIB] motor_enabled GPIO GPD0(0) : %d\n",
+	       gpio_get_value(EXYNOS4_GPD0(0)));
+}
+#endif
+#ifdef CONFIG_MACH_BAFFIN
+static void motor_en(bool enable)
+{
+	gpio_direction_output(EXYNOS4_GPD0(0), enable);
+	printk(KERN_DEBUG "[VIB] motor_enabled GPIO GPD0(0) : %d\n",
+	       gpio_get_value(EXYNOS4_GPD0(0)));
+}
+#endif
+#if defined(CONFIG_MACH_T0) && defined(CONFIG_TARGET_LOCALE_KOR)
+static void motor_en(bool enable)
+{
+	gpio_direction_output(EXYNOS4_GPC0(3), enable);
+	printk(KERN_DEBUG "[VIB] motor_enabled GPIO GPC0(3) : %d\n",
+	       gpio_get_value(EXYNOS4_GPC0(3)));
+}
+#endif
+
 #ifdef CONFIG_MFD_MAX77693
 #ifdef CONFIG_VIBETONZ
 static struct max77693_haptic_platform_data max77693_haptic_pdata = {
-	.max_timeout = 10000,
-	.duty = 37050,
-	.period = 38054,
+#ifdef CONFIG_MACH_GC1
+	.reg2 = MOTOR_ERM,
+	.pwm_id = 1,
+	.init_hw = motor_init_hw,
+	.motor_en = motor_en,
+#else
 	.reg2 = MOTOR_LRA | EXT_PWM | DIVIDER_128,
+	.pwm_id = 0,
 	.init_hw = NULL,
 	.motor_en = NULL,
-	.pwm_id = 0,
+#endif
+	.max_timeout = 10000,
+	.duty = 35500,
+	.period = 37904,
 	.regulator_name = "vmotor",
 };
 #endif
@@ -860,12 +988,12 @@ static struct max77693_led_platform_data max77693_led_pdata = {
 	.leds[2].name = "torch-sec1",
 	.leds[2].id = MAX77693_TORCH_LED_1,
 	.leds[2].cntrl_mode = MAX77693_LED_CTRL_BY_FLASHSTB,
-	.leds[2].brightness = 0x0F,
+	.leds[2].brightness = 0x03,
 
 	.leds[3].name = "torch-sec2",
 	.leds[3].id = MAX77693_TORCH_LED_2,
-	.leds[3].cntrl_mode = MAX77693_LED_CTRL_BY_I2C,
-	.leds[3].brightness = 0x0F,
+	.leds[3].cntrl_mode = MAX77693_LED_CTRL_BY_FLASHSTB,
+	.leds[3].brightness = 0x04,
 };
 
 #endif
@@ -875,10 +1003,14 @@ static struct max77693_charger_platform_data max77693_charger_pdata = {
 #ifdef CONFIG_BATTERY_WPC_CHARGER
 	.wpc_irq_gpio = GPIO_WPC_INT,
 #if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1) || \
-	defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+	defined(CONFIG_MACH_M3) || defined(CONFIG_MACH_T0)
 	.vbus_irq_gpio = GPIO_V_BUS_INT,
 #endif
+#if defined(CONFIG_MACH_T0)
+	.wc_pwr_det = true,
+#else
 	.wc_pwr_det = false,
+#endif
 #endif
 };
 #endif
@@ -981,7 +1113,7 @@ static struct i2c_board_info i2c_devs5[] __initdata = {
 		I2C_BOARD_INFO("s5p_ddc", (0x74 >> 1)),
 	},
 };
-#else
+#elif !defined(CONFIG_MACH_T0_EUR_OPEN) || !defined(CONFIG_MACH_T0_CHN_OPEN)
 static struct i2c_board_info i2c_devs5[] __initdata = {
 #ifdef CONFIG_REGULATOR_MAX8997
 	{
@@ -995,12 +1127,6 @@ static struct i2c_board_info i2c_devs5[] __initdata = {
 	{
 		I2C_BOARD_INFO("max77686", (0x12 >> 1)),
 		.platform_data	= &exynos4_max77686_info,
-	},
-#elif defined(CONFIG_REGULATOR_S5M8767)
-	/* s5m on i2c5 other than M1 board */
-	{
-		I2C_BOARD_INFO("s5m87xx", (0x12 >> 1)),
-		.platform_data	= &exynos4_s5m8767_info,
 	},
 #endif
 };
@@ -1037,6 +1163,26 @@ struct s3c2410_platform_i2c default_i2c5_data __initdata = {
 
 #endif
 
+#ifdef CONFIG_S3C_DEV_I2C6
+static struct i2c_board_info i2c_devs6[] __initdata = {
+};
+#if defined(CONFIG_MACH_T0_EUR_OPEN) || defined(CONFIG_MACH_T0_CHN_OPEN)
+static void i2c6_mhl_ddc_cfg_gpio(struct platform_device *dev)
+{
+	s3c_gpio_cfgall_range(EXYNOS4_GPC1(3), 2,
+		S3C_GPIO_SFN(4), S3C_GPIO_PULL_NONE);
+}
+struct s3c2410_platform_i2c default_i2c6_data __initdata = {
+	.bus_num        = 6,
+	.flags          = 0,
+	.slave_addr     = 0x10,
+	.frequency      = 100*1000,
+	.sda_delay      = 100,
+	.cfg_gpio	= i2c6_mhl_ddc_cfg_gpio,
+};
+#endif /* CONFIG_MACH_T0_EUR_OPEN */
+#endif /* CONFIG_S3C_DEV_I2C6 */
+
 #ifdef CONFIG_MACH_GC1
 static struct i2c_board_info i2c_devs7[] __initdata = {
 	{
@@ -1052,9 +1198,10 @@ static struct i2c_board_info i2c_devs7_s5m[] __initdata = {
 };
 #else
 static struct i2c_board_info i2c_devs7[] __initdata = {
-#if defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2) ||	\
-	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3) ||	\
-	defined(CONFIG_MACH_T0)
+#if defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M3) || \
+	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_T0) || \
+	defined(CONFIG_MACH_BAFFIN)
 #if defined(CONFIG_REGULATOR_MAX77686) /* max77686 on i2c7 with M1 board */
 	{
 		I2C_BOARD_INFO("max77686", (0x12 >> 1)),
@@ -1115,8 +1262,8 @@ static struct i2c_board_info i2c_devs11_emul[] __initdata = {
 };
 
 /* I2C12 */
-#if defined(CONFIG_PN65N_NFC) && !defined(CONFIG_MACH_C1) \
-	&& !defined(CONFIG_MACH_C1VZW) && !defined(CONFIG_MACH_C2) && !defined(CONFIG_MACH_M3)
+#if defined(CONFIG_PN65N_NFC) && \
+	!defined(CONFIG_MACH_C1) && !defined(CONFIG_MACH_BAFFIN)
 static struct i2c_board_info i2c_devs12_emul[] __initdata = {
 };
 #endif
@@ -1146,7 +1293,7 @@ static struct i2c_board_info i2c_devs14_emul[] __initdata = {
 };
 #endif
 
-#if !defined(CONFIG_MACH_M0_GRANDECTC)
+#ifdef CONFIG_SAMSUNG_MHL
 /* I2C15 */
 static struct i2c_gpio_platform_data gpio_i2c_data15 = {
 	.sda_pin = GPIO_MHL_SDA_1_8V,
@@ -1167,7 +1314,7 @@ static struct i2c_board_info i2c_devs15_emul[] __initdata = {
 };
 
 /* I2C16 */
-#if !defined(CONFIG_MACH_T0)
+#if !defined(CONFIG_MACH_T0) && !defined(CONFIG_MACH_M3)
 static struct i2c_gpio_platform_data gpio_i2c_data16 = {
 	.sda_pin = GPIO_MHL_DSDA_2_8V,
 	.scl_pin = GPIO_MHL_DSCL_2_8V,
@@ -1184,9 +1331,11 @@ static struct i2c_board_info i2c_devs16_emul[] __initdata = {
 };
 #endif
 
-#if defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2) ||  \
-	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3) || \
-	defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0)
+#if defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M3) || \
+	defined(CONFIG_MACH_M0) || \
+	defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0) || \
+	defined(CONFIG_MACH_BAFFIN)
 static struct i2c_gpio_platform_data gpio_i2c_data17 = {
 	.sda_pin = GPIO_IF_PMIC_SDA,
 	.scl_pin = GPIO_IF_PMIC_SCL,
@@ -1210,8 +1359,9 @@ static struct i2c_board_info i2c_devs17_emul[] __initdata = {
 #endif
 
 #if 0
-#if defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2) ||	\
-	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3)
+#if defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M3) || \
+	defined(CONFIG_MACH_M0)
 static struct i2c_gpio_platform_data i2c18_platdata = {
 	.sda_pin		= GPIO_8M_CAM_SDA_18V,
 	.scl_pin		= GPIO_8M_CAM_SCL_18V,
@@ -1233,44 +1383,8 @@ static struct platform_device s3c_device_i2c18 = {
 #endif
 #endif
 
-#if defined(CONFIG_STMPE811_ADC) || defined(CONFIG_FM_SI4709_MODULE) \
-	|| defined(CONFIG_FM_SI4705_MODULE)
-static struct i2c_gpio_platform_data gpio_i2c_data19 = {
-	.sda_pin = GPIO_ADC_SDA,
-	.scl_pin = GPIO_ADC_SCL,
-};
-
-struct platform_device s3c_device_i2c19 = {
-	.name = "i2c-gpio",
-	.id = 19,
-	.dev.platform_data = &gpio_i2c_data19,
-};
-
-
-/* I2C19 */
-static struct i2c_board_info i2c_devs19_emul[] __initdata = {
-#if defined(CONFIG_STMPE811_ADC)
-	{
-		I2C_BOARD_INFO("stmpe811-adc", (0x82 >> 1)),
-		.platform_data	= &stmpe811_pdata,
-	},
-#endif
-#ifdef CONFIG_FM_SI4705_MODULE
-	{
-		I2C_BOARD_INFO("Si4709", (0x22 >> 1)),
-	},
-#endif
-#ifdef CONFIG_FM_SI4709_MODULE
-	{
-		I2C_BOARD_INFO("Si4709", (0x20 >> 1)),
-	},
-#endif
-
-};
-#endif
-
 /* I2C21 */
-#ifdef CONFIG_LEDS_AN30259A
+#if defined(CONFIG_LEDS_AN30259A) || defined(CONFIG_LEDS_LP5521)
 static struct i2c_gpio_platform_data gpio_i2c_data21 = {
 	.scl_pin = GPIO_S_LED_I2C_SCL,
 	.sda_pin = GPIO_S_LED_I2C_SDA,
@@ -1291,6 +1405,57 @@ static struct i2c_board_info i2c_devs21_emul[] __initdata = {
 	},
 };
 #endif
+
+/* I2C22 */
+#if defined (CONFIG_BARCODE_EMUL_ICE4)
+static struct i2c_gpio_platform_data gpio_i2c_data22 = {
+	.scl_pin = GPIO_BARCODE_SCL_1_8V,
+	.sda_pin = GPIO_BARCODE_SDA_1_8V,
+};
+
+struct platform_device s3c_device_i2c22 = {
+	.name = "i2c-gpio",
+	.id = 22,
+	.dev.platform_data = &gpio_i2c_data22,
+};
+
+static struct i2c_board_info i2c_devs22_emul[] __initdata = {
+	{
+		I2C_BOARD_INFO("ice4", (0x6c)),
+	},
+};
+#endif
+
+#if defined(CONFIG_FELICA)
+
+#define  FELICA_GPIO_RFS_NAME     "FeliCa-RFS"
+#define  FELICA_GPIO_PON_NAME     "FeliCa-PON"
+#define  FELICA_GPIO_INT_NAME     "FeliCa-INT"
+#define  FELICA_GPIO_I2C_SDA_NAME "FeliCa-SDA"
+#define  FELICA_GPIO_I2C_SCL_NAME "FeliCa-SCL"
+
+static struct  i2c_gpio_platform_data  i2c30_gpio_platdata = {
+	.sda_pin = FELICA_GPIO_I2C_SDA,
+	.scl_pin = FELICA_GPIO_I2C_SCL,
+	.udelay  = 0,
+	.sda_is_open_drain = 0,
+	.scl_is_open_drain = 0,
+	.scl_is_output_only = 0
+};
+
+static struct  platform_device  s3c_device_i2c30 = {
+	.name  = "i2c-gpio",
+	.id   = 30,                               /* adepter number */
+	.dev.platform_data = &i2c30_gpio_platdata,
+};
+
+static struct i2c_board_info i2c_devs30[] __initdata = {
+	{
+		I2C_BOARD_INFO("felica_i2c", (0x56 >> 1)),
+	},
+};
+
+#endif /* CONFIG_FELICA */
 
 #ifdef CONFIG_ANDROID_RAM_CONSOLE
 static struct resource ram_console_resource[] = {
@@ -1347,15 +1512,33 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 #if defined(CONFIG_MACH_GC1)
 	.in_curr_limit = 700,
 	.chg_curr_ta = 700,
+	.chg_curr_dock = 700,
+	.chg_curr_siop_lv1 = 475,
+	.chg_curr_siop_lv2 = 475,
+	.chg_curr_siop_lv3 = 475,
+#elif defined(CONFIG_MACH_T0)
+	.in_curr_limit = 1800,
+	.chg_curr_ta = 1700,
+	.chg_curr_dock = 1700,
+	.chg_curr_siop_lv1 = 1000,
+	.chg_curr_siop_lv2 = 475,
+	.chg_curr_siop_lv3 = 1,	/* zero make charger off */
 #else
 	.in_curr_limit = 1000,
 	.chg_curr_ta = 1000,
+	.chg_curr_dock = 1000,
+	.chg_curr_siop_lv1 = 475,
+	.chg_curr_siop_lv2 = 475,
+	.chg_curr_siop_lv3 = 475,
 #endif
 
 	.chg_curr_usb = 475,
 	.chg_curr_cdp = 1000,
+#if defined(CONFIG_MACH_T0_USA_VZW)
+	.chg_curr_wpc = 650,
+#else
 	.chg_curr_wpc = 475,
-	.chg_curr_dock = 1000,
+#endif
 	.chg_curr_etc = 475,
 
 	.chng_interval = 30,
@@ -1365,9 +1548,16 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 	.emer_lv1_interval = 30,
 	.emer_lv2_interval = 10,
 
-	.recharge_voltage = 4300000,	/* it will be cacaluated in probe */
+#if defined(CONFIG_MACH_GC1)
+	.recharge_voltage = 4150000,
+#else
+	/* it will be cacaluated in probe */
+	.recharge_voltage = 4300000,
+#endif
 
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC) || \
+	defined(CONFIG_MACH_T0_USA_VZW) || defined(CONFIG_MACH_T0_USA_SPR) || \
+	defined(CONFIG_MACH_T0_USA_USCC)
 	.abstimer_charge_duration = 8 * 60 * 60,
 	.abstimer_charge_duration_wpc = 8 * 60 * 60,
 	.abstimer_recharge_duration = 2 * 60 * 60,
@@ -1394,27 +1584,53 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 	.overheat_recovery_temp = 430,
 	.freeze_stop_temp = -40,
 	.freeze_recovery_temp = 30,
+#elif defined(CONFIG_MACH_T0_KOR_SKT) || defined(CONFIG_MACH_T0_KOR_KT) || \
+	defined(CONFIG_MACH_T0_KOR_LGT)
+	.overheat_stop_temp = 650,
+	.overheat_recovery_temp = 425,
+	.freeze_stop_temp = -45,
+	.freeze_recovery_temp = 3,
 #else
 	.overheat_stop_temp = 600,
 	.overheat_recovery_temp = 430,
 	.freeze_stop_temp = -50,
 	.freeze_recovery_temp = 0,
 #endif /* KOR model */
-#elif defined(CONFIG_MACH_C1)
+#elif defined(CONFIG_TARGET_LOCALE_USA)
 #if defined(CONFIG_MACH_C1_USA_ATT)
 	.overheat_stop_temp = 450,
 	.overheat_recovery_temp = 400,
 	.freeze_stop_temp = -50,
 	.freeze_recovery_temp = 0,
-#elif defined(CONFIG_MACH_C1_USA_VZW)
+#elif defined(CONFIG_MACH_M3_USA_VZW)
 	.overheat_stop_temp = 477,
 	.overheat_recovery_temp = 420,
 	.freeze_stop_temp = -50,
 	.freeze_recovery_temp = 0,
+#elif defined(CONFIG_MACH_T0_USA_ATT)
+	.overheat_stop_temp = 475,
+	.overheat_recovery_temp = 400,
+	.freeze_stop_temp = -50,
+	.freeze_recovery_temp = 0,
+#elif defined(CONFIG_MACH_T0_USA_VZW)
+	.overheat_stop_temp = 515,
+	.overheat_recovery_temp = 440,
+	.freeze_stop_temp = -50,
+	.freeze_recovery_temp = 0,
+#elif defined(CONFIG_MACH_T0_USA_SPR)
+	.overheat_stop_temp = 485,
+	.overheat_recovery_temp = 409,
+	.freeze_stop_temp = -50,
+	.freeze_recovery_temp = 0,
+#elif defined(CONFIG_MACH_T0_USA_USCC)
+	.overheat_stop_temp = 600,
+	.overheat_recovery_temp = 400,
+	.freeze_stop_temp = -50,
+	.freeze_recovery_temp = 0,
 #else
-	/* C1 default */
-	.overheat_stop_temp = 500,
-	.overheat_recovery_temp = 450,
+	/* USA default */
+	.overheat_stop_temp = 450,
+	.overheat_recovery_temp = 400,
 	.freeze_stop_temp = -50,
 	.freeze_recovery_temp = 0,
 #endif
@@ -1423,6 +1639,11 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 	.overheat_recovery_temp = 430,
 	.freeze_stop_temp = -50,
 	.freeze_recovery_temp = 30,
+#elif defined(CONFIG_MACH_GC1)
+	.overheat_stop_temp = 600,
+	.overheat_recovery_temp = 400,
+	.freeze_stop_temp = -30,
+	.freeze_recovery_temp = 0,
 #else
 	/* M0 EUR */
 	.overheat_stop_temp = 600,
@@ -1432,8 +1653,7 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 #endif
 
 	/* CTIA spec */
-/* C!_USA_XXX will be uunified */
-#if defined(CONFIG_MACH_C1_USA_ATT) || defined(CONFIG_MACH_C1_USA_VZW)
+#if defined(CONFIG_TARGET_LOCALE_USA) && !defined(CONFIG_MACH_T0_USA_USCC)
 	.ctia_spec  = true,
 #else
 	.ctia_spec  = false,
@@ -1450,7 +1670,7 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 	.lpm_overheat_recovery_temp = 450,
 	.lpm_freeze_stop_temp = -50,
 	.lpm_freeze_recovery_temp = 0,
-#elif defined(CONFIG_MACH_C1_USA_VZW)
+#elif defined(CONFIG_MACH_M3_USA_VZW)
 	.event_overheat_stop_temp = 600,
 	.event_overheat_recovery_temp = 400,
 	.event_freeze_stop_temp = -50,
@@ -1459,7 +1679,17 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 	.lpm_overheat_recovery_temp = 450,
 	.lpm_freeze_stop_temp = -50,
 	.lpm_freeze_recovery_temp = 0,
+#elif defined(CONFIG_MACH_T0_USA_VZW)
+	.event_overheat_stop_temp = 600,
+	.event_overheat_recovery_temp = 409,
+	.event_freeze_stop_temp = -50,
+	.event_freeze_recovery_temp = 0,
+	.lpm_overheat_stop_temp = 480,
+	.lpm_overheat_recovery_temp = 450,
+	.lpm_freeze_stop_temp = -50,
+	.lpm_freeze_recovery_temp = 0,
 #else
+	/* USA default */
 	.event_overheat_stop_temp = 600,
 	.event_overheat_recovery_temp = 400,
 	.event_freeze_stop_temp = -50,
@@ -1471,12 +1701,29 @@ static struct samsung_battery_platform_data samsung_battery_pdata = {
 #endif
 
 	.temper_src = TEMPER_AP_ADC,
-	.temper_ch = 2,
+	.temper_ch = 2, /* if src == TEMPER_AP_ADC */
 #ifdef CONFIG_S3C_ADC
-	/* s3c adc driver does not convert raw adc data.
+	/*
+	 * s3c adc driver does not convert raw adc data.
 	 * so, register convert function.
 	 */
 	.covert_adc = convert_adc,
+#endif
+
+#if defined(CONFIG_MACH_M3_USA_VZW)
+	.vf_det_src = VF_DET_UNKNOWN,
+#else
+#if defined(CONFIG_MACH_T0) && defined(CONFIG_TARGET_LOCALE_USA)
+	.vf_det_src = VF_DET_GPIO,	/* check H/W rev in battery probe */
+#else
+	.vf_det_src = VF_DET_CHARGER,
+#endif
+#endif
+	.vf_det_ch = 0,	/* if src == VF_DET_ADC */
+	.vf_det_th_l = 100,
+	.vf_det_th_h = 600,
+#if defined(CONFIG_MACH_T0) && defined(CONFIG_TARGET_LOCALE_USA)
+	.batt_present_gpio = GPIO_BATT_PRESENT_N_INT,
 #endif
 
 	.suspend_chging = true,
@@ -1540,7 +1787,7 @@ struct gpio_keys_button midas_buttons[] = {
 #endif
 };
 
-#if !defined(CONFIG_MACH_T0)
+#if !defined(CONFIG_MACH_T0) && !defined(CONFIG_MACH_M3)
 struct gpio_keys_button m0_buttons[] = {
 	GPIO_KEYS(KEY_VOLUMEUP, GPIO_VOL_UP_00,
 		  1, 0, sec_debug_check_crash_key),
@@ -1551,7 +1798,7 @@ struct gpio_keys_button m0_buttons[] = {
 };
 #endif
 
-#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2) || \
+#if defined(CONFIG_MACH_M0) || \
 	defined(CONFIG_MACH_C1_USA_ATT)
 struct gpio_keys_button m0_rev11_buttons[] = {
 	GPIO_KEYS(KEY_VOLUMEUP, GPIO_VOL_UP_00,
@@ -1565,7 +1812,9 @@ struct gpio_keys_button m0_rev11_buttons[] = {
 };
 #endif
 
-#if defined(CONFIG_TARGET_LOCALE_KOR)
+#if defined(CONFIG_TARGET_LOCALE_KOR) && \
+	(defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1) ||\
+	defined(CONFIG_MACH_BAFFIN))
 struct gpio_keys_button c1_rev04_buttons[] = {
 	GPIO_KEYS(KEY_VOLUMEUP, GPIO_VOL_UP_00,
 		  1, 0, sec_debug_check_crash_key),
@@ -1578,7 +1827,7 @@ struct gpio_keys_button c1_rev04_buttons[] = {
 };
 #endif
 
-#if defined(CONFIG_MACH_T0)
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3)
 struct gpio_keys_button t0_buttons[] = {
 	GPIO_KEYS(KEY_VOLUMEUP, GPIO_VOL_UP,
 		  1, 0, sec_debug_check_crash_key),
@@ -1679,6 +1928,23 @@ static struct platform_device s3c_device_i2c10 = {
 };
 #endif
 
+#ifdef CONFIG_SENSORS_AK8963C
+static struct i2c_gpio_platform_data i2c10_platdata = {
+	.sda_pin	= GPIO_MSENSOR_SDA_18V,
+	.scl_pin	= GPIO_MSENSOR_SCL_18V,
+	.udelay	= 2, /* 250KHz */
+	.sda_is_open_drain	= 0,
+	.scl_is_open_drain	= 0,
+	.scl_is_output_only = 0,
+};
+
+static struct platform_device s3c_device_i2c10 = {
+	.name	= "i2c-gpio",
+	.id	= 10,
+	.dev.platform_data	= &i2c10_platdata,
+};
+#endif
+
 #ifdef CONFIG_SENSORS_LPS331
 static struct i2c_gpio_platform_data i2c11_platdata = {
 	.sda_pin	= GPIO_BSENSE_SDA_18V,
@@ -1696,8 +1962,8 @@ static struct platform_device s3c_device_i2c11 = {
 };
 #endif
 
-#if defined(CONFIG_PN65N_NFC) && !defined(CONFIG_MACH_C1) \
-	&& !defined(CONFIG_MACH_C1VZW) && !defined(CONFIG_MACH_C2) && !defined(CONFIG_MACH_M3)
+#if defined(CONFIG_PN65N_NFC) && \
+	!defined(CONFIG_MACH_C1) && !defined(CONFIG_MACH_BAFFIN)
 static struct i2c_gpio_platform_data i2c12_platdata = {
 	.sda_pin		= GPIO_NFC_SDA_18V,
 	.scl_pin		= GPIO_NFC_SCL_18V,
@@ -1718,11 +1984,14 @@ static struct platform_device s3c_device_i2c12 = {
 static void otg_accessory_power(int enable)
 {
 	u8 on = (u8)!!enable;
+	int err;
 
 	/* max77693 otg power control */
 	otg_control(enable);
 
-	gpio_request(GPIO_OTG_EN, "USB_OTG_EN");
+	err = gpio_request(GPIO_OTG_EN, "USB_OTG_EN");
+	if (err)
+		printk(KERN_ERR "failed to request USB_OTG_EN\n");
 	gpio_direction_output(GPIO_OTG_EN, on);
 	gpio_free(GPIO_OTG_EN);
 	pr_info("%s: otg accessory power = %d\n", __func__, on);
@@ -1754,6 +2023,122 @@ struct platform_device host_notifier_device = {
 static struct platform_device watchdog_reset_device = {
 	.name = "watchdog-reset",
 	.id = -1,
+};
+#endif
+
+#ifdef CONFIG_CORESIGHT_ETM
+
+#define CORESIGHT_PHYS_BASE		0x10880000
+#define CORESIGHT_ETB_PHYS_BASE		(CORESIGHT_PHYS_BASE + 0x1000)
+#define CORESIGHT_TPIU_PHYS_BASE	(CORESIGHT_PHYS_BASE + 0x3000)
+#define CORESIGHT_FUNNEL_PHYS_BASE	(CORESIGHT_PHYS_BASE + 0x4000)
+#define CORESIGHT_ETM_PHYS_BASE		(CORESIGHT_PHYS_BASE + 0x1C000)
+
+static struct resource coresight_etb_resources[] = {
+	{
+		.start = CORESIGHT_ETB_PHYS_BASE,
+		.end   = CORESIGHT_ETB_PHYS_BASE + SZ_4K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device coresight_etb_device = {
+	.name          = "coresight_etb",
+	.id            = -1,
+	.num_resources = ARRAY_SIZE(coresight_etb_resources),
+	.resource      = coresight_etb_resources,
+};
+
+static struct resource coresight_tpiu_resources[] = {
+	{
+		.start = CORESIGHT_TPIU_PHYS_BASE,
+		.end   = CORESIGHT_TPIU_PHYS_BASE + SZ_4K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device coresight_tpiu_device = {
+	.name          = "coresight_tpiu",
+	.id            = -1,
+	.num_resources = ARRAY_SIZE(coresight_tpiu_resources),
+	.resource      = coresight_tpiu_resources,
+};
+
+static struct resource coresight_funnel_resources[] = {
+	{
+		.start = CORESIGHT_FUNNEL_PHYS_BASE,
+		.end   = CORESIGHT_FUNNEL_PHYS_BASE + SZ_4K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device coresight_funnel_device = {
+	.name          = "coresight_funnel",
+	.id            = -1,
+	.num_resources = ARRAY_SIZE(coresight_funnel_resources),
+	.resource      = coresight_funnel_resources,
+};
+
+static struct resource coresight_etm_resources[] = {
+	{
+		.start = CORESIGHT_ETM_PHYS_BASE,
+		.end   = CORESIGHT_ETM_PHYS_BASE + (SZ_4K * 4) - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device coresight_etm_device = {
+	.name          = "coresight_etm",
+	.id            = -1,
+	.num_resources = ARRAY_SIZE(coresight_etm_resources),
+	.resource      = coresight_etm_resources,
+};
+
+#endif
+
+#ifdef CONFIG_CPUPOWER
+#include <linux/power/cpupower.h>
+static unsigned int table_default_power[1] = {
+	1024
+};
+
+static struct cputopo_power default_cpu_power = {
+	.max  = 1,
+	.step = 1,
+	.table = table_default_power,
+};
+
+static unsigned int table_ca9_power[18] = {
+/* freq< 
+    200  300  400  500
+    600  700  800  900
+   1000 1100 1200 1300
+   1400 1500 1600 1700
+   1800 other*/
+	8192, 8192, 8192, 8192,
+	8192, 1024, 1024, 1024,
+	1024, 1024, 1024, 1024,
+	1024, 1024, 1024, 1024,
+	1024, 1024,
+};
+
+static struct cputopo_power CA9_cpu_power = {
+	.max  = 18,
+	.step = 100000,
+	.table = table_ca9_power,
+};
+
+/* This table list all possible cpu power configuration */
+static struct cputopo_power *midas_cpupower_data[2] = {
+	&default_cpu_power,
+	&CA9_cpu_power,
+};
+
+static struct platform_device midas_cpupower_dev = {
+	.name = "cpupower",
+	.dev = {
+		.platform_data = midas_cpupower_data,
+	},
 };
 #endif
 
@@ -1803,13 +2188,16 @@ static struct platform_device *midas_devices[] __initdata = {
 
 	&s3c_device_i2c0,
 	&s3c_device_i2c1,
+#ifdef CONFIG_S3C_DEV_I2C2
+	&s3c_device_i2c2,
+#endif
 	&s3c_device_i2c3,
 #ifdef CONFIG_S3C_DEV_I2C4
 	&s3c_device_i2c4,
 #endif
 	/* &s3c_device_i2c5, */
 
-#ifdef CONFIG_AUDIENCE_ES305
+#if defined(CONFIG_AUDIENCE_ES305) || defined(CONFIG_MACH_T0_EUR_OPEN) || defined(CONFIG_MACH_T0_CHN_OPEN)
 	&s3c_device_i2c6,
 #endif
 	&s3c_device_i2c7,
@@ -1818,6 +2206,10 @@ static struct platform_device *midas_devices[] __initdata = {
 #ifdef CONFIG_SENSORS_AK8975C
 	&s3c_device_i2c10,
 #endif
+#ifdef CONFIG_SENSORS_AK8963C
+	&s3c_device_i2c10,
+#endif
+
 #ifdef CONFIG_SENSORS_LPS331
 	&s3c_device_i2c11,
 #endif
@@ -1828,28 +2220,44 @@ static struct platform_device *midas_devices[] __initdata = {
 
 #ifdef CONFIG_SAMSUNG_MHL
 	&s3c_device_i2c15,
-#if !defined(CONFIG_MACH_T0)
+#if !defined(CONFIG_MACH_T0) && !defined(CONFIG_MACH_M3)
 	&s3c_device_i2c16,
 #endif
 #endif /* CONFIG_SAMSUNG_MHL */
-#if defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2) ||  \
-	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3) || \
-	defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0)
+#if defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M3) || \
+	defined(CONFIG_MACH_M0) || \
+	defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0) || \
+	defined(CONFIG_MACH_BAFFIN)
 	&s3c_device_i2c17,
 #if 0
 	&s3c_device_i2c18,
 #endif
 #endif
-#ifdef CONFIG_LEDS_AN30259A
+#if defined(CONFIG_LEDS_AN30259A) || defined(CONFIG_LEDS_LP5521)
 	&s3c_device_i2c21,
 #endif
+#if defined (CONFIG_BARCODE_EMUL_ICE4)
+	&s3c_device_i2c22,
+#endif
+#if defined(CONFIG_FELICA)
+	&s3c_device_i2c30,
+#endif
 
-#if defined CONFIG_USB_EHCI_S5P && !defined CONFIG_LINK_DEVICE_HSIC
+#if defined CONFIG_USB_EHCI_S5P
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
+#else
 	&s5p_device_ehci,
 #endif
-#if defined CONFIG_USB_OHCI_S5P && !defined CONFIG_LINK_DEVICE_HSIC
+#endif
+
+#if defined CONFIG_USB_OHCI_S5P
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
+#else
 	&s5p_device_ohci,
 #endif
+#endif
+
 #ifdef CONFIG_USB_GADGET
 	&s3c_device_usbgadget,
 #endif
@@ -1931,6 +2339,9 @@ static struct platform_device *midas_devices[] __initdata = {
 	&SYSMMU_PLATDEV(fimc2),
 	&SYSMMU_PLATDEV(fimc3),
 	&SYSMMU_PLATDEV(jpeg),
+#ifdef CONFIG_FB_S5P_SYSMMU
+	&SYSMMU_PLATDEV(fimd0),
+#endif
 	&SYSMMU_PLATDEV(mfc_l),
 	&SYSMMU_PLATDEV(mfc_r),
 	&SYSMMU_PLATDEV(tv),
@@ -1969,10 +2380,13 @@ static struct platform_device *midas_devices[] __initdata = {
 #if defined(CONFIG_VIDEO_S5C73M3_SPI)
 	&exynos_device_spi1,
 #endif
-#if defined(CONFIG_PHONE_IPC_SPI)
+#if defined(CONFIG_LINK_DEVICE_SPI)
 	&exynos_device_spi2,
-	&ipc_spi_device,
 #elif defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
+	&exynos_device_spi2,
+#elif defined(CONFIG_ISDBT)
+	&exynos_device_spi2,
+#elif defined(CONFIG_LINK_DEVICE_PLD)
 	&exynos_device_spi2,
 #endif
 #endif
@@ -1988,6 +2402,16 @@ static struct platform_device *midas_devices[] __initdata = {
 #endif
 #ifdef CONFIG_EXYNOS4_SETUP_THERMAL
 	&s5p_device_tmu,
+#endif
+
+#ifdef CONFIG_CORESIGHT_ETM
+	&coresight_etb_device,
+	&coresight_tpiu_device,
+	&coresight_funnel_device,
+	&coresight_etm_device,
+#endif
+#ifdef CONFIG_CPUPOWER
+	&midas_cpupower_dev,
 #endif
 };
 
@@ -2018,19 +2442,24 @@ struct s5p_platform_tmu midas_tmu_data __initdata = {
 };
 #endif
 
-#if defined CONFIG_USB_OHCI_S5P && defined CONFIG_LINK_DEVICE_HSIC
+#if defined CONFIG_USB_OHCI_S5P
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
 static int __init s5p_ohci_device_initcall(void)
 {
 	return platform_device_register(&s5p_device_ohci);
 }
 late_initcall(s5p_ohci_device_initcall);
 #endif
-#if defined CONFIG_USB_EHCI_S5P && defined CONFIG_LINK_DEVICE_HSIC
+#endif
+
+#if defined CONFIG_USB_EHCI_S5P
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
 static int __init s5p_ehci_device_initcall(void)
 {
 	return platform_device_register(&s5p_device_ehci);
 }
 late_initcall(s5p_ehci_device_initcall);
+#endif
 #endif
 
 #if defined(CONFIG_VIDEO_TVOUT)
@@ -2043,6 +2472,23 @@ static struct s5p_platform_hpd hdmi_hpd_data __initdata = {
 static struct s5p_platform_cec hdmi_cec_data __initdata = {
 
 };
+
+#if defined(CONFIG_MACH_GC1) && defined(CONFIG_HDMI_TX_STRENGTH)
+static u8 gc1_hdmi_tx_val[5] = {0x00, 0x1f, 0x00, 0x00, 0x00};
+static struct s5p_tx_tuning gc1_tx_tuning = {
+	/* tx_ch: bit4 - Pre-emp
+	 *	  bit3 - Amp all
+	 *	  bit2 - fine amp ch0
+	 *	  bit1 - fine amp ch1
+	 *	  bit0 - fine amp ch2
+	 */
+	.tx_ch = 0x08,
+	.tx_val = &gc1_hdmi_tx_val[0],
+};
+static struct s5p_platform_tvout hdmi_tvout_data __initdata = {
+	.tx_tune = &gc1_tx_tuning,
+};
+#endif
 #endif
 
 #if defined(CONFIG_CMA)
@@ -2157,11 +2603,17 @@ static void __init exynos4_reserve_mem(void)
 		},
 #endif
 #ifdef CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1
+#ifndef CONFIG_USE_FIMC_CMA
 		{
 			.name = "fimc1",
 			.size = CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1 * SZ_1K,
+#if defined(CONFIG_MACH_GC1)
+			.start = 0x5ec00000,
+#else
 			.start = 0x65c00000,
+#endif
 		},
+#endif
 #endif
 #ifdef CONFIG_VIDEO_SAMSUNG_MEMSIZE_MFC1
 		{
@@ -2170,14 +2622,22 @@ static void __init exynos4_reserve_mem(void)
 			{
 				.alignment = 1 << 26,
 			},
+#if defined(CONFIG_MACH_GC1)
+			.start = 0x5e000000,
+#else
 			.start = 0x64000000,
+#endif
 		},
 #endif
 #ifdef CONFIG_VIDEO_SAMSUNG_MEMSIZE_MFC_NORMAL
 		{
 			.name = "mfc-normal",
 			.size = CONFIG_VIDEO_SAMSUNG_MEMSIZE_MFC_NORMAL * SZ_1K,
+#if defined(CONFIG_MACH_GC1)
+			.start = 0x5e000000,
+#else
 			.start = 0x64000000,
+#endif
 		},
 #endif
 		{
@@ -2186,6 +2646,7 @@ static void __init exynos4_reserve_mem(void)
 	};
 #ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 	static struct cma_region regions_secure[] = {
+#ifndef CONFIG_DMA_CMA
 #ifdef CONFIG_ION_EXYNOS_CONTIGHEAP_SIZE
 		{
 			.name	= "ion",
@@ -2202,6 +2663,46 @@ static void __init exynos4_reserve_mem(void)
 			.name = "sectbl",
 			.size = SZ_1M,
 		},
+#else
+#if defined(CONFIG_USE_MFC_CMA) && defined(CONFIG_MACH_M0)
+#ifdef CONFIG_ION_EXYNOS_CONTIGHEAP_SIZE
+		{
+			.name = "ion",
+			.size = CONFIG_ION_EXYNOS_CONTIGHEAP_SIZE * SZ_1K,
+			.start = 0x5F200000,
+		},
+#endif
+#ifdef CONFIG_VIDEO_SAMSUNG_MEMSIZE_MFC_SECURE
+		{
+			.name = "mfc-secure",
+			.size = CONFIG_VIDEO_SAMSUNG_MEMSIZE_MFC_SECURE * SZ_1K,
+			.start = 0x5C100000,
+		},
+#endif
+		{
+			.name = "sectbl",
+			.size = SZ_1M,
+			.start = 0x5C000000,
+		},
+#else
+#ifdef CONFIG_ION_EXYNOS_CONTIGHEAP_SIZE
+		{
+			.name   = "ion",
+			.size   = CONFIG_ION_EXYNOS_CONTIGHEAP_SIZE * SZ_1K,
+		},
+#endif
+#ifdef CONFIG_VIDEO_SAMSUNG_MEMSIZE_MFC_SECURE
+		{
+			.name = "mfc-secure",
+			.size = CONFIG_VIDEO_SAMSUNG_MEMSIZE_MFC_SECURE * SZ_1K,
+		},
+#endif
+		{
+			.name = "sectbl",
+			.size = SZ_1M,
+		},
+#endif
+#endif
 		{
 			.size = 0
 		},
@@ -2327,6 +2828,9 @@ static void __init exynos_sysmmu_init(void)
 #ifdef CONFIG_VIDEO_JPEG_V2X
 	sysmmu_set_owner(&SYSMMU_PLATDEV(jpeg).dev, &s5p_device_jpeg.dev);
 #endif
+#ifdef CONFIG_FB_S5P_SYSMMU
+	sysmmu_set_owner(&SYSMMU_PLATDEV(fimd0).dev, &s3c_device_fb.dev);
+#endif
 #ifdef CONFIG_VIDEO_EXYNOS_FIMC_IS
 	ASSIGN_SYSMMU_POWERDOMAIN(is_isp, &exynos4_device_pd[PD_ISP].dev);
 	ASSIGN_SYSMMU_POWERDOMAIN(is_drc, &exynos4_device_pd[PD_ISP].dev);
@@ -2385,13 +2889,49 @@ void __init s3cfb_extdsp_set_platdata(struct s3c_platform_fb *pd)
 
 static inline int need_i2c5(void)
 {
-#if defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2) || \
-	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3)
+#if defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M0)
 	return system_rev != 3;
 #else
 	return 1;
 #endif
 }
+
+#if defined(CONFIG_FELICA)
+static void felica_setup(void)
+{
+	/* I2C SDA GPY2[4] */
+	gpio_request(FELICA_GPIO_I2C_SDA, FELICA_GPIO_I2C_SDA_NAME);
+	s3c_gpio_setpull(FELICA_GPIO_I2C_SDA, S3C_GPIO_PULL_DOWN);
+	gpio_free(FELICA_GPIO_I2C_SDA);
+
+	/* I2C SCL GPY2[5] */
+	gpio_request(FELICA_GPIO_I2C_SCL, FELICA_GPIO_I2C_SCL_NAME);
+	s3c_gpio_setpull(FELICA_GPIO_I2C_SCL, S3C_GPIO_PULL_DOWN);
+	gpio_free(FELICA_GPIO_I2C_SCL);
+
+	/* PON GPL2[7] */
+	gpio_request(FELICA_GPIO_PON, FELICA_GPIO_PON_NAME);
+	s3c_gpio_setpull(FELICA_GPIO_PON, S3C_GPIO_PULL_DOWN);
+	s3c_gpio_cfgpin(FELICA_GPIO_PON, S3C_GPIO_SFN(1)); /* OUTPUT */
+	gpio_free(FELICA_GPIO_PON);
+
+	/* RFS GPL2[6] */
+	gpio_request(FELICA_GPIO_RFS, FELICA_GPIO_RFS_NAME);
+	s3c_gpio_setpull(FELICA_GPIO_RFS, S3C_GPIO_PULL_DOWN);
+	gpio_direction_input(FELICA_GPIO_RFS);
+	gpio_free(FELICA_GPIO_RFS);
+
+	/* INT GPX1[7] = WAKEUP_INT1[7] */
+	gpio_request(FELICA_GPIO_INT, FELICA_GPIO_INT_NAME);
+	s3c_gpio_setpull(FELICA_GPIO_INT, S3C_GPIO_PULL_DOWN);
+	s5p_register_gpio_interrupt(FELICA_GPIO_INT);
+	gpio_direction_input(FELICA_GPIO_INT);
+	irq_set_irq_type(gpio_to_irq(FELICA_GPIO_INT), IRQF_TRIGGER_FALLING);
+	s3c_gpio_cfgpin(FELICA_GPIO_INT, S3C_GPIO_SFN(0xF)); /* EINT */
+	gpio_free(FELICA_GPIO_INT);
+}
+#endif
 
 static void __init midas_machine_init(void)
 {
@@ -2404,8 +2944,9 @@ static void __init midas_machine_init(void)
 	struct clk *prnt = NULL;
 	struct device *spi1_dev = &exynos_device_spi1.dev;
 #endif
-#if defined(CONFIG_PHONE_IPC_SPI) \
-	|| defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
+#if defined(CONFIG_LINK_DEVICE_SPI) \
+	|| defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) \
+	|| defined(CONFIG_ISDBT) || defined(CONFIG_LINK_DEVICE_PLD)
 	struct device *spi2_dev = &exynos_device_spi2.dev;
 #endif
 #endif
@@ -2428,6 +2969,15 @@ static void __init midas_machine_init(void)
 	s3c_i2c1_set_platdata(NULL);
 	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
 
+#if defined(CONFIG_S3C_DEV_I2C2) \
+	&& !defined(CONFIG_MACH_T0_EUR_OPEN) \
+	&& !defined(CONFIG_MACH_T0_CHN_CU_DUOS) \
+	&& !defined(CONFIG_MACH_T0_CHN_OPEN_DUOS) \
+	&& !defined(CONFIG_MACH_T0_CHN_CMCC) \
+	&& !defined(CONFIG_MACH_T0_CHN_OPEN)
+	s3c_i2c2_set_platdata(NULL);
+#endif
+
 	s3c_i2c3_set_platdata(NULL);
 	midas_tsp_init();
 #ifndef CONFIG_TOUCHSCREEN_MELFAS_GC
@@ -2439,20 +2989,39 @@ static void __init midas_machine_init(void)
 #endif
 
 #ifdef CONFIG_S3C_DEV_I2C4
+#if defined(CONFIG_MACH_T0)
+	s3c_i2c4_set_platdata(NULL);
+#else
 	s3c_i2c4_set_platdata(NULL);
 	if (!(system_rev != 3 && system_rev >= 0)) {
 		i2c_register_board_info(4, i2c_devs4_max77693,
 			ARRAY_SIZE(i2c_devs4_max77693));
 	}
 #endif
+#endif /* CONFIG_S3C_DEV_I2C4 */
 	midas_sound_init();
 
 #ifdef CONFIG_S3C_DEV_I2C5
+#if defined(CONFIG_MACH_T0_EUR_OPEN) || defined(CONFIG_MACH_T0_CHN_OPEN)
+	s3c_i2c5_set_platdata(NULL);
+#else
 	if (need_i2c5()) {
 		s3c_i2c5_set_platdata(&default_i2c5_data);
 		i2c_register_board_info(5, i2c_devs5,
 			ARRAY_SIZE(i2c_devs5));
 	}
+#endif
+#endif
+
+#if defined(CONFIG_INPUT_WACOM)
+	midas_wacom_init();
+#endif
+
+#ifdef CONFIG_S3C_DEV_I2C6
+#if defined(CONFIG_MACH_T0_EUR_OPEN) || defined(CONFIG_MACH_T0_CHN_OPEN)
+	s3c_i2c6_set_platdata(&default_i2c6_data);
+	i2c_register_board_info(6, i2c_devs6, ARRAY_SIZE(i2c_devs6));
+#endif
 #endif
 
 #ifdef CONFIG_MACH_GC1
@@ -2472,7 +3041,7 @@ static void __init midas_machine_init(void)
 #endif
 	i2c_register_board_info(8, i2c_devs8_emul, ARRAY_SIZE(i2c_devs8_emul));
 
-#ifndef CONFIG_LEDS_AAT1290A
+#if !defined(CONFIG_MACH_GC1) && !defined(CONFIG_LEDS_AAT1290A)
 	gpio_request(GPIO_3_TOUCH_INT, "3_TOUCH_INT");
 	s5p_register_gpio_interrupt(GPIO_3_TOUCH_INT);
 #endif
@@ -2485,8 +3054,8 @@ static void __init midas_machine_init(void)
 	i2c_register_board_info(11, i2c_devs11_emul,
 				ARRAY_SIZE(i2c_devs11_emul));
 
-#if defined(CONFIG_PN65N_NFC) && !defined(CONFIG_MACH_C1) \
-	&& !defined(CONFIG_MACH_C1VZW) && !defined(CONFIG_MACH_C2) && !defined(CONFIG_MACH_M3)
+#if defined(CONFIG_PN65N_NFC) && \
+	!defined(CONFIG_MACH_C1) && !defined(CONFIG_MACH_BAFFIN)
 	i2c_register_board_info(12, i2c_devs12_emul,
 				ARRAY_SIZE(i2c_devs12_emul));
 #endif
@@ -2504,27 +3073,51 @@ static void __init midas_machine_init(void)
 	i2c_register_board_info(16, i2c_devs16_emul,
 				ARRAY_SIZE(i2c_devs16_emul));
 #endif
-#if defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2) ||  \
-	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3) || \
-	defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0)
+#if defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M3) || \
+	defined(CONFIG_MACH_M0) || \
+	defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0) ||\
+	defined(CONFIG_MACH_BAFFIN)
+#if defined(CONFIG_MACH_T0) && defined(CONFIG_TARGET_LOCALE_KOR)
+	if (system_rev >= 9)
+		max77693_haptic_pdata.motor_en = motor_en;
+#endif
+#if defined(CONFIG_MACH_BAFFIN)
+		max77693_haptic_pdata.motor_en = motor_en;
+#endif
 	i2c_register_board_info(17, i2c_devs17_emul,
 				ARRAY_SIZE(i2c_devs17_emul));
 #endif
-#if defined(CONFIG_STMPE811_ADC) || defined(CONFIG_FM_SI4709_MODULE) \
-	|| defined(CONFIG_FM_SI4705_MODULE)
-	i2c_register_board_info(19, i2c_devs19_emul,
-				ARRAY_SIZE(i2c_devs19_emul));
-#endif
 
-#ifdef CONFIG_LEDS_AN30259A
+#if defined(CONFIG_LEDS_AN30259A) || defined(CONFIG_LEDS_LP5521)
 	i2c_register_board_info(21, i2c_devs21_emul,
 				ARRAY_SIZE(i2c_devs21_emul));
 #endif
+#if defined (CONFIG_BARCODE_EMUL_ICE4)
+	i2c_register_board_info(22, i2c_devs22_emul,
+				ARRAY_SIZE(i2c_devs22_emul));
+#endif
+
+#if defined(CONFIG_FELICA)
+	i2c_register_board_info(30, i2c_devs30, ARRAY_SIZE(i2c_devs30));
+#endif
 
 #if defined(GPIO_OLED_DET)
-	gpio_request(GPIO_OLED_DET, "OLED_DET");
-	s5p_register_gpio_interrupt(GPIO_OLED_DET);
-	gpio_free(GPIO_OLED_DET);
+	if (unlikely(gpio_request(GPIO_OLED_DET, "OLED_DET")))
+		pr_err("Request GPIO_OLED_DET is failed\n");
+	else {
+		s5p_register_gpio_interrupt(GPIO_OLED_DET);
+		gpio_free(GPIO_OLED_DET);
+	}
+#endif
+
+#if defined(GPIO_ERR_FG)
+	if (unlikely(gpio_request(GPIO_ERR_FG, "OLED_DET")))
+		pr_err("Request GPIO_ERR_FG is failed\n");
+	else {
+		s5p_register_gpio_interrupt(GPIO_ERR_FG);
+		gpio_free(GPIO_ERR_FG);
+	}
 #endif
 
 #ifdef CONFIG_FB_S5P
@@ -2583,9 +3176,16 @@ static void __init midas_machine_init(void)
 	s3cfb_extdsp_set_platdata(&default_extdsp_data);
 #endif
 
+#if defined(CONFIG_FELICA)
+	felica_setup();
+#endif /* CONFIG_FELICA */
+
 #if defined(CONFIG_VIDEO_TVOUT)
 	s5p_hdmi_hpd_set_platdata(&hdmi_hpd_data);
 	s5p_hdmi_cec_set_platdata(&hdmi_cec_data);
+#if defined(CONFIG_MACH_GC1) && defined(CONFIG_HDMI_TX_STRENGTH)
+	s5p_hdmi_tvout_set_platdata(&hdmi_tvout_data);
+#endif
 #ifdef CONFIG_EXYNOS_DEV_PD
 	s5p_device_tvout.dev.parent = &exynos4_device_pd[PD_TV].dev;
 	exynos4_device_pd[PD_TV].dev.parent = &exynos4_device_pd[PD_LCD0].dev;
@@ -2633,12 +3233,17 @@ static void __init midas_machine_init(void)
 	platform_add_devices(midas_devices, ARRAY_SIZE(midas_devices));
 
 #ifdef CONFIG_S3C_ADC
+#if defined(CONFIG_MACH_GC1) || defined(CONFIG_MACH_T0)
+	platform_device_register(&s3c_device_adc);
+#else
 	if (system_rev != 3)
 		platform_device_register(&s3c_device_adc);
 #endif
-#if defined(CONFIG_STMPE811_ADC) || defined(CONFIG_FM_SI4709_MODULE) \
-	|| defined(CONFIG_FM_SI4705_MODULE)
-	platform_device_register(&s3c_device_i2c19);
+
+#if defined(CONFIG_MACH_GC1)
+	gc1_jack_init();
+#endif
+
 #endif
 #if defined(CONFIG_BATTERY_SAMSUNG)
 	platform_device_register(&samsung_device_battery);
@@ -2649,8 +3254,8 @@ static void __init midas_machine_init(void)
 #if defined(CONFIG_MACH_M0_CTC)
 	midas_gpiokeys_platform_data.buttons = m0_buttons;
 	midas_gpiokeys_platform_data.nbuttons = ARRAY_SIZE(m0_buttons);
-#elif defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_C1VZW) || \
-	defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3)
+#elif defined(CONFIG_MACH_C1) || \
+	defined(CONFIG_MACH_M0)
 	if (system_rev != 3 && system_rev >= 1) {
 		midas_gpiokeys_platform_data.buttons = m0_buttons;
 		midas_gpiokeys_platform_data.nbuttons = ARRAY_SIZE(m0_buttons);
@@ -2659,9 +3264,8 @@ static void __init midas_machine_init(void)
 	/* Above logic is too complex. Let's override whatever the
 	   result is... */
 
-#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
-#if defined(CONFIG_MACH_M0_CHNOPEN) || defined(CONFIG_MACH_M0_HKTW) ||\
-	defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_M0)
+#if defined(CONFIG_MACH_M0_CHNOPEN) || defined(CONFIG_MACH_M0_HKTW)
 	{
 #else
 	if (system_rev >= 11) {
@@ -2671,7 +3275,8 @@ static void __init midas_machine_init(void)
 		midas_gpiokeys_platform_data.nbuttons =
 			ARRAY_SIZE(m0_rev11_buttons);
 	}
-#elif defined(CONFIG_TARGET_LOCALE_KOR)
+#elif defined(CONFIG_TARGET_LOCALE_KOR) && \
+	(defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_C1))
 		s3c_gpio_setpull(GPIO_OK_KEY_ANDROID, S3C_GPIO_PULL_NONE);
 		midas_gpiokeys_platform_data.buttons = c1_rev04_buttons;
 		midas_gpiokeys_platform_data.nbuttons =
@@ -2684,10 +3289,14 @@ static void __init midas_machine_init(void)
 		midas_gpiokeys_platform_data.nbuttons =
 			ARRAY_SIZE(m0_rev11_buttons);
 	}
-#elif defined(CONFIG_MACH_T0)
+#elif defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3)
 	midas_gpiokeys_platform_data.buttons = t0_buttons;
+	midas_gpiokeys_platform_data.nbuttons = ARRAY_SIZE(t0_buttons);
+#elif defined(CONFIG_MACH_BAFFIN)
+	s3c_gpio_setpull(GPIO_OK_KEY_ANDROID, S3C_GPIO_PULL_NONE);
+	midas_gpiokeys_platform_data.buttons = c1_rev04_buttons;
 	midas_gpiokeys_platform_data.nbuttons =
-		ARRAY_SIZE(t0_buttons);
+		ARRAY_SIZE(c1_rev04_buttons);
 #endif
 #ifdef CONFIG_MACH_GC1
 	/*for emul type*/
@@ -2710,8 +3319,8 @@ static void __init midas_machine_init(void)
 		platform_device_register(&s3c_device_i2c5);
 #endif
 
-#if defined(CONFIG_PN65N_NFC) && !defined(CONFIG_MACH_C1) \
-	&& !defined(CONFIG_MACH_C1VZW) && !defined(CONFIG_MACH_C2) && !defined(CONFIG_MACH_M3)
+#if defined(CONFIG_PN65N_NFC) && \
+	!defined(CONFIG_MACH_C1) && !defined(CONFIG_MACH_BAFFIN)
 	platform_device_register(&s3c_device_i2c12);
 #endif
 
@@ -2727,7 +3336,8 @@ static void __init midas_machine_init(void)
 		printk(KERN_ERR "Unable to set parent %s of clock %s.\n",
 		       prnt->name, sclk->name);
 
-	clk_set_rate(sclk, 88 * 1000 * 1000);
+	clk_set_rate(sclk, 100 * 1000 * 1000); /*50MHz*/
+
 	clk_put(sclk);
 	clk_put(prnt);
 
@@ -2745,8 +3355,9 @@ static void __init midas_machine_init(void)
 	spi_register_board_info(spi1_board_info, ARRAY_SIZE(spi1_board_info));
 #endif
 
-#if defined(CONFIG_PHONE_IPC_SPI) \
-	|| defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
+#if defined(CONFIG_LINK_DEVICE_SPI) \
+	|| defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) \
+	|| defined(CONFIG_ISDBT) || defined(CONFIG_LINK_DEVICE_PLD)
 	sclk = NULL;
 	prnt = NULL;
 
@@ -2778,6 +3389,8 @@ static void __init midas_machine_init(void)
 
 #if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
 	tdmb_dev_init();
+#elif defined(CONFIG_ISDBT)
+	isdbt_dev_init();
 #endif
 #endif
 
@@ -2812,11 +3425,9 @@ static void __init midas_machine_init(void)
 	/* 400 kHz for initialization of MMC Card  */
 	__raw_writel((__raw_readl(EXYNOS4_CLKDIV_FSYS3) & 0xfffffff0)
 		     | 0x9, EXYNOS4_CLKDIV_FSYS3);
-#if (defined(CONFIG_MACH_M0) && defined(CONFIG_TARGET_LOCALE_EUR)) || \
-	((defined(CONFIG_MACH_C1) || defined(CONFIG_MACH_M0)) && \
-	defined(CONFIG_TARGET_LOCALE_KOR))
-	__raw_writel((__raw_readl(EXYNOS4_CLKDIV_FSYS2) & 0x00f0fff0)
-		     | 0x10008, EXYNOS4_CLKDIV_FSYS2);
+#ifdef CONFIG_MACH_T0
+	__raw_writel((__raw_readl(EXYNOS4_CLKDIV_FSYS2) & 0xfff0fff0)
+		     | 0x90009, EXYNOS4_CLKDIV_FSYS2);
 #else
 	__raw_writel((__raw_readl(EXYNOS4_CLKDIV_FSYS2) & 0xfff0fff0)
 		     | 0x80008, EXYNOS4_CLKDIV_FSYS2);
@@ -2843,6 +3454,27 @@ static void __init exynos_c2c_reserve(void)
 }
 #endif
 
+#ifdef CONFIG_DMA_CMA
+static void __init exynos4_reserve(void)
+{
+	int ret = 0;
+
+#ifdef CONFIG_USE_FIMC_CMA
+	ret = dma_declare_contiguous(&s3c_device_fimc1.dev,
+		CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1 * SZ_1K, 0x65800000, 0);
+	if (ret != 0)
+		panic("alloc failed for FIMC1\n");
+#endif
+
+#if defined(CONFIG_USE_MFC_CMA) && defined(CONFIG_MACH_M0)
+	ret = dma_declare_contiguous(&s5p_device_mfc.dev,
+			0x02800000, 0x5C800000, 0);
+#endif
+	if (ret != 0)
+		printk(KERN_ERR "%s Fail\n", __func__);
+}
+#endif
+
 static void __init exynos_init_reserve(void)
 {
 	sec_debug_magic_init();
@@ -2854,8 +3486,10 @@ MACHINE_START(SMDK4412, "SMDK4x12")
 	.map_io		= midas_map_io,
 	.init_machine	= midas_machine_init,
 	.timer		= &exynos4_timer,
-#ifdef CONFIG_EXYNOS_C2C
+#if defined(CONFIG_EXYNOS_C2C)
 	.reserve	= &exynos_c2c_reserve,
+#elif defined(CONFIG_DMA_CMA)
+	.reserve	= &exynos4_reserve,
 #endif
 	.init_early	= &exynos_init_reserve,
 MACHINE_END
@@ -2866,8 +3500,10 @@ MACHINE_START(SMDK4212, "SMDK4x12")
 	.map_io		= midas_map_io,
 	.init_machine	= midas_machine_init,
 	.timer		= &exynos4_timer,
-#ifdef CONFIG_EXYNOS_C2C
+#if defined(CONFIG_EXYNOS_C2C)
 	.reserve	= &exynos_c2c_reserve,
+#elif defined(CONFIG_DMA_CMA)
+	.reserve	= &exynos4_reserve,
 #endif
 	.init_early	= &exynos_init_reserve,
 MACHINE_END

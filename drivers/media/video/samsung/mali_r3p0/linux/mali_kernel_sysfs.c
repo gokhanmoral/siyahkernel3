@@ -46,6 +46,8 @@
 #include "mali_user_settings_db.h"
 #include "mali_device_pause_resume.h"
 
+#define POWER_BUFFER_SIZE 3
+
 static struct dentry *mali_debugfs_dir = NULL;
 
 typedef enum
@@ -65,7 +67,7 @@ static const char* const mali_power_events[_MALI_MAX_EVENTS] = {
 };
 
 static u32 virtual_power_status_register=0;
-
+static char pwr_buf[POWER_BUFFER_SIZE];
 
 static int open_copy_private_data(struct inode *inode, struct file *filp)
 {
@@ -680,6 +682,8 @@ static const struct file_operations l2_all_counter_src1_fops = {
 static ssize_t power_events_write(struct file *filp, const char __user *ubuf, size_t cnt, loff_t *ppos)
 {
 
+	memset(pwr_buf, 0, POWER_BUFFER_SIZE);
+	virtual_power_status_register = 0;
 	if (!strncmp(ubuf,mali_power_events[_MALI_DEVICE_SUSPEND],strlen(mali_power_events[_MALI_DEVICE_SUSPEND])))
 	{
 		mali_pm_os_suspend();
@@ -717,22 +721,26 @@ static ssize_t power_events_write(struct file *filp, const char __user *ubuf, si
                 
 	}
 	*ppos += cnt;
+	sprintf(pwr_buf, "%d",virtual_power_status_register);
 	return cnt;
 }
 
 static ssize_t power_events_read(struct file *filp, char __user *ubuf, size_t cnt, loff_t *ppos)
 {
-	char buf[64];
-	int ret = 0;
-	ret = sprintf(buf, "%d",virtual_power_status_register);
-	virtual_power_status_register = 0;
-	return simple_read_from_buffer(ubuf, cnt, ppos, buf, ret);
+	return simple_read_from_buffer(ubuf, cnt, ppos, pwr_buf, POWER_BUFFER_SIZE);
+}
+
+static loff_t power_events_seek(struct file *file, loff_t offset, int orig)
+{
+	file->f_pos = offset;
+        return 0;
 }
 
 static const struct file_operations power_events_fops = {
 	.owner = THIS_MODULE,
 	.read  = power_events_read,
 	.write = power_events_write,
+	.llseek = power_events_seek,
 };
 
 
@@ -970,20 +978,16 @@ static ssize_t user_settings_write(struct file *filp, const char __user *ubuf, s
 	u32 val;
 	int ret;
 	_mali_uk_user_setting_t setting;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
-        char buf[32];
+	char buf[32];
 
-        cnt = min(cnt, sizeof(buf) - 1);
-        if (copy_from_user(buf, ubuf, cnt))
+	cnt = min(cnt, sizeof(buf) - 1);
+	if (copy_from_user(buf, ubuf, cnt))
 	{
-                return -EFAULT;
+		return -EFAULT;
 	}
-        buf[cnt] = '\0';
+	buf[cnt] = '\0';
 
 	ret = strict_strtoul(buf, 10, &val);
-#else
-	ret = kstrtouint_from_user(ubuf, cnt, 0, &val);
-#endif
 	if (0 != ret)
 	{
 		return ret;

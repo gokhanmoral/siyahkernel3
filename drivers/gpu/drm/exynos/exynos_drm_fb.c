@@ -49,9 +49,18 @@ struct exynos_drm_fb {
 	struct exynos_drm_gem_obj	*exynos_gem_obj[MAX_FB_BUFFER];
 };
 
-static int check_fb_gem_memory_type(struct exynos_drm_gem_obj *exynos_gem_obj)
+static int check_fb_gem_memory_type(struct drm_device *drm_dev,
+				struct exynos_drm_gem_obj *exynos_gem_obj)
 {
+	struct exynos_drm_private *private = drm_dev->dev_private;
 	unsigned int flags;
+
+	/*
+	 * if exynos drm driver supports iommu then framebuffer can use
+	 * all the buffer types.
+	 */
+	if (private->vmm)
+		return 0;
 
 	flags = exynos_gem_obj->flags;
 
@@ -59,6 +68,44 @@ static int check_fb_gem_memory_type(struct exynos_drm_gem_obj *exynos_gem_obj)
 	if (IS_NONCONTIG_BUFFER(flags)) {
 		DRM_ERROR("cannot use this gem memory type for fb.\n");
 		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int check_fb_gem_size(struct drm_device *drm_dev,
+				struct drm_framebuffer *fb,
+				unsigned int nr)
+{
+	unsigned long fb_size;
+	struct drm_gem_object *obj;
+	struct exynos_drm_gem_obj *exynos_gem_obj;
+	struct exynos_drm_fb *exynos_fb = to_exynos_fb(fb);
+
+	/* in case of RGB format, only one plane is used. */
+	if (nr < 2) {
+		exynos_gem_obj = exynos_fb->exynos_gem_obj[0];
+		obj = &exynos_gem_obj->base;
+		fb_size = fb->pitches[0] * fb->height;
+
+		if (fb_size != exynos_gem_obj->packed_size) {
+			DRM_ERROR("invalid fb or gem size.\n");
+			return -EINVAL;
+		}
+	/* in case of NV12MT, YUV420M and so on, two and three planes. */
+	} else {
+		unsigned int i;
+
+		for (i = 0; i < nr; i++) {
+			exynos_gem_obj = exynos_fb->exynos_gem_obj[i];
+			obj = &exynos_gem_obj->base;
+			fb_size = fb->pitches[i] * fb->height;
+
+			if (fb_size != exynos_gem_obj->packed_size) {
+				DRM_ERROR("invalid fb or gem size.\n");
+				return -EINVAL;
+			}
+		}
 	}
 
 	return 0;
@@ -128,7 +175,7 @@ exynos_drm_framebuffer_init(struct drm_device *dev,
 
 	exynos_gem_obj = to_exynos_gem_obj(obj);
 
-	ret = check_fb_gem_memory_type(exynos_gem_obj);
+	ret = check_fb_gem_memory_type(dev, exynos_gem_obj);
 	if (ret < 0) {
 		DRM_ERROR("cannot use this gem memory type for fb.\n");
 		return ERR_PTR(-EINVAL);
@@ -160,8 +207,7 @@ exynos_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 	struct drm_gem_object *obj;
 	struct drm_framebuffer *fb;
 	struct exynos_drm_fb *exynos_fb;
-	int nr;
-	int i;
+	int nr, i, ret;
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
@@ -194,7 +240,7 @@ exynos_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 
 		exynos_gem_obj = to_exynos_gem_obj(obj);
 
-		ret = check_fb_gem_memory_type(exynos_gem_obj);
+		ret = check_fb_gem_memory_type(dev, exynos_gem_obj);
 		if (ret < 0) {
 			DRM_ERROR("cannot use this gem memory type for fb.\n");
 			exynos_drm_fb_destroy(fb);
@@ -202,6 +248,12 @@ exynos_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		}
 
 		exynos_fb->exynos_gem_obj[i] = to_exynos_gem_obj(obj);
+	}
+
+	ret = check_fb_gem_size(dev, fb, nr);
+	if (ret < 0) {
+		exynos_drm_fb_destroy(fb);
+		return ERR_PTR(ret);
 	}
 
 	return fb;

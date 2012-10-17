@@ -81,6 +81,7 @@ ifeq ($(CONFIG_MACH_PX),y)
 obj-$(CONFIG_VIDEO_S5K5BAFX)	+= s5k5bafx-v2.o
 else
 obj-$(CONFIG_VIDEO_S5K5BAFX)	+= s5k5bafx.o
+obj-$(CONFIG_VIDEO_S5K5BBGX)		+= s5k5bbgx.o
 endif
 obj-$(CONFIG_VIDEO_S5K5CCGX_COMMON) 	+= s5k5ccgx.o
 obj-$(CONFIG_VIDEO_SR200PC20)	+= sr200pc20-p2.o

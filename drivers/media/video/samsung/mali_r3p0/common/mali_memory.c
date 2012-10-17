@@ -198,7 +198,7 @@ void mali_memory_terminate(void)
 
 _mali_osk_errcode_t mali_memory_session_begin(struct mali_session_data * session_data)
 {
-	MALI_DEBUG_PRINT(2, ("Memory session begin\n"));
+	MALI_DEBUG_PRINT(5, ("Memory session begin\n"));
 
 	/* create descriptor mapping table */
 	session_data->descriptor_mapping = mali_descriptor_mapping_create(MALI_MEM_DESCRIPTORS_INIT, MALI_MEM_DESCRIPTORS_MAX);
@@ -220,7 +220,7 @@ _mali_osk_errcode_t mali_memory_session_begin(struct mali_session_data * session
 	/* Init the session's memory allocation list */
 	_MALI_OSK_INIT_LIST_HEAD( &session_data->memory_head );
 
-	MALI_DEBUG_PRINT(2, ("MMU session begin: success\n"));
+	MALI_DEBUG_PRINT(5, ("MMU session begin: success\n"));
 	MALI_SUCCESS;
 }
 
@@ -230,7 +230,7 @@ static void descriptor_table_cleanup_callback(int descriptor_id, void* map_targe
 
 	descriptor = (mali_memory_allocation*)map_target;
 
-	MALI_DEBUG_PRINT(1, ("Cleanup of descriptor %d mapping to 0x%x in descriptor table\n", descriptor_id, map_target));
+	MALI_DEBUG_PRINT(3, ("Cleanup of descriptor %d mapping to 0x%x in descriptor table\n", descriptor_id, map_target));
 	MALI_DEBUG_ASSERT(descriptor);
 
 	mali_allocation_engine_release_memory(memory_engine, descriptor);
@@ -239,61 +239,83 @@ static void descriptor_table_cleanup_callback(int descriptor_id, void* map_targe
 
 void mali_memory_session_end(struct mali_session_data *session_data)
 {
-	MALI_DEBUG_PRINT(2, ("MMU session end\n"));
+	MALI_DEBUG_PRINT(3, ("MMU session end\n"));
 
 	if (NULL == session_data)
 	{
 		MALI_DEBUG_PRINT(1, ("No session data found during session end\n"));
 		return;
 	}
-	/* Lock the session so we can modify the memory list */
-	_mali_osk_lock_wait( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
-	/* Noninterruptable spinlock type, so must always have locked. Checking should've been done in OSK function. */
 
 #ifndef MALI_UKK_HAS_IMPLICIT_MMAP_CLEANUP
 #if _MALI_OSK_SPECIFIC_INDIRECT_MMAP
 #error Indirect MMAP specified, but UKK does not have implicit MMAP cleanup. Current implementation does not handle this.
 #else
-
-	/* Free all memory engine allocations */
-	if (0 == _mali_osk_list_empty(&session_data->memory_head))
 	{
-		mali_memory_allocation *descriptor;
-		mali_memory_allocation *temp;
-		_mali_uk_mem_munmap_s unmap_args;
-
-		MALI_DEBUG_PRINT(1, ("Memory found on session usage list during session termination\n"));
-
-		unmap_args.ctx = session_data;
-
-		/* use the 'safe' list iterator, since freeing removes the active block from the list we're iterating */
-		_MALI_OSK_LIST_FOREACHENTRY(descriptor, temp, &session_data->memory_head, mali_memory_allocation, list)
+		_mali_osk_errcode_t err;
+		err = _MALI_OSK_ERR_BUSY;
+		while (err == _MALI_OSK_ERR_BUSY)
 		{
-			MALI_DEBUG_PRINT(4, ("Freeing block with mali address 0x%x size %d mapped in user space at 0x%x\n",
-						descriptor->mali_address, descriptor->size, descriptor->size, descriptor->mapping)
-					);
-			/* ASSERT that the descriptor's lock references the correct thing */
-			MALI_DEBUG_ASSERT(  descriptor->lock == session_data->memory_lock );
-			/* Therefore, we have already locked the descriptor */
+			/* Lock the session so we can modify the memory list */
+			_mali_osk_lock_wait( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
+			err = _MALI_OSK_ERR_OK;
 
-			unmap_args.size = descriptor->size;
-			unmap_args.mapping = descriptor->mapping;
-			unmap_args.cookie = (u32)descriptor;
+			/* Free all memory engine allocations */
+			if (0 == _mali_osk_list_empty(&session_data->memory_head))
+			{
+				mali_memory_allocation *descriptor;
+				mali_memory_allocation *temp;
+				_mali_uk_mem_munmap_s unmap_args;
 
-			/*
-			 * This removes the descriptor from the list, and frees the descriptor
-			 *
-			 * Does not handle the _MALI_OSK_SPECIFIC_INDIRECT_MMAP case, since
-			 * the only OS we are aware of that requires indirect MMAP also has
-			 * implicit mmap cleanup.
-			 */
-			_mali_ukk_mem_munmap_internal( &unmap_args );
+				MALI_DEBUG_PRINT(1, ("Memory found on session usage list during session termination\n"));
+
+				unmap_args.ctx = session_data;
+
+				/* use the 'safe' list iterator, since freeing removes the active block from the list we're iterating */
+				_MALI_OSK_LIST_FOREACHENTRY(descriptor, temp, &session_data->memory_head, mali_memory_allocation, list)
+				{
+					MALI_DEBUG_PRINT(4, ("Freeing block with mali address 0x%x size %d mapped in user space at 0x%x\n",
+								descriptor->mali_address, descriptor->size, descriptor->size, descriptor->mapping)
+							);
+					/* ASSERT that the descriptor's lock references the correct thing */
+					MALI_DEBUG_ASSERT(  descriptor->lock == session_data->memory_lock );
+					/* Therefore, we have already locked the descriptor */
+
+					unmap_args.size = descriptor->size;
+					unmap_args.mapping = descriptor->mapping;
+					unmap_args.cookie = (u32)descriptor;
+
+					/*
+					 * This removes the descriptor from the list, and frees the descriptor
+					 *
+					 * Does not handle the _MALI_OSK_SPECIFIC_INDIRECT_MMAP case, since
+					 * the only OS we are aware of that requires indirect MMAP also has
+					 * implicit mmap cleanup.
+					 */
+					err = _mali_ukk_mem_munmap_internal( &unmap_args );
+
+					if (err == _MALI_OSK_ERR_BUSY)
+					{
+						_mali_osk_lock_signal( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
+						/*
+						 * Reason for this;
+						 * We where unable to stall the MMU, probably because we are in page fault handling.
+						 * Sleep for a while with the session lock released, then try again.
+						 * Abnormal termination of programs with running Mali jobs is a normal reason for this.
+						 */
+						_mali_osk_time_ubusydelay(10);
+						break; /* Will jump back into: "while (err == _MALI_OSK_ERR_BUSY)" */
+					}
+				}
+			}
 		}
+		/* Assert that we really did free everything */
+		MALI_DEBUG_ASSERT( _mali_osk_list_empty(&session_data->memory_head) );
 	}
-
-	/* Assert that we really did free everything */
-	MALI_DEBUG_ASSERT( _mali_osk_list_empty(&session_data->memory_head) );
 #endif /* _MALI_OSK_SPECIFIC_INDIRECT_MMAP */
+#else
+	/* Lock the session so we can modify the memory list */
+	_mali_osk_lock_wait( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
 #endif /* MALI_UKK_HAS_IMPLICIT_MMAP_CLEANUP */
 
 	if (NULL != session_data->descriptor_mapping)
@@ -638,15 +660,18 @@ _mali_osk_errcode_t _mali_ukk_release_ump_mem( _mali_uk_release_ump_mem_s *args 
 		MALI_ERROR(_MALI_OSK_ERR_FAULT);
 	}
 
-	mali_descriptor_mapping_free(session_data->descriptor_mapping, args->cookie);
+	descriptor = mali_descriptor_mapping_free(session_data->descriptor_mapping, args->cookie);
 
-	_mali_osk_lock_wait( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
+	if (NULL != descriptor)
+	{
+		_mali_osk_lock_wait( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
 
-	mali_allocation_engine_release_memory(memory_engine, descriptor);
+		mali_allocation_engine_release_memory(memory_engine, descriptor);
 
-	_mali_osk_lock_signal( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
+		_mali_osk_lock_signal( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
 
-	_mali_osk_free(descriptor);
+		_mali_osk_free(descriptor);
+	}
 
 	MALI_SUCCESS;
 
@@ -794,23 +819,23 @@ _mali_osk_errcode_t _mali_ukk_map_external_mem( _mali_uk_map_external_mem_s *arg
 	}
 	_mali_osk_list_init( &descriptor->list );
 
-	if (_MALI_OSK_ERR_OK != mali_descriptor_mapping_allocate_mapping(session_data->descriptor_mapping, descriptor, &md))
-	{
-		_mali_osk_free(descriptor);
-		MALI_ERROR(_MALI_OSK_ERR_FAULT);
-	}
-
 	_mali_osk_lock_wait(session_data->memory_lock, _MALI_OSK_LOCKMODE_RW);
 
 	if (_MALI_OSK_ERR_OK != mali_allocation_engine_allocate_memory(memory_engine, descriptor, &external_memory_allocator, NULL))
 	{
 		_mali_osk_lock_signal(session_data->memory_lock, _MALI_OSK_LOCKMODE_RW);
-		mali_descriptor_mapping_free(session_data->descriptor_mapping, md);
 		_mali_osk_free(descriptor);
 		MALI_ERROR(_MALI_OSK_ERR_NOMEM);
 	}
 
 	_mali_osk_lock_signal(session_data->memory_lock, _MALI_OSK_LOCKMODE_RW);
+
+	if (_MALI_OSK_ERR_OK != mali_descriptor_mapping_allocate_mapping(session_data->descriptor_mapping, descriptor, &md))
+	{
+		mali_allocation_engine_release_memory(memory_engine, descriptor);
+		_mali_osk_free(descriptor);
+		MALI_ERROR(_MALI_OSK_ERR_FAULT);
+	}
 
 	args->cookie = md;
 
@@ -824,6 +849,7 @@ _mali_osk_errcode_t _mali_ukk_map_external_mem( _mali_uk_map_external_mem_s *arg
 _mali_osk_errcode_t _mali_ukk_unmap_external_mem( _mali_uk_unmap_external_mem_s *args )
 {
 	mali_memory_allocation * descriptor;
+	void* old_value;
 	struct mali_session_data *session_data;
 
 	MALI_DEBUG_ASSERT_POINTER(args);
@@ -838,15 +864,18 @@ _mali_osk_errcode_t _mali_ukk_unmap_external_mem( _mali_uk_unmap_external_mem_s 
 		MALI_ERROR(_MALI_OSK_ERR_FAULT);
 	}
 
-	mali_descriptor_mapping_free(session_data->descriptor_mapping, args->cookie);
+	old_value = mali_descriptor_mapping_free(session_data->descriptor_mapping, args->cookie);
 
-	_mali_osk_lock_wait( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
+	if (NULL != old_value)
+	{
+		_mali_osk_lock_wait( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
 
-	mali_allocation_engine_release_memory(memory_engine, descriptor);
+		mali_allocation_engine_release_memory(memory_engine, descriptor);
 
-	_mali_osk_lock_signal( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
+		_mali_osk_lock_signal( session_data->memory_lock, _MALI_OSK_LOCKMODE_RW );
 
-	_mali_osk_free(descriptor);
+		_mali_osk_free(descriptor);
+	}
 
 	MALI_SUCCESS;
 }
@@ -889,11 +918,18 @@ static _mali_osk_errcode_t mali_address_manager_allocate(mali_memory_allocation 
 
 static void mali_address_manager_release(mali_memory_allocation * descriptor)
 {
+	const u32 illegal_mali_address = 0xffffffff;
 	struct mali_session_data *session_data;
 	MALI_DEBUG_ASSERT_POINTER(descriptor);
-	session_data = (struct mali_session_data *)descriptor->mali_addr_mapping_info;
 
+	/* It is allowed to call this function several times on the same descriptor.
+	   When memory is released we set the illegal_mali_address so we can early out here. */
+	if ( illegal_mali_address == descriptor->mali_address) return;
+
+	session_data = (struct mali_session_data *)descriptor->mali_addr_mapping_info;
 	mali_mmu_pagedir_unmap(session_data->page_directory, descriptor->mali_address, descriptor->size);
+
+	descriptor->mali_address = illegal_mali_address ;
 }
 
 static _mali_osk_errcode_t mali_address_manager_map(mali_memory_allocation * descriptor, u32 offset, u32 *phys_addr, u32 size)
@@ -922,10 +958,6 @@ _mali_osk_errcode_t _mali_ukk_mem_mmap( _mali_uk_mem_mmap_s *args )
 	struct mali_session_data *session_data;
 	mali_memory_allocation * descriptor;
 
-	u32 num_groups = mali_group_get_glob_num_groups();
-	struct mali_group *group;
-	u32 i;
-
 	/* validate input */
 	if (NULL == args) { MALI_DEBUG_PRINT(3,("mali_ukk_mem_mmap: args was NULL\n")); MALI_ERROR(_MALI_OSK_ERR_INVALID_ARGS); }
 
@@ -951,23 +983,13 @@ _mali_osk_errcode_t _mali_ukk_mem_mmap( _mali_uk_mem_mmap_s *args )
 
 	if (0 == mali_allocation_engine_allocate_memory(memory_engine, descriptor, physical_memory_allocators, &session_data->memory_head))
 	{
-		for (i = 0; i < num_groups; i++)
-		{
-			group = mali_group_get_glob_group(i);
-			if (mali_group_get_session(group) == session_data)
-			{
-				mali_mmu_zap_tlb(mali_group_get_mmu(group));
-			}
-		}
-
+		/* We do not FLUSH nor TLB_ZAP on MMAP, since we do both of those on job start*/
 	   	_mali_osk_lock_signal(session_data->memory_lock, _MALI_OSK_LOCKMODE_RW);
 
-		/* All ok, write out any information generated from this call */
 		args->mapping = descriptor->mapping;
 		args->cookie = (u32)descriptor;
 
 		MALI_DEBUG_PRINT(7, ("MMAP OK\n"));
-		/* All done */
 		MALI_SUCCESS;
 	}
 	else
@@ -995,41 +1017,55 @@ static _mali_osk_errcode_t _mali_ukk_mem_munmap_internal( _mali_uk_mem_munmap_s 
 
 	/** @note args->context unused; we use the memory_session from the cookie */
 	/* args->mapping and args->size are also discarded. They are only necessary
-	for certain do_munmap implementations. However, they could be used to check the
-	descriptor at this point. */
+	   for certain do_munmap implementations. However, they could be used to check the
+	   descriptor at this point. */
 
 	session_data = (struct mali_session_data *)descriptor->mali_addr_mapping_info;
 	MALI_DEBUG_ASSERT_POINTER(session_data);
 
-	for (i = 0; i < num_groups; i++)
+	/* Unmapping the memory from the mali virtual address space.
+	   It is allowed to call this function severeal times, which might happen if zapping below fails. */
+	mali_allocation_engine_release_pt1_mali_pagetables_unmap(memory_engine, descriptor);
+
+#ifdef MALI_UNMAP_FLUSH_ALL_MALI_L2
 	{
-		group = mali_group_get_glob_group(i);
-		if (mali_group_get_session(group) == session_data)
+		u32 number_of_clusters = mali_cluster_get_glob_num_clusters();
+		for (i = 0; i < number_of_clusters; i++)
 		{
-			mali_bool res = mali_mmu_enable_stall(mali_group_get_mmu(group));
-			if (MALI_TRUE != res)
+			struct mali_cluster *cluster;
+			cluster = mali_cluster_get_global_cluster(i);
+			if( mali_cluster_power_is_enabled_get(cluster) )
 			{
-				MALI_PRINT_ERROR(("_mali_ukk_mem_munmap_internal: unable to stall mmu\n"));
+				mali_cluster_l2_cache_invalidate_all_force(cluster);
 			}
 		}
 	}
-
-	/* This function also removes the memory from the session's memory list */
-	mali_allocation_engine_release_memory(memory_engine, descriptor);
-	_mali_osk_free(descriptor);
-
-	/* any L2 maintenance was done during mali_allocation_engine_release_memory */
-	/* the session is locked, so the active mmu list should be the same */
+#endif
 
 	for (i = 0; i < num_groups; i++)
 	{
 		group = mali_group_get_glob_group(i);
+		mali_group_lock(group);
+		mali_group_remove_session_if_unused(group, session_data);
 		if (mali_group_get_session(group) == session_data)
 		{
-			mali_mmu_zap_tlb(mali_group_get_mmu(group));
-			mali_mmu_disable_stall(mali_group_get_mmu(group));
+			/* The Zap also does the stall and disable_stall */
+			mali_bool zap_success = mali_mmu_zap_tlb(mali_group_get_mmu(group));
+			if (MALI_TRUE != zap_success)
+			{
+				MALI_DEBUG_PRINT(2, ("Mali memory unmap failed. Doing pagefault handling.\n"));
+				mali_group_bottom_half(group, GROUP_EVENT_MMU_PAGE_FAULT);
+				/* The bottom half will also do the unlock */
+				continue;
+			}
 		}
+		mali_group_unlock(group);
 	}
+
+	/* Removes the descriptor from the session's memory list, releases physical memory, releases descriptor */
+	mali_allocation_engine_release_pt2_physical_memory_free(memory_engine, descriptor);
+
+	_mali_osk_free(descriptor);
 
 	return _MALI_OSK_ERR_OK;
 }

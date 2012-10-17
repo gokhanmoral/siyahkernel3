@@ -33,7 +33,7 @@
 static struct i2c_client *this_client;
 static struct fm34_platform_data *pdata;
 
-#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_C1_KOR_LGT)
 unsigned char loopback_cmd[] = {
 /*0xC0,*/
 	0xFC, 0xF3, 0x3B, 0x22, 0xF5, 0x00, 0x04,
@@ -875,7 +875,7 @@ static int fm34_i2c_write(char *txData, int length)
 	return 0;
 }
 
-#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_C1_KOR_LGT)
 void fm34_parameter_reset(void)
 {
 	pr_info(MODULE_NAME "%s\n", __func__);

@@ -579,8 +579,6 @@ int exynos4210_cpufreq_init(struct exynos_dvfs_info *info)
 	info->freq_table = exynos4210_freq_table;
 	info->set_freq = exynos4210_set_frequency;
 	info->need_apll_change = exynos4210_pms_change;
-	info->max_current_idx = L4;
-	info->min_current_idx = L14;
 
 	return 0;
 

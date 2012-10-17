@@ -180,6 +180,9 @@ static unsigned int elvss_offset_table[ELVSS_STATUS_MAX] = {
 };
 #endif
 
+extern void (*lcd_early_suspend)(void);
+extern void (*lcd_late_resume)(void);
+
 #if defined(GPIO_OLED_DET)
 struct delayed_work hs_clk_re_try;
 unsigned int count_dsim;
@@ -1433,8 +1436,8 @@ void s6e63m0_late_resume(void)
 void samsung_switching_lcd_suspend(int init, int flip)
 {
 	pr_info("%s:  flip %s\n", __func__, (flip) ? "OPEN" : "CLOSE");
-	s5p_dsim_early_suspend();/*MIPI suspend*/
 	s6e63m0_early_suspend();/*LCD suspend*/
+	s5p_dsim_early_suspend();/*MIPI suspend*/
 }
 EXPORT_SYMBOL(samsung_switching_lcd_suspend);
 
@@ -1442,6 +1445,15 @@ void samsung_switching_lcd_resume(int init, int flip)
 {
 	pr_info("%s:  flip %s\n", __func__, (flip) ? "OPEN" : "CLOSE");
 	s5p_dsim_late_resume();/*MIPI wakeup*/
+#if 0
+	if (s5p_dsim_fifo_clear() == 0) {
+		s5p_dsim_early_suspend();
+		msleep(10);
+		s5p_dsim_late_resume();
+		if (s5p_dsim_fifo_clear() == 0)
+			pr_info("dsim resume fail!!!\n");
+	}
+#endif
 	s6e63m0_late_resume();/*LCD wakeup*/
 }
 EXPORT_SYMBOL(samsung_switching_lcd_resume);
@@ -1641,6 +1653,10 @@ static int s6e63m0_probe(struct device *dev)
 			pr_err("failed to reqeust irq. %d\n", lcd->irq);
 	}
 #endif
+
+	lcd_early_suspend = s6e63m0_early_suspend;
+	lcd_late_resume = s6e63m0_late_resume;
+
 	return 0;
 
 out_free_backlight:

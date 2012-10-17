@@ -165,9 +165,6 @@ typedef void (*_mali_osk_irq_bhandler_t)( void * arg );
  * This is public for allocation on stack. On systems that support it, this is just a single 32-bit value.
  * On others, it could be encapsulating an object stored elsewhere.
  *
- * Even though the structure has space for a u32, the counters will only
- * represent signed 24-bit integers.
- *
  * Regardless of implementation, the \ref _mali_osk_atomic functions \b must be used
  * for all accesses to the variable's value, even if atomicity is not required.
  * Do not access u.val or u.obj directly.
@@ -213,6 +210,8 @@ typedef enum
 	_MALI_OSK_LOCK_ORDER_MEM_PT_CACHE,
 	_MALI_OSK_LOCK_ORDER_MEM_INFO,
 	_MALI_OSK_LOCK_ORDER_MEM_SESSION,
+
+	_MALI_OSK_LOCK_ORDER_SESSIONS,
 
 	_MALI_OSK_LOCK_ORDER_FIRST
 } _mali_osk_lock_order_t;
@@ -784,11 +783,6 @@ void _mali_osk_atomic_dec( _mali_osk_atomic_t *atom );
 
 /** @brief Decrement an atomic counter, return new value
  *
- * Although the value returned is a u32, only numbers with signed 24-bit
- * precision (sign extended to u32) are returned.
- *
- * @note It is an error to decrement the counter beyond -(1<<23)
- *
  * @param atom pointer to an atomic counter
  * @return The new value, after decrement */
 u32 _mali_osk_atomic_dec_return( _mali_osk_atomic_t *atom );
@@ -802,18 +796,10 @@ void _mali_osk_atomic_inc( _mali_osk_atomic_t *atom );
 
 /** @brief Increment an atomic counter, return new value
  *
- * Although the value returned is a u32, only numbers with signed 24-bit
- * precision (sign extended to u32) are returned.
- *
- * @note It is an error to increment the counter beyond (1<<23)-1
- *
  * @param atom pointer to an atomic counter */
 u32 _mali_osk_atomic_inc_return( _mali_osk_atomic_t *atom );
 
 /** @brief Initialize an atomic counter
- *
- * The counters have storage for signed 24-bit integers. Initializing to signed
- * values requiring more than 24-bits storage will fail.
  *
  * @note the parameter required is a u32, and so signed integers should be
  * cast to u32.
@@ -826,9 +812,6 @@ u32 _mali_osk_atomic_inc_return( _mali_osk_atomic_t *atom );
 _mali_osk_errcode_t _mali_osk_atomic_init( _mali_osk_atomic_t *atom, u32 val );
 
 /** @brief Read a value from an atomic counter
- *
- * Although the value returned is a u32, only numbers with signed 24-bit
- * precision (sign extended to u32) are returned.
  *
  * This can only be safely used to determine the value of the counter when it
  * is guaranteed that other threads will not be modifying the counter. This

@@ -36,9 +36,7 @@
 #define LEN_XMIT_DELEY	10
 #define MAX_XMIT_SIZE	16
 
-#ifdef AIRPLAIN_MODE_TEST
-int lte_airplain_mode;
-#endif
+int factory_mode;
 
 enum xmit_bootloader_status {
 	XMIT_BOOT_READY,
@@ -168,16 +166,17 @@ long bootloader_ioctl(struct file *flip,
 				sizeof(status));
 
 		break;
-#ifdef AIRPLAIN_MODE_TEST
-	case IOCTL_LTE_MODEM_AIRPLAIN_ON:
-		lte_airplain_mode = 1;
-		pr_info("usb %s, IOCTL_LTE_MODEM LPM_ON\n", __func__);
+
+	case IOCTL_LTE_MODEM_FACTORY_MODE_ON:
+		factory_mode = 1;
+		pr_info("usb %s, Factory Mode On\n", __func__);
 		break;
-	case IOCTL_LTE_MODEM_AIRPLAIN_OFF:
-		pr_info("usb %s, IOCTL_LTE_MODEM LPM_OFF\n", __func__);
-		lte_airplain_mode = 0;
+
+	case IOCTL_LTE_MODEM_FACTORY_MODE_OFF:
+		factory_mode = 0;
+		pr_info("usb %s, Factory Mode Off\n", __func__);
 		break;
-#endif
+
 	default:
 		dev_err(&loader->spi_dev->dev,
 						"%s - ioctl cmd error\n",
@@ -265,9 +264,9 @@ int __devinit lte_modem_bootloader_probe(struct spi_device *spi)
 		goto err_setup;
 	}
 	pr_info("lte_modem_bootloader successfully probed\n");
-#ifdef AIRPLAIN_MODE_TEST
-	lte_airplain_mode = 0;
-#endif
+
+	factory_mode = 0;
+
 	return 0;
 
 err_setup:

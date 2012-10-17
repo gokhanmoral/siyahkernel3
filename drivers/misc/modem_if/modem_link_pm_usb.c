@@ -12,7 +12,7 @@
  *
  */
 
-//#define DEBUG
+#define DEBUG
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -150,10 +150,8 @@ static int link_pm_hub_standby(void *args)
 	struct usb_link_device *usb_ld = pm_data->usb_ld;
 	int err = 0;
 
-	mif_info("wait hub standby\n");
-
 	if (!pm_data->port_enable) {
-		mif_err("hub power func not assinged\n");
+		mif_err("port power func not assinged\n");
 		return -ENODEV;
 	}
 
@@ -201,10 +199,8 @@ static long link_pm_ioctl(struct file *file, unsigned int cmd,
 						unsigned long arg)
 {
 	int value, err = 0;
-	struct task_struct *task = get_current();
 	struct link_pm_data *pm_data = file->private_data;
 	struct usb_link_device *usb_ld = pm_data->usb_ld;
-	char taskname[TASK_COMM_LEN];
 
 	mif_info("cmd: 0x%08x\n", cmd);
 
@@ -219,7 +215,7 @@ static long link_pm_ioctl(struct file *file, unsigned int cmd,
 		return !gpio_get_value(pm_data->gpio_link_hostwake);
 	case IOCTL_LINK_CONNECTED:
 		return usb_ld->if_usb_connected;
-	case IOCTL_LINK_PORT_ON: /* hub only */
+	case IOCTL_LINK_PORT_ON:
 		/* ignore cp host wakeup irq, set the hub_init_lock when AP try
 		 CP off and release hub_init_lock when CP boot done */
 		pm_data->hub_init_lock = 0;
@@ -234,7 +230,7 @@ static long link_pm_ioctl(struct file *file, unsigned int cmd,
 			pm_data->hub_status = HUB_STATE_RESUMMING;
 		}
 		break;
-	case IOCTL_LINK_PORT_OFF: /* hub only */
+	case IOCTL_LINK_PORT_OFF:
 		err = link_pm_hub_standby(pm_data);
 		if (err < 0) {
 			mif_err("usb3503 active fail\n");
@@ -243,19 +239,56 @@ static long link_pm_ioctl(struct file *file, unsigned int cmd,
 		pm_data->hub_init_lock = 1;
 		pm_data->hub_handshake_done = 0;
 		break;
-	case IOCTL_LINK_BLOCK_AUTOSUSPEND: /* block autosuspend forever */
-		mif_info("blocked autosuspend by `%s(%d)'\n",
-				get_task_comm(taskname, task), task->pid);
-		pm_data->block_autosuspend = true;
-		if (usb_ld->usbdev)
-			pm_runtime_forbid(&usb_ld->usbdev->dev);
-		break;
 	default:
 		break;
 	}
 exit:
 	return err;
 }
+
+static ssize_t show_autosuspend(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	char *p = buf;
+	struct miscdevice *miscdev = dev_get_drvdata(dev);
+	struct link_pm_data *pm_data = container_of(miscdev,
+			struct link_pm_data, miscdev);
+	struct usb_link_device *usb_ld = pm_data->usb_ld;
+
+	p += sprintf(buf, "%s\n", pm_data->autosuspend ? "on" : "off");
+
+	return p - buf;
+}
+
+static ssize_t store_autosuspend(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct miscdevice *miscdev = dev_get_drvdata(dev);
+	struct link_pm_data *pm_data = container_of(miscdev,
+			struct link_pm_data, miscdev);
+	struct usb_link_device *usb_ld = pm_data->usb_ld;
+	struct task_struct *task = get_current();
+	char taskname[TASK_COMM_LEN];
+
+	mif_info("autosuspend: %s: %s(%d)'\n",
+			buf, get_task_comm(taskname, task), task->pid);
+
+	if (!strncmp(buf, "on", 2)) {
+		pm_data->autosuspend = true;
+		if (usb_ld->usbdev)
+			pm_runtime_allow(&usb_ld->usbdev->dev);
+	} else if (!strncmp(buf, "off", 3)) {
+		pm_data->autosuspend = false;
+		if (usb_ld->usbdev)
+			pm_runtime_forbid(&usb_ld->usbdev->dev);
+	}
+
+	return count;
+}
+
+static struct device_attribute attr_autosuspend =
+		__ATTR(autosuspend, S_IRUGO | S_IWUSR,
+		show_autosuspend, store_autosuspend);
 
 static int link_pm_open(struct inode *inode, struct file *file)
 {
@@ -283,11 +316,13 @@ static int link_pm_notifier_event(struct notifier_block *this,
 {
 	struct link_pm_data *pm_data =
 			container_of(this, struct link_pm_data,	pm_notifier);
+	struct usb_link_device *usb_ld = pm_data->usb_ld;
 
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
 		pm_data->dpm_suspending = true;
-		link_pm_hub_standby(pm_data);
+		if (has_hub(usb_ld))
+			link_pm_hub_standby(pm_data);
 		return NOTIFY_OK;
 	case PM_POST_SUSPEND:
 		pm_data->dpm_suspending = false;
@@ -316,10 +351,10 @@ int link_pm_init(struct usb_link_device *usb_ld, void *data)
 	pm_data->gpio_link_slavewake = pm_pdata->gpio_link_slavewake;
 	pm_data->link_reconnect = pm_pdata->link_reconnect;
 	pm_data->port_enable = pm_pdata->port_enable;
-	pm_data->cpufreq_lock = pm_pdata->cpufreq_lock;
-	pm_data->cpufreq_unlock = pm_pdata->cpufreq_unlock;
+	pm_data->freq_lock = pm_pdata->freq_lock;
+	pm_data->freq_unlock = pm_pdata->freq_unlock;
 	pm_data->autosuspend_delay_ms = pm_pdata->autosuspend_delay_ms;
-	pm_data->block_autosuspend = false;
+	pm_data->autosuspend = true;
 
 	pm_data->usb_ld = usb_ld;
 	usb_ld->link_pm_data = pm_data;
@@ -332,6 +367,13 @@ int link_pm_init(struct usb_link_device *usb_ld, void *data)
 	if (err < 0) {
 		mif_err("fail to register pm device(%d)\n", err);
 		goto err_misc_register;
+	}
+
+	err = device_create_file(pm_data->miscdev.this_device,
+			&attr_autosuspend);
+	if (err) {
+		mif_err("fail to create file: autosuspend: %d\n", err);
+		goto err_create_file;
 	}
 
 	pm_data->hub_init_lock = 1;
@@ -367,10 +409,9 @@ int link_pm_init(struct usb_link_device *usb_ld, void *data)
 	return 0;
 
 err_request_irq:
+err_create_file:
 	misc_deregister(&pm_data->miscdev);
 err_misc_register:
 	kfree(pm_data);
 	return err;
 }
-
-

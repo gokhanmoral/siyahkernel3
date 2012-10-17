@@ -37,7 +37,14 @@
 #define FIMC_MAX_DEVS	4
 #define FIMC_MAX_SRC	2
 #define FIMC_MAX_DST	32
+#ifdef CONFIG_SLP_DISP_DEBUG
+#define FIMC_MAX_REG	128
+#define FIMC_BASE_REG(id)	(0x11800000 + (0x10000 * id))
+#endif
 #define FIMC_CLK_RATE	166750000
+#define FIMC_BUF_STOP	1
+#define FIMC_BUF_START	2
+#define FIMC_REG_SZ		32
 #define FIMC_WIDTH_ITU_709	1280
 
 #define get_fimc_context(dev)	platform_get_drvdata(to_platform_device(dev))
@@ -49,7 +56,7 @@
 enum fimc_wb {
 	FIMC_WB_NONE,
 	FIMC_WB_A,
-	FIMC_WB_B
+	FIMC_WB_B,
 };
 
 /*
@@ -322,6 +329,8 @@ static bool fimc_check_ovf(struct fimc_context *ctx)
 	flag = EXYNOS_CISTATUS_OVFIY | EXYNOS_CISTATUS_OVFICB |
 		EXYNOS_CISTATUS_OVFICR;
 
+	DRM_DEBUG_KMS("%s:flag[0x%x]\n", __func__, flag);
+
 	if (status & flag) {
 		cfg = fimc_read(EXYNOS_CIWDOFST);
 		cfg |= (EXYNOS_CIWDOFST_CLROVFIY | EXYNOS_CIWDOFST_CLROVFICB |
@@ -343,20 +352,49 @@ static bool fimc_check_ovf(struct fimc_context *ctx)
 	return false;
 }
 
-static int fimc_get_pf(struct fimc_context *ctx, bool present)
+static bool fimc_check_frame_end(struct fimc_context *ctx)
 {
-	u32 ret, pf;
+	u32 cfg;
 
-	DRM_DEBUG_KMS("%s:present[%d]\n", __func__, present);
+	cfg = fimc_read(EXYNOS_CISTATUS);
 
-	pf = fimc_read(EXYNOS_CISTATUS2);
+	DRM_DEBUG_KMS("%s:cfg[0x%x]\n", __func__, cfg);
 
-	if (present)
-		ret = EXYNOS_CISTATUS2_GET_FRAMECOUNT_PRESENT(pf);
-	else
-		ret = EXYNOS_CISTATUS2_GET_FRAMECOUNT_BEFORE(pf);
+	if (!(cfg & EXYNOS_CISTATUS_FRAMEEND))
+		return false;
 
-	return ret;
+	cfg &= ~(EXYNOS_CISTATUS_FRAMEEND);
+	fimc_write(cfg, EXYNOS_CISTATUS);
+
+	return true;
+}
+
+static int fimc_get_buf_id(struct fimc_context *ctx)
+{
+	u32 cfg;
+	int frame_cnt, buf_id;
+
+	DRM_DEBUG_KMS("%s\n", __func__);
+
+	cfg = fimc_read(EXYNOS_CISTATUS2);
+	frame_cnt = EXYNOS_CISTATUS2_GET_FRAMECOUNT_BEFORE(cfg);
+
+	if (frame_cnt == 0)
+		frame_cnt = EXYNOS_CISTATUS2_GET_FRAMECOUNT_PRESENT(cfg);
+
+	DRM_DEBUG_KMS("%s:present[%d]before[%d]\n", __func__,
+		EXYNOS_CISTATUS2_GET_FRAMECOUNT_PRESENT(cfg),
+		EXYNOS_CISTATUS2_GET_FRAMECOUNT_BEFORE(cfg));
+
+	if (frame_cnt == 0) {
+		DRM_ERROR("failed to get frame count.\n");
+		return -EIO;
+	}
+
+	buf_id = frame_cnt - 1;
+	DRM_DEBUG_KMS("%s:buf_id[%d]\n", __func__, buf_id);
+
+	return buf_id;
 }
 
 static void fimc_handle_lastend(struct fimc_context *ctx, bool enable)
@@ -372,6 +410,70 @@ static void fimc_handle_lastend(struct fimc_context *ctx, bool enable)
 		cfg &= ~EXYNOS_CIOCTRL_LASTENDEN;
 
 	fimc_write(cfg, EXYNOS_CIOCTRL);
+}
+
+static int fimc_set_planar_addr(struct drm_exynos_ipp_buf_info *buf_info,
+			       u32 fmt, struct drm_exynos_sz *sz)
+{
+	dma_addr_t *y_addr = &buf_info->base[EXYNOS_DRM_PLANAR_Y];
+	dma_addr_t *cb_addr = &buf_info->base[EXYNOS_DRM_PLANAR_CB];
+	dma_addr_t *cr_addr = &buf_info->base[EXYNOS_DRM_PLANAR_CR];
+	uint64_t y_ofs, cb_ofs, cr_ofs;
+
+	/*
+	 * ToDo: check the buffer size between gem allocated buffers
+	 * and each planar size.
+	 */
+	switch (fmt) {
+	case DRM_FORMAT_NV12:
+	case DRM_FORMAT_NV21:
+	case DRM_FORMAT_NV16:
+	case DRM_FORMAT_NV61:
+		y_ofs = sz->hsize * sz->vsize;
+		cb_ofs = y_ofs >> 1;
+		cr_ofs = 0;
+		break;
+	case DRM_FORMAT_NV12M:
+		y_ofs = ALIGN(ALIGN(sz->hsize, 16) *
+				ALIGN(sz->vsize, 16), SZ_2K);
+		cb_ofs = ALIGN(ALIGN(sz->hsize, 16) *
+				ALIGN(sz->vsize >> 1, 16), SZ_2K);
+		cr_ofs = 0;
+		break;
+	case DRM_FORMAT_NV12MT:
+		y_ofs = ALIGN(ALIGN(sz->hsize, 128) *
+				ALIGN(sz->vsize, 32), SZ_8K);
+		cb_ofs = ALIGN(ALIGN(sz->hsize, 128) *
+				ALIGN(sz->vsize >> 1, 32), SZ_8K);
+		cr_ofs = 0;
+		break;
+	case DRM_FORMAT_YUV410:
+	case DRM_FORMAT_YVU410:
+	case DRM_FORMAT_YUV411:
+	case DRM_FORMAT_YVU411:
+	case DRM_FORMAT_YUV420:
+	case DRM_FORMAT_YVU420:
+	case DRM_FORMAT_YUV422:
+	case DRM_FORMAT_YVU422:
+	case DRM_FORMAT_YUV444:
+	case DRM_FORMAT_YVU444:
+	case DRM_FORMAT_YUV420M:
+		y_ofs = sz->hsize * sz->vsize;
+		cb_ofs = cr_ofs = y_ofs >> 2;
+		break;
+	default:
+		y_ofs = cb_ofs = cr_ofs = 0;
+		break;
+	}
+
+	if (y_ofs && *y_addr) {
+		*cb_addr = *y_addr + y_ofs;
+
+		if (cb_ofs && *cb_addr)
+			*cr_addr = *cb_addr + cb_ofs;
+	}
+
+	return 0;
 }
 
 static int fimc_src_set_fmt_order(struct fimc_context *ctx, u32 fmt)
@@ -432,6 +534,7 @@ static int fimc_src_set_fmt_order(struct fimc_context *ctx, u32 fmt)
 		break;
 	case DRM_FORMAT_NV12:
 	case DRM_FORMAT_NV12M:
+	case DRM_FORMAT_NV12MT:
 	case DRM_FORMAT_NV16:
 		cfg |= (EXYNOS_MSCTRL_ORDER2P_LSB_CBCR |
 			EXYNOS_MSCTRL_C_INT_IN_2PLANE);
@@ -482,6 +585,7 @@ static int fimc_src_set_fmt(struct device *dev, u32 fmt)
 	case DRM_FORMAT_NV12:
 	case DRM_FORMAT_NV12M:
 	case DRM_FORMAT_NV21:
+	case DRM_FORMAT_NV12MT:
 		cfg |= EXYNOS_MSCTRL_INFORMAT_YCBCR420;
 		break;
 	default:
@@ -494,7 +598,7 @@ static int fimc_src_set_fmt(struct device *dev, u32 fmt)
 	cfg = fimc_read(EXYNOS_CIDMAPARAM);
 	cfg &= ~EXYNOS_CIDMAPARAM_R_MODE_MASK;
 
-	if (fmt == DRM_FORMAT_NV12M)
+	if (fmt == DRM_FORMAT_NV12MT)
 		cfg |= EXYNOS_CIDMAPARAM_R_MODE_64X32;
 	else
 		cfg |= EXYNOS_CIDMAPARAM_R_MODE_LINEAR;
@@ -600,6 +704,12 @@ static int fimc_src_set_size(struct device *dev, int swap,
 	struct drm_exynos_pos *pos, struct drm_exynos_sz *sz)
 {
 	struct fimc_context *ctx = get_fimc_context(dev);
+	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
+	struct drm_exynos_ipp_config *config =
+		&property->config[EXYNOS_DRM_OPS_SRC];
+	struct drm_exynos_pos img_pos = *pos;
+	struct drm_exynos_sz img_sz = *sz;
 	u32 cfg;
 
 	/* ToDo: check width and height */
@@ -608,24 +718,27 @@ static int fimc_src_set_size(struct device *dev, int swap,
 		__func__, swap, sz->hsize, sz->vsize);
 
 	/* original size */
-	if (swap)
-		cfg = EXYNOS_ORGISIZE_HORIZONTAL(sz->vsize) |
-			EXYNOS_ORGISIZE_VERTICAL(sz->hsize);
-	else
-		cfg = EXYNOS_ORGISIZE_HORIZONTAL(sz->hsize) |
-			EXYNOS_ORGISIZE_VERTICAL(sz->vsize);
+	cfg = (EXYNOS_ORGISIZE_HORIZONTAL(img_sz.hsize) |
+		EXYNOS_ORGISIZE_VERTICAL(img_sz.vsize));
 
 	fimc_write(cfg, EXYNOS_ORGISIZE);
 
 	DRM_DEBUG_KMS("%s:x[%d]y[%d]w[%d]h[%d]\n", __func__,
 		pos->x, pos->y, pos->w, pos->h);
 
+	if (swap) {
+		img_pos.w = pos->h;
+		img_pos.h = pos->w;
+		img_sz.hsize = sz->vsize;
+		img_sz.vsize = sz->hsize;
+	}
+
 	/* set input DMA image size */
 	cfg = fimc_read(EXYNOS_CIREAL_ISIZE);
 	cfg &= ~(EXYNOS_CIREAL_ISIZE_HEIGHT_MASK |
 		EXYNOS_CIREAL_ISIZE_WIDTH_MASK);
-	cfg |= (EXYNOS_CIREAL_ISIZE_WIDTH(sz->hsize) |
-		EXYNOS_CIREAL_ISIZE_HEIGHT(sz->vsize));
+	cfg |= (EXYNOS_CIREAL_ISIZE_WIDTH(img_sz.hsize) |
+		EXYNOS_CIREAL_ISIZE_HEIGHT(img_sz.vsize));
 	fimc_write(cfg, EXYNOS_CIREAL_ISIZE);
 
 	/*
@@ -633,45 +746,61 @@ static int fimc_src_set_size(struct device *dev, int swap,
 	 * for now, we support only ITU601 8 bit mode
 	 */
 	cfg = (EXYNOS_CISRCFMT_ITU601_8BIT |
-		EXYNOS_CISRCFMT_SOURCEHSIZE(sz->hsize) |
-		EXYNOS_CISRCFMT_SOURCEVSIZE(sz->vsize));
+		EXYNOS_CISRCFMT_SOURCEHSIZE(img_sz.hsize) |
+		EXYNOS_CISRCFMT_SOURCEVSIZE(img_sz.vsize));
 	fimc_write(cfg, EXYNOS_CISRCFMT);
 
-	return fimc_set_window(ctx, pos, sz);
+	config->sz = img_sz;
+	config->pos = img_pos;
+
+	return fimc_set_window(ctx, &img_pos, &img_sz);
 }
 
-static int fimc_src_set_addr(struct device *dev, dma_addr_t *base,
-		u32 id, enum drm_exynos_ipp_buf_ctrl buf_ctrl)
+static int fimc_src_set_addr(struct device *dev,
+			struct drm_exynos_ipp_buf_info *buf_info, u32 buf_id,
+			enum drm_exynos_ipp_buf_ctrl buf_ctrl)
 {
 	struct fimc_context *ctx = get_fimc_context(dev);
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
 	struct drm_exynos_ipp_config *config =
-		&ippdrv->property.config[EXYNOS_DRM_OPS_SRC];
+		&property->config[EXYNOS_DRM_OPS_SRC];
+	int ret;
 
-	DRM_DEBUG_KMS("%s:id[%d]buf_ctrl[%d]\n", __func__, id, buf_ctrl);
+	DRM_DEBUG_KMS("%s:buf_id[%d]buf_ctrl[%d]\n", __func__,
+		buf_id, buf_ctrl);
 
-	if (id > FIMC_MAX_SRC) {
-		dev_err(ippdrv->dev, "inavlid id value %d.\n", id);
-		return -EINVAL;
+	if (buf_id > FIMC_MAX_SRC) {
+		dev_info(ippdrv->dev, "inavlid buf_id %d.\n", buf_id);
+		return -ENOMEM;
 	}
 
 	/* address register set */
 	switch (buf_ctrl) {
-	case IPP_BUF_CTRL_MAP:
-	case IPP_BUF_CTRL_UNMAP:
-		fimc_write(base[EXYNOS_DRM_PLANAR_Y], EXYNOS_CIIYSA(id));
+	case IPP_BUF_CTRL_QUEUE:
+	case IPP_BUF_CTRL_DEQUEUE:
+		ret = fimc_set_planar_addr(buf_info, config->fmt, &config->sz);
+
+		if (ret) {
+			dev_err(dev, "failed to set plane addr.\n");
+			return ret;
+		}
+
+		fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_Y],
+			EXYNOS_CIIYSA(buf_id));
 
 		if (config->fmt == DRM_FORMAT_YVU420) {
-			fimc_write(base[EXYNOS_DRM_PLANAR_CR],
-				EXYNOS_CIICRSA(id));
-			fimc_write(base[EXYNOS_DRM_PLANAR_CB],
-				EXYNOS_CIICBSA(id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CR],
+				EXYNOS_CIICBSA(buf_id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CB],
+				EXYNOS_CIICRSA(buf_id));
 		} else {
-			fimc_write(base[EXYNOS_DRM_PLANAR_CB],
-				EXYNOS_CIICBSA(id));
-			fimc_write(base[EXYNOS_DRM_PLANAR_CR],
-				EXYNOS_CIICRSA(id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CB],
+				EXYNOS_CIICBSA(buf_id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CR],
+				EXYNOS_CIICRSA(buf_id));
 		}
+		break;
 	default:
 		/* bypass */
 		break;
@@ -751,6 +880,7 @@ static int fimc_dst_set_fmt_order(struct fimc_context *ctx, u32 fmt)
 		break;
 	case DRM_FORMAT_NV12:
 	case DRM_FORMAT_NV12M:
+	case DRM_FORMAT_NV12MT:
 	case DRM_FORMAT_NV16:
 		cfg |= EXYNOS_CIOCTRL_ORDER2P_LSB_CBCR;
 		cfg |= EXYNOS_CIOCTRL_YCBCR_2PLANE;
@@ -806,6 +936,7 @@ static int fimc_dst_set_fmt(struct device *dev, u32 fmt)
 		case DRM_FORMAT_YVU420:
 		case DRM_FORMAT_NV12:
 		case DRM_FORMAT_NV12M:
+		case DRM_FORMAT_NV12MT:
 		case DRM_FORMAT_NV21:
 			cfg |= EXYNOS_CITRGFMT_OUTFORMAT_YCBCR420;
 			break;
@@ -821,7 +952,7 @@ static int fimc_dst_set_fmt(struct device *dev, u32 fmt)
 	cfg = fimc_read(EXYNOS_CIDMAPARAM);
 	cfg &= ~EXYNOS_CIDMAPARAM_W_MODE_MASK;
 
-	if (fmt == DRM_FORMAT_NV12M)
+	if (fmt == DRM_FORMAT_NV12MT)
 		cfg |= EXYNOS_CIDMAPARAM_W_MODE_64X32;
 	else
 		cfg |= EXYNOS_CIDMAPARAM_W_MODE_LINEAR;
@@ -1010,85 +1141,108 @@ static int fimc_dst_set_size(struct device *dev, int swap,
 	struct drm_exynos_pos *pos, struct drm_exynos_sz *sz)
 {
 	struct fimc_context *ctx = get_fimc_context(dev);
-	u32 cfg, swap_w;
+	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
+	struct drm_exynos_ipp_config *config =
+		&property->config[EXYNOS_DRM_OPS_DST];
+	struct drm_exynos_pos img_pos = *pos;
+	struct drm_exynos_sz img_sz = *sz;
+	u32 cfg;
 
 	DRM_DEBUG_KMS("%s:swap[%d]hsize[%d]vsize[%d]\n",
 		__func__, swap, sz->hsize, sz->vsize);
 
 	/* original size */
-	if (swap) {
-		cfg = (EXYNOS_ORGOSIZE_HORIZONTAL(sz->vsize) |
-			EXYNOS_ORGOSIZE_VERTICAL(sz->hsize));
-		swap_w = sz->vsize;
-	} else {
-		cfg = (EXYNOS_ORGOSIZE_HORIZONTAL(sz->hsize) |
-			EXYNOS_ORGOSIZE_VERTICAL(sz->vsize));
-		swap_w = sz->hsize;
-	}
+	cfg = (EXYNOS_ORGOSIZE_HORIZONTAL(img_sz.hsize) |
+		EXYNOS_ORGOSIZE_VERTICAL(img_sz.vsize));
 
 	fimc_write(cfg, EXYNOS_ORGOSIZE);
 
-	DRM_DEBUG_KMS("%s:swap_w[%d]x[%d]y[%d]w[%d]h[%d]\n",
-		__func__, swap_w, pos->x, pos->y, pos->w, pos->h);
+	DRM_DEBUG_KMS("%s:x[%d]y[%d]w[%d]h[%d]\n",
+		__func__, pos->x, pos->y, pos->w, pos->h);
 
 	/* CSC ITU */
 	cfg = fimc_read(EXYNOS_CIGCTRL);
 	cfg &= ~EXYNOS_CIGCTRL_CSC_MASK;
 
-	if (swap_w >= FIMC_WIDTH_ITU_709)
+	if (sz->hsize >= FIMC_WIDTH_ITU_709)
 		cfg |= EXYNOS_CIGCTRL_CSC_ITU709;
 	else
 		cfg |= EXYNOS_CIGCTRL_CSC_ITU601;
 
 	fimc_write(cfg, EXYNOS_CIGCTRL);
 
+	if (swap) {
+		img_pos.w = pos->h;
+		img_pos.h = pos->w;
+		img_sz.hsize = sz->vsize;
+		img_sz.vsize = sz->hsize;
+	}
+
 	/* target image size */
 	cfg = fimc_read(EXYNOS_CITRGFMT);
 	cfg &= ~(EXYNOS_CITRGFMT_TARGETH_MASK |
 		EXYNOS_CITRGFMT_TARGETV_MASK);
-	cfg |= (EXYNOS_CITRGFMT_TARGETHSIZE(pos->w) |
-		EXYNOS_CITRGFMT_TARGETVSIZE(pos->h));
+	cfg |= (EXYNOS_CITRGFMT_TARGETHSIZE(img_pos.w) |
+		EXYNOS_CITRGFMT_TARGETVSIZE(img_pos.h));
 	fimc_write(cfg, EXYNOS_CITRGFMT);
 
 	/* target area */
-	cfg = EXYNOS_CITAREA_TARGET_AREA(pos->w * pos->h);
+	cfg = EXYNOS_CITAREA_TARGET_AREA(img_pos.w * img_pos.h);
 	fimc_write(cfg, EXYNOS_CITAREA);
 
 	/* ToDo: Move Scaler in this line and YUV */
+	config->sz = img_sz;
+	config->pos = img_pos;
 
 	/* offset Y(RGB), Cb, Cr */
-	cfg = (EXYNOS_CIOYOFF_HORIZONTAL(pos->x) |
-		EXYNOS_CIOYOFF_VERTICAL(pos->y));
+	cfg = (EXYNOS_CIOYOFF_HORIZONTAL(img_pos.x) |
+		EXYNOS_CIOYOFF_VERTICAL(img_pos.y));
 	fimc_write(cfg, EXYNOS_CIOYOFF);
-	cfg = (EXYNOS_CIOCBOFF_HORIZONTAL(pos->x) |
-		EXYNOS_CIOCBOFF_VERTICAL(pos->y));
+	cfg = (EXYNOS_CIOCBOFF_HORIZONTAL(img_pos.x) |
+		EXYNOS_CIOCBOFF_VERTICAL(img_pos.y));
 	fimc_write(cfg, EXYNOS_CIOCBOFF);
-	cfg = (EXYNOS_CIOCROFF_HORIZONTAL(pos->x) |
-		EXYNOS_CIOCROFF_VERTICAL(pos->y));
+	cfg = (EXYNOS_CIOCROFF_HORIZONTAL(img_pos.x) |
+		EXYNOS_CIOCROFF_VERTICAL(img_pos.y));
 	fimc_write(cfg, EXYNOS_CIOCROFF);
 
 	return 0;
 }
 
-static int fimc_dst_set_buf_seq(struct fimc_context *ctx, u32 shift,
+static int fimc_dst_get_buf_seq(struct fimc_context *ctx)
+{
+	u32 cfg, i, buf_num = 0;
+	u32 mask = 0x00000001;
+
+	cfg = fimc_read(EXYNOS_CIFCNTSEQ);
+
+	for (i = 0; i < FIMC_REG_SZ; i++)
+		if (cfg & (mask << i))
+			buf_num++;
+
+	DRM_DEBUG_KMS("%s:buf_num[%d]\n", __func__, buf_num);
+
+	return buf_num;
+}
+
+static int fimc_dst_set_buf_seq(struct fimc_context *ctx, u32 buf_id,
 	enum drm_exynos_ipp_buf_ctrl buf_ctrl)
 {
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
 	bool enable;
 	u32 cfg;
-	u32 mask = 0x00000001 << shift;
+	u32 mask = 0x00000001 << buf_id;
 
-	DRM_DEBUG_KMS("%s:shift[%d]buf_ctrl[%d]\n", __func__, shift, buf_ctrl);
+	DRM_DEBUG_KMS("%s:buf_id[%d]buf_ctrl[%d]\n", __func__,
+		buf_id, buf_ctrl);
 
 	/* mask register set */
 	cfg = fimc_read(EXYNOS_CIFCNTSEQ);
 
 	switch (buf_ctrl) {
-	case IPP_BUF_CTRL_MAP:
 	case IPP_BUF_CTRL_QUEUE:
 		enable = true;
 		break;
-	case IPP_BUF_CTRL_UNMAP:
 	case IPP_BUF_CTRL_DEQUEUE:
 		enable = false;
 		break;
@@ -1099,51 +1253,73 @@ static int fimc_dst_set_buf_seq(struct fimc_context *ctx, u32 shift,
 
 	/* sequence id */
 	cfg &= (~mask);
-	cfg |= (enable << shift);
+	cfg |= (enable << buf_id);
 	fimc_write(cfg, EXYNOS_CIFCNTSEQ);
+
+	/* interrupt enable */
+	if (buf_ctrl == IPP_BUF_CTRL_QUEUE &&
+	    fimc_dst_get_buf_seq(ctx) >= FIMC_BUF_START)
+		fimc_handle_irq(ctx, true, false, true);
+
+	/* interrupt disable */
+	if (buf_ctrl == IPP_BUF_CTRL_DEQUEUE &&
+	    fimc_dst_get_buf_seq(ctx) <= FIMC_BUF_STOP)
+		fimc_handle_irq(ctx, false, false, true);
 
 	return 0;
 }
 
-static int fimc_dst_set_addr(struct device *dev, dma_addr_t *base,
-			u32 id, enum drm_exynos_ipp_buf_ctrl buf_ctrl)
+static int fimc_dst_set_addr(struct device *dev,
+			struct drm_exynos_ipp_buf_info *buf_info, u32 buf_id,
+			enum drm_exynos_ipp_buf_ctrl buf_ctrl)
 {
 	struct fimc_context *ctx = get_fimc_context(dev);
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
 	struct drm_exynos_ipp_config *config =
-		&ippdrv->property.config[EXYNOS_DRM_OPS_DST];
+		&property->config[EXYNOS_DRM_OPS_DST];
+	int ret;
 
-	DRM_DEBUG_KMS("%s:id[%d]buf_ctrl[%d]\n", __func__, id, buf_ctrl);
+	DRM_DEBUG_KMS("%s:buf_id[%d]buf_ctrl[%d]\n", __func__,
+		buf_id, buf_ctrl);
 
-	if (id > FIMC_MAX_DST) {
-		dev_err(ippdrv->dev, "inavlid id value %d.\n", id);
-		return -EINVAL;
+	if (buf_id > FIMC_MAX_DST) {
+		dev_info(ippdrv->dev, "inavlid buf_id %d.\n", buf_id);
+		return -ENOMEM;
 	}
 
 	/* address register set */
 	switch (buf_ctrl) {
-	case IPP_BUF_CTRL_MAP:
-	case IPP_BUF_CTRL_UNMAP:
-		fimc_write(base[EXYNOS_DRM_PLANAR_Y], EXYNOS_CIOYSA(id));
+	case IPP_BUF_CTRL_QUEUE:
+	case IPP_BUF_CTRL_DEQUEUE:
+		ret = fimc_set_planar_addr(buf_info, config->fmt, &config->sz);
+
+		if (ret) {
+			dev_err(dev, "failed to set plane addr.\n");
+			return ret;
+		}
+
+		fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_Y],
+			EXYNOS_CIOYSA(buf_id));
 
 		if (config->fmt == DRM_FORMAT_YVU420) {
-			fimc_write(base[EXYNOS_DRM_PLANAR_CR],
-				EXYNOS_CIOCBSA(id));
-			fimc_write(base[EXYNOS_DRM_PLANAR_CB],
-				EXYNOS_CIOCRSA(id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CR],
+				EXYNOS_CIOCBSA(buf_id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CB],
+				EXYNOS_CIOCRSA(buf_id));
 		} else {
-			fimc_write(base[EXYNOS_DRM_PLANAR_CB],
-				EXYNOS_CIOCBSA(id));
-			fimc_write(base[EXYNOS_DRM_PLANAR_CR],
-				EXYNOS_CIOCRSA(id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CB],
+				EXYNOS_CIOCBSA(buf_id));
+			fimc_write(buf_info->base[EXYNOS_DRM_PLANAR_CR],
+				EXYNOS_CIOCRSA(buf_id));
 		}
-		fimc_handle_irq(ctx, true, false, true);
+		break;
 	default:
 		/* bypass */
 		break;
 	}
 
-	return fimc_dst_set_buf_seq(ctx, id, buf_ctrl);
+	return fimc_dst_set_buf_seq(ctx, buf_id, buf_ctrl);
 }
 
 static struct exynos_drm_ipp_ops fimc_dst_ops = {
@@ -1178,30 +1354,58 @@ static irqreturn_t fimc_irq_handler(int irq, void *dev_id)
 {
 	struct fimc_context *ctx = dev_id;
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
-	int pf, buf_idx;
+	int buf_id;
+	u32 status1, status2;
+
+	DRM_DEBUG_KMS("%s:fimc id[%d]\n", __func__, ctx->id);
+
+	/* ToDo: must be remove debug routine */
+	status1 = fimc_read(EXYNOS_CISTATUS);
+	status2 = fimc_read(EXYNOS_CISTATUS2);
+	DRM_DEBUG_KMS("%s:status1[0x%x]status2[0x%x]\n",
+		__func__, status1, status2);
 
 	fimc_clear_irq(ctx);
 	if (fimc_check_ovf(ctx))
 		return IRQ_NONE;
 
-	pf = fimc_get_pf(ctx, true);
-	if (pf == 0)
-		return IRQ_HANDLED;
-
-	buf_idx = pf-1;
-	DRM_DEBUG_KMS("%s:id[%d]buf_idx[%d]\n", __func__, ctx->id, buf_idx);
+	if (!fimc_check_frame_end(ctx))
+		return IRQ_NONE;
 
 	if (list_empty(&ippdrv->event_list)) {
-		DRM_DEBUG_KMS("%s:event list empty.\n", __func__);
+		DRM_DEBUG_KMS("%s:event list empty. so ignore.\n", __func__);
 
-		fimc_handle_irq(ctx, false, false, true);
+		return IRQ_NONE;
+	}
+
+	buf_id = fimc_get_buf_id(ctx);
+	if (buf_id < 0)
+		return IRQ_HANDLED;
+
+	DRM_DEBUG_KMS("%s:buf_id[%d]\n", __func__, buf_id);
+
+	if (fimc_dst_set_buf_seq(ctx, buf_id,
+		IPP_BUF_CTRL_DEQUEUE) < 0) {
+		DRM_ERROR("failed to dequeue.\n");
+
 		return IRQ_HANDLED;
 	}
 
-	/* ToDo: How can fix interrupt pending ? */
-	ipp_send_event_handler(ippdrv, buf_idx);
+	ipp_send_event_handler(ippdrv, buf_id);
+
+	if (fimc_dst_get_buf_seq(ctx) <= FIMC_BUF_STOP)
+		fimc_handle_irq(ctx, false, false, true);
 
 	return IRQ_HANDLED;
+}
+
+static int fimc_ippdrv_check_property(struct device *dev,
+				struct drm_exynos_ipp_property *property)
+{
+	/* ToDo: check valid using property information */
+	DRM_DEBUG_KMS("%s\n", __func__);
+
+	return 0;
 }
 
 static int fimc_ippdrv_reset(struct device *dev)
@@ -1219,41 +1423,59 @@ static int fimc_ippdrv_reset(struct device *dev)
 	return 0;
 }
 
+static int fimc_check_prepare(struct fimc_context *ctx)
+{
+	/* ToDo: check prepare using read register */
+	DRM_DEBUG_KMS("%s\n", __func__);
+
+	return 0;
+}
+
 static int fimc_ippdrv_start(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 {
 	struct fimc_context *ctx = get_fimc_context(dev);
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
-	struct drm_exynos_ipp_config *config_src =
-		&ippdrv->property.config[EXYNOS_DRM_OPS_SRC];
-	struct drm_exynos_ipp_config *config_dst =
-		&ippdrv->property.config[EXYNOS_DRM_OPS_DST];
-	int ret;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
+	struct drm_exynos_ipp_config *config;
+	struct drm_exynos_pos	img_pos[EXYNOS_DRM_OPS_MAX];
+	int ret, i;
 	int enable = 1;
 	u32 cfg0, cfg1;
 
 	DRM_DEBUG_KMS("%s:cmd[%d]\n", __func__, cmd);
 
-	ippdrv->cmd = cmd;
+	ret = fimc_check_prepare(ctx);
+	if (ret) {
+		dev_err(dev, "failed to check prepare.\n");
+		return ret;
+	}
 
-	/* ToDo: Merge WB and M2M */
+	ippdrv->cmd = cmd;
+	fimc_handle_irq(ctx, true, false, true);
+
+	/* ToDo: window size, prescaler config */
+	for (i = 0; i < EXYNOS_DRM_OPS_MAX; i++) {
+		config = &property->config[i];
+		img_pos[i] = config->pos;
+	}
+
+	ret = fimc_set_prescaler(ctx, &ctx->sc,
+		&img_pos[EXYNOS_DRM_OPS_SRC],
+		&img_pos[EXYNOS_DRM_OPS_DST]);
+	if (ret) {
+		dev_err(dev, "failed to set precalser.\n");
+		return ret;
+	}
+
+	/* If set ture, we can save jpeg about screen */
+	fimc_handle_jpeg(ctx, false);
+	fimc_set_scaler(ctx, &ctx->sc);
+	fimc_set_polarity(ctx, &ctx->pol);
+
 	switch (cmd) {
 	case IPP_CMD_M2M:
 		fimc_set_type_ctrl(ctx, FIMC_WB_NONE);
-		fimc_set_polarity(ctx, &ctx->pol);
 		fimc_handle_lastend(ctx, false);
-
-		/* ToDo: window size, prescaler config */
-
-		ret = fimc_set_prescaler(ctx, &ctx->sc, &config_src->pos,
-			&config_dst->pos);
-		if (ret) {
-			dev_err(dev, "failed to set precalser.\n");
-			return ret;
-		}
-
-		/* If set ture, we can save jpeg about screen */
-		fimc_handle_jpeg(ctx, false);
-		fimc_set_scaler(ctx, &ctx->sc);
 
 		/* setup dma */
 		cfg0 = fimc_read(EXYNOS_MSCTRL);
@@ -1262,34 +1484,21 @@ static int fimc_ippdrv_start(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 		fimc_write(cfg0, EXYNOS_MSCTRL);
 		break;
 	case IPP_CMD_WB:
-		fimc_set_camblk_fimd0_wb(ctx);
-		exynos_drm_ippnb_send_event(IPP_SET_WRITEBACK, (void *)enable);
-
 		fimc_set_type_ctrl(ctx, FIMC_WB_A);
-		fimc_set_polarity(ctx, &ctx->pol);
 		fimc_handle_lastend(ctx, true);
 
-		/* ToDo: window size, prescaler config */
-
-		ret = fimc_set_prescaler(ctx, &ctx->sc, &config_src->pos,
-			&config_dst->pos);
-		if (ret) {
-			dev_err(dev, "failed to set precalser.\n");
-			return ret;
-		}
-
-		/* If set ture, we can save jpeg about screen */
-		fimc_handle_jpeg(ctx, false);
-		fimc_set_scaler(ctx, &ctx->sc);
+		/* setup FIMD */
+		fimc_set_camblk_fimd0_wb(ctx);
+		exynos_drm_ippnb_send_event(IPP_SET_WRITEBACK, (void *)enable);
 		break;
-	case IPP_CMD_OUT:
+	case IPP_CMD_OUTPUT:
 	default:
 		ret = -EINVAL;
 		dev_err(dev, "invalid operations.\n");
 		return ret;
 	}
 
-	/* Reset */
+	/* Reset status */
 	fimc_write(0x0, EXYNOS_CISTATUS);
 
 	cfg0 = fimc_read(EXYNOS_CIIMGCPT);
@@ -1331,15 +1540,6 @@ static int fimc_ippdrv_start(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 	return 0;
 }
 
-static int fimc_ippdrv_check_prepare(struct device *dev,
-	struct exynos_drm_ippdrv *ippdrv)
-{
-	/* ToDo: check prepare */
-	DRM_DEBUG_KMS("%s\n", __func__);
-
-	return 0;
-}
-
 static void fimc_ippdrv_stop(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 {
 	struct fimc_context *ctx = get_fimc_context(dev);
@@ -1360,13 +1560,17 @@ static void fimc_ippdrv_stop(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 	case IPP_CMD_WB:
 		exynos_drm_ippnb_send_event(IPP_SET_WRITEBACK, (void *)enable);
 		break;
-	case IPP_CMD_OUT:
+	case IPP_CMD_OUTPUT:
 	default:
 		dev_err(dev, "invalid operations.\n");
 		break;
 	}
 
 	ippdrv->cmd = IPP_CMD_NONE;
+	fimc_handle_irq(ctx, false, false, true);
+
+	/* reset sequence */
+	fimc_write(0x0, EXYNOS_CIFCNTSEQ);
 
 	/* Scaler disable */
 	cfg = fimc_read(EXYNOS_CISCCTRL);
@@ -1402,6 +1606,45 @@ static struct fimc_capability *fimc_get_capability(
 	return capa;
 }
 
+#ifdef CONFIG_SLP_DISP_DEBUG
+static int fimc_read_reg(struct fimc_context *ctx, char *buf)
+{
+	u32 cfg;
+	int i;
+	int pos = 0;
+
+	pos += sprintf(buf+pos, "0x%.8x | ", FIMC_BASE_REG(ctx->id));
+	for (i = 1; i < FIMC_MAX_REG + 1; i++) {
+		cfg = fimc_read((i-1) * sizeof(u32));
+		pos += sprintf(buf+pos, "0x%.8x ", cfg);
+		if (i % 4 == 0)
+			pos += sprintf(buf+pos, "\n0x%.8x | ",
+				FIMC_BASE_REG(ctx->id) + (i * sizeof(u32)));
+	}
+
+	pos += sprintf(buf+pos, "\n");
+
+	return pos;
+}
+
+static ssize_t show_read_reg(struct device *dev, struct device_attribute *attr,
+			char *buf)
+{
+	struct fimc_context *ctx = get_fimc_context(dev);
+
+	if (!ctx->regs) {
+		dev_err(dev, "failed to get current register.\n");
+		return -EINVAL;
+	}
+
+	return fimc_read_reg(ctx, buf);
+}
+
+static struct device_attribute device_attrs[] = {
+	__ATTR(read_reg, S_IRUGO, show_read_reg, NULL),
+};
+#endif
+
 static int __devinit fimc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1411,6 +1654,9 @@ static int __devinit fimc_probe(struct platform_device *pdev)
 	struct exynos_drm_ippdrv *ippdrv;
 	struct exynos_drm_fimc_pdata *pdata;
 	int ret = -EINVAL;
+#ifdef CONFIG_SLP_DISP_DEBUG
+	int i;
+#endif
 
 	pdata = pdev->dev.platform_data;
 	if (!pdata) {
@@ -1518,7 +1764,8 @@ static int __devinit fimc_probe(struct platform_device *pdev)
 	}
 
 	ctx->irq = res->start;
-	ret = request_irq(ctx->irq, fimc_irq_handler, 0, "drm_fimc", ctx);
+	ret = request_threaded_irq(ctx->irq, NULL, fimc_irq_handler,
+		IRQF_ONESHOT, "drm_fimc", ctx);
 	if (ret < 0) {
 		dev_err(dev, "failed to request irq.\n");
 		goto err_get_regs;
@@ -1534,15 +1781,27 @@ static int __devinit fimc_probe(struct platform_device *pdev)
 	}
 	ctx->pol = pdata->pol;
 
+#ifdef CONFIG_SLP_DISP_DEBUG
+	for (i = 0; i < ARRAY_SIZE(device_attrs); i++) {
+		ret = device_create_file(&(pdev->dev),
+					&device_attrs[i]);
+		if (ret)
+			break;
+	}
+
+	if (ret < 0)
+		dev_err(&pdev->dev, "failed to add sysfs entries\n");
+#endif
+
 	DRM_DEBUG_KMS("%s:id[%d]\n", __func__, ctx->id);
 
 	ippdrv = &ctx->ippdrv;
 	ippdrv->dev = dev;
 	ippdrv->ops[EXYNOS_DRM_OPS_SRC] = &fimc_src_ops;
 	ippdrv->ops[EXYNOS_DRM_OPS_DST] = &fimc_dst_ops;
+	ippdrv->check_property = fimc_ippdrv_check_property;
 	ippdrv->reset = fimc_ippdrv_reset;
 	ippdrv->start = fimc_ippdrv_start;
-	ippdrv->check_prepare = fimc_ippdrv_check_prepare;
 	ippdrv->stop = fimc_ippdrv_stop;
 
 	mutex_init(&ctx->lock);

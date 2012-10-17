@@ -87,6 +87,7 @@ static int __init gps_gsd4t_init(void)
 	return 0;
 }
 
+#ifdef CONFIG_CPU_EXYNOS4210
 int u1_gps_ntt_init(void)
 {
        //int isntt = 1;
@@ -107,5 +108,6 @@ int u1_gps_ntt_init(void)
        return 0;
 
 }
+#endif
 
 device_initcall(gps_gsd4t_init);

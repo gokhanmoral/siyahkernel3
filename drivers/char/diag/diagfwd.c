@@ -39,6 +39,9 @@
 #ifdef CONFIG_DIAG_SDIO_PIPE
 #include "diagfwd_sdio.h"
 #endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+#include "diagfwd_hsic.h"
+#endif
 #define MODE_CMD		41
 #define RESET_ID		2
 #define ALL_EQUIP_ID		100
@@ -264,6 +267,9 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 	int i, err = 0;
 
 	if (driver->logging_mode == MEMORY_DEVICE_MODE) {
+		if (driver->sub_logging_mode == UART_MODE &&
+							proc_num != HSIC_DATA)
+			return 0;
 		if (proc_num == APPS_DATA) {
 			for (i = 0; i < driver->poolsize_write_struct; i++)
 				if (driver->buf_tbl[i].length == 0) {
@@ -1530,6 +1536,12 @@ int diagfwd_connect(void)
 			printk(KERN_INFO "diag: No USB MDM ch");
 	}
 #endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+		if (driver->mdm_ch && !IS_ERR(driver->mdm_ch))
+			diagfwd_connect_hsic(WRITE_TO_USB);
+		else
+			printk(KERN_INFO "diag: No USB MDM ch");
+#endif
 	return 0;
 }
 
@@ -1551,6 +1563,14 @@ int diagfwd_disconnect(void)
 	if (machine_is_msm8x60_fusion() || machine_is_msm8x60_fusn_ffa())
 		if (driver->mdm_ch && !IS_ERR(driver->mdm_ch))
 			diagfwd_disconnect_sdio();
+		else
+			printk(KERN_INFO "diag: No USB MDM ch");
+#endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+		if (driver->mdm_ch && !IS_ERR(driver->mdm_ch))
+			diagfwd_disconnect_hsic();
+		else
+			printk(KERN_INFO "diag: No USB MDM ch");
 #endif
 	/* TBD - notify and flow control SMD */
 	return 0;

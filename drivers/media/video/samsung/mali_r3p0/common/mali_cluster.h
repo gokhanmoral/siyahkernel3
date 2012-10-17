@@ -25,6 +25,9 @@ struct mali_cluster *mali_cluster_create(struct mali_l2_cache_core *l2_cache);
 void mali_cluster_add_group(struct mali_cluster *cluster, struct mali_group *group);
 void mali_cluster_delete(struct mali_cluster *cluster);
 
+void mali_cluster_power_is_enabled_set(struct mali_cluster * cluster, mali_bool power_is_enabled);
+mali_bool mali_cluster_power_is_enabled_get(struct mali_cluster * cluster);
+
 void mali_cluster_reset(struct mali_cluster *cluster);
 
 struct mali_l2_cache_core* mali_cluster_get_l2_cache_core(struct mali_cluster *cluster);
@@ -33,7 +36,8 @@ struct mali_group *mali_cluster_get_group(struct mali_cluster *cluster, u32 inde
 struct mali_cluster *mali_cluster_get_global_cluster(u32 index);
 u32 mali_cluster_get_glob_num_clusters(void);
 
-void mali_cluster_l2_cache_invalidate_all(struct mali_cluster *cluster, u32 id);
+/*  Returns MALI_TRUE if it did the flush */
+mali_bool mali_cluster_l2_cache_invalidate_all(struct mali_cluster *cluster, u32 id);
 void mali_cluster_l2_cache_invalidate_all_force(struct mali_cluster *cluster);
 void mali_cluster_invalidate_pages(u32 *pages, u32 num_pages);
 

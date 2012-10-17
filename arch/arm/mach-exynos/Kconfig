@@ -371,7 +371,7 @@ config EXYNOS4_SETUP_FB_S5P
 	  Setup code for EXYNOS4 FIMD
 
 config EXYNOS4_SETUP_TVOUT
-	bool
+	bool "enabel EXYNOS4_SETUP_TVOUT"
 	default y
 	help
 	  Common setup code for TVOUT
@@ -522,7 +522,6 @@ config EXYNOS_PM_HOTPLUG
 choice
 	prompt "Dynamic CPU HOTPLUG Policy"
 	depends on EXYNOS_PM_HOTPLUG
-	default LEGACY_HP_POLICY if CPU_EXYNOS4210
 	default DVFS_NR_RUNNING_POLICY if (CPU_EXYNOS4212 || CPU_EXYNOS4412 || CPU_EXYNOS5250)
 
 config STAND_ALONE_POLICY
@@ -554,9 +553,6 @@ config DVFS_NR_RUNNING_POLICY
 config NR_RUNNING_POLICY
 	bool "nr_running CPU hotplug"
 
-config LEGACY_HP_POLICY
-	bool "Gingerbread legacy CPU hotplug"
-
 endchoice
 endmenu
 
@@ -574,6 +570,10 @@ config BUSFREQ_QOS
 
 config BUSFREQ_OPP
 	bool "Busfreq with OPP"
+	depends on EXYNOS4_CPUFREQ || EXYNOS5_CPUFREQ
+
+config DISPFREQ_OPP
+	bool "Dispfreq with OPP"
 	depends on EXYNOS4_CPUFREQ || EXYNOS5_CPUFREQ
 
 config DEVFREQ_BUS
@@ -802,7 +802,16 @@ config MACH_NURI
 	select SAMSUNG_DEV_PWM
 	help
 	  Machine support for Samsung Mobile NURI Board.
-
+config MACH_U1_NA_SPR
+	bool "NA"
+	select S3C_DEV_I2C17_EMUL
+	select S3C_DEV_I2C4
+	select EXYNOS4_SETUP_I2C4
+config MACH_U1_NA_USCC
+	bool "NA"
+	select S3C_DEV_I2C17_EMUL
+	select S3C_DEV_I2C4
+	select EXYNOS4_SETUP_I2C4
 config MACH_U1
 	bool "U1 board"
 	select CPU_EXYNOS4210
@@ -857,9 +866,6 @@ choice
 
 config MACH_U1_BD
 	bool "U1 Board"
-
-config MACH_U1CAMERA_BD
-	bool "U1CAMERA Board"
 
 config MACH_Q1_BD
 	bool "Q1 Board"
@@ -941,9 +947,12 @@ choice
 config PANEL_U1
 	bool "U1/Q1 default panel"
 
+config PANEL_U1_NA_SPR
+	bool "D710 panel"
+
 endchoice
 
-if MACH_U1 || MACH_C1 || MACH_C1VZW || MACH_C2 || MACH_M0 || MACH_P4 || MACH_P2 || MACH_P4NOTE || MACH_T0 || MACH_TRATS || MACH_GRANDE
+if MACH_U1 || MACH_C1 || MACH_M3 || MACH_M0 || MACH_P4 || MACH_P2 || MACH_P4NOTE || MACH_T0 || MACH_TRATS || MACH_GRANDE || MACH_GC1 || MACH_BAFFIN
 source "arch/arm/mach-exynos/Kconfig.local"
 endif
 
@@ -1007,7 +1016,6 @@ config MACH_MIDAS
 	select S3C_DEV_I2C7
 	select S5P_GPIO_INT
 	select S5P_DEV_MFC
-	select S5P_DEV_TVOUT
 	select S5P_DEV_FIMG2D
 	select S5P_DEV_FIMD_S5P
 	select S5P_DEV_USB_EHCI
@@ -1047,25 +1055,13 @@ config MACH_M0
 	select S3C_DEV_I2C5
 	select MIDAS_COMMON_BD
 
-config MACH_M3
-	bool "M3 board"
-	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
-	select MIDAS_COMMON_BD
-
 config MACH_C1
 	bool "C1 board"
 	select S3C_DEV_I2C4
 	select S3C_DEV_I2C5
 	select MIDAS_COMMON_BD
 
-config MACH_C1VZW
-	bool "C1 VZW board"
-	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
-	select MIDAS_COMMON_BD
-
-config MACH_C2
+config MACH_M3
 	bool "C2 board"
 	select S3C_DEV_I2C4
 	select S3C_DEV_I2C5
@@ -1085,9 +1081,10 @@ config MACH_GC1
 
 config MACH_T0
 	bool "T0 board"
+	select EXYNOS4_SETUP_I2C2
+	select S3C_DEV_I2C2
 	select S3C_DEV_I2C4
 	select S3C_DEV_I2C5
-	select T0_00_BD
 
 config MACH_IRON
 	bool "Iron board"
@@ -1104,6 +1101,11 @@ config MACH_GRANDE
 	select GRANDE_BD
 	select EXYNOS4_SETUP_KEYPAD
 	select SAMSUNG_DEV_KEYPAD
+
+config MACH_BAFFIN
+	bool "BAFFIN board"
+	select S3C_DEV_I2C4
+	select S3C_DEV_I2C5
 endchoice
 
 config MIDAS_COMMON_BD
@@ -1116,15 +1118,18 @@ config GC1_00_BD
 	bool "Galaxy Camera common Board"
 
 config T0_00_BD
-	bool "T0 common Board"
+	bool "T0 Revison 00 board"
+	default n
+
+config T0_04_BD
+	bool "T0 Revison 04 board"
+	default n
 
 config IRON_BD
 	bool "Iron common Board"
 
 config GRANDE_BD
 	bool "Grande common Board"
-
-source "arch/arm/mach-exynos/Kconfig.slp"
 
 config WRITEBACK_ENABLED
 	bool "Samsung Writeback Enable"
@@ -1133,6 +1138,19 @@ config WRITEBACK_ENABLED
 	  support fimd streams data to fimc destinations ram.
 	  writeback operations support final blended stream.
 	  when enable this options.
+
+config EXYNOS_SOUND_PLATFORM_DATA
+	bool "Sound platform data"
+
+config JACK_FET
+	bool "Ear Micbias dischage Enable"
+
+config JACK_GROUND_DET
+	bool "Ear Ground Detection Enable"
+
+config SAMSUNG_ANALOG_UART_SWITCH
+	int "SAMSUNG analog switch for UART"
+	default 1
 
 endmenu
 
@@ -1359,6 +1377,11 @@ config EXYNOS4_MSHC_EPLL_45MHZ
 	bool "EPLL"
 endchoice
 
+config EXYNOS4_MSHC_SUPPORT_PQPRIME_EPLL
+	bool "Support EPLL 45MHz for PegasusQ Prime dynamically"
+	depends on PLAT_S5P && EXYNOS4_DEV_MSHC && EXYNOS4_MSHC_MPLL_40MHZ
+	default n
+
 comment "Use 8-bit bus width"
 
 config EXYNOS4_MSHC_8BIT
@@ -1438,6 +1461,14 @@ config SEC_DEBUG_SCHED_LOG
 	default n
 	help
 	  Samsung Scheduler Logging Feature for Debug use.
+
+config SEC_DEBUG_HRTIMER_LOG
+	bool "Samsung hrtimer Logging Feature"
+	default n
+	depends on SEC_DEBUG_SCHED_LOG && !SAMSUNG_PRODUCT_SHIP
+	help
+	  Samsung hrtimer Logging Feature for Debug use.
+	  This option enables us to log hrtimer enter/exit.
 
 config SEC_DEBUG_SOFTIRQ_LOG
 	bool "Samsung Softirq Logging Feature"
@@ -1560,11 +1591,19 @@ config SEC_LOG_LAST_KMSG
 	help
 	  This option enables /proc/last_kmsg support.
 
+config EHCI_IRQ_DISTRIBUTION
+	bool "ehci irq distribution"
+	default n
+
 if SEC_MODEM
 comment "Samsung Modem Feature"
 
 config LTE_VIA_SWITCH
 	bool
+	default n
+
+config SEC_DUAL_MODEM_MODE
+	bool "sec dual modem mode"
 	default n
 
 choice
@@ -1579,17 +1618,28 @@ config SEC_MODEM_M0_C2C
 	select LINK_DEVICE_C2C
 	select SAMSUNG_C2C
 	select C2C_DEUBG
+	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_M0
 	bool "M0 with xmm6262"
 	select UMTS_MODEM_XMM6262
 	select LINK_DEVICE_HSIC
+	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_M0_CTC
 	bool "M0 CTC with MDM6600"
 	select CDMA_MODEM_MDM6600
-	select LINK_DEVICE_DPRAM
 	select USBHUB_USB3503
+
+config SEC_MODEM_T0_CU_DUOS
+	bool "T0 CU DUOS with ESC6270"
+	select GSM_MODEM_ESC6270
+	select LINK_DEVICE_PLD
+
+config SEC_MODEM_T0_OPEN_DUOS
+	bool "T0 OPEN DUOS with ESC6270"
+	select GSM_MODEM_ESC6270
+	select LINK_DEVICE_PLD
 
 config SEC_MODEM_M0_GRANDECTC
 	bool "M0 CTC with ESC6270"
@@ -1601,6 +1651,7 @@ config SEC_MODEM_M1
 	select LINK_DEVICE_DPRAM
 	select LINK_DEVICE_USB
 	select USBHUB_USB3503
+	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_C1
 	bool "C1 with cmc221"
@@ -1608,15 +1659,7 @@ config SEC_MODEM_C1
 	select LINK_DEVICE_DPRAM
 	select LINK_DEVICE_USB
 	select USBHUB_USB3503
-
-config SEC_MODEM_C1_VZW
-	bool "C1 with CMC221 and CBP7.2"
-	select CDMA_MODEM_CBP72
-	select LTE_MODEM_CMC221
-	select LTE_VIA_SWITCH
-	select LINK_DEVICE_DPRAM
-	select LINK_DEVICE_USB
-	select USBHUB_USB3503
+	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_C1_LGT
 	bool "C1 with CMC221 and CBP7.2"
@@ -1626,6 +1669,7 @@ config SEC_MODEM_C1_LGT
 	select LINK_DEVICE_DPRAM
 	select LINK_DEVICE_USB
 	select USBHUB_USB3503
+	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_M2
 	bool "M2 with MDM9x15"
@@ -1634,6 +1678,7 @@ config SEC_MODEM_U1
 	bool "U1 with xmm6260"
 	select UMTS_MODEM_XMM6260
 	select LINK_DEVICE_HSIC
+	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_U1_LGT
 	bool "U1 with mdm6600"
@@ -1649,14 +1694,23 @@ config SEC_MODEM_IRON
 	bool "Iron with xmm6262"
 	select UMTS_MODEM_XMM6262
 	select LINK_DEVICE_HSIC
+	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_P8LTE
 	bool "P8 VZW with CMC220 and CBP7.1"
 	select CDMA_MODEM_CBP71
 	select LINK_DEVICE_DPRAM
-        select LTE_MODEM_CMC220
+	select LTE_MODEM_CMC220
 	select LINK_DEVICE_USB
 	select INTERNAL_MODEM_IF
+
+config SEC_MODEM_T0_TD_DUAL
+	bool "T0 with SPRD8803 & XMM6262"
+	select UMTS_MODEM_XMM6262
+	select LINK_DEVICE_HSIC
+	select EHCI_IRQ_DISTRIBUTION
+	select TDSCDMA_MODEM_SPRD8803
+	select LINK_DEVICE_SPI
 
 endchoice
 
@@ -1707,6 +1761,10 @@ config MDM_HSIC_PM
 	bool "support QC mdm9x15 PM over HSIC"
 	default n
 
+config EMI_ERROR_RECOVERY
+	bool "unsuspected emi error recovery on HUB"
+	default n
+
 if QC_MODEM
 choice
 	prompt "QC MODEM CONFIG"
@@ -1721,12 +1779,28 @@ config QC_MODEM_M3
 	select USB_QCOM_MDM_BRIDGE
 	select QC_MODEM_MDM9X15
 	select MSM_RMNET_USB
-#	select DIAG_CHAR
-#	select MDM_HSIC_PM
+	select DIAG_CHAR
+	select MDM_HSIC_PM
 
 endchoice
 endif
 
+config USB_CDFS_SUPPORT
+	bool "Auto install for cdfs"
+	default y
+
 config SAMSUNG_PRODUCT_SHIP
 	bool "set up for product shippling"
 	default n
+
+config CORESIGHT_ETM
+	bool "CoreSight ETM debug system"
+	help
+	  Enables the CoreSight ETM debug system.
+
+config CORESIGHT_ETM_DEFAULT_ENABLE
+	bool "Turn on ETM Tracing by Default"
+	depends on CORESIGHT_ETM
+	help
+	  Turns on ETM tracing by default. Otherwise, tracing is
+	  disabled by default but can be enabled by other means.

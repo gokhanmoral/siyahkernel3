@@ -50,11 +50,11 @@ struct link_pm_data {
 
 	int (*port_enable)(int, int);
 
-	int (*cpufreq_lock)(void);
-	int (*cpufreq_unlock)(void);
+	int (*freq_lock)(struct device *dev);
+	int (*freq_unlock)(struct device *dev);
 
 	int autosuspend_delay_ms; /* if zero, the default value is used */
-	bool block_autosuspend;
+	bool autosuspend;
 };
 
 bool link_pm_set_active(struct usb_link_device *usb_ld);

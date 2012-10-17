@@ -1270,6 +1270,8 @@ static void ath6kl_set_multicast_list(struct net_device *ndev)
 
 			if (memcmp(ha->addr, "\x33\x33\x00\x00\x00\x01", ETH_ALEN) == 0) {
 				ath6kl_warn("Skipped : %s\n", sec_conv_mac(ha->addr));
+				kfree(mc_filter);
+				continue;
 			} else {
 				memcpy(mc_filter->hw_addr, ha->addr,
 				       ATH6KL_MCAST_FILTER_MAC_ADDR_SIZE);

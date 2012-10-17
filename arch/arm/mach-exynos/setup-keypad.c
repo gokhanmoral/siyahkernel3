@@ -24,7 +24,7 @@ void samsung_keypad_cfg_gpio(unsigned int rows, unsigned int cols)
 	s3c_gpio_setpull(EXYNOS4_GPX2(4), S3C_GPIO_PULL_UP);
 	s3c_gpio_cfgpin(EXYNOS4_GPX3(0), S3C_GPIO_SFN(3));
 	s3c_gpio_setpull(EXYNOS4_GPX3(0), S3C_GPIO_PULL_UP);
-	s3c_gpio_cfgall_range(EXYNOS4_GPX3(3), 3, S3C_GPIO_SFN(3), S3C_GPIO_PULL_UP);
+	s3c_gpio_cfgall_range(EXYNOS4_GPX3(3), 2, S3C_GPIO_SFN(3), S3C_GPIO_PULL_UP);
 	s3c_gpio_cfgall_range(EXYNOS4_GPL2(3), 5, S3C_GPIO_SFN(3), S3C_GPIO_PULL_NONE);
 #else
 	if (rows > 8) {

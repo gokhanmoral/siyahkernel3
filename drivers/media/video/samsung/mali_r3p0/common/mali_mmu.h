@@ -28,15 +28,13 @@ void mali_mmu_set_group(struct mali_mmu_core *mmu, struct mali_group *group);
 void mali_mmu_delete(struct mali_mmu_core *mmu);
 
 _mali_osk_errcode_t mali_mmu_reset(struct mali_mmu_core *mmu);
-void mali_mmu_zap_tlb(struct mali_mmu_core *mmu);
+mali_bool mali_mmu_zap_tlb(struct mali_mmu_core *mmu);
+void mali_mmu_zap_tlb_without_stall(struct mali_mmu_core *mmu);
 void mali_mmu_invalidate_page(struct mali_mmu_core *mmu, u32 mali_address);
 
-void mali_mmu_activate_page_directory(struct mali_mmu_core* mmu, struct mali_page_directory *pagedir);
+mali_bool mali_mmu_activate_page_directory(struct mali_mmu_core* mmu, struct mali_page_directory *pagedir);
 void mali_mmu_activate_empty_page_directory(struct mali_mmu_core* mmu);
 void mali_mmu_activate_fault_flush_page_directory(struct mali_mmu_core* mmu);
-
-/* Debug */
-void mali_mmu_print_state(struct mali_mmu_core *mmu);
 
 /**
  * Issues the enable stall command to the MMU and waits for HW to complete the request

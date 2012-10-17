@@ -335,7 +335,7 @@ void mali_gp_job_start(struct mali_gp_core *core, struct mali_gp_job *job)
 		}
 	}
 
-	MALI_DEBUG_PRINT(3, ("Mali GP: Starting job on core %s with command 0x%08X\n", core->hw_core.description, startcmd));
+	MALI_DEBUG_PRINT(3, ("Mali GP: Starting job (0x%08x) on core %s with command 0x%08X\n", job, core->hw_core.description, startcmd));
 
 	/* Barrier to make sure the previous register write is finished */
 	_mali_osk_write_mem_barrier();
@@ -479,6 +479,13 @@ static void mali_gp_bottom_half(void *data)
 
 	mali_group_lock(core->group); /* Group lock grabbed in core handlers, but released in common group handler */
 
+	if ( MALI_FALSE == mali_group_power_is_on(core->group) )
+	{
+		MALI_PRINT_ERROR(("Interrupt bottom half of %s when core is OFF.", core->hw_core.description));
+		mali_group_unlock(core->group);
+		return;
+	}
+
 	irq_readout = mali_hw_core_register_read(&core->hw_core, MALIGP2_REG_ADDR_MGMT_INT_RAWSTAT) & MALIGP2_REG_VAL_IRQ_MASK_USED;
 	MALI_DEBUG_PRINT(4, ("Mali GP: Bottom half IRQ 0x%08X from core %s\n", irq_readout, core->hw_core.description));
 
@@ -488,7 +495,7 @@ static void mali_gp_bottom_half(void *data)
 		if (0 == (core_status & MALIGP2_REG_VAL_STATUS_MASK_ACTIVE))
 		{
 			mali_gp_post_process_job(core, MALI_FALSE);
-			MALI_DEBUG_PRINT(3, ("Mali GP: Job completed, calling group handler\n"));
+			MALI_DEBUG_PRINT(4, ("Mali GP: Job completed, calling group handler\n"));
 			mali_group_bottom_half(core->group, GROUP_EVENT_GP_JOB_COMPLETED); /* Will release group lock */
 			return;
 		}
@@ -666,6 +673,13 @@ static void mali_gp_timeout(void *data)
 	core->core_timed_out = MALI_TRUE;
 	_mali_osk_irq_schedulework(core->irq);
 }
+
+#if 0
+void mali_gp_print_state(struct mali_gp_core *core)
+{
+	MALI_DEBUG_PRINT(2, ("Mali GP: State: 0x%08x\n", mali_hw_core_register_read(&core->hw_core, MALIGP2_REG_ADDR_MGMT_STATUS) ));
+}
+#endif
 
 #if MALI_STATE_TRACKING
 u32 mali_gp_dump_state(struct mali_gp_core *core, char *buf, u32 size)

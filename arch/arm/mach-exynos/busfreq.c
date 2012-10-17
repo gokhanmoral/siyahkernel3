@@ -101,7 +101,7 @@ struct busfreq_table {
 	unsigned int clk_dmcdiv;
 };
 
-static struct busfreq_table exynos4_busfreq_table[] = {
+struct busfreq_table exynos4_busfreq_table[] = {
 	{LV_0, 400000, 1100000, 0, 0},
 	{LV_1, 267000, 1000000, 0, 0},
 #ifdef CONFIG_BUSFREQ_L2_160M
@@ -154,8 +154,8 @@ static unsigned int exynos4_qos_value[BUS_QOS_MAX][LV_END][4] = {
 #elif defined(CONFIG_BUSFREQ_QOS_1280X800)	/* For Q1, P8 */
 static unsigned int exynos4_qos_value[BUS_QOS_MAX][LV_END][4] = {
 	{
-		{0x07, 0x03, 0x07, 0x0f},
-		{0x07, 0x03, 0x07, 0x0f},
+		{0x06, 0x03, 0x06, 0x2f},
+		{0x06, 0x03, 0x06, 0x2f},
 		{0x03, 0x0b, 0x00, 0x00},
 	},
 	{

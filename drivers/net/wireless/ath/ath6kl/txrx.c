@@ -310,8 +310,8 @@ int ath6kl_control_tx(void *devt, struct sk_buff *skb,
 		ath6kl_err("wmi ctrl ep full, dropping pkt : 0x%p, len:%d\n",
 			   skb, skb->len);
 #ifdef CONFIG_MACH_PX
-		cfg80211_priv_event(vif->ndev, "HANG", GFP_ATOMIC);
-		ath6kl_print_ar6k_registers(ar);
+		if (vif->nw_type == INFRA_NETWORK)
+			vif->force_reload = true;
 #endif
 	} else
 		cookie = ath6kl_alloc_cookie(ar);
@@ -365,8 +365,8 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 	u32 flags = 0;
 
 	ath6kl_dbg(ATH6KL_DBG_WLAN_TX,
-		   "%s: skb=0x%p, data=0x%p, len=0x%x\n", __func__,
-		   skb, skb->data, skb->len);
+		   "%s: skb=0x%p, data=0x%p, len=0x%x, actual_len=0x%x\n", __func__,
+		   skb, skb->data, skb->len, skb->tail - skb->data);
 
 	/* If target is not associated */
 	if (!test_bit(CONNECTED, &vif->flags)) {
@@ -397,7 +397,8 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 			csum_dest = skb->csum_offset + csum_start;
 		}
 
-		if (skb_headroom(skb) < dev->needed_headroom) {
+		if (skb_headroom(skb) < dev->needed_headroom)
+		{
 			struct sk_buff *tmp_skb = skb;
 
 			skb = skb_realloc_headroom(skb, dev->needed_headroom);
@@ -504,7 +505,6 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 
 	ath6kl_dbg_dump(ATH6KL_DBG_RAW_BYTES, __func__, "tx ",
 			skb->data, skb->len);
-
 	/*
 	 * HTC interface is asynchronous, if this fails, cleanup will
 	 * happen in the ath6kl_tx_complete callback.
@@ -1346,8 +1346,8 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 	spin_unlock_bh(&vif->if_lock);
 
 
-	ath6kl_dbg_dump(ATH6KL_DBG_RAW_BYTES, __func__, "rx ",
-			skb->data, skb->len);
+	//ath6kl_dbg_dump(ATH6KL_DBG_RAW_BYTES, __func__, "rx ",
+	//		skb->data, skb->len);
 
 	skb->dev = vif->ndev;
 

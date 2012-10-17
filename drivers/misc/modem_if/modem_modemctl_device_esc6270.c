@@ -30,9 +30,14 @@
 
 #include <plat/gpio-cfg.h>
 
-#if defined(CONFIG_MACH_M0_CTC)
-#include <linux/mfd/max77693.h>
+#if defined(CONFIG_LINK_DEVICE_DPRAM)
 #include "modem_link_device_dpram.h"
+#elif defined(CONFIG_LINK_DEVICE_PLD)
+#include "modem_link_device_pld.h"
+#endif
+
+#if defined(CONFIG_LINK_DEVICE_DPRAM) || defined(CONFIG_LINK_DEVICE_PLD)
+#include <linux/mfd/max77693.h>
 
 #define PIF_TIMEOUT		(180 * HZ)
 #define DPRAM_INIT_TIMEOUT	(30 * HZ)
@@ -40,6 +45,7 @@
 static int esc6270_on(struct modem_ctl *mc)
 {
 	int ret;
+	struct link_device *ld = get_current_link(mc->iod);
 
 	pr_info("[MODEM_IF:ESC] <%s> start!!!\n", __func__);
 
@@ -63,6 +69,7 @@ static int esc6270_on(struct modem_ctl *mc)
 	gpio_set_value(mc->gpio_pda_active, 1);
 
 	mc->iod->modem_state_changed(mc->iod, STATE_BOOTING);
+	ld->mode = LINK_MODE_BOOT;
 
 	return 0;
 }
@@ -107,6 +114,8 @@ static int esc6270_reset(struct modem_ctl *mc)
 
 int esc6270_boot_on(struct modem_ctl *mc)
 {
+	struct link_device *ld = get_current_link(mc->iod);
+
 	pr_info("[MODEM_IF:ESC] <%s>\n", __func__);
 
 	/* Need to init uart byt gpio_flm_uart_sel GPIO */
@@ -140,7 +149,12 @@ int esc6270_boot_on(struct modem_ctl *mc)
 			gpio_get_value(mc->gpio_cp_on),
 			gpio_get_value(mc->gpio_cp_reset));
 
+#if defined(CONFIG_LINK_DEVICE_PLD)
+	gpio_direction_output(mc->gpio_fpga_cs_n, 1);
+#endif
+
 	mc->iod->modem_state_changed(mc->iod, STATE_BOOTING);
+	ld->mode = LINK_MODE_BOOT;
 
 	return 0;
 }
@@ -215,6 +229,22 @@ static irqreturn_t phone_active_irq_handler(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+#if defined(CONFIG_SIM_DETECT)
+static irqreturn_t sim_detect_irq_handler(int irq, void *_mc)
+{
+	struct modem_ctl *mc = (struct modem_ctl *)_mc;
+
+	pr_info("[MODEM_IF:ESC] <%s> gpio_sim_detect = %d\n",
+		__func__, gpio_get_value(mc->gpio_sim_detect));
+
+	if (mc->iod && mc->iod->sim_state_changed)
+		mc->iod->sim_state_changed(mc->iod,
+		!gpio_get_value(mc->gpio_sim_detect));
+
+	return IRQ_HANDLED;
+}
+#endif
+
 static void esc6270_get_ops(struct modem_ctl *mc)
 {
 	mc->ops.modem_on = esc6270_on;
@@ -237,6 +267,11 @@ int esc6270_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	mc->gpio_cp_dump_int = pdata->gpio_cp_dump_int;
 	mc->gpio_flm_uart_sel = pdata->gpio_flm_uart_sel;
 	mc->gpio_cp_warm_reset = pdata->gpio_cp_warm_reset;
+	mc->gpio_sim_detect = pdata->gpio_sim_detect;
+
+#if defined(CONFIG_LINK_DEVICE_PLD)
+	mc->gpio_fpga_cs_n = pdata->gpio_fpga1_cs_n;
+#endif
 
 	gpio_set_value(mc->gpio_cp_reset, 0);
 	gpio_set_value(mc->gpio_cp_on, 0);
@@ -268,6 +303,36 @@ int esc6270_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 			return ret;
 		}
 	}
+
+#if defined(CONFIG_SIM_DETECT)
+	mc->irq_sim_detect = platform_get_irq_byname(pdev, "sim_irq");
+	pr_info("[MODEM_IF:ESC] <%s> SIM_DECTCT IRQ# = %d\n",
+		__func__, mc->irq_sim_detect);
+
+	if (mc->irq_sim_detect) {
+		ret = request_irq(mc->irq_sim_detect, sim_detect_irq_handler,
+			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+			"esc_sim_detect", mc);
+		if (ret) {
+			mif_err("failed to request_irq: %d\n", ret);
+				mc->sim_state.online = false;
+				mc->sim_state.changed = false;
+			return ret;
+		}
+
+		ret = enable_irq_wake(mc->irq_sim_detect);
+		if (ret) {
+			mif_err("failed to enable_irq_wake: %d\n", ret);
+			free_irq(mc->irq_sim_detect, mc);
+			mc->sim_state.online = false;
+			mc->sim_state.changed = false;
+			return ret;
+		}
+
+		/* initialize sim_state => insert: gpio=0, remove: gpio=1 */
+		mc->sim_state.online = !gpio_get_value(mc->gpio_sim_detect);
+	}
+#endif
 
 	return ret;
 }

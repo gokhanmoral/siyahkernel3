@@ -103,15 +103,14 @@ enum m9mo_prev_frmsize {
 	M9MO_PREVIEW_HDR,
 	M9MO_PREVIEW_720P_60FPS,
 	M9MO_PREVIEW_VGA_60FPS,
-};
-
-enum m9mo_dual_prev_frmsize {
-	M9MO_PREVIEW_DUAL_1080P,
-	M9MO_PREVIEW_DUAL_720P,
-	M9MO_PREVIEW_DUAL_VGA,
+	M9MO_PREVIEW_1080P_DUAL,
+	M9MO_PREVIEW_720P_DUAL,
+	M9MO_PREVIEW_VGA_DUAL,
+	M9MO_PREVIEW_QVGA_DUAL,
 };
 
 enum m9mo_cap_frmsize {
+	M9MO_CAPTURE_HD,	/* 960 x 720 */
 	M9MO_CAPTURE_1MP,	/* 1024 x 768 */
 	M9MO_CAPTURE_2MPW,	/* 1920 x 1080 */
 	M9MO_CAPTURE_3MP,	/* 1984 x 1488 */
@@ -119,13 +118,19 @@ enum m9mo_cap_frmsize {
 	M9MO_CAPTURE_5MP,	/* 2592 x 1944 */
 	M9MO_CAPTURE_8MP,	/* 3264 x 2448 */
 	M9MO_CAPTURE_10MP,	/* 3648 x 2736 */
-	M9MO_CAPTURE_12MPW,	/* 4608 x 2768 */
+	M9MO_CAPTURE_12MPW,	/* 4608 x 2592 */
 	M9MO_CAPTURE_14MP,	/* 4608 x 3072 */
 	M9MO_CAPTURE_16MP,	/* 4608 x 3456 */
-	M9MO_CAPTURE_POSTWVGA,	/* 800 x 480 */
+	M9MO_CAPTURE_RAW,	/* 4088 x 2500 */
+};
+
+enum m9mo_post_frmsize {
+	M9MO_CAPTURE_POSTQVGA,	/* 320 x 240 */
 	M9MO_CAPTURE_POSTVGA,	/* 640 x 480 */
-	M9MO_CAPTURE_POSTWHD,	/* 1280 x 720 */
 	M9MO_CAPTURE_POSTHD,	/* 960 x 720 */
+	M9MO_CAPTURE_POSTP,	/* 1056 x 704 */
+	M9MO_CAPTURE_POSTWVGA,	/* 800 x 480 */
+	M9MO_CAPTURE_POSTWHD,	/* 1280 x 720 */
 };
 
 enum cam_frmratio {
@@ -211,6 +216,9 @@ struct m9mo_exif {
 	int tv;			/* shutter speed */
 	int bv;			/* brightness */
 	int ebv;		/* exposure bias */
+	int av;			/* Aperture */
+	int focal_length;
+	int focal_35mm_length;
 };
 
 struct m9mo_state {
@@ -224,6 +232,7 @@ struct m9mo_state {
 
 	const struct m9mo_frmsizeenum *preview;
 	const struct m9mo_frmsizeenum *capture;
+	const struct m9mo_frmsizeenum *postview;
 
 	enum v4l2_pix_format_mode format_mode;
 	enum v4l2_sensor_mode sensor_mode;
@@ -231,7 +240,7 @@ struct m9mo_state {
 	enum v4l2_scene_mode scene_mode;
 	int vt_mode;
 	int zoom;
-	int zoom_status;
+	int smart_zoom_mode;
 
 	int m9mo_fw_done;
 	int fw_info_done;
@@ -239,7 +248,12 @@ struct m9mo_state {
 	unsigned int fps;
 
 	int factory_down_check;
+	int factory_result_check;
 	int factory_end_check;
+	int factory_category;
+	int factory_byte;
+	int factory_value;
+	int factory_value_size;
 
 	struct m9mo_focus focus;
 	struct m9mo_factory_punt_data f_punt_data;
@@ -252,9 +266,10 @@ struct m9mo_state {
 	struct m9mo_jpeg jpeg;
 	struct m9mo_exif exif;
 
-	u8 sensor_ver[30];
+	int isp_fw_ver;
+	u8 sensor_ver[10];
 	u8 phone_ver[10];
-	u8 fw_version[40];
+	u8 sensor_type[25];
 
 #ifdef CONFIG_CAM_DEBUG
 	u8 dbg_level;
@@ -265,12 +280,12 @@ struct m9mo_state {
 	int fd_eyeblink_cap;
 	int fd_red_eye_status;
 	int image_stabilizer_mode;
-	int focus_area_mode;
 	int ot_status;
 	int ot_x_loc;
 	int ot_y_loc;
 	int ot_width;
 	int ot_height;
+	int bracket_wbb_val;
 
 	unsigned int face_beauty:1;
 	unsigned int recording:1;
@@ -282,13 +297,16 @@ struct m9mo_state {
 	int wb_b_value;
 	int wb_a_value;
 	int wb_m_value;
-	int wb_custom_x;
-	int wb_custom_y;
+	int wb_custom_rg;
+	int wb_custom_bg;
 
 	int vss_mode;
+	int dual_capture_start;
+	int dual_capture_frame;
 
 	int focus_mode;
 	int focus_range;
+	int focus_area_mode;
 
 	int f_number;
 	int iso;
@@ -299,8 +317,29 @@ struct m9mo_state {
 	int TV;
 	int SV;
 	int EV;
+	int LV;
 
 	int smart_scene_detect_mode;
+
+	int continueFps;
+
+	int fd_num;
+
+	int caf_state;
+
+	int mode;
+
+	bool stream_on_part2;
+
+	int widget_mode_level;
+	int gamma_rgb_mon;
+	int gamma_rgb_cap;
+	int gamma_tbl_rgb_mon;
+	int gamma_tbl_rgb_cap;
+	int color_effect;
+
+	int preview_width;
+	int preview_height;
 };
 
 /* Category */
@@ -309,6 +348,7 @@ struct m9mo_state {
 #define M9MO_CATEGORY_MON	0x02
 #define M9MO_CATEGORY_AE	0x03
 #define M9MO_CATEGORY_NEW	0x04
+#define M9MO_CATEGORY_PRO_MODE	0x05
 #define M9MO_CATEGORY_WB	0x06
 #define M9MO_CATEGORY_EXIF	0x07
 #define M9MO_CATEGORY_OT    0x08
@@ -333,6 +373,7 @@ struct m9mo_state {
 #define M9MO_SYS_INT_EN		0x10
 #define M9MO_SYS_INT_FACTOR	0x1C
 #define M9MO_SYS_FRAMESYNC_CNT	0x14
+#define M9MO_SYS_LENS_TIMER	0x28
 
 
 /* M9MO_CATEGORY_PARAM: 0x01 */
@@ -343,10 +384,12 @@ struct m9mo_state {
 #define M9MO_PARM_HDMOVIE	0x32
 #define M9MO_PARM_VIDEO_SNAP_IMG_TRANSFER_START 0x3A
 #define M9MO_PARM_SEL_FRAME_VIDEO_SNAP 0x3B
+#define M9MO_PARM_MON_MOVIE_SELECT	0x3C
 #define M9MO_PARM_VSS_MODE 0x6E
 
 /* M9MO_CATEGORY_MON: 0x02 */
 #define M9MO_MON_ZOOM		0x01
+#define M9MO_MON_HR_ZOOM    0x04
 #define M9MO_MON_MON_REVERSE	0x05
 #define M9MO_MON_MON_MIRROR	0x06
 #define M9MO_MON_SHOT_REVERSE	0x07
@@ -356,6 +399,8 @@ struct m9mo_state {
 #define M9MO_MON_COLOR_EFFECT	0x0B
 #define M9MO_MON_CHROMA_LVL	0x0F
 #define M9MO_MON_EDGE_LVL	0x11
+#define M9MO_MON_EDGE_CTRL	0x20
+#define M9MO_MON_POINT_COLOR	0x22
 #define M9MO_MON_TONE_CTRL	0x25
 #define M9MO_MON_START_VIDEO_SNAP_SHOT 0x56
 #define M9MO_MON_VIDEO_SNAP_SHOT_FRAME_COUNT 0x57
@@ -368,7 +413,9 @@ struct m9mo_state {
 #define M9MO_AE_INDEX		0x09
 #define M9MO_AE_EP_MODE_MON	0x0A
 #define M9MO_AE_EP_MODE_CAP	0x0B
+#define M9MO_AF_AE_LOCK		0x0D
 #define M9MO_AE_AUTO_BRACKET_EV	0x20
+#define M9MO_AE_STABILITY	0x21
 #define M9MO_AE_EV_PRG_MODE_CAP	0x34
 #define M9MO_AE_EV_PRG_MODE_MON	0x35
 #define M9MO_AE_EV_PRG_F_NUMBER	0x36
@@ -379,12 +426,20 @@ struct m9mo_state {
 #define M9MO_AE_EV_PRG_SS_NUMERATOR_MON		0x3E
 #define M9MO_AE_EV_PRG_SS_DENOMINATOR_MON		0x40
 #define M9MO_AE_EV_PRG_ISO_VALUE_MON			0x42
-#define M9MO_AE_NOW_AV	0x44
-#define M9MO_AE_NOW_TV	0x48
-#define M9MO_AE_NOW_SV	0x4C
+#define M9MO_AE_NOW_AV	0x54
+#define M9MO_AE_NOW_TV	0x58
+#define M9MO_AE_NOW_SV	0x5C
+#define M9MO_AE_NOW_LV	0x52
 
 /* M9MO_CATEGORY_NEW: 0x04 */
+#define M9MO_NEW_TIME_INFO		0x02
 #define M9MO_NEW_DETECT_SCENE	0x0B
+#define M9MO_NEW_OIS_VERSION	0x1B
+
+/* M9MO_CATEGORY_PRO_MODE: 0x05 */
+#define M9MO_PRO_SMART_READ1		0x20
+#define M9MO_PRO_SMART_READ2		0x24
+#define M9MO_PRO_SMART_READ3		0x28
 
 /* M9MO_CATEGORY_WB: 0x06 */
 #define M9MO_AWB_LOCK		0x00
@@ -396,8 +451,14 @@ struct m9mo_state {
 #define M9MO_WB_A_VALUE		0x90
 #define M9MO_WB_M_VALUE		0x91
 #define M9MO_WB_K_VALUE		0x92
-#define M9MO_WB_CUSTOM_X		0x93
-#define M9MO_WB_CUSTOM_Y		0x97
+#define M9MO_WB_CWB_MODE		0x93
+#define M9MO_WB_SET_CUSTOM_RG	0x94
+#define M9MO_WB_SET_CUSTOM_BG	0x96
+#define M9MO_WB_GET_CUSTOM_RG	0x98
+#define M9MO_WB_GET_CUSTOM_BG	0x9A
+#define M9MO_WB_WBB_MODE		0x9C
+#define M9MO_WB_WBB_AB		0x9D
+#define M9MO_WB_WBB_GM		0x9E
 
 /* M9MO_CATEGORY_EXIF: 0x07 */
 #define M9MO_EXIF_EXPTIME_NUM	0x00
@@ -410,6 +471,10 @@ struct m9mo_state {
 #define M9MO_EXIF_EBV_DEN	0x24
 #define M9MO_EXIF_ISO		0x28
 #define M9MO_EXIF_FLASH		0x2A
+#define M9MO_EXIF_AV_NUM	0x10
+#define M9MO_EXIF_AV_DEN	0x14
+#define M9MO_EXIF_FL	0x11
+#define M9MO_EXIF_FL_35	0x13
 
 /* M9MO_CATEGORY_OT: 0x08 */
 #define M9MO_OT_TRACKING_CTL		0x00
@@ -461,8 +526,11 @@ struct m9mo_state {
 #define M9MO_LENS_ZOOM_SET_INFO		0x22
 #define M9MO_LENS_ZOOM_SPEED		0x25
 #define M9MO_LENS_ZOOM_STATUS		0x26
+#define M9MO_LENS_LENS_STATUS		0x28
+#define M9MO_LENS_ZOOM_LENS_STATUS	0x2A
 #define M9MO_LENS_AF_TOUCH_POSX		0x30
 #define M9MO_LENS_AF_TOUCH_POSY		0x32
+#define M9MO_LENS_AF_VERSION		0x60
 
 /* M9MO_CATEGORY_CAPPARM: 0x0B */
 #define M9MO_CAPPARM_YUVOUT_MAIN	0x00
@@ -476,10 +544,13 @@ struct m9mo_state {
 #define M9MO_CAPPARM_JPEG_RATIO		0x17
 #define M9MO_CAPPARM_MCC_MODE		0x1D
 #define M9MO_CAPPARM_STROBE_EN		0x22
+#define M9MO_CAPPARM_STROBE_CHARGE	0x27
 #define M9MO_CAPPARM_STROBE_EVC		0x28
+#define M9MO_CAPPARM_STROBE_UP_DOWN	0x29
 #define M9MO_CAPPARM_WDR_EN			0x2C
-#define M9MO_CAPPARM_JPEG_RATIO_OFS	0x34
+#define M9MO_CAPPARM_JPEG_RATIO_OFS	0x1B
 #define M9MO_CAPPARM_THUMB_JPEG_MAX	0x3C
+#define M9MO_CAPPARM_STROBE_BATT_INFO	0x3F
 #define M9MO_CAPPARM_AFB_CAP_EN		0x53
 
 /* M9MO_CATEGORY_CAPCTRL: 0x0C */
@@ -489,6 +560,7 @@ struct m9mo_state {
 #define M9MO_CAPCTRL_START_DUALCAP 0x05
 #define M9MO_CAPCTRL_FRM_SEL	0x06
 #define M9MO_CAPCTRL_FRM_PRV_SEL	0x07
+#define M9MO_CAPCTRL_FRM_THUMB_SEL	0x08
 #define M9MO_CAPCTRL_TRANSFER	0x09
 #define M9MO_CAPCTRL_IMG_SIZE	0x0D
 #define M9MO_CAPCTRL_THUMB_SIZE	0x11
@@ -501,6 +573,7 @@ struct m9mo_state {
 #define M9MO_CAP_MODE_ADDPIXEL_CAPTURE		(0x08)
 #define M9MO_CAP_MODE_PANORAMA_CAPTURE		(0x0B)
 #define M9MO_CAP_MODE_BLINK_CAPTURE			(0x0C)
+#define M9MO_CAP_MODE_RAW			(0x0D)
 
 /* M9MO_CATEGORY_ADJST: 0x0E */
 #define M9MO_ADJST_SHUTTER_MODE	0x33

@@ -483,7 +483,7 @@ static int exynos_tc_volt(struct s5p_tmu_info *info, int enable)
 	static int usage;
 	int ret = 0;
 
-	if (!info)
+	if (!info || !(info->dev))
 		return -EPERM;
 
 	data = info->dev->platform_data;
@@ -1111,7 +1111,7 @@ static int __devinit s5p_tmu_probe(struct platform_device *pdev)
 		&info->cpulevel_tc) < 0) {
 		dev_err(&pdev->dev, "cpufreq_get_level error\n");
 		ret = -EINVAL;
-		goto err_nomem;
+		goto err_nores;
 	}
 #ifdef CONFIG_BUSFREQ_OPP
 	/* To lock bus frequency in OPP mode */
@@ -1119,13 +1119,13 @@ static int __devinit s5p_tmu_probe(struct platform_device *pdev)
 	if (info->bus_dev < 0) {
 		dev_err(&pdev->dev, "Failed to get_dev\n");
 		ret = -EINVAL;
-		goto err_nomem;
+		goto err_nores;
 	}
 	if (exynos4x12_find_busfreq_by_volt(pdata->temp_compensate.bus_volt,
 		&info->busfreq_tc)) {
 		dev_err(&pdev->dev, "get_busfreq_value error\n");
 		ret = -EINVAL;
-		goto err_nomem;
+		goto err_nores;
 	}
 #endif
 	pr_info("%s: cpufreq_level[%u], busfreq_value[%u]\n",
@@ -1364,7 +1364,7 @@ static int s5p_tmu_resume(struct platform_device *pdev)
 	struct s5p_tmu_info *info = platform_get_drvdata(pdev);
 	struct s5p_platform_tmu *data;
 
-	if (!info)
+	if (!info || !(info->dev))
 		return -EAGAIN;
 
 	data = info->dev->platform_data;

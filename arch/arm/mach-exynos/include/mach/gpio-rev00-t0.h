@@ -29,6 +29,7 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 #define GPIO_CAM_VT_nRST	EXYNOS4212_GPM1(6)
 #define GPIO_ISP_RESET		EXYNOS4_GPF1(3)
 
+#define GPIO_CAM_SENSOR_CORE_EN	EXYNOS4212_GPM4(1)
 #define GPIO_VT_CAM_SCL_18V	EXYNOS4212_GPM4(2)
 #define GPIO_VT_CAM_SDA_18V	EXYNOS4212_GPM4(3)
 #define GPIO_VT_CAM_ID		EXYNOS4_GPF1(2)
@@ -95,10 +96,15 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 #define GPIO_GPS_TXD		EXYNOS4_GPA0(5)
 #define GPIO_GPS_TXD_AF		2
 
+#if defined(CONFIG_MACH_T0_EUR_OPEN) || defined(CONFIG_TARGET_LOCALE_CHN)
 #define GPIO_GPS_CTS		EXYNOS4_GPA0(6)
-#define GPIO_GPS_CTS_AF		2
-
 #define GPIO_GPS_RTS		EXYNOS4_GPA0(7)
+#else
+#define GPIO_GPS_CTS		-1
+#define GPIO_GPS_RTS		-1
+#endif
+
+#define GPIO_GPS_CTS_AF		2
 #define GPIO_GPS_RTS_AF		2
 
 #define GPIO_GPS_nRST		EXYNOS4_GPL2(1)
@@ -123,7 +129,7 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 #define GPIO_WLAN_SDIO_D3	EXYNOS4_GPK3(6)
 #define GPIO_WLAN_SDIO_D3_AF	2
 
-
+#ifdef CONFIG_SAMSUNG_MHL
 /* Definitions for Sii 9244B0 */
 #define GPIO_MHL_SDA_1_8V	EXYNOS4_GPF0(4)
 #define GPIO_MHL_SCL_1_8V	EXYNOS4_GPF0(6)
@@ -133,10 +139,9 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 #define GPIO_MHL_WAKE_UP	EXYNOS4212_GPJ1(4)
 #define MHL_INT_IRQ		gpio_to_irq(GPIO_MHL_INT)
 #define MHL_WAKEUP_IRQ		gpio_to_irq(GPIO_MHL_WAKE_UP)
-
+#endif
 #define GPIO_HDMI_EN		EXYNOS4_GPL0(4)
 #define GPIO_HDMI_HPD		EXYNOS4_GPX3(7)
-
 
 /* Touch key */
 #define GPIO_3_TOUCH_SCL	EXYNOS4_GPL0(1)
@@ -149,6 +154,7 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 #define GPIO_TSP_SDA_18V	EXYNOS4_GPA1(2)
 #define GPIO_TSP_SCL_18V	EXYNOS4_GPA1(3)
 #define GPIO_TSP_INT		EXYNOS4212_GPM2(3)
+#define GPIO_TSP_LDO_28V_EN		EXYNOS4212_GPM4(0)
 
 
 /* Keys */
@@ -159,13 +165,31 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 
 
 /* Pen */
+#if defined(CONFIG_MACH_T0_EUR_OPEN) || defined(CONFIG_TARGET_LOCALE_CHN)
+#define GPIO_PEN_SDA		EXYNOS4_GPB(2)
+#define GPIO_PEN_SCL		EXYNOS4_GPB(3)
+#else
+#define GPIO_PEN_SDA		EXYNOS4_GPA0(6)
+#define GPIO_PEN_SCL		EXYNOS4_GPA0(7)
+#endif
+
 #define GPIO_WACOM_LDO_EN	EXYNOS4_GPF2(5)
 #define GPIO_PEN_IRQ		EXYNOS4_GPX0(4)
 #define GPIO_WACOM_SENSE	EXYNOS4_GPX2(4)
 #define GPIO_PEN_PDCT		EXYNOS4_GPX3(5)
 #define GPIO_PEN_SLP		EXYNOS4_GPY1(3)
+#define GPIO_PEN_FWE1		EXYNOS4_GPY1(3)
 #define GPIO_PEN_RESET_N	EXYNOS4_GPY2(1)
 
+/* battery */
+#define GPIO_FUEL_ALERT		EXYNOS4_GPX2(3)
+#if defined(CONFIG_TARGET_LOCALE_USA)
+#define GPIO_BATT_PRESENT_N_INT	EXYNOS4_GPX1(3) /* rev0.2 ~ */
+#endif
+#if defined(CONFIG_BATTERY_WPC_CHARGER)
+#define GPIO_WPC_INT		EXYNOS4_GPX3(0) /* rev0.2 ~ */
+#define GPIO_V_BUS_INT		EXYNOS4_GPX1(4) /* rev0.2 ~ */
+#endif
 
 /* Others */
 #define GPIO_LCD_18V_EN		EXYNOS4_GPC0(1)
@@ -180,18 +204,37 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 #define GPIO_MIC_BIAS_EN	EXYNOS4_GPF1(7)
 #define GPIO_SUB_MIC_BIAS_EN	EXYNOS4_GPF2(0)
 
+#if defined(CONFIG_MACH_T0_CHN_OPEN_DUOS)
+#define GPIO_AUDIO_PCM_SEL EXYNOS4_GPF2(2)
+#endif
+
+#if defined(CONFIG_MACH_T0_CHN_CMCC)
+#define GPIO_AUDIO_PCM_SEL EXYNOS4212_GPM0(3)
+#endif
+
+#if defined(CONFIG_SWITCH_DUAL_MODEM)
+#if defined(CONFIG_MACH_T0_CHN_CMCC)
+#define GPIO_UART_SEL		EXYNOS4212_GPM3(6)
+#define GPIO_USB_SEL		EXYNOS4212_GPM4(0)
+#define GPIO_CP_USB_ON		EXYNOS4212_GPM0(2)
+#endif
+#endif
+
 #define GPIO_MLCD_RST		EXYNOS4_GPF2(1)
 #define GPIO_S_LED_I2C_SCL	EXYNOS4_GPF2(6)
 #define GPIO_S_LED_I2C_SDA	EXYNOS4_GPF2(7)
 #define GPIO_OLED_DET		EXYNOS4_GPF3(0)
 
-#define GPIO_WM8994_LDO		EXYNOS4212_GPJ0(4) /* obsoleted */
-#define GPIO_CODEC_LDO_EN	EXYNOS4212_GPJ0(4)
+#define GPIO_WM8994_LDO		EXYNOS4212_GPJ0(4)
 #define GPIO_ERR_FG		EXYNOS4212_GPJ0(7)
 
-#define GPIO_FUEL_ALERT		EXYNOS4_GPX2(3)
 #define GPIO_G_DET_N		EXYNOS4_GPX3(0)
+#define GPIO_G_DET_N_REV03	EXYNOS4_GPX2(0)
+#define GPIO_VPS_SOUND_EN	EXYNOS4_GPL0(3)
 
+#ifdef CONFIG_JACK_FET
+#define GPIO_EAR_BIAS_DISCHARGE	EXYNOS4_GPC1(0)
+#endif
 
 /** Previous revision **/
 /* rev0.0 */
@@ -231,14 +274,100 @@ extern int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config);
 #define GPIO_MDM2AP_ERR_FATAL		EXYNOS4_GPX1(2)
 #define GPIO_MDM_LTE_ACTIVE		EXYNOS4_GPX1(6)
 #define GPIO_AP2MDM_HSIC_PORT_ACTIVE	EXYNOS4_GPX3(2)	/* AP2MDM_IPC1 */
+#define GPIO_AP2MDM_PMIC_RESET_N	EXYNOS4_GPY2(3)
+
+#if defined(CONFIG_MACH_T0_CHN_CMCC)
+/* Modem Interface GPIOs - T0 SPI */
+#define GPIO_TD_PDA_ACTIVE	EXYNOS4_GPF3(4)
+#define GPIO_TD_PHONE_ON	EXYNOS4212_GPM0(1)
+#define GPIO_TD_PHONE_ACTIVE	EXYNOS4_GPX1(3)
+#define GPIO_AP_TD_INT1	EXYNOS4_GPF0(6)
+#define GPIO_AP_TD_INT2	EXYNOS4_GPF0(4)
+#define GPIO_TD_DUMP_INT	EXYNOS4_GPX0(5)
+#define GPIO_IPC_MRDY	EXYNOS4_GPF2(4)
+#define GPIO_IPC_SRDY	EXYNOS4_GPX0(6)
+#define GPIO_IPC_SUB_MRDY	EXYNOS4_GPF2(2)
+#define GPIO_IPC_SUB_SRDY	EXYNOS4_GPX3(0)
+
+#define IRQ_PHONE_ACTIVE	gpio_to_irq(GPIO_TD_PHONE_ACTIVE)
+#define IRQ_IPC_SRDY		gpio_to_irq(GPIO_IPC_SRDY)
+#define IRQ_IPC_SUB_SRDY	gpio_to_irq(GPIO_IPC_SUB_SRDY)
+#define IRQ_TD_DUMP_INT		gpio_to_irq(GPIO_TD_DUMP_INT)
+
+#endif
+
+#ifdef CONFIG_SEC_DUAL_MODEM_MODE
+#if defined(CONFIG_MACH_T0_CHN_CMCC)
+#define GPIO_SIM_IO_SEL EXYNOS4_GPL2(0)
+#define GPIO_CP_CTRL1   EXYNOS4_GPL2(3)
+#define GPIO_CP_CTRL2   EXYNOS4_GPL2(4)
+#endif
+#endif
 
 
+#if !defined(CONFIG_MACH_T0_CHN_CMCC)
 /* FM (Eur) */
 #define GPIO_FM_INT		EXYNOS4_GPX1(3)
 #define GPIO_FM_RST		EXYNOS4_GPX1(4)
-#define GPIO_ADC_SCL		EXYNOS4_GPY0(2)		/* obsoleted */
-#define GPIO_ADC_SDA		EXYNOS4_GPY0(3)		/* obsoleted */
+#define GPIO_FM_RST_REV03	EXYNOS4_GPY0(1)
 #define GPIO_FM_SCL		EXYNOS4_GPY0(2)
 #define GPIO_FM_SDA		EXYNOS4_GPY0(3)
+#endif
+
+#if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
+#define GPIO_TDMB_RST_N	EXYNOS4_GPC0(0)
+#define GPIO_TDMB_EN		EXYNOS4_GPC0(2)
+#define GPIO_TDMB_INT		EXYNOS4_GPC0(4)
+#define GPIO_TDMB_IRQ		gpio_to_irq(GPIO_TDMB_INT)
+#define GPIO_TDMB_SPI_CLK	EXYNOS4_GPC1(1)
+#define GPIO_TDMB_SPI_CS	EXYNOS4_GPC1(2)
+#define GPIO_TDMB_SPI_MISO	EXYNOS4_GPC1(3)
+#define GPIO_TDMB_SPI_MOSI	EXYNOS4_GPC1(4)
+#if defined(CONFIG_TDMB_ANT_DET)
+#define GPIO_TDMB_ANT_DET			EXYNOS4_GPF2(0)
+#define GPIO_TDMB_IRQ_ANT_DET		gpio_to_irq(GPIO_TDMB_ANT_DET)
+#define GPIO_TDMB_ANT_DET_REV08		EXYNOS4_GPX1(3)
+#define GPIO_TDMB_IRQ_ANT_DET_REV08	gpio_to_irq(GPIO_TDMB_ANT_DET_REV08)
+#endif
+
+#elif defined(CONFIG_ISDBT)
+#define GPIO_ISDBT_RST_N	EXYNOS4_GPC0(0)
+#define GPIO_ISDBT_EN		EXYNOS4_GPC0(2)
+#define GPIO_ISDBT_INT		EXYNOS4_GPC0(4)
+#define GPIO_ISDBT_IRQ		gpio_to_irq(GPIO_ISDBT_INT)
+#define GPIO_ISDBT_INT_AF	0xf
+#define GPIO_ISDBT_SPI_CLK	EXYNOS4_GPC1(1)
+#define GPIO_ISDBT_SPI_CS	EXYNOS4_GPC1(2)
+#define GPIO_ISDBT_SPI_MISO	EXYNOS4_GPC1(3)
+#define GPIO_ISDBT_SPI_MOSI	EXYNOS4_GPC1(4)
+#endif
+
+/*BARCODE_EMUL*/
+#if defined(CONFIG_BARCODE_EMUL_ICE4)
+#define GPIO_BARCODE_SDA_1_8V EXYNOS4_GPF0(0)
+#define GPIO_BARCODE_SCL_1_8V	EXYNOS4_GPF0(1)
+
+#if defined(CONFIG_MACH_T0_CHN_CU_DUOS)
+#define GPIO_FPGA_CDONE		EXYNOS4_GPF3(4)
+#define GPIO_FPGA_CRESET_B	EXYNOS4_GPF3(5)
+#else
+#define GPIO_FPGA_CRESET_B	EXYNOS4_GPF0(2)
+#define GPIO_FPGA_CDONE		EXYNOS4_GPF0(3)
+#endif
+
+#define GPIO_FPGA_RST_N			EXYNOS4_GPF0(5)
+#define GPIO_FPGA_SPI_CLK		EXYNOS4212_GPM4(4)
+#define GPIO_FPGA_SPI_SI		EXYNOS4212_GPM4(6)
+#define GPIO_FPGA_SPI_EN		EXYNOS4212_GPM4(5)
+#endif
+
+#if defined(CONFIG_FELICA)
+#define  FELICA_GPIO_I2C_SDA   EXYNOS4_GPY2(4)
+#define  FELICA_GPIO_I2C_SCL   EXYNOS4_GPY2(5)
+#define  FELICA_UART3RX        EXYNOS4_GPA1(4)
+#define  FELICA_GPIO_RFS       EXYNOS4_GPL2(6)
+#define  FELICA_GPIO_PON       EXYNOS4_GPL2(7)
+#define  FELICA_GPIO_INT       EXYNOS4_GPX1(7)
+#endif
 
 #endif /* __MACH_GPIO_MIDAS_H */

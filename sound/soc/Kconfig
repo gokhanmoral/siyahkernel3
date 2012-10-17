@@ -58,6 +58,8 @@ source "sound/soc/sh/Kconfig"
 source "sound/soc/tegra/Kconfig"
 source "sound/soc/txx9/Kconfig"
 
+source "sound/soc/codecs/Kconfig.voodoo"
+
 # Supported codecs
 source "sound/soc/codecs/Kconfig"
 

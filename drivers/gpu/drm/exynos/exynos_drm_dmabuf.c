@@ -262,22 +262,11 @@ struct drm_gem_object *exynos_dmabuf_prime_import(struct drm_device *drm_dev,
 	buffer->sgt = sgt;
 	exynos_gem_obj->base.import_attach = attach;
 
-	/* register buffer information to private buffer manager. */
-	ret = register_buf_to_priv_mgr(exynos_gem_obj,
-					&exynos_gem_obj->priv_handle,
-					&exynos_gem_obj->priv_id);
-	if (ret < 0)
-		goto err_release_gem;
-
-	DRM_DEBUG_PRIME("ump id = %d, dma_addr = 0x%x, size = 0x%lx\n",
-			exynos_gem_obj->priv_id, buffer->dma_addr, buffer->size);
+	DRM_DEBUG_PRIME("dma_addr = 0x%x, size = 0x%lx\n", buffer->dma_addr,
+				buffer->size);
 
 	return &exynos_gem_obj->base;
 
-err_release_gem:
-	drm_gem_object_release(&exynos_gem_obj->base);
-	kfree(exynos_gem_obj);
-	exynos_gem_obj = NULL;
 err_free_pages:
 	kfree(buffer->pages);
 	buffer->pages = NULL;

@@ -24,9 +24,11 @@ enum lcd_property_flip {
  * A structure for lcd property.
  *
  * @flip: flip information for each lcd.
+ * @dynamic_refresh: enable/disable dynamic refresh.
  */
 struct lcd_property {
 	enum lcd_property_flip flip;
+	bool	dynamic_refresh;
 };
 
 #endif /* LCD_PROPERTY_H */

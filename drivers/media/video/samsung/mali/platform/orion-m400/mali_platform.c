@@ -3,7 +3,7 @@
  *
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
- * 
+ *
  * A copy of the licence is included with the program, and can also be obtained from Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
@@ -39,17 +39,26 @@
 #include <asm/io.h>
 #include <mach/regs-pmu.h>
 
-#define EXTXTALCLK_NAME 		"ext_xtal"
-#define VPLLSRCCLK_NAME 		"vpll_src"
-#define FOUTVPLLCLK_NAME 		"fout_vpll"
-#define SCLVPLLCLK_NAME 		"sclk_vpll"
-#define GPUMOUT1CLK_NAME 		"mout_g3d1"
+#define EXTXTALCLK_NAME 	"ext_xtal"
+#define VPLLSRCCLK_NAME 	"vpll_src"
+#define FOUTVPLLCLK_NAME	"fout_vpll"
+#define SCLVPLLCLK_NAME 	"sclk_vpll"
+#define GPUMOUT1CLK_NAME	"mout_g3d1"
 
 #define MPLLCLK_NAME 		"mout_mpll"
 #define GPUMOUT0CLK_NAME 	"mout_g3d0"
 #define GPUCLK_NAME 		"sclk_g3d"
 #define CLK_DIV_STAT_G3D 	0x1003C62C
-#define CLK_DESC 		"clk-divider-status"
+#define CLK_DESC 			"clk-divider-status"
+
+#define MALI_BOTTOMLOCK_VOL	900000
+
+typedef struct mali_runtime_resumeTag{
+	int clk;
+	int vol;
+}mali_runtime_resume_table;
+
+mali_runtime_resume_table mali_runtime_resume = {100, 900000};
 
 /* lock/unlock CPU freq by Mali */
 extern int cpufreq_lock_by_mali(unsigned int freq);
@@ -67,11 +76,16 @@ static struct clk  *mali_clock = 0;
 
 static unsigned int GPU_MHZ	= 1000000;
 
-int mali_gpu_clk = 160;
-int mali_gpu_vol = 1100000;
+int mali_gpu_clk = 100;
+int mali_gpu_vol = 900000;
 
 #if MALI_DVFS_ENABLED
 #define MALI_DVFS_DEFAULT_STEP 0
+#endif
+#if MALI_VOLTAGE_LOCK
+int mali_lock_vol = 0;
+static _mali_osk_atomic_t voltage_lock_status;
+static mali_bool mali_vol_lock_flag = 0;
 #endif
 
 int  gpu_power_state;
@@ -118,40 +132,61 @@ int mali_regulator_get_usecount(void)
 	return rdev->use_count;
 }
 
-static DEFINE_MUTEX(boostpop_mutex);
 void mali_regulator_disable(void)
 {
-	mutex_lock(&boostpop_mutex);
-	bPoweroff = 1;
 	if( IS_ERR_OR_NULL(g3d_regulator) )
 	{
-		mutex_unlock(&boostpop_mutex);
 		MALI_DEBUG_PRINT(1, ("error on mali_regulator_disable : g3d_regulator is null\n"));
 		return;
 	}
 	regulator_disable(g3d_regulator);
-	mutex_unlock(&boostpop_mutex);
 	MALI_DEBUG_PRINT(1, ("regulator_disable -> use cnt: %d \n",mali_regulator_get_usecount()));
+	bPoweroff = 1;
 }
 
 void mali_regulator_enable(void)
 {
-	mutex_lock(&boostpop_mutex);
-	bPoweroff = 0;
 	if( IS_ERR_OR_NULL(g3d_regulator) )
 	{
-		mutex_unlock(&boostpop_mutex);
 		MALI_DEBUG_PRINT(1, ("error on mali_regulator_enable : g3d_regulator is null\n"));
 		return;
 	}
 	regulator_enable(g3d_regulator);
-	mutex_unlock(&boostpop_mutex);
 	MALI_DEBUG_PRINT(1, ("regulator_enable -> use cnt: %d \n",mali_regulator_get_usecount()));
+	bPoweroff = 0;
 }
 
 void mali_regulator_set_voltage(int min_uV, int max_uV)
-{	
+{
 	int voltage;
+#if !MALI_DVFS_ENABLED
+	min_uV = mali_gpu_vol;
+	max_uV = mali_gpu_vol;
+#endif
+/*
+#if MALI_VOLTAGE_LOCK
+	if (mali_vol_lock_flag == MALI_FALSE) {
+		if (min_uV < MALI_BOTTOMLOCK_VOL || max_uV < MALI_BOTTOMLOCK_VOL) {
+			min_uV = MALI_BOTTOMLOCK_VOL;
+			max_uV = MALI_BOTTOMLOCK_VOL;
+		}
+	} else if (_mali_osk_atomic_read(&voltage_lock_status) > 0 ) {
+		if (min_uV < mali_lock_vol || max_uV < mali_lock_vol) {
+#if MALI_DVFS_ENABLED
+			int mali_vol_get;
+			mali_vol_get = mali_vol_get_from_table(mali_lock_vol);
+			if (mali_vol_get) {
+				min_uV = mali_vol_get;
+				max_uV = mali_vol_get;
+			}
+#else
+			min_uV = mali_lock_vol;
+			max_uV = mali_lock_vol;
+#endif
+		}
+	}
+#endif
+*/
 
 	_mali_osk_lock_wait(mali_dvfs_lock, _MALI_OSK_LOCKMODE_RW);
 
@@ -160,13 +195,14 @@ void mali_regulator_set_voltage(int min_uV, int max_uV)
 		MALI_DEBUG_PRINT(1, ("error on mali_regulator_set_voltage : g3d_regulator is null\n"));
 		return;
 	}
+
     MALI_DEBUG_PRINT(2, ("= regulator_set_voltage: %d, %d \n",min_uV, max_uV));
 
 #if MALI_TIMELINE_PROFILING_ENABLED
     _mali_profiling_add_event( MALI_PROFILING_EVENT_TYPE_SINGLE |
                                MALI_PROFILING_EVENT_CHANNEL_SOFTWARE |
                                MALI_PROFILING_EVENT_REASON_SINGLE_SW_GPU_VOLTS,
-                               min_uV, max_uV, 0, 0, 0);
+                               min_uV, max_uV, 1, 0, 0);
 #endif
 
     regulator_set_voltage(g3d_regulator,min_uV,max_uV);
@@ -176,7 +212,7 @@ void mali_regulator_set_voltage(int min_uV, int max_uV)
     _mali_profiling_add_event( MALI_PROFILING_EVENT_TYPE_SINGLE |
                                MALI_PROFILING_EVENT_CHANNEL_SOFTWARE |
                                MALI_PROFILING_EVENT_REASON_SINGLE_SW_GPU_VOLTS,
-                               voltage, 0, 1, 0, 0);
+                               voltage, 0, 2, 0, 0);
 #endif
 
 	mali_gpu_vol = voltage;
@@ -202,6 +238,7 @@ mali_bool mali_clk_get(mali_bool bis_vpll)
 				MALI_PRINT( ("MALI Error : failed to get source ext_xtal_clock\n"));
 				return MALI_FALSE;
 			}
+			clk_enable(ext_xtal_clock);
 		}
 
 		if (vpll_src_clock == NULL)
@@ -211,6 +248,7 @@ mali_bool mali_clk_get(mali_bool bis_vpll)
 				MALI_PRINT( ("MALI Error : failed to get source vpll_src_clock\n"));
 				return MALI_FALSE;
 			}
+			clk_enable(vpll_src_clock);
 		}
 
 		if (fout_vpll_clock == NULL)
@@ -220,6 +258,7 @@ mali_bool mali_clk_get(mali_bool bis_vpll)
 				MALI_PRINT( ("MALI Error : failed to get source fout_vpll_clock\n"));
 				return MALI_FALSE;
 			}
+			clk_enable(fout_vpll_clock);
 		}
 
 		if (sclk_vpll_clock == NULL)
@@ -229,6 +268,7 @@ mali_bool mali_clk_get(mali_bool bis_vpll)
 				MALI_PRINT( ("MALI Error : failed to get source sclk_vpll_clock\n"));
 				return MALI_FALSE;
 			}
+			clk_enable(sclk_vpll_clock);
 		}
 
 		if (mali_parent_clock == NULL)
@@ -239,6 +279,7 @@ mali_bool mali_clk_get(mali_bool bis_vpll)
 				MALI_PRINT( ( "MALI Error : failed to get source mali parent clock\n"));
 				return MALI_FALSE;
 			}
+			clk_enable(mali_parent_clock);
 		}
 	}
 	else // mpll
@@ -334,6 +375,10 @@ mali_bool mali_clk_set_rate(unsigned int clk, unsigned int mhz)
 	bis_vpll = MALI_TRUE;
 #endif
 
+#if !MALI_DVFS_ENABLED
+	clk = mali_gpu_clk;
+#endif
+
 	_mali_osk_lock_wait(mali_dvfs_lock, _MALI_OSK_LOCKMODE_RW);
 
 	if (mali_clk_get(bis_vpll) == MALI_FALSE)
@@ -374,7 +419,7 @@ mali_bool mali_clk_set_rate(unsigned int clk, unsigned int mhz)
     _mali_profiling_add_event( MALI_PROFILING_EVENT_TYPE_SINGLE |
                                MALI_PROFILING_EVENT_CHANNEL_SOFTWARE |
                                MALI_PROFILING_EVENT_REASON_SINGLE_SW_GPU_FREQ,
-                               rate, 0, 0, 0, 0);
+                               rate, 1, 0, 0, 0);
 #endif
 
 	if (bis_vpll)
@@ -474,49 +519,38 @@ static mali_bool deinit_mali_clock(void)
 
 	return MALI_TRUE;
 }
-extern int mali_touch_boost_level;
-static int is_gpu_boosted = 0;
-static struct timer_list boostpop_timer;
-static void boostpop(struct work_struct *boostpop_work)
-{
-	mutex_lock(&boostpop_mutex);
-	mali_dvfs_bottom_lock_pop();
-	is_gpu_boosted = 0;
-	mutex_unlock(&boostpop_mutex);
-}
-static DECLARE_WORK(boostpop_work, boostpop);
-
-static void handle_boostpop(unsigned long data)
-{
-	schedule_work(&boostpop_work);
-}
-
-
-void gpu_boost_on_touch(void)
-{
-	if(!mali_touch_boost_level) return;
-	mutex_lock(&boostpop_mutex);
-	if(!is_gpu_boosted && !bPoweroff)
-	{
-		mali_dvfs_bottom_lock_push(mali_touch_boost_level);
-		is_gpu_boosted = 1;
-	}
-	mutex_unlock(&boostpop_mutex);
-	mod_timer(&boostpop_timer, jiffies + msecs_to_jiffies(1000));
-}
-
 static _mali_osk_errcode_t enable_mali_clocks(void)
 {
 	int err;
 	err = clk_enable(mali_clock);
 	MALI_DEBUG_PRINT(3,("enable_mali_clocks mali_clock %p error %d \n", mali_clock, err));
 
+	mali_runtime_resume.vol = mali_dvfs_get_vol(MALI_DVFS_STEPS + 1);
+#if MALI_PMM_RUNTIME_JOB_CONTROL_ON
+#if MALI_DVFS_ENABLED
 	// set clock rate
-	mali_clk_set_rate(mali_gpu_clk, GPU_MHZ);
-	
+	if (get_mali_dvfs_control_status() != 0 || mali_gpu_clk >= mali_runtime_resume.clk)
+		mali_clk_set_rate(mali_gpu_clk, GPU_MHZ);
+	else {
+		mali_regulator_set_voltage(mali_runtime_resume.vol, mali_runtime_resume.vol);
+		mali_clk_set_rate(mali_runtime_resume.clk, GPU_MHZ);
+	}
+	if (mali_gpu_clk <= mali_runtime_resume.clk)
+		set_mali_dvfs_current_step(MALI_DVFS_STEPS + 1);
+#if CPUFREQ_LOCK_DURING_440
 	/* lock/unlock CPU freq by Mali */
-	if (mali_gpu_clk >= 300)
-		err = cpufreq_lock_by_mali(800);
+	if (mali_gpu_clk >= 533)
+		err = cpufreq_lock_by_mali(1200);
+	else if (mali_gpu_clk == 440)
+		err = cpufreq_lock_by_mali(1000);
+#endif
+#else
+	mali_regulator_set_voltage(mali_runtime_resume.vol, mali_runtime_resume.vol);
+	mali_clk_set_rate(mali_runtime_resume.clk, GPU_MHZ);
+#endif
+#else
+	mali_clk_set_rate(mali_gpu_clk, GPU_MHZ);
+#endif
 	MALI_SUCCESS;
 }
 
@@ -525,8 +559,10 @@ static _mali_osk_errcode_t disable_mali_clocks(void)
 	clk_disable(mali_clock);
 	MALI_DEBUG_PRINT(3,("disable_mali_clocks mali_clock %p \n", mali_clock));
 
+#if MALI_DVFS_ENABLED
 	/* lock/unlock CPU freq by Mali */
 	cpufreq_unlock_by_mali();
+#endif
 	MALI_SUCCESS;
 }
 
@@ -598,12 +634,14 @@ _mali_osk_errcode_t g3d_power_domain_control(int bpower_on)
 _mali_osk_errcode_t mali_platform_init()
 {
 	MALI_CHECK(init_mali_clock(), _MALI_OSK_ERR_FAULT);
+#if MALI_VOLTAGE_LOCK
+	_mali_osk_atomic_init(&voltage_lock_status, 0);
+#endif
 #if MALI_DVFS_ENABLED
 	if (!clk_register_map) clk_register_map = _mali_osk_mem_mapioregion( CLK_DIV_STAT_G3D, 0x20, CLK_DESC );
 	if(!init_mali_dvfs_status(MALI_DVFS_DEFAULT_STEP))
 		MALI_DEBUG_PRINT(1, ("mali_platform_init failed\n"));
 #endif
-	setup_timer(&boostpop_timer, handle_boostpop, 0);
 
 	MALI_SUCCESS;
 }
@@ -611,7 +649,9 @@ _mali_osk_errcode_t mali_platform_init()
 _mali_osk_errcode_t mali_platform_deinit()
 {
 	deinit_mali_clock();
-
+#if MALI_VOLTAGE_LOCK
+	_mali_osk_atomic_term(&voltage_lock_status);
+#endif
 #if MALI_DVFS_ENABLED
 	deinit_mali_dvfs_status();
 	if (clk_register_map )
@@ -620,7 +660,6 @@ _mali_osk_errcode_t mali_platform_deinit()
 		clk_register_map=0;
 	}
 #endif
-	del_timer(&boostpop_timer);
 
 	MALI_SUCCESS;
 }
@@ -691,3 +730,41 @@ _mali_osk_errcode_t mali_platform_power_mode_change(mali_power_mode power_mode)
 {
     MALI_SUCCESS;
 }
+
+#if MALI_VOLTAGE_LOCK
+int mali_voltage_lock_push(int lock_vol)
+{
+	int prev_status = _mali_osk_atomic_read(&voltage_lock_status);
+
+	if (prev_status < 0) {
+		MALI_PRINT(("gpu voltage lock status is not valid for push\n"));
+		return -1;
+	}
+	if (prev_status == 0) {
+		mali_lock_vol = lock_vol;
+		if (mali_gpu_vol < mali_lock_vol)
+			mali_regulator_set_voltage(mali_lock_vol, mali_lock_vol);
+	} else {
+		MALI_PRINT(("gpu voltage lock status is already pushed, current lock voltage : %d\n", mali_lock_vol));
+		return -1;
+	}
+
+	return _mali_osk_atomic_inc_return(&voltage_lock_status);
+}
+
+int mali_voltage_lock_pop(void)
+{
+	if (_mali_osk_atomic_read(&voltage_lock_status) <= 0) {
+		MALI_PRINT(("gpu voltage lock status is not valid for pop\n"));
+		return -1;
+	}
+	return _mali_osk_atomic_dec_return(&voltage_lock_status);
+}
+
+int mali_voltage_lock_init(void)
+{
+	mali_vol_lock_flag = MALI_TRUE;
+
+	MALI_SUCCESS;
+}
+#endif

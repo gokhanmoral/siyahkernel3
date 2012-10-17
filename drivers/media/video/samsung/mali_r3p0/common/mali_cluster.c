@@ -28,6 +28,7 @@ struct mali_cluster
 	u32 number_of_groups;
 	struct mali_group* groups[MALI_MAX_NUMBER_OF_GROUPS_PER_CLUSTER];
 	u32 last_invalidated_id;
+	mali_bool power_is_enabled;
 };
 
 struct mali_cluster *mali_cluster_create(struct mali_l2_cache_core *l2_cache)
@@ -46,6 +47,7 @@ struct mali_cluster *mali_cluster_create(struct mali_l2_cache_core *l2_cache)
 		_mali_osk_memset(cluster, 0, sizeof(struct mali_cluster));
 		cluster->l2 = l2_cache; /* This cluster now owns this L2 cache object */
 		cluster->last_invalidated_id = 0;
+		cluster->power_is_enabled = MALI_TRUE;
 
 		mali_global_clusters[mali_global_num_clusters] = cluster;
 		mali_global_num_clusters++;
@@ -55,6 +57,17 @@ struct mali_cluster *mali_cluster_create(struct mali_l2_cache_core *l2_cache)
 
 	return NULL;
 }
+
+void mali_cluster_power_is_enabled_set(struct mali_cluster * cluster, mali_bool power_is_enabled)
+{
+	cluster->power_is_enabled = power_is_enabled;
+}
+
+mali_bool mali_cluster_power_is_enabled_get(struct mali_cluster * cluster)
+{
+	return cluster->power_is_enabled;
+}
+
 
 void mali_cluster_add_group(struct mali_cluster *cluster, struct mali_group *group)
 {
@@ -151,7 +164,7 @@ u32 mali_cluster_get_glob_num_clusters(void)
 	return mali_global_num_clusters;
 }
 
-void mali_cluster_l2_cache_invalidate_all(struct mali_cluster *cluster, u32 id)
+mali_bool mali_cluster_l2_cache_invalidate_all(struct mali_cluster *cluster, u32 id)
 {
 	MALI_DEBUG_ASSERT_POINTER(cluster);
 
@@ -163,9 +176,9 @@ void mali_cluster_l2_cache_invalidate_all(struct mali_cluster *cluster, u32 id)
 		 * we don't have to flush for job n-1 if job n has already invalidated
 		 * the cache since we know for sure that job n-1's memory was already
 		 * written when job n was started. */
-		if (cluster->last_invalidated_id > id)
+		if (((s32)id) <= ((s32)cluster->last_invalidated_id))
 		{
-			return;
+			return MALI_FALSE;
 		}
 		else
 		{
@@ -174,6 +187,7 @@ void mali_cluster_l2_cache_invalidate_all(struct mali_cluster *cluster, u32 id)
 
 		mali_l2_cache_invalidate_all(cluster->l2);
 	}
+	return MALI_TRUE;
 }
 
 void mali_cluster_l2_cache_invalidate_all_force(struct mali_cluster *cluster)
@@ -182,6 +196,7 @@ void mali_cluster_l2_cache_invalidate_all_force(struct mali_cluster *cluster)
 
 	if (NULL != cluster->l2)
 	{
+		cluster->last_invalidated_id = mali_scheduler_get_new_id();
 		mali_l2_cache_invalidate_all(cluster->l2);
 	}
 }
