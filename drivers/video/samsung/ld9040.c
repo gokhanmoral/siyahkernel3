@@ -584,6 +584,7 @@ static int ld9040_ldi_disable(struct lcd_info *lcd)
 	return ret;
 }
 
+extern int update_touchkey_brightness(brightness);
 static int update_brightness(struct lcd_info *lcd, u8 force)
 {
 	int ret = 0, brightness;
@@ -595,7 +596,7 @@ static int update_brightness(struct lcd_info *lcd, u8 force)
 
 	if (unlikely(!lcd->auto_brightness && brightness > 250))
 		brightness = 250;
-
+	update_touchkey_brightness(brightness);
 	lcd->bl = get_backlight_level_from_brightness(brightness);
 
 	if ((force) || ((lcd->ldi_enable) && (lcd->current_bl != lcd->bl))) {
