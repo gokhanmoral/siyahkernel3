@@ -30,7 +30,7 @@
 
 #define CUSTOMVOLTAGE_VERSION 1
 #define CPU_UV_MV_MAX 1500000
-#define CPU_UV_MV_MIN 60000
+#define CPU_UV_MV_MIN 600000
 
 #ifdef MODULE
 static int (*gm_misc_register)(struct miscdevice * misc);
@@ -455,9 +455,11 @@ static DEVICE_ATTR(version, S_IRUGO , customvoltage_version, NULL);
 static struct attribute *customvoltage_attributes[] = 
     {
 	&dev_attr_arm_volt.attr,
-	&dev_attr_int_volt.attr,
 	&dev_attr_max_arm_volt.attr,
+#ifndef CONFIG_CPU_EXYNOS4210
 	&dev_attr_max_int_volt.attr,
+	&dev_attr_int_volt.attr,
+#endif
 	&dev_attr_version.attr,
 	NULL
     };
