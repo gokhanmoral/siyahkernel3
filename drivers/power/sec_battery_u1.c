@@ -819,13 +819,13 @@ static int is_event_end_timer_running(struct sec_bat_info *info)
 
 	if (time_after(passed_time, (unsigned long)EVENT_OVER_TIME)) {
 		info->event_end_time = 0xFFFFFFFF;
-		#ifndef PRODUCT_SHIP
+		#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 		dev_info(info->dev, "%s: Event timer is over 10 min\n",
 			 __func__);
 		#endif
 		return false;
 	} else {
-	#ifndef PRODUCT_SHIP
+	#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 		dev_info(info->dev, "%s: Event timer is running(%u s)\n",
 			 __func__, jiffies_to_msecs(passed_time) / 1000);
 	#endif
@@ -856,13 +856,13 @@ static int is_event_end_timer_running(struct sec_bat_info *info)
 
 	if (time_after(passed_time, (unsigned long)BAT_USE_TIMER_EXPIRE)) {
 		info->event_expired_time = 0xFFFFFFFF;
-		#ifndef PRODUCT_SHIP
+		#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 		dev_info(info->dev, "[SPR_NA] %s: Event timer is over 10 min\n",
 			 __func__);
 		#endif
 		return false;
 	} else {
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 		dev_info(info->dev,
 			 "[SPR_NA] %s: Event timer is running(%u s)\n",
 			 __func__, jiffies_to_msecs(passed_time) / 1000);
@@ -976,7 +976,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 		} else {
 			if ((info->batt_event_status)
 			    || (is_event_end_timer_running(info))) {
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 				dev_info(info->dev,
 					 "%s: [NA_SPR] Changed Put off Current",
 					 __func__);
@@ -1119,7 +1119,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 				__func__, ret);
 		}
 	}
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	dev_info(info->dev, "%s: temp=%d, adc=%d\n", __func__, temp, temp_adc);
 #endif
 	return temp;
@@ -1309,7 +1309,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 				__func__, ret);
 		}
 	}
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	dev_info(info->dev, "%s: temp=%d, adc=%d\n", __func__, temp, temp_adc);
 #endif
 
@@ -1397,7 +1397,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 				__func__, ret);
 		}
 	}
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	dev_info(info->dev, "%s: temp=%d, adc=%d\n", __func__, temp, temp_adc);
 #endif
 	return temp;
@@ -1776,7 +1776,7 @@ static bool sec_bat_charging_time_management(struct sec_bat_info *info)
 		dev_info(info->dev, "%s: Undefine Battery Status\n", __func__);
 		return false;
 	}
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	dev_info(info->dev, "Time past : %u secs\n",
 		 jiffies_to_msecs(info->charging_passed_time) / 1000);
 #endif
@@ -2279,7 +2279,7 @@ static void sec_bat_monitor_work(struct work_struct *work)
 		 info->batt_temp / 10, info->charging_status, info->batt_health,
 		 info->batt_vf_adc);
 #else
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	dev_info(info->dev,
 		 "soc(%d), vfocv(%d), vcell(%d), temp(%d), charging(%d), health(%d), chg_adc(%d)\n",
 		 info->batt_soc, info->batt_vfocv, info->batt_vcell / 1000,
@@ -2516,7 +2516,7 @@ static void sec_bat_check_event_status(struct sec_bat_info *info, int mode,
 		if (info->batt_event_status & offset)
 			info->batt_event_status &= ~offset;
 	}
-#ifndef PRODUCT_SHIP
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	printk(KERN_DEBUG "[%s] current batt_event_status = 0x%x\n", __func__,
 	       info->batt_event_status);
 #endif

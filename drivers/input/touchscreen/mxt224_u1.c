@@ -581,7 +581,7 @@ static void mxt224_ta_probe(bool ta_status)
 		size_one = 1;
 		write_mem(copy_data, obj_address + (u16) register_address,
 			  size_one, &value);
-#if !defined(PRODUCT_SHIP)
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 		read_mem(copy_data, obj_address + (u16) register_address,
 			 (u8) size_one, &val);
 		printk(KERN_ERR "[TSP]TA_probe MXT224E T%d Byte%d is %d\n", 48,
@@ -599,7 +599,7 @@ static void mxt224_ta_probe(bool ta_status)
 			value = copy_data->blen_charging_e;
 			write_mem(copy_data, obj_address + 34, size_one,
 				  &value);
-#if !defined(PRODUCT_SHIP)
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 			read_mem(copy_data, obj_address + 34, (u8) size_one,
 				 &val);
 			printk(KERN_DEBUG
@@ -610,7 +610,7 @@ static void mxt224_ta_probe(bool ta_status)
 			value = 40;
 			write_mem(copy_data, obj_address + 35, size_one,
 				  &value);
-#if !defined(PRODUCT_SHIP)
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 			read_mem(copy_data, obj_address + 35, (u8) size_one,
 				 &val);
 			printk(KERN_DEBUG
@@ -639,7 +639,7 @@ static void mxt224_ta_probe(bool ta_status)
 		value = calcfg_en;
 		write_mem(copy_data, obj_address + (u16) register_address,
 			  size_one, &value);
-#if !defined(PRODUCT_SHIP)
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 		read_mem(copy_data, obj_address + (u16) register_address,
 			 (u8) size_one, &val);
 		printk(KERN_ERR "[TSP]TA_probe MXT224E T%d Byte%d is %d\n", 48,
@@ -688,7 +688,7 @@ static void mxt224_ta_probe(bool ta_status)
 		value = (u8) copy_data->threshold;
 		write_mem(copy_data, obj_address + (u16) register_address,
 			  size_one, &value);
-#if !defined(PRODUCT_SHIP)
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 		read_mem(copy_data, obj_address + (u16) register_address,
 			 (u8) size_one, &val);
 		printk(KERN_ERR "[TSP]TA_probe MXT224 T%d Byte%d is %d\n", 9,
