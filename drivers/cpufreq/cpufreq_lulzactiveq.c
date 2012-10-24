@@ -112,13 +112,13 @@ static u64 hispeed_freq;
 /*
  * The minimum amount of time to spend at a frequency before we can step up.
  */
-#define DEFAULT_UP_SAMPLE_TIME 20 * USEC_PER_MSEC
+#define DEFAULT_UP_SAMPLE_TIME 40 * USEC_PER_MSEC
 static unsigned long up_sample_time;
 
 /*
  * The minimum amount of time to spend at a frequency before we can step down.
  */
-#define DEFAULT_DOWN_SAMPLE_TIME 40 * USEC_PER_MSEC
+#define DEFAULT_DOWN_SAMPLE_TIME 20 * USEC_PER_MSEC
 static unsigned long down_sample_time;
 
 /*
@@ -138,7 +138,7 @@ static unsigned long dec_cpu_load;
  * Increasing frequency table index
  * zero disables and causes to always jump straight to max frequency.
  */
-#define DEFAULT_PUMP_UP_STEP 2
+#define DEFAULT_PUMP_UP_STEP 1
 static unsigned long pump_up_step;
 
 /*
@@ -265,15 +265,15 @@ static unsigned int get_nr_run_avg(void)
 }
 
 
-#define DEF_SAMPLING_RATE			(50000)
+#define DEF_SAMPLING_RATE			(40000)
 #define MIN_SAMPLING_RATE			(10000)
 #define MAX_HOTPLUG_RATE			(40u)
 
 #define DEF_MAX_CPU_LOCK			(0)
 #define DEF_MIN_CPU_LOCK			(0)
 #define DEF_UP_NR_CPUS				(1)
-#define DEF_CPU_UP_RATE				(10)
-#define DEF_CPU_DOWN_RATE			(20)
+#define DEF_CPU_UP_RATE				(13)
+#define DEF_CPU_DOWN_RATE			(13)
 #define DEF_START_DELAY				(0)
 
 #define HOTPLUG_DOWN_INDEX			(0)
@@ -292,14 +292,14 @@ static int hotplug_freq[4][2] = {
 };
 #else
 static int hotplug_rq[4][2] = {
-	{0, 200}, {200, 200}, {200, 300}, {300, 0}
+	{0, 350}, {290, 350}, {290, 400}, {350, 0}
 };
 
 static int hotplug_freq[4][2] = {
-	{0, 800000},
+	{0, 600000},
+	{400000, 700000},
 	{500000, 800000},
-	{500000, 800000},
-	{500000, 0}
+	{600000, 0}
 };
 #endif
 
