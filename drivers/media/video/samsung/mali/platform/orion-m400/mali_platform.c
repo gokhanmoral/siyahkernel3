@@ -58,7 +58,7 @@ typedef struct mali_runtime_resumeTag{
 	int vol;
 }mali_runtime_resume_table;
 
-mali_runtime_resume_table mali_runtime_resume = {100, 900000};
+mali_runtime_resume_table mali_runtime_resume = {108, 900000};
 
 /* lock/unlock CPU freq by Mali */
 extern int cpufreq_lock_by_mali(unsigned int freq);
@@ -76,7 +76,7 @@ static struct clk  *mali_clock = 0;
 
 static unsigned int GPU_MHZ	= 1000000;
 
-int mali_gpu_clk = 100;
+int mali_gpu_clk = 108;
 int mali_gpu_vol = 900000;
 
 #if MALI_DVFS_ENABLED
@@ -365,13 +365,12 @@ void mali_clk_put(mali_bool binc_mali_clock)
 
 }
 
-
 mali_bool mali_clk_set_rate(unsigned int clk, unsigned int mhz)
 {
 	unsigned long rate = 0;
-	mali_bool bis_vpll = MALI_FALSE;
+	mali_bool bis_vpll = MALI_TRUE;
 
-#ifdef CONFIG_VPLL_USE_FOR_TVENC
+#ifndef CONFIG_VPLL_USE_FOR_TVENC
 	bis_vpll = MALI_TRUE;
 #endif
 

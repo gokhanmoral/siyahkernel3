@@ -71,7 +71,7 @@ typedef struct mali_dvfs_stepTag{
 mali_dvfs_step step[MALI_DVFS_STEPS]={
 	/*step 0 clk*/ {66,   900000},
 #if (MALI_DVFS_STEPS > 1)
-	/*step 1 clk*/ {100,   900000},
+	/*step 1 clk*/ {108,   900000},
 #if (MALI_DVFS_STEPS > 2)
 	/*step 2 clk*/ {160,   950000},
 #if (MALI_DVFS_STEPS > 3)
@@ -181,24 +181,28 @@ int cpufreq_lock_by_mali(unsigned int freq)
 /* #if defined(CONFIG_CPU_FREQ) && defined(CONFIG_ARCH_EXYNOS4) */
 	unsigned int level;
 
-	if (atomic_read(&mali_cpufreq_lock) == 0) {
-		if (exynos_cpufreq_get_level(freq * 1000, &level)) {
-			printk(KERN_ERR
-				"Mali: failed to get cpufreq level for %dMHz",
-				freq);
-			return -EINVAL;
-		}
+	if (atomic_read(&mali_cpufreq_lock) == 1)
+		exynos_cpufreq_lock_free(DVFS_LOCK_ID_G3D);
 
-		if (exynos_cpufreq_lock(DVFS_LOCK_ID_G3D, level)) {
-			printk(KERN_ERR
-				"Mali: failed to cpufreq lock for L%d", level);
-			return -EINVAL;
-		}
-
-		atomic_set(&mali_cpufreq_lock, 1);
-		printk(KERN_DEBUG "Mali: cpufreq locked on <%d>%dMHz\n", level,
-									freq);
+	if (exynos_cpufreq_get_level(freq * 1000, &level)) {
+		printk(KERN_ERR
+			"Mali: failed to get cpufreq level for %dMHz", freq);
+		if (atomic_read(&mali_cpufreq_lock) == 1)
+			atomic_set(&mali_cpufreq_lock, 0);
+		return -EINVAL;
 	}
+
+	if (exynos_cpufreq_lock(DVFS_LOCK_ID_G3D, level)) {
+		printk(KERN_ERR "Mali: failed to cpufreq lock for L%d", level);
+		if (atomic_read(&mali_cpufreq_lock) == 1)
+			atomic_set(&mali_cpufreq_lock, 0);
+		return -EINVAL;
+	}
+
+	printk(KERN_DEBUG "Mali: cpufreq locked on <%d>%dMHz\n", level, freq);
+
+	if (atomic_read(&mali_cpufreq_lock) == 0)
+		atomic_set(&mali_cpufreq_lock, 1);
 #endif
 	return 0;
 }
