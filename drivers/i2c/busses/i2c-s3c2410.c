@@ -35,7 +35,6 @@
 #include <linux/cpufreq.h>
 #include <linux/slab.h>
 #include <linux/io.h>
-#include <linux/i2c/mxt224_u1.h>
 
 #include <asm/irq.h>
 
@@ -84,10 +83,6 @@ struct s3c24xx_i2c {
 	struct notifier_block	freq_transition;
 #endif
 };
-
-#ifdef CONFIG_PM
-extern bool s2w_enabled;
-#endif
 
 /* default platform data removed, dev should always carry data. */
 
@@ -538,7 +533,7 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 	int spins = 20;
 	int ret;
 
-	if (i2c->suspended && !s2w_enabled)
+	if (i2c->suspended)
 		return -EIO;
 
 	ret = s3c24xx_i2c_set_master(i2c);
@@ -630,7 +625,7 @@ static int s3c24xx_i2c_xfer(struct i2c_adapter *adap,
 	int retry;
 	int ret;
 
-	if (i2c->suspended && !s2w_enabled)
+	if (i2c->suspended)
 	{
 		dev_err(i2c->dev, "I2C is not initialzed.\n");
 		dump_i2c_register(i2c);
