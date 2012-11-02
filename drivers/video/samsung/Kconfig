@@ -347,6 +347,6 @@ endchoice
 
 config MDNIE_MOD
 	tristate "mdnie sharpness mod"
-	depends on S6E8AA0_AMS480GYXX
+	depends on S6E8AA0_AMS480GYXX || FB_S5P_LD9040 || FB_S5P_NT35560
 	default y
 

@@ -14,7 +14,13 @@
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
+#if defined(CONFIG_CPU_EXYNOS4210)
+#if defined(CONFIG_FB_S5P_LD9040) || defined(CONFIG_FB_S5P_NT35560)
+#include "mdnie_table_u1.h"
+#endif
+#else
 #include "mdnie_table_c1m0.h"
+#endif
 
 static void force_update_mdnie(void)
 {
