@@ -300,12 +300,6 @@ config CPU_FREQ_GOV_LULZACTIVE
 
 	  If in doubt, say N.
 
-config CPU_FREQ_GOV_SMARTASS2
-	tristate "'smartassV2' cpufreq governor"
-	depends on CPU_FREQ
-	help
-	  'smartassV2' - a "smart" governor
-
 config CPU_FREQ_GOV_SLP
 	tristate "'slp' cpufreq policy governor"
 
