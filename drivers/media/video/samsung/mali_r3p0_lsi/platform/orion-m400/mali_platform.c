@@ -373,14 +373,12 @@ void mali_clk_put(mali_bool binc_mali_clock)
 
 }
 
+extern int mali_use_vpll;
+
 mali_bool mali_clk_set_rate(unsigned int clk, unsigned int mhz)
 {
 	unsigned long rate = 0;
-	mali_bool bis_vpll = MALI_TRUE;
-
-#ifndef CONFIG_VPLL_USE_FOR_TVENC
-	bis_vpll = MALI_TRUE;
-#endif
+	mali_bool bis_vpll = mali_use_vpll;
 
 #if !MALI_DVFS_ENABLED
 	clk = mali_gpu_clk;
