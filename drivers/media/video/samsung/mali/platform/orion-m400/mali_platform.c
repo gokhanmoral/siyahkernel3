@@ -516,10 +516,13 @@ static mali_bool deinit_mali_clock(void)
 
 	return MALI_TRUE;
 }
+void mali_force_mpll(void);
+void mali_restore_vpll_mode(void);
 static _mali_osk_errcode_t enable_mali_clocks(void)
 {
 	int err;
 	err = clk_enable(mali_clock);
+	mali_restore_vpll_mode();
 	MALI_DEBUG_PRINT(3,("enable_mali_clocks mali_clock %p error %d \n", mali_clock, err));
 
 	mali_runtime_resume.vol = mali_dvfs_get_vol(MALI_DVFS_STEPS + 1);
@@ -553,6 +556,7 @@ static _mali_osk_errcode_t enable_mali_clocks(void)
 
 static _mali_osk_errcode_t disable_mali_clocks(void)
 {
+	mali_force_mpll();
 	clk_disable(mali_clock);
 	MALI_DEBUG_PRINT(3,("disable_mali_clocks mali_clock %p \n", mali_clock));
 
@@ -765,3 +769,16 @@ int mali_voltage_lock_init(void)
 	MALI_SUCCESS;
 }
 #endif
+int mali_use_vpll_save;
+void mali_restore_vpll_mode(void)
+{
+	mali_use_vpll = mali_use_vpll_save;
+}
+
+void mali_force_mpll(void)
+{
+	mali_use_vpll_save = mali_use_vpll;
+	mali_use_vpll = false;
+	mali_regulator_set_voltage(mali_gpu_vol, mali_gpu_vol);
+	mali_clk_set_rate(mali_gpu_clk, GPU_MHZ);
+}
