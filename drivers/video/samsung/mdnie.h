@@ -115,9 +115,6 @@ struct mdnie_info {
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend    early_suspend;
 #endif
-	unsigned short user_mode;
-	unsigned short user_cb;
-	unsigned short user_cr;
 };
 
 extern struct mdnie_info *g_mdnie;

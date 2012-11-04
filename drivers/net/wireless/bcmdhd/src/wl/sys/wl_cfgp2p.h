@@ -221,6 +221,8 @@ wl_cfgp2p_find_idx(struct wl_priv *wl, struct net_device *ndev);
 
 
 extern s32
+wl_cfgp2p_p2p_listen_suspend(void);
+extern s32
 wl_cfgp2p_listen_complete(struct wl_priv *wl, struct net_device *ndev,
             const wl_event_msg_t *e, void *data);
 extern s32

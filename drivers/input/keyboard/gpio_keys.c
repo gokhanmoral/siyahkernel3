@@ -26,7 +26,9 @@
 #include <linux/workqueue.h>
 #include <linux/gpio.h>
 #include <linux/irqdesc.h>
+#ifdef CONFIG_MACH_U1
 #include <linux/i2c/mxt224_u1.h>
+#endif
 
 extern struct class *sec_class;
 
@@ -451,7 +453,11 @@ static inline int64_t get_time_inms(void) {
 	return tinms;
 }
 
+#ifdef CONFIG_MACH_U1
 #define HOME_KEY_VAL	102
+#else
+#define HOME_KEY_VAL	0xac
+#endif
 extern void mdnie_toggle_negative(void);
 int homekey_trg_cnt = 4;
 int homekey_trg_ms = 300;
@@ -769,8 +775,9 @@ static int __devinit gpio_keys_probe(struct platform_device *pdev)
 			wakeup = 1;
 
 		input_set_capability(input, type, button->code);
-
+#ifdef CONFIG_MACH_U1
 		slide2wake_setdev(input);
+#endif
 	}
 
 	error = sysfs_create_group(&pdev->dev.kobj, &gpio_keys_attr_group);

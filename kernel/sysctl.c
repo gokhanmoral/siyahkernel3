@@ -262,13 +262,16 @@ rom_feature_set_sysctl(struct ctl_table *table, int write,
 		printk("Initializing USB with rom_feature_set: %d\n", rom_feature_set);
 		late_init_android_gadget(rom_feature_set);
 #ifdef CONFIG_MALI_R3P0_LSI
-		if(rom_feature_set == 3) new_late_mali_driver_init();
+		if(rom_feature_set & 2) new_late_mali_driver_init();
 		else late_mali_driver_init();
 #else
 		late_mali_driver_init();
 #endif
 #ifdef CONFIG_MALI_CONTROL
 		register_mali_control();
+#endif
+#ifndef CONFIG_CPU_EXYNOS4210
+		mfc_late_init();
 #endif
 	}
 	return 0;

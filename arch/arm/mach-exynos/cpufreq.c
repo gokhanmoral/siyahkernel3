@@ -742,6 +742,7 @@ static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	policy->max = 1400000;
 #endif
 	policy->min = 200000;
+
 	return 0;
 }
 

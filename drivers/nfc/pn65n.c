@@ -35,6 +35,7 @@
 #include <linux/miscdevice.h>
 #include <linux/spinlock.h>
 #include <linux/nfc/pn65n.h>
+#include <linux/wakelock.h>
 
 #define MAX_BUFFER_SIZE		512
 
@@ -56,6 +57,7 @@ struct pn65n_dev	{
 	struct mutex		read_mutex;
 	struct i2c_client	*client;
 	struct miscdevice	pn65n_device;
+	struct wake_lock	nfc_wake_lock;
 	unsigned int		ven_gpio;
 	unsigned int		firm_gpio;
 	unsigned int		irq_gpio;
@@ -83,7 +85,7 @@ static irqreturn_t pn65n_dev_irq_handler(int irq, void *dev_id)
 #if NFC_DEBUG
 	pr_info("%s, IRQ_HANDLED\n", __func__);
 #endif
-
+	wake_lock_timeout(&pn65n_dev->nfc_wake_lock, 2 * HZ);
 	return IRQ_HANDLED;
 }
 
@@ -405,6 +407,10 @@ static int pn65n_probe(struct i2c_client *client,
 	}
 
 	i2c_set_clientdata(client, pn65n_dev);
+
+	wake_lock_init(&pn65n_dev->nfc_wake_lock,
+		WAKE_LOCK_SUSPEND, "nfc_wake_lock");
+
 	/* request irq.  the irq is set whenever the chip has data available
 	 * for reading.  it is cleared when all data has been read.
 	 */
@@ -429,6 +435,7 @@ static int pn65n_probe(struct i2c_client *client,
 	return 0;
 
 err_request_irq_failed:
+	wake_lock_destroy(&pn65n_dev->nfc_wake_lock);
 	misc_deregister(&pn65n_dev->pn65n_device);
 err_misc_register:
 	mutex_destroy(&pn65n_dev->read_mutex);
@@ -447,6 +454,7 @@ static int pn65n_remove(struct i2c_client *client)
 	struct pn65n_dev *pn65n_dev;
 
 	pn65n_dev = i2c_get_clientdata(client);
+	wake_lock_destroy(&pn65n_dev->nfc_wake_lock);
 	free_irq(client->irq, pn65n_dev);
 	misc_deregister(&pn65n_dev->pn65n_device);
 	mutex_destroy(&pn65n_dev->read_mutex);
