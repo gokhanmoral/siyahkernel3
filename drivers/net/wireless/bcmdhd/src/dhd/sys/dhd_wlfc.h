@@ -29,7 +29,6 @@
 
 #define WLFC_HANGER_ITEM_STATE_FREE		1
 #define WLFC_HANGER_ITEM_STATE_INUSE	2
-#define WLFC_HANGER_ITEM_STATE_INUSE_SUPPRESSED	3
 
 #define WLFC_PKTID_HSLOT_MASK			0xffff /* allow 16 bits only */
 #define WLFC_PKTID_HSLOT_SHIFT			8
@@ -69,8 +68,7 @@ typedef enum ewlfc_mac_entry_action {
 
 typedef struct wlfc_hanger_item {
 	uint8	state;
-	uint8   gen;
-	uint8	pad[2];
+	uint8	pad[3];
 	uint32	identifier;
 	void*	pkt;
 #ifdef PROP_TXSTATUS_DEBUG
@@ -95,12 +93,12 @@ typedef struct wlfc_hanger {
 #define WLFC_STATE_CLOSE	2
 
 #define WLFC_PSQ_PREC_COUNT		((AC_COUNT + 1) * 2) /* 2 for each AC traffic and bc/mc */
-#define WLFC_PSQ_LEN			2048
-#define WLFC_SENDQ_LEN			256       /* XXX: Match dhd_sdio txq length */
+#define WLFC_PSQ_LEN			64
+#define WLFC_SENDQ_LEN			256
 
-#define WLFC_FLOWCONTROL_HIWATER	(2048 - 256)
-#define WLFC_FLOWCONTROL_LOWATER	256
-
+#define WLFC_FLOWCONTROL_DELTA		8
+#define WLFC_FLOWCONTROL_HIWATER	(WLFC_PSQ_LEN - WLFC_FLOWCONTROL_DELTA)
+#define WLFC_FLOWCONTROL_LOWATER	(WLFC_FLOWCONTROL_HIWATER - WLFC_FLOWCONTROL_DELTA)
 
 typedef struct wlfc_mac_descriptor {
 	uint8 occupied;
@@ -125,11 +123,6 @@ typedef struct wlfc_mac_descriptor {
 	/* 1= send on next opportunity */
 	uint8 send_tim_signal;
 	uint8 mac_handle;
-	uint transit_count;
-	uint suppr_transit_count;
-	uint suppress_count;
-    uint8 suppressed;
-
 #ifdef PROP_TXSTATUS_DEBUG
 	uint32 dstncredit_sent_packets;
 	uint32 dstncredit_acks;

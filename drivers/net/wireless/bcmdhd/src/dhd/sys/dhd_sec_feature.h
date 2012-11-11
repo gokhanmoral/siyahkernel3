@@ -49,17 +49,8 @@
 #define WRITE_MACADDR
 #endif
 
-#ifdef CONFIG_ARCH_MSM7X30
-#define HW_OOB
-#define READ_MACADDR
-#endif
-
 #ifdef CONFIG_MACH_GC1
 #undef USE_CID_CHECK
-#define READ_MACADDR
-#endif
-
-#ifdef CONFIG_MACH_P10
 #define READ_MACADDR
 #endif
 
@@ -98,7 +89,7 @@
 #undef WRITE_MACADDR
 #undef READ_MACADDR
 #ifdef CONFIG_BCM4334
-#define READ_MACADDR
+#define RDWR_KORICS_MACADDR
 #else
 #define RDWR_MACADDR
 #endif
