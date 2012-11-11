@@ -248,7 +248,7 @@ static spinlock_t gestures_lock;
 
 static u8 mov_hysti = 255;
 
-#define CLEAR_MEDIAN_FILTER_ERROR
+#undef CLEAR_MEDIAN_FILTER_ERROR
 struct mxt224_data *copy_data;
 int touch_is_pressed;
 EXPORT_SYMBOL(touch_is_pressed);
