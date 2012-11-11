@@ -1335,7 +1335,7 @@ static void report_input_data(struct mxt224_data *data)
 	unsigned long flags;
 	bool track_gestures;
 
-	track_gestures = gestures_enabled;
+	track_gestures = copy_data->mxt224_enabled;
 #endif
 
 	touch_is_pressed = 0;
