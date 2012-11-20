@@ -436,7 +436,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 	smp_rmb();
 
 	if (dbs_tuners_ins.dvfs_debug) {
-		printk(KERN_ERR "LulzQ: (cpu %u) - %s ++\n", data, __func__);
+		printk(KERN_ERR "LulzQ: (cpu %lu) - %s ++\n", data, __func__);
 	}
 
 	if (!pcpu->governor_enabled)
@@ -489,7 +489,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 		delta_idle += jiffies_to_usecs(cur_nice_jiffies);
 
 		if (dbs_tuners_ins.dvfs_debug) {
-			printk(KERN_ERR "LulzQ: [LULZ TIMER] cpu %u, NICE TIME IN IDLE: %u\n",
+			printk(KERN_ERR "LulzQ: [LULZ TIMER] cpu %lu, NICE TIME IN IDLE: %u\n",
 					data, jiffies_to_usecs(cur_nice_jiffies));
 		}
 
@@ -521,7 +521,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 		delta_idle += jiffies_to_usecs(cur_nice_jiffies);
 
                 if (dbs_tuners_ins.dvfs_debug) {
-                        printk(KERN_ERR "LulzQ: [LULZ TIMER] cpu %u, NICE TIME IN RUN: %u\n",
+                        printk(KERN_ERR "LulzQ: [LULZ TIMER] cpu %lu, NICE TIME IN RUN: %u\n",
                                         data, jiffies_to_usecs(cur_nice_jiffies));
                 }
 	}
@@ -539,7 +539,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 	 */
 
 	if (dbs_tuners_ins.dvfs_debug) {
-		printk (KERN_ERR "LulzQ: cpu %u, load_since_freq_change = %d, load_in_idle = %d\n",
+		printk (KERN_ERR "LulzQ: cpu %lu, load_since_freq_change = %d, load_in_idle = %d\n",
 						data, load_since_change, cpu_load);
 	}
 
@@ -579,7 +579,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 
 		if (dbs_tuners_ins.dvfs_debug) {
 			if (pcpu->policy->cur < pcpu->policy->max) {
-				printk(KERN_ERR "LulzQ: [PUMP UP] %s, CPU %u, %d>=%lu, from %d to %d\n",
+				printk(KERN_ERR "LulzQ: [PUMP UP] %s, CPU %lu, %d>=%lu, from %d to %d\n",
 					__func__, data, cpu_load, inc_cpu_load, pcpu->policy->cur, new_freq);
 			}
 		}
@@ -610,7 +610,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 
 		if (dbs_tuners_ins.dvfs_debug) {
 			if (pcpu->policy->cur > pcpu->policy->min) {
-				printk(KERN_ERR "LulzQ: [PUMP DOWN] %s, CPU %u, %d<=%lu, from %d to %d\n",
+				printk(KERN_ERR "LulzQ: [PUMP DOWN] %s, CPU %lu, %d<=%lu, from %d to %d\n",
 						__func__, data, cpu_load, dec_cpu_load, pcpu->policy->cur, new_freq);
 			}
 		}
@@ -620,7 +620,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 		new_freq = pcpu->policy->cur; //pcpu->lulzfreq_table[index].frequency;
 
 		if (dbs_tuners_ins.dvfs_debug) {
-			printk (KERN_ERR "LulzQ: [PUMP MAINTAIN] cpu %u, load = %d, %d\n", data, cpu_load, new_freq);
+			printk (KERN_ERR "LulzQ: [PUMP MAINTAIN] cpu %lu, load = %d, %d\n", data, cpu_load, new_freq);
 		}
 
 		/*
@@ -662,7 +662,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 		if (cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_down_time)
 		    < down_sample_time) {
 			if (dbs_tuners_ins.dvfs_debug) {
-				printk (KERN_ERR "LulzQ: [PUMP REARM DOWN]: CPU %u, (%llu - %llu) < %lu\n",
+				printk (KERN_ERR "LulzQ: [PUMP REARM DOWN]: CPU %lu, (%llu - %llu) < %lu\n",
 				data, pcpu->timer_run_time, pcpu->freq_change_down_time, down_sample_time);
 			}
 			goto rearm;
@@ -672,7 +672,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 		if (cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_up_time) <
 		    up_sample_time) {
 			if (dbs_tuners_ins.dvfs_debug)  {
-				printk (KERN_ERR "LulzQ: [PUMP REARM UP]: CPU %u, (%llu - %llu) < %lu\n",
+				printk (KERN_ERR "LulzQ: [PUMP REARM UP]: CPU %lu, (%llu - %llu) < %lu\n",
 						data, pcpu->timer_run_time, pcpu->freq_change_up_time, up_sample_time);
 			}
 			/* don't reset timer */
@@ -682,7 +682,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 
 	if (new_freq < pcpu->target_freq) {
         	if (dbs_tuners_ins.dvfs_debug) {
-	            printk (KERN_ERR "LulzQ: [PUMP DOWN NOW] CPU %u, after %u (run: %llu - last down: %llu), last freq change: %lu\n", 
+	            printk (KERN_ERR "LulzQ: [PUMP DOWN NOW] CPU %lu, after %u (run: %llu - last down: %llu), last freq change: %lu\n", 
         	            data, (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_down_time),
                 	    pcpu->timer_run_time, pcpu->freq_change_down_time, (unsigned long) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time));
 	        }
@@ -693,7 +693,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 		queue_work(down_wq, &freq_scale_down_work);
 	} else {
 		if (dbs_tuners_ins.dvfs_debug) {
-			printk (KERN_ERR "LulzQ: [PUMP UP NOW] CPU %u, after %u (run: %llu - last up: %llu), last freq change: %lu\n", 
+			printk (KERN_ERR "LulzQ: [PUMP UP NOW] CPU %lu, after %u (run: %llu - last up: %llu), last freq change: %lu\n", 
 					data, (unsigned int) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_up_time),
 					pcpu->timer_run_time, pcpu->freq_change_up_time, (unsigned long) cputime64_sub(pcpu->timer_run_time, pcpu->freq_change_time));
 		}
@@ -707,7 +707,7 @@ static void cpufreq_lulzactive_timer(unsigned long data)
 rearm_if_notmax:
 
 	if (dbs_tuners_ins.dvfs_debug) {
-		printk (KERN_ERR "LulzQ: cpu %u, rearm_if_notmax\n", data);
+		printk (KERN_ERR "LulzQ: cpu %lu, rearm_if_notmax\n", data);
 	}
 	/*
 	 * Already set max speed and don't see a need to change that,
@@ -719,7 +719,7 @@ rearm_if_notmax:
 rearm:
 
 	if (dbs_tuners_ins.dvfs_debug) {
-		printk (KERN_ERR "LulzQ: cpu %u, rearm\n", data);
+		printk (KERN_ERR "LulzQ: cpu %lu, rearm\n", data);
 	}
 
 	if (!timer_pending(&pcpu->cpu_timer)) {
@@ -747,7 +747,7 @@ rearm:
 
 exit:
     if (dbs_tuners_ins.dvfs_debug) {
-		printk(KERN_ERR "LulzQ: %s (cpu %u) --\n", __func__, data);
+		printk(KERN_ERR "LulzQ: %s (cpu %lu) --\n", __func__, data);
 	}
 	return;
 }
