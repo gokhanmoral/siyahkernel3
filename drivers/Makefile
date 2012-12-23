@@ -152,3 +152,4 @@ ifeq (1, $(shell if [ -d ./drivers/exfat ]; then echo 1; fi))
 obj-y	+= exfat/
 endif
 
+obj-$(CONFIG_J4FS)		+= j4fs/

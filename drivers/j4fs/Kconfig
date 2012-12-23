@@ -1,0 +1,53 @@
+menuconfig J4FS
+	tristate "Samsung J4FS"
+	help
+	   Samsung J4FS support.
+
+if J4FS
+
+choice
+	prompt "Select J4FS Interface"
+	default J4FS_USE_FSR
+
+config J4FS_USE_XSR
+	bool "XSR Interface"
+config J4FS_USE_FSR
+	bool "FSR Interface"
+config J4FS_USE_MOVI
+	bool "MOVI Interface"
+
+endchoice
+
+config J4FS_PARTITION_ID
+	int "Select Mount Partition ID"
+	depends on !J4FS_USE_MOVI
+	default 21
+	help
+	   Select Mount Partition ID.
+
+config J4FS_DEVNAME
+	string "Select Mount Partition Path"
+	depends on J4FS_USE_MOVI
+	default "/dev/block/mmcblk0p4"
+	help
+	   Select Mount Partition Path.
+
+config J4FS_PAGE_SHIFT
+	int "J4FS Page Size (11 -> 2048 KB or 12 -> 4096 KB)"
+	depends on J4FS
+	default 12
+	help
+	  Select Page Size.
+          Block Size is calculated by below formala.
+	  Example : Block Size = (Page Size * 64) KB
+
+config J4FS_BLOCK_COUNT
+	int "J4FS Block Count"
+	depends on J4FS_USE_MOVI
+	default 20
+	help
+	  Select Block Count.
+	  Blcok Size is decided by J4FS Page Size.
+	  Example : Blcok Count = (Total Size / Block Size)
+
+endif
