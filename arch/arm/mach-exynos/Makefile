@@ -141,7 +141,12 @@ ifeq ($(CONFIG_MACH_M3),y)
 obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o \
 					   midas-tsp.o board-midas-wlan.o \
 					   midas-camera.o midas-thermistor.o \
-					   midas-mhl.o midas-lcd.o midas-sound.o
+					   midas-mhl.o midas-lcd.o
+ifeq ($(CONFIG_MACH_M3_USA_TMO),y)
+obj-$(CONFIG_MIDAS_COMMON)		+= t0-sound.o
+else
+obj-$(CONFIG_MIDAS_COMMON)		+= midas-sound.o
+endif
 else
 ifeq ($(CONFIG_MACH_T0),y)
 obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o \
@@ -156,6 +161,7 @@ obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o\
 					   midas-camera.o midas-thermistor.o \
 					   midas-mhl.o midas-lcd.o midas-sound.o
 obj-$(CONFIG_SEC_MODEM)			+= board-gps-bcm475x.o
+obj-$(CONFIG_GPS_BRCM_475X)		+= board-gps-bcm475x.o
 else
 ifeq ($(CONFIG_MACH_SLP_T0_LTE),y)
 obj-$(CONFIG_MIDAS_COMMON)		+= sec-common.o \
@@ -287,6 +293,7 @@ obj-$(CONFIG_SEC_MODEM_M1)		+= board-c1-modems.o
 obj-$(CONFIG_SEC_MODEM_C1)		+= board-c1-modems.o
 obj-$(CONFIG_SEC_MODEM_C1_LGT)		+= board-c1lgt-modems.o
 obj-$(CONFIG_SEC_MODEM_U1)		+= board-u1-modems.o
+obj-$(CONFIG_SEC_MODEM_U1_SPR)		+= board-u1-spr-modems.o
 obj-$(CONFIG_SEC_MODEM_U1_LGT)		+= board-u1-lgt-modems.o
 obj-$(CONFIG_SEC_MODEM_P8LTE)		+= board-p8ltevzw-modems.o
 obj-$(CONFIG_SEC_DEBUG)			+= sec_debug.o sec_getlog.o sec_gaf.o
@@ -305,6 +312,7 @@ obj-$(CONFIG_GPS_BCM47511)		+= bcm47511.o
 obj-$(CONFIG_GPS_BCM4752)		+= bcm4752.o
 obj-$(CONFIG_GPS_GSD4T)			+= gsd4t.o
 obj-$(CONFIG_SEC_THERMISTOR)		+= sec_thermistor.o
+obj-$(CONFIG_SEC_SUBTHERMISTOR)		+= sec_subthermistor.o
 obj-$(CONFIG_EXYNOS_SYSREG_PM)		+= sysreg.o
 
 obj-$(CONFIG_EXYNOS4_DEV_TMU)           += dev-slp-tmu.o

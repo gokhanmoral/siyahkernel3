@@ -61,6 +61,7 @@
 #define FG_CHECK_STATUS 6
 #define FG_VF_SOC 7
 #define FG_VOLTAGE_NOW 8
+#define FG_RAW_LEVEL 9
 
 #define LOW_BATT_COMP_RANGE_NUM	5
 #define LOW_BATT_COMP_LEVEL_NUM	2

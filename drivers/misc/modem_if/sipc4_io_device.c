@@ -41,6 +41,7 @@
  * big pages broken.
  */
 #define MAX_RXDATA_SIZE		0x0E00	/* 4 * 1024 - 512 */
+#define MAX_BOOTDATA_SIZE	0x4008	/* EBL package format*/
 #define MAX_MULTI_FMT_SIZE	0x4000	/* 16 * 1024 */
 
 static const char hdlc_start[1] = { HDLC_START };
@@ -555,14 +556,14 @@ static int rx_iodev_skb_raw(struct sk_buff *skb)
 	const char source[ETH_ALEN] = SOURCE_MAC_ADDR;
 
 	/* check the real_iod is open? */
-	/*
+#if defined(CONFIG_MACH_U1_KOR_LGT)
 	if (atomic_read(&iod->opened) == 0) {
 		mif_err("<%s> is not opened.\n",
 			iod->name);
 		pr_skb("drop packet", skb);
 		return -ENOENT;
 	}
-	*/
+#endif /* CONFIG_MACH_U1_KOR_LGT */
 
 	switch (iod->io_typ) {
 	case IODEV_MISC:
@@ -978,8 +979,9 @@ static void io_dev_modem_state_changed(struct io_device *iod,
 static void io_dev_sim_state_changed(struct io_device *iod, bool sim_online)
 {
 	if (atomic_read(&iod->opened) == 0) {
-		mif_err("iod is not opened: %s\n",
-				iod->name);
+		mif_err("iod is not opened: %s\n", iod->name);
+		/* update latest sim status */
+		iod->mc->sim_state.online = sim_online;
 	} else if (iod->mc->sim_state.online == sim_online) {
 		mif_err("sim state not changed.\n");
 	} else {
@@ -1215,6 +1217,42 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
+static size_t _boot_write(struct io_device *iod, const char __user *buf,
+								size_t count)
+{
+	int rest_len = count, frame_len = 0;
+	char *cur = (char *)buf;
+	struct sk_buff *skb = NULL;
+	struct link_device *ld = get_current_link(iod);
+	int ret;
+
+	while (rest_len) {
+		frame_len = min(rest_len, MAX_BOOTDATA_SIZE);
+		skb = alloc_skb(frame_len, GFP_KERNEL);
+		if (!skb) {
+			mif_err("fail alloc skb (%d)\n", __LINE__);
+			return -ENOMEM;
+		}
+		if (copy_from_user(
+				skb_put(skb, frame_len), cur, frame_len) != 0) {
+			dev_kfree_skb_any(skb);
+			return -EFAULT;
+		}
+		rest_len -= frame_len;
+		cur += frame_len;
+
+		skbpriv(skb)->iod = iod;
+		skbpriv(skb)->ld = ld;
+
+		ret = ld->send(ld, iod, skb);
+		if (ret < 0) {
+			dev_kfree_skb_any(skb);
+			return ret;
+		}
+	}
+	return count;
+}
+
 static ssize_t misc_write(struct file *filp, const char __user *buf,
 			size_t count, loff_t *ppos)
 {
@@ -1237,6 +1275,10 @@ static ssize_t misc_write(struct file *filp, const char __user *buf,
 
 	skb = alloc_skb(frame_len, GFP_KERNEL);
 	if (!skb) {
+		if (frame_len > MAX_BOOTDATA_SIZE && iod->format == IPC_BOOT) {
+			mif_info("large alloc fail\n");
+			return _boot_write(iod, buf, count);
+		}
 		mif_err("fail alloc skb (%d)\n", __LINE__);
 		return -ENOMEM;
 	}

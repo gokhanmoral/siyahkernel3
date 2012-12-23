@@ -199,10 +199,6 @@ static int cbp72_force_crash_exit(struct modem_ctl *mc)
 	/* Make DUMP start */
 	ld->force_dump(ld, mc->bootd);
 
-	msleep_interruptible(1000);
-
-	mc->bootd->modem_state_changed(mc->bootd, STATE_CRASH_EXIT);
-
 	return 0;
 }
 

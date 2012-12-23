@@ -48,7 +48,11 @@
 #include "mdnie_color_tone_4210.h"
 #else	/* CONFIG_CPU_EXYNOS4210 */
 #if defined(CONFIG_FB_S5P_S6E8AA0)
+#if defined(CONFIG_S6E8AA0_AMS465XX)
+#include "mdnie_table_superior.h"
+#else
 #include "mdnie_table_c1m0.h"
+#endif
 #elif defined(CONFIG_FB_S5P_EA8061) || defined(CONFIG_FB_S5P_S6EVR02)
 #include "mdnie_table_t0.h"
 #elif defined(CONFIG_FB_S5P_S6E63M0)
@@ -64,8 +68,9 @@
 #endif
 #include "mdnie_color_tone.h"	/* sholud be added for 4212, 4412 */
 #endif
-
-#if defined(CONFIG_TDMB) || defined(CONFIG_TARGET_LOCALE_NTT)
+#if defined(CONFIG_FB_S5P_LMS501XX)
+#include "mdnie_dmb_baffin.h"
+#elif defined(CONFIG_TDMB) || defined(CONFIG_TARGET_LOCALE_NTT)
 #include "mdnie_dmb.h"
 #endif
 
@@ -114,16 +119,6 @@ struct mdnie_info *g_mdnie;
 #ifdef CONFIG_MACH_P4NOTE
 static struct mdnie_backlight_value b_value;
 #endif
-
-struct sysfs_debug_info {
-	u8 enable;
-	pid_t pid;
-	char comm[TASK_COMM_LEN];
-	char time[128];
-};
-
-static struct sysfs_debug_info negative[5];
-static u8 negative_idx;
 
 int mdnie_send_sequence(struct mdnie_info *mdnie, const unsigned short *seq)
 {
@@ -565,6 +560,11 @@ static ssize_t cabc_store(struct device *dev,
 	unsigned int value;
 	int ret;
 
+#if defined(CONFIG_FB_S5P_S6C1372)
+	if (mdnie->auto_brightness)
+		return -EINVAL;
+#endif
+
 	ret = strict_strtoul(buf, 0, (unsigned long *)&value);
 
 	dev_info(dev, "%s :: value=%d\n", __func__, value);
@@ -686,14 +686,6 @@ static ssize_t negative_show(struct device *dev,
 
 	pos += sprintf(pos, "%d\n", mdnie->negative);
 
-	for (i = 0; i < 5; i++) {
-		if (negative[i].enable) {
-			pos += sprintf(pos, "pid=%d, ", negative[i].pid);
-			pos += sprintf(pos, "%s, ", negative[i].comm);
-			pos += sprintf(pos, "%s\n", negative[i].time);
-		}
-	}
-
 	return pos - buf;
 }
 
@@ -703,8 +695,6 @@ static ssize_t negative_store(struct device *dev,
 	struct mdnie_info *mdnie = dev_get_drvdata(dev);
 	unsigned int value;
 	int ret;
-	struct timespec ts;
-	struct rtc_time tm;
 
 	ret = strict_strtoul(buf, 0, (unsigned long *)&value);
 	dev_info(dev, "%s :: value=%d, by %s\n", __func__, value, current->comm);
@@ -722,17 +712,6 @@ static ssize_t negative_store(struct device *dev,
 
 		mutex_lock(&mdnie->lock);
 		mdnie->negative = value;
-		if (value) {
-			getnstimeofday(&ts);
-			rtc_time_to_tm(ts.tv_sec, &tm);
-			negative[negative_idx].enable = value;
-			negative[negative_idx].pid = current->pid;
-			strcpy(negative[negative_idx].comm, current->comm);
-			sprintf(negative[negative_idx].time, "%d-%02d-%02d %02d:%02d:%02d",
-				tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-			negative_idx++;
-			negative_idx %= 5;
-		}
 		mutex_unlock(&mdnie->lock);
 
 		set_mdnie_value(mdnie, 0);
@@ -745,11 +724,7 @@ static struct device_attribute mdnie_attributes[] = {
 	__ATTR(scenario, 0664, scenario_show, scenario_store),
 	__ATTR(outdoor, 0664, outdoor_show, outdoor_store),
 #if defined(CONFIG_FB_MDNIE_PWM)
-#if defined(CONFIG_FB_S5P_S6C1372)
-	__ATTR(cabc, 0444, cabc_show, NULL),
-#else
 	__ATTR(cabc, 0664, cabc_show, cabc_store),
-#endif
 #endif
 	__ATTR(tunning, 0664, tunning_show, tunning_store),
 	__ATTR(negative, 0664, negative_show, negative_store),
@@ -760,12 +735,13 @@ static struct device_attribute mdnie_attributes[] = {
 #if defined(CONFIG_HAS_EARLYSUSPEND)
 void mdnie_early_suspend(struct early_suspend *h)
 {
-#if defined(CONFIG_FB_MDNIE_PWM)
 	struct mdnie_info *mdnie = container_of(h, struct mdnie_info, early_suspend);
 	struct lcd_platform_data *pd = NULL;
-	pd = mdnie->lcd_pd;
 
 	dev_info(mdnie->dev, "+%s\n", __func__);
+
+#if defined(CONFIG_FB_MDNIE_PWM)
+	pd = mdnie->lcd_pd;
 
 	mdnie->bd_enable = FALSE;
 
@@ -779,9 +755,9 @@ void mdnie_early_suspend(struct early_suspend *h)
 		dev_info(&mdnie->bd->dev, "power_on is NULL.\n");
 	else
 		pd->power_on(NULL, 0);
+#endif
 
 	dev_info(mdnie->dev, "-%s\n", __func__);
-#endif
 
 	return ;
 }
@@ -790,10 +766,11 @@ void mdnie_late_resume(struct early_suspend *h)
 {
 	u32 i;
 	struct mdnie_info *mdnie = container_of(h, struct mdnie_info, early_suspend);
-#if defined(CONFIG_FB_MDNIE_PWM)
 	struct lcd_platform_data *pd = NULL;
 
 	dev_info(mdnie->dev, "+%s\n", __func__);
+
+#if defined(CONFIG_FB_MDNIE_PWM)
 	pd = mdnie->lcd_pd;
 
 	if (mdnie->enable)
@@ -813,12 +790,11 @@ void mdnie_late_resume(struct early_suspend *h)
 	}
 
 	mdnie->bd_enable = TRUE;
-	dev_info(mdnie->dev, "-%s\n", __func__);
 #endif
-	for (i = 0; i < 5; i++) {
-		if (negative[i].enable)
-			dev_info(mdnie->dev, "pid=%d, %s, %s\n", negative[i].pid, negative[i].comm, negative[i].time);
-	}
+
+	set_mdnie_value(mdnie, 1);
+
+	dev_info(mdnie->dev, "-%s\n", __func__);
 
 	return ;
 }
@@ -912,12 +888,10 @@ static int mdnie_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_HAS_WAKELOCK
 #ifdef CONFIG_HAS_EARLYSUSPEND
-#if 1 /* defined(CONFIG_FB_MDNIE_PWM) */
 	mdnie->early_suspend.suspend = mdnie_early_suspend;
 	mdnie->early_suspend.resume = mdnie_late_resume;
 	mdnie->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB - 1;
 	register_early_suspend(&mdnie->early_suspend);
-#endif
 #endif
 #endif
 

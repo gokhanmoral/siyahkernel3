@@ -194,7 +194,7 @@ struct mxt224_data {
 	bool median_err_flag;
 	int touch_is_pressed_arr[MAX_USING_FINGER_NUM];
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	bool gain_change_flag;
 	int gain_ta;
 #endif
@@ -1395,6 +1395,7 @@ static void report_input_data(struct mxt224_data *data)
 #else
 			printk(KERN_ERR "[TSP] Up[%d]\n", i);
 #endif
+
 			continue;
 		}
 
@@ -3306,6 +3307,7 @@ static ssize_t set_mxt_update_show(struct device *dev,
 		copy_data->firm_status_data = 3;
 		printk(KERN_ERR
 			"[TSP The firmware update failed(%d)\n", error);
+		enable_irq(data->client->irq);
 		return error;
 	} else {
 		dev_dbg(dev, "The firmware update succeeded\n");

@@ -58,6 +58,19 @@
 #endif
 #define FRM_RATIO(x)    ((x)->width*10/(x)->height)
 
+#if 0
+#define M9MO_FW_VER_LEN		22
+#define M9MO_FW_VER_FILE_CUR	0x16FF00
+#define M9MO_FW_VER_NUM		0x000018
+#else
+#define M9MO_FW_VER_LEN	20
+#define M9MO_FW_VER_TOKEN 7
+#define M9MO_SENSOR_TYPE_LEN 25
+#define M9MO_SEN_FW_VER_LEN	30
+#define M9MO_FW_VER_FILE_CUR	0x1FF080
+#define M9MO_FW_VER_NUM		0x1FF080
+#endif
+
 u8 buf_port_seting0[] = {
 		  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -107,6 +120,7 @@ enum m9mo_prev_frmsize {
 	M9MO_PREVIEW_720P_DUAL,
 	M9MO_PREVIEW_VGA_DUAL,
 	M9MO_PREVIEW_QVGA_DUAL,
+	M9MO_PREVIEW_1440_1080,
 };
 
 enum m9mo_cap_frmsize {
@@ -239,12 +253,14 @@ struct m9mo_state {
 	enum v4l2_flash_mode flash_mode;
 	enum v4l2_scene_mode scene_mode;
 	int vt_mode;
+	int samsung_app;
 	int zoom;
 	int smart_zoom_mode;
 
 	int m9mo_fw_done;
 	int fw_info_done;
 
+	int start_cap_kind;
 	unsigned int fps;
 
 	int factory_down_check;
@@ -254,6 +270,7 @@ struct m9mo_state {
 	int factory_byte;
 	int factory_value;
 	int factory_value_size;
+	int factory_end_interrupt;
 
 	struct m9mo_focus focus;
 	struct m9mo_factory_punt_data f_punt_data;
@@ -267,9 +284,11 @@ struct m9mo_state {
 	struct m9mo_exif exif;
 
 	int isp_fw_ver;
-	u8 sensor_ver[10];
-	u8 phone_ver[10];
-	u8 sensor_type[25];
+	u8 sensor_ver[M9MO_FW_VER_TOKEN + 1];
+	u8 phone_ver[M9MO_FW_VER_TOKEN + 1];
+	u8 sensor_type[M9MO_SENSOR_TYPE_LEN + 1];
+
+	int fw_checksum_val;
 
 #ifdef CONFIG_CAM_DEBUG
 	u8 dbg_level;
@@ -299,6 +318,8 @@ struct m9mo_state {
 	int wb_m_value;
 	int wb_custom_rg;
 	int wb_custom_bg;
+
+	int fast_capture_set;
 
 	int vss_mode;
 	int dual_capture_start;
@@ -340,6 +361,18 @@ struct m9mo_state {
 
 	int preview_width;
 	int preview_height;
+
+	int mburst_start;
+
+	int strobe_en;
+	int sharpness;
+	int saturation;
+
+	int isp_mode;
+
+	int af_running;
+
+	int set_AF_LED_On;
 };
 
 /* Category */
@@ -379,6 +412,7 @@ struct m9mo_state {
 /* M9MO_CATEGORY_PARAM: 0x01 */
 #define M9MO_PARM_OUT_SEL	0x00
 #define M9MO_PARM_MON_SIZE	0x01
+#define M9MO_PARM_MON_FPS	0x02
 #define M9MO_PARM_EFFECT	0x0B
 #define M9MO_PARM_FLEX_FPS	0x67
 #define M9MO_PARM_HDMOVIE	0x32
@@ -433,6 +467,8 @@ struct m9mo_state {
 
 /* M9MO_CATEGORY_NEW: 0x04 */
 #define M9MO_NEW_TIME_INFO		0x02
+#define M9MO_NEW_OIS_CUR_MODE	0x06
+#define M9MO_NEW_OIS_TIMER		0x07
 #define M9MO_NEW_DETECT_SCENE	0x0B
 #define M9MO_NEW_OIS_VERSION	0x1B
 
@@ -528,6 +564,8 @@ struct m9mo_state {
 #define M9MO_LENS_ZOOM_STATUS		0x26
 #define M9MO_LENS_LENS_STATUS		0x28
 #define M9MO_LENS_ZOOM_LENS_STATUS	0x2A
+#define M9MO_LENS_AF_TEMP_INDICATE	0x2B
+#define M9MO_LENS_TIMER_LED			0x2D
 #define M9MO_LENS_AF_TOUCH_POSX		0x30
 #define M9MO_LENS_AF_TOUCH_POSY		0x32
 #define M9MO_LENS_AF_VERSION		0x60

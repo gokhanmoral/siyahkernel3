@@ -387,6 +387,31 @@ static int fg_read_soc(void)
 	return soc;
 }
 
+static int fg_read_raw_soc(void)
+{
+	struct i2c_client *client = fg_i2c_client;
+	struct max17042_chip *chip = i2c_get_clientdata(client);
+	u8 data[2];
+	u32 soc_lsb = 0;
+	int psoc = 0;
+
+	if (fg_i2c_read(client, SOCREP_REG, data, 2) < 0) {
+		pr_err("%s: Failed to read SOCREP\n", __func__);
+		return -1;
+	}
+
+	soc_lsb = (data[0] * 100) / 256;
+	psoc = (data[1] * 100) + soc_lsb;
+	chip->info.psoc = psoc;
+
+	if (!(chip->info.pr_cnt % PRINT_COUNT))
+		pr_info("%s: psoc(%d), vfsoc(%d)\n", __func__,
+			 psoc, fg_read_vfsoc());
+
+	return psoc;
+}
+
+
 static int fg_read_current(void)
 {
 	struct i2c_client *client = fg_i2c_client;
@@ -1621,6 +1646,9 @@ int get_fuelgauge_value(int data)
 		ret = fg_read_voltage_now();
 		break;
 
+	case FG_RAW_LEVEL:
+		ret = fg_read_raw_soc();
+		break;
 	default:
 		ret = -1;
 		break;

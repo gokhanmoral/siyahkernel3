@@ -31,11 +31,10 @@ config ATH6KL_DEBUG
 	---help---
 	  Enables debug support
 
-config ATH6KL_LOCALE_USA
-	bool "Atheros regulatory domain as USA"
+config ATH6KL_REGDOMAIN
+	bool "Atheros ath6kl regdomain support"
 	depends on ATH6KL
-
-config 5GH_WLAN_COUNTRY_CODE
-	bool "Atheros WiFi Driver for 5GH channel setting"
-	default y
-
+	---help---
+	  Enabling this makes it possible to change the regdomain in
+	  the firmware. This can be only enabled if regulatory requirements
+	  are taken into account.

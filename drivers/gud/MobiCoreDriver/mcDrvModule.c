@@ -121,7 +121,7 @@ static int isUserlandCallerPrivileged(
 	 * http://android-dls.com/wiki/index.php?title=Android_UIDs_and_GIDs
 	 */
 #ifdef MC_ANDROID_UID_CHECK
-	return (current_euid() <= AID_SYSTEM);
+	return (current_euid() == AID_SYSTEM);
 #else
 	/* capable should cover all possibilities, root or sudo, uid checking
 	 * was not very reliable */
@@ -183,7 +183,7 @@ static inline int lockUserPages(
 
 		/* lock user pages, must hold the mmap_sem to do this. */
 		down_read(&(pTask->mm->mmap_sem));
-		lockedPages = get_user_pages(
+		lockedPages = get_user_pages_nocma(
 				      pTask,
 				      pTask->mm,
 				      (unsigned long)virtStartPageAddr,

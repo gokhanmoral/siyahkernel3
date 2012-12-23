@@ -32,7 +32,7 @@ struct sec_therm_info {
 };
 
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
+	defined(CONFIG_MACH_C1_KOR_LGT)  || defined(CONFIG_MACH_BAFFIN)
 static void notify_change_of_temperature(struct sec_therm_info *info);
 int siopLevellimit;
 EXPORT_SYMBOL(siopLevellimit);
@@ -57,7 +57,7 @@ static ssize_t sec_therm_show_temp_adc(struct device *dev,
 }
 
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
+	defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN)
 static ssize_t sec_therm_show_sioplevel(struct device *dev,
 				   struct device_attribute *attr,
 				   char *buf)
@@ -91,7 +91,7 @@ static struct attribute *sec_therm_attributes[] = {
 	&dev_attr_temperature.attr,
 	&dev_attr_temp_adc.attr,
 #if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
-	defined(CONFIG_MACH_C1_KOR_LGT)
+	defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN)
 	&dev_attr_sioplevel.attr,
 #endif
 	NULL
@@ -169,7 +169,7 @@ static void notify_change_of_temperature(struct sec_therm_info *info)
 {
 	char temp_buf[20];
 	char siop_buf[20];
-	char *envp[2];
+	char *envp[3];
 	int env_offset = 0;
 	int siop_level = -1;
 

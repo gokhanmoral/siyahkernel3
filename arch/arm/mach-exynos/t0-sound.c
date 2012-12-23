@@ -202,7 +202,7 @@ static struct wm8994_pdata wm1811_pdata = {
 	.jd_ext_cap = 1,
 
 	/* Regulated mode at highest output voltage */
-	.micbias = {0x2f, 0x27},
+	.micbias = {0x2f, 0x2b},
 
 	.micd_lvl_sel = 0xFF,
 
@@ -377,9 +377,6 @@ static void t0_set_ext_main_mic(int on)
 	/* Main Microphone BIAS */
 	gpio_set_value(GPIO_MIC_BIAS_EN, on);
 
-	if (on)
-		msleep(100);
-
 	pr_info("%s: main_mic bias on = %d\n", __func__, on);
 #endif
 }
@@ -389,9 +386,6 @@ static void t0_set_ext_sub_mic(int on)
 #ifdef CONFIG_SND_USE_SUB_MIC
 	/* Sub Microphone BIAS */
 	gpio_set_value(GPIO_SUB_MIC_BIAS_EN, on);
-
-	if (on)
-		msleep(100);
 
 	pr_info("%s: sub_mic bias on = %d\n", __func__, on);
 #endif
@@ -456,6 +450,21 @@ void __init midas_sound_init(void)
 	pr_info("Sound: start %s\n", __func__);
 
 #if defined(CONFIG_MACH_T0_EUR_LTE)
+	t0_sound_pdata.dcs_offset_l = -11;
+	t0_sound_pdata.dcs_offset_r = -8;
+#elif defined(CONFIG_MACH_T0_USA_VZW)
+	t0_sound_pdata.dcs_offset_l = -12;
+	t0_sound_pdata.dcs_offset_r = -9;
+#elif defined(CONFIG_MACH_T0_USA_ATT)
+	t0_sound_pdata.dcs_offset_l = -13;
+	t0_sound_pdata.dcs_offset_r = -9;
+#elif defined(CONFIG_MACH_T0_USA_TMO)
+	t0_sound_pdata.dcs_offset_l = -11;
+	t0_sound_pdata.dcs_offset_r = -9;
+#elif defined(CONFIG_MACH_T0_USA_SPR)
+	t0_sound_pdata.dcs_offset_l = -12;
+	t0_sound_pdata.dcs_offset_r = -9;
+#elif defined(CONFIG_MACH_T0_USA_USCC)
 	t0_sound_pdata.dcs_offset_l = -11;
 	t0_sound_pdata.dcs_offset_r = -8;
 #endif

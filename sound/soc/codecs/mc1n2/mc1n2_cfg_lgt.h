@@ -42,10 +42,10 @@
 static struct mc1n2_setup mc1n2_cfg_setup = {
 	{  /* MCDRV_INIT_INFO */
 		MCDRV_CKSEL_CMOS, /* bCkSel */
-		28,               /* bDivR0 20MHz*/ /* 28 for 24, 19 for 20 */
-		86,               /* bDivF0 20MHz*/ /* 86 for 24, 70 for 20 */
-		28,               /* bDivR1*/
-		86,               /* bDivF1*/
+		41,               /* bDivR0 */
+		126,              /* bDivF0 */
+		41,               /* bDivR1 */
+		126,              /* bDivF1 */
 		0,                /* bRange0*/
 		0,                /* bRange1*/
 		0,                /* bBypass*/

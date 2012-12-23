@@ -55,6 +55,12 @@
 
 #include "tcbd_hal.h"
 
+#if defined(CONFIG_MACH_U1_KOR_SKT) || defined(CONFIG_MACH_U1_KOR_KT)
+#define TCBD_CLOCK CLOCK_19200KHZ
+#else	/* for baffin */
+#define TCBD_CLOCK CLOCK_24576KHZ
+#endif
+
 /* #define TDMB_DEBUG_SCAN */
 
 static DEFINE_MUTEX(tcc3170_mutex);
@@ -200,7 +206,7 @@ static bool tcc3170_power_on(void)
 #error
 #endif /* CONFIG_TDMB_SPI */
 			if (tcbd_device_start \
-				(&tcc3170_device, CLOCK_19200KHZ) < 0) {
+				(&tcc3170_device, TCBD_CLOCK) < 0) {
 				DPRINTK("could not start device!!\n");
 				tcbd_io_close(&tcc3170_device);
 				tdmb_control_gpio(false);

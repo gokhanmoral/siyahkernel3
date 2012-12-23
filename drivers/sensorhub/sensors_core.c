@@ -13,7 +13,6 @@
 
 struct class *sensors_class;
 static atomic_t sensor_count;
-static DEFINE_MUTEX(sensors_mutex);
 
 /*
  * Create sysfs interface
@@ -40,8 +39,6 @@ int sensors_register(struct device *dev, void * drvdata,
 			return PTR_ERR(sensors_class);
 	}
 
-	mutex_lock(&sensors_mutex);
-
 	dev = device_create(sensors_class, NULL, 0, drvdata, "%s", name);
 
 	if (IS_ERR(dev)) {
@@ -54,17 +51,28 @@ int sensors_register(struct device *dev, void * drvdata,
 	set_sensor_attr(dev, attributes);
 	atomic_inc(&sensor_count);
 
-	mutex_unlock(&sensors_mutex);
-
 	return 0;
 }
 EXPORT_SYMBOL_GPL(sensors_register);
 
-void sensors_unregister(struct device *dev)
+void sensors_unregister(struct device *dev,
+	struct device_attribute *attributes[])
 {
-	/* TODO : Unregister device */
+	int i;
+
+	for (i = 0; attributes[i] != NULL; i++)
+		device_remove_file(dev, attributes[i]);
 }
 EXPORT_SYMBOL_GPL(sensors_unregister);
+
+void destroy_sensor_class(void)
+{
+	if (sensors_class) {
+		class_destroy(sensors_class);
+		sensors_class = NULL;
+	}
+}
+EXPORT_SYMBOL_GPL(destroy_sensor_class);
 
 static int __init sensors_class_init(void)
 {
@@ -82,7 +90,10 @@ static int __init sensors_class_init(void)
 
 static void __exit sensors_class_exit(void)
 {
-	class_destroy(sensors_class);
+	if (sensors_class) {
+		class_destroy(sensors_class);
+		sensors_class = NULL;
+	}
 }
 
 /* exported for the APM Power driver, APM emulation */

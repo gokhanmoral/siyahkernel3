@@ -19,6 +19,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/io.h>
 #include <linux/regulator/machine.h>
+#include <linux/interrupt.h>
 
 #if defined(CONFIG_MACH_M0_CTC)
 #include <linux/mfd/max77693.h>
@@ -440,6 +441,54 @@ static __init int exynos4_pm_drvinit(void)
 }
 arch_initcall(exynos4_pm_drvinit);
 
+static void exynos4_show_wakeup_reason_eint(void)
+{
+	int bit, i;
+	long unsigned int ext_int_pend;
+	unsigned long eint_wakeup_mask;
+	bool found = 0;
+
+	eint_wakeup_mask = __raw_readl(S5P_EINT_WAKEUP_MASK);
+
+	for (i = 0; i <= 4; i++) {
+		ext_int_pend = __raw_readl(S5P_EINT_PEND(i));
+
+		for_each_set_bit(bit, &ext_int_pend, 8) {
+			int irq = IRQ_EINT(i * 8) + bit;
+			struct irq_desc *desc = irq_to_desc(irq);
+
+			if (eint_wakeup_mask & (1 << (i * 8 + bit)))
+				continue;
+
+			if (desc && desc->action && desc->action->name)
+				pr_info("Resume caused by IRQ %d, %s\n", irq,
+					desc->action->name);
+			else
+				pr_info("Resume caused by IRQ %d\n", irq);
+
+			found = 1;
+		}
+	}
+
+	if (!found)
+		pr_info("Resume caused by unknown EINT\n");
+}
+
+static void exynos4_show_wakeup_reason(void)
+{
+	unsigned long wakeup_stat;
+
+	wakeup_stat = __raw_readl(S5P_WAKEUP_STAT);
+
+	if (wakeup_stat & S5P_WAKEUP_STAT_RTCALARM)
+		pr_info("Resume caused by RTC alarm\n");
+	else if (wakeup_stat & S5P_WAKEUP_STAT_EINT)
+		exynos4_show_wakeup_reason_eint();
+	else
+		pr_info("Resume caused by wakeup_stat=0x%08lx\n",
+			wakeup_stat);
+}
+
 static int exynos4_pm_suspend(void)
 {
 	unsigned long tmp;
@@ -619,6 +668,7 @@ early_wakeup:
 
 	/* Clear Check mode */
 	__raw_writel(0x0, REG_INFORM1);
+	exynos4_show_wakeup_reason();
 
 	return;
 }

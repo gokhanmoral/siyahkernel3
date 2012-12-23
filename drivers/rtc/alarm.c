@@ -398,6 +398,22 @@ int alarm_set_alarm_poweroff(char *alarm_data)
 
 	return ret;
 }
+
+int alarm_set_alarm_enable(int alarm_enable)
+{
+	int ret;
+
+	if (!alarm_rtc_dev) {
+		pr_alarm(ERROR, "%s : no RTC, time will be lost on reboot\n",
+			__func__);
+		return -1;
+	}
+
+	ret = rtc_set_alarm_enable(alarm_rtc_dev, alarm_enable);
+
+	return ret;
+}
+
 #endif
 
 /**

@@ -46,6 +46,10 @@ typedef struct ump_dd_mem
 	int is_cached;
 	ump_hw_usage hw_device;
 	ump_lock_usage lock_usage;
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	struct dma_buf_attachment *import_attach;
+	struct sg_table *sgt;
+#endif
 } ump_dd_mem;
 
 

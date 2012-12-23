@@ -55,10 +55,17 @@ struct host_notifier_platform_data {
 	int		(*usbhostd_stop)(void);
 	int		thread_enable;
 	int		irq_enable;
+#if defined(CONFIG_HAS_EARLYSUSPEND) && defined(CONFIG_FAST_BOOT)
+	bool		is_host_working;
+#endif
 };
 
 extern void host_state_notify(struct host_notify_dev *ndev, int state);
 extern int host_notify_dev_register(struct host_notify_dev *ndev);
 extern void host_notify_dev_unregister(struct host_notify_dev *ndev);
+
+#ifdef CONFIG_FAST_BOOT
+extern bool fake_shut_down;
+#endif
 
 #endif /* __LINUX_HOST_NOTIFY_H__ */

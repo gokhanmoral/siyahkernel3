@@ -430,3 +430,6 @@ config DEBUG_VMALLOC
 	  are the PID and the name of the task requesting vmalloc.
 
 	  Disabling these can result in savings in code size.
+
+config LOWMEM_CHECK
+	bool "Process's file and anon lowmem allocating status"

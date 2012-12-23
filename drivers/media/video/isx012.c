@@ -42,6 +42,11 @@ static const struct isx012_framesize isx012_preview_frmsizes[] = {
 	{ PREVIEW_SZ_320x240,	320,  240 },
 	{ PREVIEW_SZ_CIF,	352,  288 },
 	{ PREVIEW_SZ_528x432,	528,  432 },
+#if defined(CONFIG_MACH_P4NOTELTE_KOR_SKT) \
+	|| defined(CONFIG_MACH_P4NOTELTE_KOR_KT) \
+	|| defined(CONFIG_MACH_P4NOTELTE_KOR_LGT) /*For 4G VT call in Domestic*/
+	{ PREVIEW_SZ_VERTICAL_VGA,	480,  640 },
+#endif
 	{ PREVIEW_SZ_VGA,	640,  480 },
 	{ PREVIEW_SZ_D1,	720,  480 },
 	{ PREVIEW_SZ_880x720,	880,  720 },
@@ -83,154 +88,167 @@ static struct isx012_control isx012_ctrls[] = {
 static const struct isx012_regs reg_datas = {
 	.ev = {
 		ISX012_REGSET(GET_EV_INDEX(EV_MINUS_4),
-					ISX012_ExpSetting_M4Step),
+					ISX012_ExpSetting_M4Step, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_MINUS_3),
-					ISX012_ExpSetting_M3Step),
+					ISX012_ExpSetting_M3Step, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_MINUS_2),
-					ISX012_ExpSetting_M2Step),
+					ISX012_ExpSetting_M2Step, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_MINUS_1),
-					ISX012_ExpSetting_M1Step),
+					ISX012_ExpSetting_M1Step, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_DEFAULT),
-					ISX012_ExpSetting_Default),
+					ISX012_ExpSetting_Default, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_PLUS_1),
-					ISX012_ExpSetting_P1Step),
+					ISX012_ExpSetting_P1Step, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_PLUS_2),
-					ISX012_ExpSetting_P2Step),
+					ISX012_ExpSetting_P2Step, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_PLUS_3),
-					ISX012_ExpSetting_P3Step),
+					ISX012_ExpSetting_P3Step, 0),
 		ISX012_REGSET(GET_EV_INDEX(EV_PLUS_4),
-					ISX012_ExpSetting_P4Step),
+					ISX012_ExpSetting_P4Step, 0),
 	},
 	.metering = {
-		ISX012_REGSET(METERING_MATRIX, isx012_Metering_Matrix),
-		ISX012_REGSET(METERING_CENTER, isx012_Metering_Center),
-		ISX012_REGSET(METERING_SPOT, isx012_Metering_Spot),
+		ISX012_REGSET(METERING_MATRIX, isx012_Metering_Matrix, 0),
+		ISX012_REGSET(METERING_CENTER, isx012_Metering_Center, 0),
+		ISX012_REGSET(METERING_SPOT, isx012_Metering_Spot, 0),
 	},
 	.iso = {
-		ISX012_REGSET(ISO_AUTO, isx012_ISO_Auto),
-		ISX012_REGSET(ISO_50, isx012_ISO_50),
-		ISX012_REGSET(ISO_100, isx012_ISO_100),
-		ISX012_REGSET(ISO_200, isx012_ISO_200),
-		ISX012_REGSET(ISO_400, isx012_ISO_400),
+		ISX012_REGSET(ISO_AUTO, isx012_ISO_Auto, 0),
+		ISX012_REGSET(ISO_50, isx012_ISO_50, 0),
+		ISX012_REGSET(ISO_100, isx012_ISO_100, 0),
+		ISX012_REGSET(ISO_200, isx012_ISO_200, 0),
+		ISX012_REGSET(ISO_400, isx012_ISO_400, 0),
 	},
 	.effect = {
-		ISX012_REGSET(IMAGE_EFFECT_NONE, isx012_Effect_Normal),
-		ISX012_REGSET(IMAGE_EFFECT_BNW, isx012_Effect_Black_White),
-		ISX012_REGSET(IMAGE_EFFECT_SEPIA, isx012_Effect_Sepia),
+		ISX012_REGSET(IMAGE_EFFECT_NONE, isx012_Effect_Normal, 0),
+		ISX012_REGSET(IMAGE_EFFECT_BNW, isx012_Effect_Black_White, 0),
+		ISX012_REGSET(IMAGE_EFFECT_SEPIA, isx012_Effect_Sepia, 0),
 		ISX012_REGSET(IMAGE_EFFECT_NEGATIVE,
-				ISX012_Effect_Negative),
-		ISX012_REGSET(IMAGE_EFFECT_SOLARIZE, isx012_Effect_Solar),
-		ISX012_REGSET(IMAGE_EFFECT_SKETCH, isx012_Effect_Sketch),
-		ISX012_REGSET(IMAGE_EFFECT_POINT_COLOR_3, isx012_Effect_Pastel),
+				ISX012_Effect_Negative, 0),
+		ISX012_REGSET(IMAGE_EFFECT_SOLARIZE, isx012_Effect_Solar, 0),
+		ISX012_REGSET(IMAGE_EFFECT_SKETCH, isx012_Effect_Sketch, 0),
+		ISX012_REGSET(IMAGE_EFFECT_POINT_COLOR_3,
+				isx012_Effect_Pastel, 0),
 	},
 	.white_balance = {
-		ISX012_REGSET(WHITE_BALANCE_AUTO, isx012_WB_Auto),
-		ISX012_REGSET(WHITE_BALANCE_SUNNY, isx012_WB_Sunny),
-		ISX012_REGSET(WHITE_BALANCE_CLOUDY, isx012_WB_Cloudy),
+		ISX012_REGSET(WHITE_BALANCE_AUTO, isx012_WB_Auto, 0),
+		ISX012_REGSET(WHITE_BALANCE_SUNNY, isx012_WB_Sunny, 0),
+		ISX012_REGSET(WHITE_BALANCE_CLOUDY, isx012_WB_Cloudy, 0),
 		ISX012_REGSET(WHITE_BALANCE_TUNGSTEN,
-				isx012_WB_Tungsten),
+				isx012_WB_Tungsten, 0),
 		ISX012_REGSET(WHITE_BALANCE_FLUORESCENT,
-				isx012_WB_Fluorescent),
+				isx012_WB_Fluorescent, 0),
 	},
 	.scene_mode = {
-		ISX012_REGSET(SCENE_MODE_NONE, isx012_Scene_Default),
-		ISX012_REGSET(SCENE_MODE_PORTRAIT, isx012_Scene_Portrait),
-		ISX012_REGSET(SCENE_MODE_NIGHTSHOT, isx012_Scene_Nightshot),
-		ISX012_REGSET(SCENE_MODE_BACK_LIGHT, isx012_Scene_Backlight),
-		ISX012_REGSET(SCENE_MODE_LANDSCAPE, isx012_Scene_Landscape),
-		ISX012_REGSET(SCENE_MODE_SPORTS, isx012_Scene_Sports),
+		ISX012_REGSET(SCENE_MODE_NONE, isx012_Scene_Default, 0),
+		ISX012_REGSET(SCENE_MODE_PORTRAIT, isx012_Scene_Portrait, 0),
+		ISX012_REGSET(SCENE_MODE_NIGHTSHOT, isx012_Scene_Nightshot, 0),
+		ISX012_REGSET(SCENE_MODE_BACK_LIGHT, isx012_Scene_Backlight, 0),
+		ISX012_REGSET(SCENE_MODE_LANDSCAPE, isx012_Scene_Landscape, 0),
+		ISX012_REGSET(SCENE_MODE_SPORTS, isx012_Scene_Sports, 0),
 		ISX012_REGSET(SCENE_MODE_PARTY_INDOOR,
-				isx012_Scene_Party_Indoor),
-		ISX012_REGSET(SCENE_MODE_BEACH_SNOW, isx012_Scene_Beach_Snow),
-		ISX012_REGSET(SCENE_MODE_SUNSET, isx012_Scene_Sunset),
-		ISX012_REGSET(SCENE_MODE_DUSK_DAWN, isx012_Scene_Duskdawn),
-		ISX012_REGSET(SCENE_MODE_FALL_COLOR, isx012_Scene_Fall_Color),
-		ISX012_REGSET(SCENE_MODE_FIREWORKS, isx012_Scene_Fireworks),
-		ISX012_REGSET(SCENE_MODE_TEXT, isx012_Scene_Text),
+				isx012_Scene_Party_Indoor, 0),
+		ISX012_REGSET(SCENE_MODE_BEACH_SNOW,
+				isx012_Scene_Beach_Snow, 0),
+		ISX012_REGSET(SCENE_MODE_SUNSET, isx012_Scene_Sunset, 0),
+		ISX012_REGSET(SCENE_MODE_DUSK_DAWN, isx012_Scene_Duskdawn, 0),
+		ISX012_REGSET(SCENE_MODE_FALL_COLOR,
+				isx012_Scene_Fall_Color, 0),
+		ISX012_REGSET(SCENE_MODE_FIREWORKS, isx012_Scene_Fireworks, 0),
+		ISX012_REGSET(SCENE_MODE_TEXT, isx012_Scene_Text, 0),
 		ISX012_REGSET(SCENE_MODE_CANDLE_LIGHT,
-				isx012_Scene_Candle_Light),
+				isx012_Scene_Candle_Light, 0),
 	},
 	.saturation = {
-		ISX012_REGSET(SATURATION_MINUS_2, isx012_Saturation_Minus_2),
-		ISX012_REGSET(SATURATION_MINUS_1, isx012_Saturation_Minus_1),
-		ISX012_REGSET(SATURATION_DEFAULT, isx012_Saturation_Default),
-		ISX012_REGSET(SATURATION_PLUS_1, isx012_Saturation_Plus_1),
-		ISX012_REGSET(SATURATION_PLUS_2, isx012_Saturation_Plus_2),
+		ISX012_REGSET(SATURATION_MINUS_2, isx012_Saturation_Minus_2, 0),
+		ISX012_REGSET(SATURATION_MINUS_1, isx012_Saturation_Minus_1, 0),
+		ISX012_REGSET(SATURATION_DEFAULT, isx012_Saturation_Default, 0),
+		ISX012_REGSET(SATURATION_PLUS_1, isx012_Saturation_Plus_1, 0),
+		ISX012_REGSET(SATURATION_PLUS_2, isx012_Saturation_Plus_2, 0),
 	},
 	.contrast = {
-		ISX012_REGSET(CONTRAST_MINUS_2, isx012_Contrast_Minus_2),
-		ISX012_REGSET(CONTRAST_MINUS_1, isx012_Contrast_Minus_1),
-		ISX012_REGSET(CONTRAST_DEFAULT, isx012_Contrast_Default),
-		ISX012_REGSET(CONTRAST_PLUS_1, isx012_Contrast_Plus_1),
-		ISX012_REGSET(CONTRAST_PLUS_2, isx012_Contrast_Plus_2),
+		ISX012_REGSET(CONTRAST_MINUS_2, isx012_Contrast_Minus_2, 0),
+		ISX012_REGSET(CONTRAST_MINUS_1, isx012_Contrast_Minus_1, 0),
+		ISX012_REGSET(CONTRAST_DEFAULT, isx012_Contrast_Default, 0),
+		ISX012_REGSET(CONTRAST_PLUS_1, isx012_Contrast_Plus_1, 0),
+		ISX012_REGSET(CONTRAST_PLUS_2, isx012_Contrast_Plus_2, 0),
 
 	},
 	.sharpness = {
-		ISX012_REGSET(SHARPNESS_MINUS_2, isx012_Sharpness_Minus_2),
-		ISX012_REGSET(SHARPNESS_MINUS_1, isx012_Sharpness_Minus_1),
-		ISX012_REGSET(SHARPNESS_DEFAULT, isx012_Sharpness_Default),
-		ISX012_REGSET(SHARPNESS_PLUS_1, isx012_Sharpness_Plus_1),
-		ISX012_REGSET(SHARPNESS_PLUS_2, isx012_Sharpness_Plus_2),
+		ISX012_REGSET(SHARPNESS_MINUS_2, isx012_Sharpness_Minus_2, 0),
+		ISX012_REGSET(SHARPNESS_MINUS_1, isx012_Sharpness_Minus_1, 0),
+		ISX012_REGSET(SHARPNESS_DEFAULT, isx012_Sharpness_Default, 0),
+		ISX012_REGSET(SHARPNESS_PLUS_1, isx012_Sharpness_Plus_1, 0),
+		ISX012_REGSET(SHARPNESS_PLUS_2, isx012_Sharpness_Plus_2, 0),
 	},
 	.fps = {
-		ISX012_REGSET(I_FPS_0, isx012_fps_auto),
-		ISX012_REGSET(I_FPS_7, isx012_fps_7fix),
-		ISX012_REGSET(I_FPS_15, isx012_fps_15fix),
-		ISX012_REGSET(I_FPS_25, isx012_fps_25fix),
-		ISX012_REGSET(I_FPS_30, isx012_fps_30fix),
+		ISX012_REGSET(I_FPS_0, isx012_fps_auto, 0),
+		ISX012_REGSET(I_FPS_7, isx012_fps_7fix, 0),
+		ISX012_REGSET(I_FPS_15, isx012_fps_15fix, 0),
+		ISX012_REGSET(I_FPS_25, isx012_fps_25fix, 0),
+		ISX012_REGSET(I_FPS_30, isx012_fps_30fix, 0),
 	},
 	.preview_size = {
-		ISX012_REGSET(PREVIEW_SZ_320x240, isx012_320_Preview),
-		ISX012_REGSET(PREVIEW_SZ_VGA, isx012_640_Preview),
-		ISX012_REGSET(PREVIEW_SZ_D1, isx012_720_Preview),
-		ISX012_REGSET(PREVIEW_SZ_XGA, isx012_1024_768_Preview),
-		ISX012_REGSET(PREVIEW_SZ_PVGA, isx012_1280_Preview_E),
+		ISX012_REGSET(PREVIEW_SZ_320x240, isx012_320_Preview, 0),
+#if defined(CONFIG_MACH_P4NOTELTE_KOR_SKT) \
+	|| defined(CONFIG_MACH_P4NOTELTE_KOR_KT) \
+	|| defined(CONFIG_MACH_P4NOTELTE_KOR_LGT) /*For 4G VT call in Domestic*/
+		ISX012_REGSET(PREVIEW_SZ_VERTICAL_VGA, isx012_480_Preview, 0),
+#endif
+		ISX012_REGSET(PREVIEW_SZ_VGA, isx012_640_Preview, 0),
+		ISX012_REGSET(PREVIEW_SZ_D1, isx012_720_Preview, 0),
+		ISX012_REGSET(PREVIEW_SZ_XGA, isx012_1024_768_Preview, 0),
+		ISX012_REGSET(PREVIEW_SZ_PVGA, isx012_1280_Preview_E, 0),
 	},
 	.capture_size = {
-		ISX012_REGSET(CAPTURE_SZ_VGA, isx012_VGA_Capture),
-		ISX012_REGSET(CAPTURE_SZ_960_720, isx012_960_720_Capture),
-		ISX012_REGSET(CAPTURE_SZ_3MP, isx012_3M_Capture),
-		ISX012_REGSET(CAPTURE_SZ_5MP, isx012_5M_Capture),
+		ISX012_REGSET(CAPTURE_SZ_VGA, isx012_VGA_Capture, 0),
+		ISX012_REGSET(CAPTURE_SZ_960_720, isx012_960_720_Capture, 0),
+		ISX012_REGSET(CAPTURE_SZ_3MP, isx012_3M_Capture, 0),
+		ISX012_REGSET(CAPTURE_SZ_5MP, isx012_5M_Capture, 0),
 	},
 
 	/* AF */
-	.af_window_reset = ISX012_REGSET_TABLE(ISX012_AF_Window_Reset),
-	.af_winddow_set = ISX012_REGSET_TABLE(ISX012_AF_Window_Set),
-	.af_restart = ISX012_REGSET_TABLE(ISX012_AF_ReStart),
-	.af_saf_off = ISX012_REGSET_TABLE(ISX012_AF_SAF_OFF),
-	.af_touch_saf_off = ISX012_REGSET_TABLE(ISX012_AF_TouchSAF_OFF),
-	.cancel_af_macro = ISX012_REGSET_TABLE(ISX012_AF_Cancel_Macro_ON),
-	.cancel_af_normal = ISX012_REGSET_TABLE(ISX012_AF_Cancel_Macro_OFF),
-	.af_macro_mode = ISX012_REGSET_TABLE(ISX012_AF_Macro_ON),
-	.af_normal_mode = ISX012_REGSET_TABLE(ISX012_AF_Macro_OFF),
-	.af_camcorder_start = ISX012_REGSET_TABLE(ISX012_Camcorder_SAF_Start),
+	.af_window_reset = ISX012_REGSET_TABLE(ISX012_AF_Window_Reset, 1),
+	.af_winddow_set = ISX012_REGSET_TABLE(ISX012_AF_Window_Set, 0),
+	.af_restart = ISX012_REGSET_TABLE(ISX012_AF_ReStart, 0),
+	.af_saf_off = ISX012_REGSET_TABLE(ISX012_AF_SAF_OFF, 0),
+	.af_touch_saf_off = ISX012_REGSET_TABLE(ISX012_AF_TouchSAF_OFF, 0),
+	.cancel_af_macro = ISX012_REGSET_TABLE(ISX012_AF_Cancel_Macro_ON, 0),
+	.cancel_af_normal = ISX012_REGSET_TABLE(ISX012_AF_Cancel_Macro_OFF, 0),
+	.af_macro_mode = ISX012_REGSET_TABLE(ISX012_AF_Macro_ON, 0),
+	.af_normal_mode = ISX012_REGSET_TABLE(ISX012_AF_Macro_OFF, 0),
+	.af_camcorder_start = ISX012_REGSET_TABLE(
+				ISX012_Camcorder_SAF_Start, 0),
 
 	/* Flash */
-	.flash_ae_line = ISX012_REGSET_TABLE(ISX012_Flash_AELINE),
-	.flash_on = ISX012_REGSET_TABLE(ISX012_Flash_ON),
-	.flash_off = ISX012_REGSET_TABLE(ISX012_Flash_OFF),
-	.ae_manual = ISX012_REGSET_TABLE(ISX012_ae_manual_mode),
-	.flash_fast_ae_awb = ISX012_REGSET_TABLE(ISX012_flash_fast_ae_awb),
+	.flash_ae_line = ISX012_REGSET_TABLE(ISX012_Flash_AELINE, 0),
+	.flash_on = ISX012_REGSET_TABLE(ISX012_Flash_ON, 1),
+	.flash_off = ISX012_REGSET_TABLE(ISX012_Flash_OFF, 1),
+	.ae_manual = ISX012_REGSET_TABLE(ISX012_ae_manual_mode, 0),
+	.flash_fast_ae_awb = ISX012_REGSET_TABLE(ISX012_flash_fast_ae_awb, 0),
 
-	.init_reg = ISX012_REGSET_TABLE(ISX012_Init_Reg),
+	.init_reg = ISX012_REGSET_TABLE(ISX012_Init_Reg, 1),
 
 	/* Camera mode */
-	.preview_mode = ISX012_REGSET_TABLE(ISX012_Preview_Mode),
-	.capture_mode = ISX012_REGSET_TABLE(ISX012_Capture_Mode),
+	.preview_mode = ISX012_REGSET_TABLE(ISX012_Preview_Mode, 0),
+	.capture_mode = ISX012_REGSET_TABLE(ISX012_Capture_Mode, 0),
 	.capture_mode_night =
-		ISX012_REGSET_TABLE(ISX012_Lowlux_Night_Capture_Mode),
-	.halfrelease_mode = ISX012_REGSET_TABLE(ISX012_Halfrelease_Mode),
+		ISX012_REGSET_TABLE(ISX012_Lowlux_Night_Capture_Mode, 0),
+	.halfrelease_mode = ISX012_REGSET_TABLE(ISX012_Halfrelease_Mode, 0),
 	.halfrelease_mode_night =
-		ISX012_REGSET_TABLE(ISX012_Lowlux_night_Halfrelease_Mode),
-	.camcorder_on = ISX012_REGSET_TABLE(ISX012_Camcorder_Mode_ON),
-	.camcorder_off = ISX012_REGSET_TABLE(ISX012_Camcorder_Mode_OFF),
+		ISX012_REGSET_TABLE(ISX012_Lowlux_night_Halfrelease_Mode, 0),
+	.camcorder_on = ISX012_REGSET_TABLE(ISX012_Camcorder_Mode_ON, 1),
+	.camcorder_off = ISX012_REGSET_TABLE(ISX012_Camcorder_Mode_OFF, 1),
 
-	.lowlux_night_reset = ISX012_REGSET_TABLE(ISX012_Lowlux_Night_Reset),
+	.lowlux_night_reset = ISX012_REGSET_TABLE(ISX012_Lowlux_Night_Reset, 0),
 
-	.set_pll_4 = ISX012_REGSET_TABLE(ISX012_Pll_Setting_4),
-	.softlanding = ISX012_REGSET_TABLE(ISX012_Sensor_Off_VCM),
+	.set_pll_4 = ISX012_REGSET_TABLE(ISX012_Pll_Setting_4, 1),
+	.shading_0 = ISX012_REGSET_TABLE(ISX012_Shading_0, 1),
+	.shading_1 = ISX012_REGSET_TABLE(ISX012_Shading_1, 1),
+	.shading_2 = ISX012_REGSET_TABLE(ISX012_Shading_2, 1),
+	.shading_nocal = ISX012_REGSET_TABLE(ISX012_Shading_Nocal, 1),
+	.softlanding = ISX012_REGSET_TABLE(ISX012_Sensor_Off_VCM, 0),
 #if 0 /* def CONFIG_VIDEO_ISX012_P8*/
-	.antibanding = ISX012_REGSET_TABLE(ISX012_ANTIBANDING_REG),
+	.antibanding = ISX012_REGSET_TABLE(ISX012_ANTIBANDING_REG, 0),
 #endif
 };
 
@@ -854,6 +872,8 @@ static int isx012_i2c_burst_write_list(struct v4l2_subdev *sd,
 
 	struct i2c_msg msg = {isx012_client->addr, 0, 4, buf};
 
+	cam_trace("%s\n", name);
+
 	if (!isx012_client->adapter) {
 		printk(KERN_ERR "%s: %d can't search i2c client adapter\n", __func__, __LINE__);
 		return -EIO;
@@ -965,7 +985,12 @@ static int isx012_set_from_table(struct v4l2_subdev *sd,
 		table->name);
 # endif /* DEBUG_WRITE_REGS */
 
-	err = isx012_write_regs(sd, table->reg, table->array_size);
+	if (table->burst) {
+		err = isx012_i2c_burst_write_list(sd,
+			table->reg, table->array_size, setting_name);
+	} else
+		err = isx012_write_regs(sd, table->reg, table->array_size);
+
 	CHECK_ERR_MSG(err, "write regs(%s), err=%d\n", setting_name, err);
 
 	return 0;
@@ -2195,6 +2220,13 @@ static int isx012_set_af(struct v4l2_subdev *sd, s32 val)
 	state->focus.start = val;
 
 	if (val == AUTO_FOCUS_ON) {
+		if ((state->runmode != RUNMODE_RUNNING) &&
+		    (state->runmode != RUNMODE_RECORDING)) {
+			cam_err("error, AF can't start, not in preview\n");
+			state->focus.start = AUTO_FOCUS_OFF;
+			return -ESRCH;
+		}
+
 		err = queue_work(state->workqueue, &state->af_work);
 		if (likely(err))
 			state->focus.status = AF_RESULT_DOING;
@@ -3138,11 +3170,12 @@ static int isx012_s_mbus_fmt(struct v4l2_subdev *sd,
 
 		/* for maket app.
 		 * Samsung camera app does not use unmatched ratio.*/
-		if (unlikely(FRM_RATIO(state->preview.frmsize)
+		if (unlikely(NULL == state->preview.frmsize)) {
+			cam_warn("warning, capture without preview resolution\n");
+		} else if (unlikely(FRM_RATIO(state->preview.frmsize)
 		    != FRM_RATIO(state->capture.frmsize))) {
-			cam_warn("%s: warning, capture ratio " \
-				"is different with preview ratio\n",
-				__func__);
+			cam_warn("warning, capture ratio " \
+				"is different with preview ratio\n");
 		}
 	}
 
@@ -3548,22 +3581,9 @@ static int isx012_s_stream(struct v4l2_subdev *sd, int enable)
 	return 0;
 }
 
-#if 0 /* DSLIM */
-static int isx012_reset(struct v4l2_subdev *sd, u32 val)
-{
-	struct isx012_state *state = to_state(sd);
-
-	cam_trace("EX\n");
-
-	isx012_return_focus(sd);
-	state->initialized = 0;
-
-	return 0;
-}
-#endif
-
 void isx012_Sensor_Calibration(struct v4l2_subdev *sd)
 {
+	struct isx012_state *state = to_state(sd);
 	int status = 0;
 	int temp = 0;
 
@@ -3581,11 +3601,14 @@ void isx012_Sensor_Calibration(struct v4l2_subdev *sd)
 
 		/* Write Shading Table */
 		if (temp == 0x0)
-			ISX012_BURST_WRITE_LIST(ISX012_Shading_0);
+			isx012_set_from_table(sd, "Shading_0",
+			       &state->regs->shading_0, 1, 0);
 		else if (temp == 0x1)
-			ISX012_BURST_WRITE_LIST(ISX012_Shading_1);
+			isx012_set_from_table(sd, "Shading_1",
+			       &state->regs->shading_1, 1, 0);
 		else if (temp == 0x2)
-			ISX012_BURST_WRITE_LIST(ISX012_Shading_2);
+			isx012_set_from_table(sd, "Shading_2",
+			       &state->regs->shading_2, 1, 0);
 
 		/* Write NorR */
 		isx012_readw(sd, 0x0054, &status);
@@ -3623,11 +3646,14 @@ void isx012_Sensor_Calibration(struct v4l2_subdev *sd)
 
 			/* Write Shading Table */
 			if (temp == 0x0)
-				ISX012_BURST_WRITE_LIST(ISX012_Shading_0);
+				isx012_set_from_table(sd, "Shading_0",
+					&state->regs->shading_0, 1, 0);
 			else if (temp == 0x1)
-				ISX012_BURST_WRITE_LIST(ISX012_Shading_1);
+				isx012_set_from_table(sd, "Shading_1",
+					&state->regs->shading_1, 1, 0);
 			else if (temp == 0x2)
-				ISX012_BURST_WRITE_LIST(ISX012_Shading_2);
+				isx012_set_from_table(sd, "Shading_2",
+					&state->regs->shading_2, 1, 0);
 
 			/* Write NorR */
 			isx012_readw(sd, 0x0045, &status);
@@ -3653,7 +3679,8 @@ void isx012_Sensor_Calibration(struct v4l2_subdev *sd)
 			boot_dbg("Cal: PreB read : %x\n", temp);
 			isx012_writew(sd, 0x680A, temp);
 		} else
-			ISX012_BURST_WRITE_LIST(ISX012_Shading_Nocal);
+			isx012_set_from_table(sd, "Shading_nocal",
+				&state->regs->shading_nocal, 1, 0);
 	}
 }
 
@@ -3666,7 +3693,7 @@ static inline int isx012_check_i2c(struct v4l2_subdev *sd, u16 data)
 	if (unlikely(err))
 		return err;
 
-	cam_info("version: 0x%04X is 0x6017?\n", val);
+	cam_dbg("version: 0x%04X is 0x6017?\n", val);
 	return 0;
 }
 
@@ -3683,7 +3710,7 @@ static int isx012_post_poweron(struct v4l2_subdev *sd)
 		cam_err("%s: error, I2C check fail\n", __func__);
 		return err;
 	}
-	cam_info("I2C check success!\n");
+	cam_dbg("I2C check success!\n");
 
 	msleep_debug(10, false);
 	err = isx012_is_om_changed(sd);
@@ -4064,6 +4091,6 @@ static void __exit v4l2_i2c_drv_cleanup(void)
 module_init(v4l2_i2c_drv_init);
 module_exit(v4l2_i2c_drv_cleanup);
 
-MODULE_DESCRIPTION("LSI ISX012 3MP SOC camera driver");
+MODULE_DESCRIPTION("SONY ISX012 5MP SOC camera driver");
 MODULE_AUTHOR("Dong-Seong Lim <dongseong.lim@samsung.com>");
 MODULE_LICENSE("GPL");

@@ -80,9 +80,10 @@ enum sipc_ver {
 /**
  * struct modem_io_t - declaration for io_device
  * @name:	device name
- * @id:		contain format & channel information
+ * @id:		for SIPC4, contains format & channel information
  *		(id & 11100000b)>>5 = format  (eg, 0=FMT, 1=RAW, 2=RFS)
  *		(id & 00011111b)    = channel (valid only if format is RAW)
+ *		for SIPC5, contains only 8-bit channel ID
  * @format:	device format
  * @io_type:	type of this io_device
  * @links:	list of link_devices to use this io_device
@@ -92,6 +93,7 @@ enum sipc_ver {
  *		If define multiple link_devices in @links,
  *		you can receive data from them. But, cannot send data to all.
  *		TX is only one link_device.
+ * @app:	the name of the application that will use this IO device
  *
  * This structure is used in board-*-modem.c
  */
@@ -102,7 +104,7 @@ struct modem_io_t {
 	enum modem_io io_type;
 	enum modem_link links;
 	enum modem_link tx_link;
-	bool rx_gather;
+	char *app;
 };
 
 struct modemlink_pm_data {
@@ -140,6 +142,11 @@ struct modemlink_pm_link_activectl {
 #define RES_DPRAM_IRQ_ID	2
 #define RES_DPRAM_SFR_ID	3
 
+#define STR_CP_ACTIVE_IRQ	"cp_active_irq"
+#define STR_DPRAM_BASE		"dpram_base"
+#define STR_DPRAM_IRQ		"dpram_irq"
+#define STR_DPRAM_SFR_BASE	"dpram_sfr_base"
+
 enum dpram_type {
 	EXT_DPRAM,
 	AP_IDPRAM,
@@ -168,13 +175,12 @@ struct dpram_circ {
 	u32          size;
 };
 
+
 struct dpram_ipc_device {
 	char name[16];
 	int  id;
-
 	struct dpram_circ txq;
 	struct dpram_circ rxq;
-
 	u16 mask_req_ack;
 	u16 mask_res_ack;
 	u16 mask_send;
@@ -205,20 +211,9 @@ struct dpram_ipc_map {
 };
 
 struct modemlink_dpram_control {
-	void (*reset)(void);
-	void (*clear_intr)(void);
-	u16 (*recv_intr)(void);
-	void (*send_intr)(u16);
-	u16 (*recv_msg)(void);
-	void (*send_msg)(u16);
-
-	int (*wakeup)(void);
-	void (*sleep)(void);
-
-	void (*setup_speed)(enum dpram_speed);
-
 	enum dpram_type dp_type;	/* DPRAM type */
-	int aligned;			/* aligned access is required */
+	int aligned;			/* Aligned access is required */
+	bool disabled;			/* Disabled during phone booting */
 	u8 __iomem *dp_base;
 	u32 dp_size;
 
@@ -228,10 +223,15 @@ struct modemlink_dpram_control {
 	int max_ipc_dev;
 	struct dpram_ipc_map *ipc_map;
 
+	/* Timeout of waiting for RES_ACK from CP (in msec) */
+	unsigned long res_ack_wait_timeout;
+
 	unsigned boot_size_offset;
 	unsigned boot_tag_offset;
 	unsigned boot_count_offset;
 	unsigned max_boot_frame_size;
+
+	void (*setup_speed)(enum dpram_speed);
 };
 
 /* platform data */
@@ -252,10 +252,9 @@ struct modem_data {
 	unsigned gpio_host_wakeup;
 #endif
 	unsigned gpio_cp_warm_reset;
+
 	unsigned gpio_sim_detect;
-#if defined(CONFIG_LINK_DEVICE_DPRAM) || defined(CONFIG_LINK_DEVICE_PLD)
 	unsigned gpio_dpram_int;
-#endif
 
 #ifdef CONFIG_LINK_DEVICE_PLD
 	unsigned gpio_fpga1_creset;
@@ -308,10 +307,9 @@ struct modem_data {
 	enum modem_t        modem_type;
 	enum modem_link     link_types;
 	char               *link_name;
-#if defined(CONFIG_LINK_DEVICE_DPRAM) || defined(CONFIG_LINK_DEVICE_PLD)
+
 	/* Link to DPRAM control functions dependent on each platform */
 	struct modemlink_dpram_control *dpram_ctl;
-#endif
 
 	/* SIPC version */
 	enum sipc_ver ipc_version;

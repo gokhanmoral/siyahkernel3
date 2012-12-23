@@ -17,7 +17,7 @@ cfg80211-$(CONFIG_CFG80211_INTERNAL_REGDB) += regdb.o
 
 ccflags-y += -D__CHECK_ENDIAN__
 
-$(obj)/regdb.c: $(src)/db.txt $(src)/genregdb.awk
-	@$(AWK) -f $(src)/genregdb.awk < $< > $@
+$(obj)/regdb.c: $(srctree)/$(src)/db.txt $(srctree)/$(src)/genregdb.awk
+	@$(AWK) -f $(srctree)/$(src)/genregdb.awk < $< > $@
 
 clean-files := regdb.c

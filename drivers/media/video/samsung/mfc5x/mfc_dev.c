@@ -213,8 +213,10 @@ static int mfc_open(struct inode *inode, struct file *file)
 
 	mutex_lock(&mfcdev->lock);
 
-#if defined(CONFIG_USE_MFC_CMA) && defined(CONFIG_MACH_M0)
+#ifdef CONFIG_USE_MFC_CMA
 	if (atomic_read(&mfcdev->inst_cnt) == 0) {
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_GC1) \
+	|| defined(CONFIG_MACH_Q1_BD)
 		size_t size = 0x02800000;
 		mfcdev->cma_vaddr = dma_alloc_coherent(mfcdev->device, size,
 						&mfcdev->cma_dma_addr, 0);
@@ -228,6 +230,7 @@ static int mfc_open(struct inode *inode, struct file *file)
 					 __func__, __LINE__, (int)size,
 						(int)mfcdev->cma_vaddr,
 						(int)mfcdev->cma_dma_addr);
+#endif
 	}
 #endif
 
@@ -413,6 +416,18 @@ err_inst_cnt:
 #endif
 err_start_hw:
 	if (atomic_read(&mfcdev->inst_cnt) == 0) {
+#ifdef CONFIG_USE_MFC_CMA
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_GC1) \
+	|| defined(CONFIG_MACH_Q1_BD)
+		size_t size = 0x02800000;
+		dma_free_coherent(mfcdev->device, size, mfcdev->cma_vaddr,
+							mfcdev->cma_dma_addr);
+		printk(KERN_INFO "%s[%d] size 0x%x, vaddr 0x%x, base 0x0%x\n",
+				__func__, __LINE__, (int)size,
+				(int) mfcdev->cma_vaddr,
+				(int)mfcdev->cma_dma_addr);
+#endif
+#endif
 		if (mfc_power_off() < 0)
 			mfc_err("power disable failed\n");
 	}
@@ -472,6 +487,19 @@ static int mfc_release(struct inode *inode, struct file *file)
 			/* release Freq lock back to normal */
 			exynos4_busfreq_lock_free(DVFS_LOCK_ID_MFC);
 			mfc_dbg("[%s] Bus Freq lock Released Normal!\n", __func__);
+		}
+	}
+#endif
+
+#if defined(CONFIG_MACH_GC1) && defined(CONFIG_EXYNOS4_CPUFREQ)
+	/* Release MFC & CPU Frequency lock for High resolution */
+	if (mfc_ctx->cpufreq_flag == true) {
+		atomic_dec(&dev->cpufreq_lock_cnt);
+		mfc_ctx->cpufreq_flag = false;
+		if (atomic_read(&dev->cpufreq_lock_cnt) == 0) {
+			/* release Freq lock back to normal */
+			exynos_cpufreq_lock_free(DVFS_LOCK_ID_MFC);
+			mfc_dbg("[%s] CPU Freq lock Released Normal!\n", __func__);
 		}
 	}
 #endif
@@ -565,8 +593,10 @@ static int mfc_release(struct inode *inode, struct file *file)
 
 err_pwr_disable:
 
-#if defined(CONFIG_USE_MFC_CMA) && defined(CONFIG_MACH_M0)
+#ifdef CONFIG_USE_MFC_CMA
 	if (atomic_read(&mfcdev->inst_cnt) == 0) {
+#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_GC1) \
+	|| defined(CONFIG_MACH_Q1_BD)
 		size_t size = 0x02800000;
 		dma_free_coherent(mfcdev->device, size, mfcdev->cma_vaddr,
 					mfcdev->cma_dma_addr);
@@ -574,6 +604,7 @@ err_pwr_disable:
 				__func__, __LINE__, (int)size,
 				(int) mfcdev->cma_vaddr,
 				(int)mfcdev->cma_dma_addr);
+#endif
 	}
 #endif
 	mutex_unlock(&dev->lock);
@@ -1083,9 +1114,13 @@ static int mfc_mmap(struct file *file, struct vm_area_struct *vma)
 	unsigned long start, size;
 #endif
 #endif
+	mfc_info("%s line : %d IN\n", __func__, __LINE__);
 	mfc_ctx = (struct mfc_inst_ctx *)file->private_data;
-	if (!mfc_ctx)
+	if (!mfc_ctx) {
+		mfc_err("%s line : %d mfc_ctx is NULL\n",
+					__func__, __LINE__);
 		return -EINVAL;
+	}
 
 #if !(defined(CONFIG_VIDEO_MFC_VCM_UMP) || defined(CONFIG_S5P_VMEM))
 	dev = mfc_ctx->dev;
@@ -1325,9 +1360,30 @@ static int mfc_mmap(struct file *file, struct vm_area_struct *vma)
 	return 0;
 }
 
+#ifdef CONFIG_USE_MFC_CMA
+/* FIXME: workaround for CMA migration fail due to page lock */
+static int mfc_open_with_retry(struct inode *inode, struct file *file)
+{
+	int ret;
+	int i = 0;
+
+	ret = mfc_open(inode, file);
+
+	while (ret == -ENOMEM && i++ < 5) {
+		msleep(1000);
+		ret = mfc_open(inode, file);
+	}
+
+	return ret;
+}
+#define MFC_OPEN mfc_open_with_retry
+#else
+#define MFC_OPEN mfc_open
+#endif
+
 static const struct file_operations mfc_fops = {
 	.owner		= THIS_MODULE,
-	.open		= mfc_open,
+	.open		= MFC_OPEN,
 	.release	= mfc_release,
 	.unlocked_ioctl	= mfc_ioctl,
 	.mmap		= mfc_mmap,

@@ -14,7 +14,7 @@
  *
  */
 
-//#define DEBUG
+#define DEBUG
 /* #define VERBOSE_DEBUG */
 /*#define SEC_TSP_DEBUG*/
 /* #define SEC_TSP_VERBOSE_DEBUG */
@@ -46,48 +46,13 @@
 #include <mach/cpufreq.h>
 #include <mach/dev.h>
 
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-#include <linux/spinlock.h>
-#include <linux/miscdevice.h>
-
-#define MAX_GESTURES 30
-#define MAX_GESTURE_FINGERS 5
-#define MAX_GESTURE_STEPS 10
-
-// Definitions
-struct gesture_point {
-	int min_x;
-	int min_y;
-	int max_x;
-	int max_y;
-};
-
-typedef struct gesture_point gesture_points_t[MAX_GESTURES][MAX_GESTURE_FINGERS][MAX_GESTURE_STEPS];
-static gesture_points_t gesture_points = { { { { 0, 0, 0, 0 } } } };
-
-typedef int gestures_step_count_t[MAX_GESTURES][MAX_GESTURE_FINGERS];
-static gestures_step_count_t gestures_step_count = { { 0 } };
-
-// Track state
-static bool gestures_detected[MAX_GESTURES] = { false };
-static bool has_gestures = false;
-
-struct gesture_finger {
-	int finger_order;
-	int current_step;
-};
-static struct gesture_finger gesture_fingers[MAX_GESTURES][MAX_GESTURE_FINGERS] = { { { -1, -1 } } };
-
-DECLARE_WAIT_QUEUE_HEAD(gestures_wq);
-static spinlock_t gestures_lock;
-#endif
-
-
 #include <linux/platform_data/mms_ts.h>
 
 #include <asm/unaligned.h>
-#include "../keyboard/cypress/cypress-touchkey.h"
-#include <mach/midas-tsp.h>
+
+#ifdef CONFIG_MACH_SUPERIOR_KOR_SKT
+#define FW_465GS37
+#endif
 
 #define MAX_FINGERS		10
 #define MAX_WIDTH		30
@@ -177,7 +142,7 @@ enum {
 struct device *sec_touchscreen;
 static struct device *bus_dev;
 
-int touch_is_pressed = 0;
+int touch_is_pressed;
 
 #define ISC_DL_MODE	1
 
@@ -186,6 +151,14 @@ int touch_is_pressed = 0;
 
 #define MAX_FW_PATH 255
 #define TSP_FW_FILENAME "melfas_fw.bin"
+
+#ifdef FW_465GS37
+#define FW_VERSION_4_65 0x12
+#define FW_VERSION_HW   0x01
+#undef  FW_VERSION_4_8
+#define FW_VERSION_4_8 FW_VERSION_4_65
+#include "465GS37_V12.h"
+#endif
 
 #if ISC_DL_MODE	/* ISC_DL_MODE start */
 
@@ -299,6 +272,7 @@ struct mms_ts_info {
 	u8 fw_update_state;
 #endif
 	u8			fw_ic_ver;
+	u8			fw_hw_ver;
 	enum fw_flash_mode fw_flash_mode;
 
 #if TOUCH_BOOSTER
@@ -340,8 +314,8 @@ static void mms_ts_late_resume(struct early_suspend *h);
 #endif
 
 #if TOUCH_BOOSTER
-static bool dvfs_lock_status = false;
-static bool press_status = false;
+static bool dvfs_lock_status;
+static bool press_status;
 #endif
 
 #if defined(SEC_TSP_FACTORY_TEST)
@@ -417,7 +391,7 @@ static void change_dvfs_lock(struct work_struct *work)
 		pr_err("%s: dev change bud lock failed(%d)\n",\
 				__func__, __LINE__);
 	else
-		pr_debug("[TSP] change_dvfs_lock");
+		pr_info("[TSP] change_dvfs_lock");
 	mutex_unlock(&info->dvfs_lock);
 }
 static void set_dvfs_off(struct work_struct *work)
@@ -436,7 +410,7 @@ static void set_dvfs_off(struct work_struct *work)
 
 	exynos_cpufreq_lock_free(DVFS_LOCK_ID_TSP);
 	info->dvfs_lock_status = false;
-	pr_debug("[TSP] DVFS Off!");
+	pr_info("[TSP] DVFS Off!");
 	mutex_unlock(&info->dvfs_lock);
 	}
 
@@ -477,7 +451,7 @@ static void set_dvfs_lock(struct mms_ts_info *info, uint32_t on)
 				msecs_to_jiffies(TOUCH_BOOSTER_CHG_TIME));
 
 			info->dvfs_lock_status = true;
-			pr_debug("[TSP] DVFS On![%d]", info->cpufreq_level);
+			pr_info("[TSP] DVFS On![%d]", info->cpufreq_level);
 		}
 	} else if (on == 2) {
 		cancel_delayed_work(&info->work_dvfs_off);
@@ -524,12 +498,11 @@ static void release_all_fingers(struct mms_ts_info *info)
 	struct i2c_client *client = info->client;
 	int i;
 
-	pr_debug(KERN_DEBUG "[TSP] %s\n", __func__);
+	printk(KERN_DEBUG "[TSP] %s\n", __func__);
 
 	for (i = 0; i < MAX_FINGERS; i++) {
-		if (info->finger_state[i] == 1) {
+		if (info->finger_state[i] == 1)
 			dev_notice(&client->dev, "finger %d up(force)\n", i);
-		}
 		info->finger_state[i] = 0;
 		input_mt_slot(info->input_dev, i);
 		input_mt_report_slot_state(info->input_dev, MT_TOOL_FINGER,
@@ -538,7 +511,7 @@ static void release_all_fingers(struct mms_ts_info *info)
 	input_sync(info->input_dev);
 #if TOUCH_BOOSTER
 	set_dvfs_lock(info, 2);
-	pr_debug("[TSP] dvfs_lock free.\n ");
+	pr_info("[TSP] dvfs_lock free.\n ");
 #endif
 }
 
@@ -556,6 +529,7 @@ static void mms_set_noise_mode(struct mms_ts_info *info)
 	} else {
 		dev_notice(&client->dev, "noise_mode & TA disconnect!!!\n");
 		i2c_smbus_write_byte_data(info->client, 0x30, 0x2);
+		info->noise_mode = 0;
 	}
 }
 
@@ -631,14 +605,6 @@ static irqreturn_t mms_ts_interrupt(int irq, void *dev_id)
 		     .buf = buf,
 		     },
 	};
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-	int gesture_no, finger_no;
-	int finger_pos;
-	struct gesture_point *point;
-	int step;
-	bool fingers_completed;
-	unsigned long flags;
-#endif
 
 	sz = i2c_smbus_read_byte_data(client, MMS_INPUT_EVENT_PKT_SZ);
 
@@ -727,33 +693,6 @@ static irqreturn_t mms_ts_interrupt(int irq, void *dev_id)
 				, angle, palm);
 #else
 			if (info->finger_state[id] != 0) {
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-			// When a finger is released and its movement was not completed yet, reset it
-			spin_lock_irqsave(&gestures_lock, flags);
-			for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-				if (gestures_detected[gesture_no])
-					// Ignore gestures already reported
-					continue;
-
-				for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-					if (gesture_fingers[gesture_no][finger_no].finger_order == i) {
-						// Found a match for ongoing movement
-						// Reset the finger progress if path not completed
-						if (gesture_fingers[gesture_no][finger_no].current_step <
-						    gestures_step_count[gesture_no][finger_no]) {
-							gesture_fingers[gesture_no][finger_no].finger_order = -1;
-							gesture_fingers[gesture_no][finger_no].current_step = -1;
-						}
-						break;
-					}
-				}
-			}
-			spin_unlock_irqrestore(&gestures_lock, flags);
-#endif
-
-                // report state to cypress-touchkey for backlight timeout
-                AOSPROM touchscreen_state_report(0);
-
 				dev_notice(&client->dev,
 					"finger [%d] up, palm %d\n", id, palm);
 			}
@@ -765,71 +704,6 @@ static irqreturn_t mms_ts_interrupt(int irq, void *dev_id)
 			info->finger_state[id] = 0;
 			continue;
 		}
-
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-		// Finger being moved, check the gesture steps progress
-		spin_lock_irqsave(&gestures_lock, flags);
-		for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-			if (gestures_detected[gesture_no])
-				// Ignore further movement for gestures already reported
-				continue;
-
-			// Find which finger definition this touch maps to
-			finger_pos = -1;
-			for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-				if (gesture_fingers[gesture_no][finger_no].finger_order == i) {
-					// Found a match for ongoing movement
-					finger_pos = finger_no;
-					break;
-				}
-			}
-			if (finger_pos < 0) {
-				// This finger is not yet tracked, check the first zone it matches
-				for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-					if (gestures_step_count[gesture_no][finger_no] < 1) {
-						// This finger definition has no steps, no more to check
-						break;
-					} else {
-						point = &gesture_points[gesture_no][finger_no][0];
-						if (gesture_fingers[gesture_no][finger_no].finger_order < 0 &&
-						    x >= point->min_x &&
-						    x <= point->max_x &&
-						    y >= point->min_y &&
-						    y <= point->max_y) {
-							// This finger definition is still pending
-							// and this touch matches the area
-							finger_pos = finger_no;
-							gesture_fingers[gesture_no][finger_pos].finger_order = i;
-							gesture_fingers[gesture_no][finger_pos].current_step = 1;
-							printk("[TSP] Gesture %d, finger %d - Associated index %d\n",
-							       gesture_no, finger_pos, i);
-							break;
-						}
-					}
-				}
-			}
-			if (finger_pos >= 0) {
-				// Track next zones where the finger should move
-				for (step = gesture_fingers[gesture_no][finger_pos].current_step;
-				     step < gestures_step_count[gesture_no][finger_pos];
-				     step++) {
-					point = &gesture_points[gesture_no][finger_pos][step];
-					if (x >= point->min_x &&
-					    x <= point->max_x &&
-					    y >= point->min_y &&
-					    y <= point->max_y) {
-						// Next zone reached, keep testing
-						printk("[TSP] Gesture %d, finger %d - Moved through step, next is %d\n",
-						       gesture_no, finger_pos, step+1);
-						gesture_fingers[gesture_no][finger_pos].current_step++;
-					} else {
-						break;
-					}
-				}
-			}
-		}
-		spin_unlock_irqrestore(&gestures_lock, flags);
-#endif
 
 		input_mt_slot(info->input_dev, id);
 		input_mt_report_slot_state(info->input_dev,
@@ -857,10 +731,6 @@ static irqreturn_t mms_ts_interrupt(int irq, void *dev_id)
 #else
 		if (info->finger_state[id] == 0) {
 			info->finger_state[id] = 1;
-
-            // report state to cypress-touchkey for backlight timeout
-            AOSPROM touchscreen_state_report(1);
-
 			dev_notice(&client->dev,
 				"finger [%d] down, palm %d\n", id, palm);
 		}
@@ -874,46 +744,7 @@ static irqreturn_t mms_ts_interrupt(int irq, void *dev_id)
 			touch_is_pressed++;
 	}
 
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-	// Check completed gestures or reset all progress if all fingers released
-	spin_lock_irqsave(&gestures_lock, flags);
-	for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-		if (gestures_detected[gesture_no])
-			// Gesture already reported, skip
-			continue;
-
-		if (gestures_step_count[gesture_no][0] < 1)
-			continue; // Gesture not configured
-
-		fingers_completed = true;
-		for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-			if (gestures_step_count[gesture_no][finger_no] > 0 &&
-			    gesture_fingers[gesture_no][finger_no].current_step <
-			        gestures_step_count[gesture_no][finger_no]) {
-
-				fingers_completed = false;
-				break;
-			}
-		}
-		if (fingers_completed) {
-			// All finger steps completed for this gesture, wake any consumers
-			printk("[TSP] Gesture %d completed, waking consumers\n", gesture_no);
-			gestures_detected[gesture_no] = true;
-			has_gestures = true;
-			wake_up_interruptible_all(&gestures_wq);
-		} else if (!touch_is_pressed) {
-			// All fingers released, reset progress for all paths
-			for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-				gesture_fingers[gesture_no][finger_no].finger_order = -1;
-				gesture_fingers[gesture_no][finger_no].current_step = -1;
-			}
-		}
-	}
-	spin_unlock_irqrestore(&gestures_lock, flags);
-#endif
-
 #if TOUCH_BOOSTER
-	if(!!touch_is_pressed) midas_tsp_request_qos(NULL);
 	set_dvfs_lock(info, !!touch_is_pressed);
 #endif
 out:
@@ -1921,6 +1752,20 @@ static int get_fw_version(struct mms_ts_info *info)
 	do {
 		ret = i2c_smbus_read_byte_data(info->client, MMS_FW_VERSION);
 	} while (ret < 0 && retries-- > 0);
+#ifdef FW_465GS37
+	if ((ret == 0xBB) || (ret == 0xBD)) {
+		ret = 1;
+	} else {
+		unsigned char rd_buf[6];
+		retries = 3;
+		do {
+			ret = mms100_i2c_read(info->client, MMS_TSP_REVISION, 6,
+			rd_buf);
+		} while (ret < 0 && retries-- > 0);
+		if (ret >= 0)
+			ret = rd_buf[4];
+	}
+#endif
 
 	return ret;
 }
@@ -1931,9 +1776,19 @@ static int get_hw_version(struct mms_ts_info *info)
 	int retries = 3;
 
 	/* this seems to fail sometimes after a reset.. retry a few times */
+#ifdef FW_465GS37
+	unsigned char rd_buf[6];
+	do {
+		ret = mms100_i2c_read(info->client, MMS_TSP_REVISION, 6,
+		rd_buf);
+	} while (ret < 0 && retries-- > 0);
+	if (ret >= 0)
+		ret = rd_buf[1];
+#else
 	do {
 		ret = i2c_smbus_read_byte_data(info->client, MMS_HW_REVISION);
 	} while (ret < 0 && retries-- > 0);
+#endif
 
 	return ret;
 }
@@ -2010,6 +1865,7 @@ static int mms_ts_fw_info(struct mms_ts_info *info)
 			 "[TSP]fw version 0x%02x !!!!\n", ver);
 
 	hw_rev = get_hw_version(info);
+	info->fw_hw_ver = hw_rev;
 	dev_info(&client->dev,
 		"[TSP] hw rev = %x\n", hw_rev);
 
@@ -2032,6 +1888,40 @@ static int mms_ts_fw_info(struct mms_ts_info *info)
 	return ret;
 }
 
+#ifdef FW_465GS37
+static int mms_ts_fw_download(struct mms_ts_info *info)
+{
+	struct i2c_client *client = info->client;
+	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
+	int ret = 0;
+	const u8 *buff = 0;
+	long fsize = 0;
+
+	fsize = MELFAS_binary_nLength_465GS37;
+	buff = MELFAS_binary_465GS37;
+
+	disable_irq(info->irq);
+
+	i2c_lock_adapter(adapter);
+	info->pdata->mux_fw_flash(true);
+
+	ret = fw_download(info, (const u8 *)buff,
+			(const size_t)fsize);
+
+	info->pdata->mux_fw_flash(false);
+	i2c_unlock_adapter(adapter);
+
+	if (ret < 0) {
+		dev_err(&client->dev, "retrying flashing\n");
+		enable_irq(info->irq);
+		return 1;
+	}
+
+	enable_irq(info->irq);
+	return 0;
+}
+#endif
+
 static int mms_ts_fw_load(struct mms_ts_info *info)
 {
 
@@ -2047,6 +1937,7 @@ static int mms_ts_fw_load(struct mms_ts_info *info)
 		 "[TSP]fw version 0x%02x !!!!\n", ver);
 
 	hw_rev = get_hw_version(info);
+	info->fw_hw_ver = hw_rev;
 	dev_info(&client->dev,
 		"[TSP]hw rev = 0x%02x\n", hw_rev);
 
@@ -2071,7 +1962,11 @@ static int mms_ts_fw_load(struct mms_ts_info *info)
 	}
 
 	while (retries--) {
+#ifdef FW_465GS37
+		ret = mms_ts_fw_download(info);
+#else
 		ret = mms100_ISC_download_mbinary(info);
+#endif
 
 		ver = get_fw_version(info);
 		info->fw_ic_ver = ver;
@@ -2359,7 +2254,11 @@ static void fw_update(void *device_data)
 		dev_info(&client->dev, "built in 4.8 fw is loaded!!\n");
 
 		while (retries--) {
+#ifdef FW_465GS37
+			ret = mms_ts_fw_download(info);
+#else
 			ret = mms100_ISC_download_mbinary(info);
+#endif
 			ver = get_fw_version(info);
 			info->fw_ic_ver = ver;
 			if (ret == 0) {
@@ -2484,7 +2383,14 @@ static void get_fw_ver_bin(void *device_data)
 
 	set_default_result(info);
 
-	snprintf(buff, sizeof(buff), "%#02x", FW_VERSION_4_8);
+#if defined(CONFIG_MACH_M3_USA_TMO)
+	snprintf(buff, sizeof(buff), "ME0045%02x", FW_VERSION_4_8);
+#elif defined(FW_465GS37)
+	snprintf(buff, sizeof(buff), "ME%02X%04X",
+		FW_VERSION_HW, FW_VERSION_4_8);
+#else
+	snprintf(buff, sizeof(buff), "%02x", FW_VERSION_4_8);
+#endif
 
 	set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
 	info->cmd_state = 2;
@@ -2502,8 +2408,15 @@ static void get_fw_ver_ic(void *device_data)
 	set_default_result(info);
 
 	ver = info->fw_ic_ver;
-	snprintf(buff, sizeof(buff), "%#02x", ver);
 
+#if defined(CONFIG_MACH_M3_USA_TMO)
+	snprintf(buff, sizeof(buff), "ME0045%02x", ver);
+#elif defined(FW_465GS37)
+	snprintf(buff, sizeof(buff), "ME%02X%04X",
+		info->fw_hw_ver, ver);
+#else
+	snprintf(buff, sizeof(buff), "%02x", ver);
+#endif
 	set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
 	info->cmd_state = 2;
 	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
@@ -2518,7 +2431,11 @@ static void get_config_ver(void *device_data)
 
 	set_default_result(info);
 
+#if defined(FW_465GS37)
+	snprintf(buff, sizeof(buff), "E220S_Me_1101");
+#else
 	snprintf(buff, sizeof(buff), "%s", info->config_fw_version);
+#endif
 	set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
 	info->cmd_state = 2;
 	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
@@ -3062,267 +2979,6 @@ static ssize_t show_intensity_logging_off(struct device *dev,
 
 #endif
 
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-// Must be called with the gestures_lock spinlock held
-static void reset_gestures_detection_locked(bool including_detected)
-{
-	int gesture_no, finger_no;
-
-	for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-		if (gestures_detected[gesture_no] && !including_detected)
-			// Gesture already reported, skip
-			continue;
-
-		gestures_detected[gesture_no] = false;
-
-		if (gestures_step_count[gesture_no][0] < 1)
-			continue; // Gesture not configured
-
-		// Reset progress for all paths of this gesture
-		for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-			gesture_fingers[gesture_no][finger_no].finger_order = -1;
-			gesture_fingers[gesture_no][finger_no].current_step = -1;
-		}
-	}
-}
-
-static void reset_gestures_detection(bool including_detected)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&gestures_lock, flags);
-	reset_gestures_detection_locked(including_detected);
-	spin_unlock_irqrestore(&gestures_lock, flags);
-}
-
-static ssize_t gesture_patterns_show(struct device *dev,
-                                     struct device_attribute *attr, char *buf)
-{
-	char *s;
-	int gesture_no, finger_no, step;
-	struct gesture_point *point;
-
-	s = buf;
-	s += sprintf(s, "# Touch gestures\n#\n");
-	s += sprintf(s, "# Syntax\n");
-	s += sprintf(s, "#   <gesture_no>:<finger_no>:(x_min|x_max,y_min|y_max)\n");
-	s += sprintf(s, "#   ...\n");
-	s += sprintf(s, "#   gesture_no: 1 to %d\n", MAX_GESTURES);
-	s += sprintf(s, "#   finger_no : 1 to %d\n", MAX_GESTURE_FINGERS);
-	s += sprintf(s, "#   max steps per gesture and finger: %d\n\n", MAX_GESTURE_STEPS);
-
-	// No special need for thread safety, at worst there might be incoherent definitions output
-	for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-		if (gestures_step_count[gesture_no][0] < 1)
-			continue; // Gesture not configured
-		s += sprintf(s, "# Gesture %d:\n", gesture_no+1);
-		for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-			for (step = 0; step < gestures_step_count[gesture_no][finger_no]; step++) {
-				point = &gesture_points[gesture_no][finger_no][step];
-				s += sprintf(s, "%d:%d:(%d|%d,%d|%d)\n", gesture_no+1, finger_no+1,
-				             point->min_x, point->max_x,
-				             point->min_y, point->max_y);
-			}
-		}
-	}
-	return strlen(buf);
-}
-
-static ssize_t gesture_patterns_store(struct device *dev,
-				      struct device_attribute *attr,
-				      const char *buf, size_t size)
-{
-	gesture_points_t *tmp_gesture_points;
-	gestures_step_count_t *tmp_gestures_step_count;
-	unsigned long flags;
-	int res;
-	int gesture_no, finger_no, min_x, max_x, min_y, max_y;
-	struct gesture_point *point;
-	int step;
-
-	tmp_gesture_points = kmalloc(sizeof(*tmp_gesture_points), GFP_KERNEL);
-	if (!tmp_gesture_points)
-		return -ENOMEM;
-	tmp_gestures_step_count = kmalloc(sizeof(*tmp_gestures_step_count), GFP_KERNEL);
-	if (!tmp_gestures_step_count) {
-		kfree(tmp_gesture_points);
-		return -ENOMEM;
-	}
-	for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-		for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-			for (step = 0; step < MAX_GESTURE_STEPS; step++) {
-				point = &(*tmp_gesture_points)[gesture_no][finger_no][step];
-				point->min_x = 0;
-				point->max_x = 0;
-				point->min_y = 0;
-				point->max_y = 0;
-			}
-			(*tmp_gestures_step_count)[gesture_no][finger_no] = 0;
-		}
-	}
-
-	for (;;) {
-		// Skip all whitespace and comment lines
-		for (;;) {
-			while (*buf == ' ' || *buf == '\t' || *buf == '\r' || *buf == '\n')
-				buf++;
-
-			if (*buf == '\0') {
-				// EOF
-				goto finalize;
-			} else if (*buf == '#') {
-				// Comment line
-				buf = strstr(buf, "\n");
-				if (!buf)
-					goto finalize; // No more data
-			} else {
-				break;
-			}
-		}
-
-		res = sscanf(buf, "%d:%d:(%d|%d,%d|%d)", &gesture_no, &finger_no, &min_x, &max_x, &min_y, &max_y);
-		if (res != 6) {
-			printk("[TSP] Only %d gesture tokens read from buffer: %s\n", res, buf);
-			kfree(tmp_gestures_step_count);
-			kfree(tmp_gesture_points);
-			return -EINVAL; // Invalid line format
-		}
-
-		// Validate args boundary
-		if (gesture_no <= 0 || gesture_no > MAX_GESTURES) {
-			kfree(tmp_gestures_step_count);
-			kfree(tmp_gesture_points);
-			return -ENOMEM; // Too many gestures
-		}
-		gesture_no--;
-		if (finger_no <= 0 || finger_no > MAX_GESTURE_FINGERS) {
-			kfree(tmp_gestures_step_count);
-			kfree(tmp_gesture_points);
-			return -ENOMEM; // Too many fingers
-		}
-		finger_no--;
-		if ((*tmp_gestures_step_count)[gesture_no][finger_no] >= MAX_GESTURE_STEPS) {
-			kfree(tmp_gestures_step_count);
-			kfree(tmp_gesture_points);
-			return -ENOMEM; // Too many steps
-		}
-
-		step = (*tmp_gestures_step_count)[gesture_no][finger_no]++;
-		point = &(*tmp_gesture_points)[gesture_no][finger_no][step];
-		point->min_x = min_x;
-		point->max_x = max_x;
-		point->min_y = min_y;
-		point->max_y = max_y;
-		buf = strstr(buf, ")");
-		if (!buf)
-			goto finalize; // No more data
-		else
-			buf++;
-
-		// Continue to next input contents
-	}
-
-finalize:
-	spin_lock_irqsave(&gestures_lock, flags);
-	reset_gestures_detection_locked(true);
-	memcpy(&gesture_points, tmp_gesture_points, sizeof(*tmp_gesture_points));
-	memcpy(&gestures_step_count, tmp_gestures_step_count, sizeof(*tmp_gestures_step_count));
-	spin_unlock_irqrestore(&gestures_lock, flags);
-
-	kfree(tmp_gestures_step_count);
-	kfree(tmp_gesture_points);
-	return size;
-}
-
-static ssize_t wait_for_gesture_show(struct device *dev,
-                                     struct device_attribute *attr, char *buf)
-{
-	int ret;
-	int gesture_no, finger_no;
-	char *s;
-	int detected_gesture;
-	bool has_more_gestures;
-	unsigned long flags;
-
-	// Does not stop if there's a gesture already reported
-	ret = wait_event_interruptible(gestures_wq,
-                                       has_gestures);
-        if (ret)
-		return ret; // Interrupted
-
-	s = buf;
-	spin_lock_irqsave(&gestures_lock, flags);
-	for (gesture_no = 0; gesture_no < MAX_GESTURES; gesture_no++) {
-		if (gestures_detected[gesture_no]) {
-			detected_gesture = gesture_no;
-
-			has_more_gestures = false;
-			while (++gesture_no < MAX_GESTURES) {
-				if (gestures_detected[gesture_no]) {
-					has_more_gestures = true;
-					break;
-				}
-			}
-			// In most cases, additional waiting clients will not have run yet and will
-			// keep waiting if this goes back to false
-			has_gestures = has_more_gestures;
-
-			// Reset detection of this gesture
-			for (finger_no = 0; finger_no < MAX_GESTURE_FINGERS; finger_no++) {
-				gesture_fingers[detected_gesture][finger_no].finger_order = -1;
-				gesture_fingers[detected_gesture][finger_no].current_step = -1;
-			}
-			gestures_detected[detected_gesture] = false;
-
-			spin_unlock_irqrestore(&gestures_lock, flags);
-
-			s += sprintf(buf, "%d", detected_gesture + 1);
-			return s - buf;
-		}
-	}
-	spin_unlock_irqrestore(&gestures_lock, flags);
-
-	// Despite waking up, no gestures were detected
-	s += sprintf(buf, "0");
-	return s - buf;
-}
-
-static ssize_t wait_for_gesture_store(struct device *dev,
-                                      struct device_attribute *attr,
-                                      const char *buf, size_t size)
-{
-	if (!strncmp(buf, "reset", 5)) {
-		// Clear any pending gestures and reset detection
-		reset_gestures_detection(true);
-		return size;
-
-	} else {
-		return -EINVAL;
-	}
-}
-
-static DEVICE_ATTR(gesture_patterns, S_IRUGO | S_IWUSR,
-                   gesture_patterns_show, gesture_patterns_store);
-static DEVICE_ATTR(wait_for_gesture, S_IRUGO | S_IWUSR,
-                   wait_for_gesture_show, wait_for_gesture_store);
-
-static struct attribute *gestures_attrs[] = {
-	&dev_attr_gesture_patterns.attr,
-	&dev_attr_wait_for_gesture.attr,
-	NULL
-};
-
-static const struct attribute_group gestures_attr_group = {
-	.attrs = gestures_attrs,
-};
-
-static struct miscdevice gestures_device = {
-	.minor = MISC_DYNAMIC_MINOR,
-	.name  = "touch_gestures",
-};
-static bool gestures_device_registered = false;
-#endif
-
 static DEVICE_ATTR(close_tsp_test, S_IRUGO, show_close_tsp_test, NULL);
 static DEVICE_ATTR(cmd, S_IWUSR | S_IWGRP, NULL, store_cmd);
 static DEVICE_ATTR(cmd_status, S_IRUGO, show_cmd_status, NULL);
@@ -3406,11 +3062,6 @@ static int __devinit mms_ts_probe(struct i2c_client *client,
 	info->irq = -1;
 	mutex_init(&info->lock);
 
-
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-	spin_lock_init(&gestures_lock);
-#endif
-
 	if (info->pdata) {
 		info->max_x = info->pdata->max_x;
 		info->max_y = info->pdata->max_y;
@@ -3422,6 +3073,32 @@ static int __devinit mms_ts_probe(struct i2c_client *client,
 		info->max_x = 720;
 		info->max_y = 1280;
 	}
+
+#if defined(CONFIG_MACH_SUPERIOR_KOR_SKT)
+	i2c_set_clientdata(client, info);
+	info->pdata->power(true);
+	msleep(100);
+
+	ret = i2c_master_recv(client, buf, 1);
+	if (ret < 0) {		/* tsp connect check */
+		pr_err("%s: i2c fail...tsp driver unload [%d], Add[%d]\n",
+			   __func__, ret, info->client->addr);
+		goto err_config;
+	}
+
+	ret = mms_ts_fw_load(info);
+/*	ret = mms_ts_fw_info(info); */
+
+	if (ret) {
+		dev_err(&client->dev, "failed to initialize (%d)\n", ret);
+		goto err_config;
+	}
+
+	info->enabled = true;
+	info->callbacks.inform_charger = melfas_ta_cb;
+	if (info->register_cb)
+		info->register_cb(&info->callbacks);
+#endif
 
 	snprintf(info->phys, sizeof(info->phys),
 		 "%s/input0", dev_name(&client->dev));
@@ -3466,6 +3143,7 @@ static int __devinit mms_ts_probe(struct i2c_client *client,
 	info->dvfs_lock_status = false;
 #endif
 
+#if !defined(CONFIG_MACH_SUPERIOR_KOR_SKT)
 	i2c_set_clientdata(client, info);
 	info->pdata->power(true);
 	msleep(100);
@@ -3489,26 +3167,13 @@ static int __devinit mms_ts_probe(struct i2c_client *client,
 	info->callbacks.inform_charger = melfas_ta_cb;
 	if (info->register_cb)
 		info->register_cb(&info->callbacks);
+#endif
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
-	info->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	info->early_suspend.level = EARLY_SUSPEND_LEVEL_STOP_DRAWING;
 	info->early_suspend.suspend = mms_ts_early_suspend;
 	info->early_suspend.resume = mms_ts_late_resume;
 	register_early_suspend(&info->early_suspend);
-#endif
-
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-	ret = misc_register(&gestures_device);
-	if (ret) {
-		printk(KERN_ERR "[TSP] gestures misc_register failed.\n");
-	} else {
-		if (sysfs_create_group(&gestures_device.this_device->kobj, &gestures_attr_group)) {
-			printk(KERN_ERR "[TSP] sysfs_create_group() has failed\n");
-			misc_deregister(&gestures_device);
-		} else {
-			gestures_device_registered = true;
-		}
-	}
 #endif
 
 	sec_touchscreen = device_create(sec_class,
@@ -3539,10 +3204,17 @@ static int __devinit mms_ts_probe(struct i2c_client *client,
 #endif
 	return 0;
 
+#if defined(CONFIG_MACH_SUPERIOR_KOR_SKT)
+err_reg_input_dev:
+	input_unregister_device(input_dev);
+err_config:
+	input_free_device(input_dev);
+#else
 err_config:
 	input_unregister_device(input_dev);
 err_reg_input_dev:
 	input_free_device(input_dev);
+#endif
 err_input_alloc:
 	input_dev = NULL;
 	kfree(info);
@@ -3571,9 +3243,6 @@ static int mms_ts_suspend(struct device *dev)
 	struct i2c_client *client = to_i2c_client(dev);
 	struct mms_ts_info *info = i2c_get_clientdata(client);
 
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-	reset_gestures_detection(false);
-#endif
 	if (!info->enabled)
 		return 0;
 
@@ -3628,9 +3297,6 @@ static int mms_ts_resume(struct device *dev)
 static void mms_ts_early_suspend(struct early_suspend *h)
 {
 	struct mms_ts_info *info;
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-	reset_gestures_detection(false);
-#endif
 	info = container_of(h, struct mms_ts_info, early_suspend);
 	mms_ts_suspend(&info->client->dev);
 
@@ -3684,13 +3350,6 @@ static int __init mms_ts_init(void)
 
 static void __exit mms_ts_exit(void)
 {
-#ifdef CONFIG_TOUCHSCREEN_GESTURES
-	if (gestures_device_registered) {
-		sysfs_remove_group(&gestures_device.this_device->kobj, &gestures_attr_group);
-		misc_deregister(&gestures_device);
-		gestures_device_registered = false;
-	}
-#endif
 	i2c_del_driver(&mms_ts_driver);
 }
 

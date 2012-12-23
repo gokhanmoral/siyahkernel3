@@ -63,7 +63,6 @@ extern void max77693_muic_usb_cb(u8 usb_mode);
 
 #ifdef	CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE
 extern	void mhl_hpd_handler(bool onoff);
-extern bool (*is_mhl_power_state_on)(void);
 #endif
 
 #ifdef	CONFIG_SAMSUNG_USE_11PIN_CONNECTOR

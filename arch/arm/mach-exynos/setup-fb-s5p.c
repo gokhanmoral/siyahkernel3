@@ -749,24 +749,29 @@ unsigned int get_clk_rate(struct platform_device *pdev, struct clk *sclk)
 
 	div = DIV_ROUND_CLOSEST(src_clk, vclk);
 
-	vclk_limit = (40 *
-		(timing->h_bp + timing->h_fp + timing->h_sw + lcd->width) *
-		(timing->v_bp + timing->v_fp + timing->v_sw + lcd->height));
+	if (lcd->freq_limit) {
+		vclk_limit = (lcd->freq_limit *
+			(timing->h_bp + timing->h_fp + timing->h_sw + lcd->width) *
+			(timing->v_bp + timing->v_fp + timing->v_sw + lcd->height));
 
-	div_limit = DIV_ROUND_CLOSEST(src_clk, vclk_limit);
+		div_limit = DIV_ROUND_CLOSEST(src_clk, vclk_limit);
 
-	fimd_div = gcd(div, div_limit);
+		fimd_div = gcd(div, div_limit);
 
-#if defined(CONFIG_MACH_MIDAS) && defined(CONFIG_FB_S5P_S6E8AA0) && !defined(CONFIG_S6E8AA0_AMS529HA01)
-	div /= fimd_div;
-#endif
+		div /= fimd_div;
+	}
 
 	if (!div) {
 		dev_err(&pdev->dev, "div(%d) should be non-zero\n", div);
 		div = 1;
 	} else if (div > 16) {
 		dev_err(&pdev->dev, "div(%d) max should be 16\n", div);
-		div = 16;
+		for (fimd_div = 2; fimd_div < div; div++) {
+			if (div%fimd_div == 0)
+				break;
+		}
+		div /= fimd_div;
+		div = (div > 16) ? 16 : div;
 	}
 
 	rate = src_clk / div;

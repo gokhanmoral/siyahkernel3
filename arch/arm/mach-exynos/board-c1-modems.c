@@ -50,6 +50,10 @@
 #define C1ATT_REV_0_7	9	/* rev0.7 == system_rev:9 */
 
 static int __init init_modem(void);
+static void setup_dpram_access_timing(enum dpram_speed speed);
+static int host_port_enable(int port, int enable);
+static int exynos_frequency_lock(struct device *dev);
+static int exynos_frequency_unlock(struct device *dev);
 
 static struct modem_io_t umts_io_devices[] = {
 	[0] = {
@@ -58,6 +62,7 @@ static struct modem_io_t umts_io_devices[] = {
 		.format = IPC_BOOT,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
+		.app = "CBD"
 	},
 	[1] = {
 		.name = "umts_ipc0",
@@ -65,6 +70,7 @@ static struct modem_io_t umts_io_devices[] = {
 		.format = IPC_FMT,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
+		.app = "RIL"
 	},
 	[2] = {
 		.name = "umts_rfs0",
@@ -72,6 +78,7 @@ static struct modem_io_t umts_io_devices[] = {
 		.format = IPC_RAW,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
+		.app = "RFS"
 	},
 	[3] = {
 		.name = "multipdp",
@@ -126,6 +133,7 @@ static struct modem_io_t umts_io_devices[] = {
 		.format = IPC_RAW,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
+		.app = "Data Router"
 	},
 	[10] = {
 		.name = "umts_dm0",	/* DM Port */
@@ -133,6 +141,7 @@ static struct modem_io_t umts_io_devices[] = {
 		.format = IPC_RAW,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
+		.app = "DIAG"
 	},
 	[11] = {
 		.name = "umts_loopback_cp2ap",
@@ -141,6 +150,7 @@ static struct modem_io_t umts_io_devices[] = {
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM) | LINKTYPE(LINKDEV_USB),
 		.tx_link = LINKDEV_DPRAM,
+		.app = "CP Loopback"
 	},
 	[12] = {
 		.name = "umts_loopback_ap2cp",
@@ -148,6 +158,7 @@ static struct modem_io_t umts_io_devices[] = {
 		.format = IPC_RAW,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
+		.app = "AP loopback"
 	},
 	[13] = {
 		.name = "umts_ramdump0",
@@ -184,76 +195,46 @@ static struct sromc_bus_cfg c1_sromc_bus_cfg = {
 };
 
 /* For CMC221 IDPRAM (Internal DPRAM) */
+#define CMC_IDPRAM_BASE		SROM_CS0_BASE
 #define CMC_IDPRAM_SIZE		DPRAM_SIZE_16KB
 
-/* For CMC221 SFR for IDPRAM */
-#define CMC_INT2CP_REG		0x10	/* Interrupt to CP            */
-#define CMC_INT2AP_REG		0x50
-#define CMC_CLR_INT_REG		0x28	/* Clear Interrupt to AP      */
-#define CMC_RESET_REG		0x3C
-#define CMC_PUT_REG		0x40	/* AP->CP reg for hostbooting */
-#define CMC_GET_REG		0x50	/* CP->AP reg for hostbooting */
-
-struct cmc22x_idpram_sfr {
-	u16 __iomem *int2cp;
-	u16 __iomem *int2ap;
-	u16 __iomem *clr_int2ap;
-	u16 __iomem *reset;
-	u16 __iomem *msg2cp;
-	u16 __iomem *msg2ap;
-};
+#define CMC_IDPRAM_SFR_BASE	(CMC_IDPRAM_BASE + CMC_IDPRAM_SIZE)
+#define CMC_IDPRAM_SFR_SIZE	DPRAM_SIZE_16KB
 
 /*
-** Function prototypes for CMC221
-*/
-static void cmc_idpram_reset(void);
-static void cmc_idpram_clr_intr(void);
-static u16 cmc_idpram_recv_intr(void);
-static void cmc_idpram_send_intr(u16 irq_mask);
-static u16 cmc_idpram_recv_msg(void);
-static void cmc_idpram_send_msg(u16 msg);
-
-static int cmc_idpram_wakeup(void);
-static void cmc_idpram_sleep(void);
-
-static void cmc_idpram_setup_speed(enum dpram_speed speed);
-
-/*
-** Static variables
+** Static variables for CMC221
 */
 static struct sromc_bank_cfg cmc_idpram_bank_cfg = {
 	.csn = 0,
 	.attr = SROMC_DATA_16,
-	.size = CMC_IDPRAM_SIZE,
-	.addr = SROM_CS0_BASE,
 };
 
 static struct sromc_timing_cfg cmc_idpram_timing_cfg[] = {
 	[DPRAM_SPEED_LOW] = {
-		/* CP 33 MHz clk, 315 ns (63 cycles) with 200 MHz INT clk */
+		/* CP 33 MHz clk, 360 ns (72 cycles) with 200 MHz INT clk */
 		.tacs = 0x0F << 28,
 		.tcos = 0x0F << 24,
+		.tacc = 0x1F << 16,
+		.tcoh = 0x0A << 12,
+		.tcah = 0x00 << 8,
+		.tacp = 0x00 << 4,
+		.pmc  = 0x00 << 0,
+	},
+	[DPRAM_SPEED_MID] = {
+		/* CP 66 MHz clk, 180 ns (36 cycles) with 200 MHz INT clk */
+		.tacs = 0x01 << 28,
+		.tcos = 0x02 << 24,
 		.tacc = 0x1F << 16,
 		.tcoh = 0x01 << 12,
 		.tcah = 0x00 << 8,
 		.tacp = 0x00 << 4,
 		.pmc  = 0x00 << 0,
 	},
-	[DPRAM_SPEED_MID] = {
-		/* CP 66 MHz clk, 160 ns (32 cycles) with 200 MHz INT clk */
-		.tacs = 0x01 << 28,
-		.tcos = 0x01 << 24,
-		.tacc = 0x1C << 16,
-		.tcoh = 0x01 << 12,
-		.tcah = 0x00 << 8,
-		.tacp = 0x00 << 4,
-		.pmc  = 0x00 << 0,
-	},
 	[DPRAM_SPEED_HIGH] = {
-		/* CP 133 MHz clk, 80 ns (16 cycles) with 200 MHz INT clk */
+		/* CP 133 MHz clk, 90 ns (18 cycles) with 200 MHz INT clk */
 		.tacs = 0x01 << 28,
 		.tcos = 0x01 << 24,
-		.tacc = 0x0C << 16,
+		.tacc = 0x0E << 16,
 		.tcoh = 0x01 << 12,
 		.tcah = 0x00 << 8,
 		.tacp = 0x00 << 4,
@@ -262,43 +243,35 @@ static struct sromc_timing_cfg cmc_idpram_timing_cfg[] = {
 };
 
 static struct modemlink_dpram_control cmc_idpram_ctrl = {
-	.reset = cmc_idpram_reset,
-	.clear_intr = cmc_idpram_clr_intr,
-	.recv_intr = cmc_idpram_recv_intr,
-	.send_intr = cmc_idpram_send_intr,
-	.recv_msg = cmc_idpram_recv_msg,
-	.send_msg = cmc_idpram_send_msg,
-
-	.wakeup = cmc_idpram_wakeup,
-	.sleep = cmc_idpram_sleep,
-
-	.setup_speed = cmc_idpram_setup_speed,
-
 	.dp_type = CP_IDPRAM,
-
 	.dpram_irq_flags = (IRQF_NO_SUSPEND | IRQF_TRIGGER_RISING),
+	.setup_speed = setup_dpram_access_timing,
 };
-
-static struct cmc22x_idpram_sfr cmc_idpram_sfr;
 
 static struct resource umts_modem_res[] = {
 	[RES_CP_ACTIVE_IRQ_ID] = {
-		.name = "cp_active_irq",
+		.name = STR_CP_ACTIVE_IRQ,
 		.start = LTE_ACTIVE_IRQ,
 		.end = LTE_ACTIVE_IRQ,
 		.flags = IORESOURCE_IRQ,
 	},
 	[RES_DPRAM_MEM_ID] = {
-		.name = "dpram_base",
-		.start = SROM_CS0_BASE,
-		.end = SROM_CS0_BASE + (CMC_IDPRAM_SIZE - 1),
+		.name = STR_DPRAM_BASE,
+		.start = CMC_IDPRAM_BASE,
+		.end = CMC_IDPRAM_BASE + (CMC_IDPRAM_SIZE - 1),
 		.flags = IORESOURCE_MEM,
 	},
 	[RES_DPRAM_IRQ_ID] = {
-		.name = "dpram_irq",
+		.name = STR_DPRAM_IRQ,
 		.start = CMC_IDPRAM_INT_IRQ_00,
 		.end = CMC_IDPRAM_INT_IRQ_00,
 		.flags = IORESOURCE_IRQ,
+	},
+	[RES_DPRAM_SFR_ID] = {
+		.name = STR_DPRAM_SFR_BASE,
+		.start = CMC_IDPRAM_SFR_BASE,
+		.end = CMC_IDPRAM_SFR_BASE + (CMC_IDPRAM_SIZE - 1),
+		.flags = IORESOURCE_MEM,
 	},
 };
 
@@ -308,7 +281,9 @@ static struct modem_data umts_modem_data = {
 	.gpio_cp_on = CP_CMC221_PMIC_PWRON,
 	.gpio_cp_reset = CP_CMC221_CPU_RST,
 	.gpio_phone_active = GPIO_LTE_ACTIVE,
-#if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT)
+#if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT) || \
+defined(CONFIG_MACH_BAFFIN_KOR_SKT) || defined(CONFIG_MACH_BAFFIN_KOR_KT) || \
+defined(CONFIG_MACH_SUPERIOR_KOR_SKT)
 	.gpio_pda_active   = GPIO_PDA_ACTIVE,
 #endif
 
@@ -349,96 +324,6 @@ static struct platform_device umts_modem = {
 /*
 ** Function definitions
 */
-static void cmc_idpram_reset(void)
-{
-	iowrite16(1, cmc_idpram_sfr.reset);
-}
-
-static void cmc_idpram_clr_intr(void)
-{
-	iowrite16(0xFFFF, cmc_idpram_sfr.clr_int2ap);
-	iowrite16(0, cmc_idpram_sfr.int2ap);
-}
-
-static u16 cmc_idpram_recv_intr(void)
-{
-	return ioread16(cmc_idpram_sfr.int2ap);
-}
-
-static void cmc_idpram_send_intr(u16 irq_mask)
-{
-	iowrite16(irq_mask, cmc_idpram_sfr.int2cp);
-}
-
-static u16 cmc_idpram_recv_msg(void)
-{
-	return ioread16(cmc_idpram_sfr.msg2ap);
-}
-
-static void cmc_idpram_send_msg(u16 msg)
-{
-	iowrite16(msg, cmc_idpram_sfr.msg2cp);
-}
-
-static int cmc_idpram_wakeup(void)
-{
-	int cnt = 0;
-
-	gpio_set_value(umts_modem_data.gpio_dpram_wakeup, 1);
-
-	while (!gpio_get_value(umts_modem_data.gpio_dpram_status)) {
-		if (cnt++ > 10) {
-			if (in_irq())
-				mif_err("ERR! gpio_dpram_status == 0 in IRQ\n");
-			else
-				mif_err("ERR! gpio_dpram_status == 0\n");
-			return -EACCES;
-		}
-
-		mif_info("gpio_dpram_status == 0 (cnt %d)\n", cnt);
-		if (in_interrupt())
-			udelay(1000);
-		else
-			usleep_range(1000, 2000);
-	}
-
-	return 0;
-}
-
-static void cmc_idpram_sleep(void)
-{
-	gpio_set_value(umts_modem_data.gpio_dpram_wakeup, 0);
-}
-
-static void cmc_idpram_setup_speed(enum dpram_speed speed)
-{
-	sromc_config_access_timing(cmc_idpram_bank_cfg.csn,
-				&cmc_idpram_timing_cfg[speed]);
-}
-
-static u8 *cmc_idpram_remap_sfr_region(struct sromc_bank_cfg *cfg)
-{
-	int dp_addr = cfg->addr + cfg->size;
-	int dp_size = cfg->size;
-	u8 __iomem *sfr_base;
-
-	/* Remap DPRAM SFR region */
-	sfr_base = (u8 __iomem *)ioremap_nocache(dp_addr, dp_size);
-	if (!sfr_base) {
-		mif_err("ERR: ioremap_nocache fail\n");
-		return NULL;
-	}
-
-	cmc_idpram_sfr.int2cp = (u16 __iomem *)(sfr_base + CMC_INT2CP_REG);
-	cmc_idpram_sfr.int2ap = (u16 __iomem *)(sfr_base + CMC_INT2AP_REG);
-	cmc_idpram_sfr.clr_int2ap = (u16 __iomem *)(sfr_base + CMC_CLR_INT_REG);
-	cmc_idpram_sfr.reset = (u16 __iomem *)(sfr_base + CMC_RESET_REG);
-	cmc_idpram_sfr.msg2cp = (u16 __iomem *)(sfr_base + CMC_PUT_REG);
-	cmc_idpram_sfr.msg2ap = (u16 __iomem *)(sfr_base + CMC_GET_REG);
-
-	return sfr_base;
-}
-
 static void config_umts_modem_gpio(void)
 {
 	int err;
@@ -582,9 +467,11 @@ static void config_umts_modem_gpio(void)
 	mif_info("done\n");
 }
 
-static int host_port_enable(int port, int enable);
-static int exynos_frequency_lock(struct device *dev);
-static int exynos_frequency_unlock(struct device *dev);
+static void setup_dpram_access_timing(enum dpram_speed speed)
+{
+	sromc_config_access_timing(cmc_idpram_bank_cfg.csn,
+				&cmc_idpram_timing_cfg[speed]);
+}
 
 static struct modemlink_pm_data umts_link_pm_data = {
 	.name = "umts_link_pm",
@@ -808,13 +695,13 @@ static int usb3503_reset_n(int val)
 
 	/* hub off from cpuidle(LPA), skip the msleep schedule*/
 	if (val) {
-		msleep(20);
+		usleep_range(3000, 3100);
 		mif_info("val = %d\n", gpio_get_value(GPIO_USB_HUB_RST));
 
 		gpio_set_value(GPIO_USB_HUB_RST, !!val);
 
 		mif_info("val = %d\n", gpio_get_value(GPIO_USB_HUB_RST));
-		udelay(5); /* need it ?*/
+		usleep_range(7000, 7100);
 	}
 	return 0;
 }
@@ -898,7 +785,9 @@ static int __init init_usbhub(void)
 	platform_device_register(&s3c_device_i2c20);
 	return 0;
 }
+#if !defined(CONFIG_MACH_BAFFIN)
 device_initcall(init_usbhub);
+#endif
 
 static int __init init_modem(void)
 {
@@ -919,6 +808,11 @@ static int __init init_modem(void)
 #ifdef CONFIG_MACH_BAFFIN
 		umts_link_pm_data.has_usbhub = false;
 #endif
+#if defined(CONFIG_MACH_C1_KOR_SKT) || defined(CONFIG_MACH_C1_KOR_KT)
+	if (system_rev >= 15)
+		umts_link_pm_data.has_usbhub = false;
+#endif
+
 	/*
 	** Complete modem_data configuration including link_pm_data
 	*/
@@ -947,12 +841,6 @@ static int __init init_modem(void)
 
 	tm_cfg = &cmc_idpram_timing_cfg[DPRAM_SPEED_LOW];
 	sromc_config_access_timing(bnk_cfg->csn, tm_cfg);
-
-	/*
-	** Remap SFR region for CMC22x IDPRAM
-	*/
-	if (!cmc_idpram_remap_sfr_region(&cmc_idpram_bank_cfg))
-		return -1;
 
 	/*
 	** Register the modem device

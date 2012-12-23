@@ -94,7 +94,11 @@ static int s5p_ehci_configurate(struct usb_hcd *hcd)
 
 	/* DMA burst Enable, set utmi suspend_on_n */
 #ifdef CONFIG_USB_OHCI_S5P
+#ifdef CONFIG_CDMA_MODEM_MDM6600
+	writel(readl(INSNREG00(hcd->regs)) | ENA_DMA_INCR | OHCI_SUSP_LGCY,
+#else
 	writel(readl(INSNREG00(hcd->regs)) | ENA_DMA_INCR,
+#endif
 #else
 	writel(readl(INSNREG00(hcd->regs)) | ENA_DMA_INCR,
 #endif
@@ -457,6 +461,10 @@ static ssize_t store_ehci_power(struct device *dev,
 
 	if (!power_on && s5p_ehci->power_on) {
 		printk(KERN_DEBUG "%s: EHCI turns off\n", __func__);
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
+		if (hcd->self.root_hub)
+			pm_runtime_forbid(&hcd->self.root_hub->dev);
+#endif
 		pm_runtime_forbid(dev);
 		s5p_ehci->power_on = 0;
 		usb_remove_hcd(hcd);

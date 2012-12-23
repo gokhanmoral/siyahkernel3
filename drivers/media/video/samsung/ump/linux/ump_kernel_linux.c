@@ -92,7 +92,7 @@ static int ump_file_ioctl(struct inode *inode, struct file *filp, unsigned int c
 #endif
 static int ump_file_mmap(struct file * filp, struct vm_area_struct * vma);
 
-#if defined(CONFIG_VIDEO_MALI400MP) || defined(CONFIG_VIDEO_MALI400MP_R3P0) || defined(CONFIG_VIDEO_MALI400MP_R2P3)
+#ifdef CONFIG_VIDEO_MALI400MP_UMP
 extern int map_errcode( _mali_osk_errcode_t err );
 #endif
 
@@ -173,7 +173,6 @@ int ump_kernel_device_initialize(void)
 {
 	int err;
 	dev_t dev = 0;
-#if UMP_LICENSE_IS_GPL
 	ump_debugfs_dir = debugfs_create_dir(ump_dev_name, NULL);
 	if (ERR_PTR(-ENODEV) == ump_debugfs_dir)
 	{
@@ -181,9 +180,8 @@ int ump_kernel_device_initialize(void)
 	}
 	else
 	{
-		debugfs_create_file("memory_usage", 0400, ump_debugfs_dir, NULL, &ump_memory_usage_fops);
+		debugfs_create_file("memory_usage", 0444, ump_debugfs_dir, NULL, &ump_memory_usage_fops);
 	}
-#endif
 
 	if (0 == ump_major)
 	{
@@ -404,9 +402,8 @@ static int ump_file_ioctl(struct inode *inode, struct file *filp, unsigned int c
 
 	return err;
 }
-#ifndef CONFIG_VIDEO_MALI400MP_R2P3
-#ifndef CONFIG_VIDEO_MALI400MP
-#ifndef CONFIG_VIDEO_MALI400MP_R3P0
+
+#ifndef CONFIG_VIDEO_MALI400MP_UMP
 int map_errcode( _mali_osk_errcode_t err )
 {
     switch(err)
@@ -423,8 +420,7 @@ int map_errcode( _mali_osk_errcode_t err )
     }
 }
 #endif
-#endif
-#endif
+
 /*
  * Handle from OS to map specified virtual memory to specified UMP memory.
  */

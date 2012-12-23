@@ -63,15 +63,15 @@ static void cbp72_init_boot_map(struct dpram_link_device *dpld)
 {
 	struct dpram_boot_map *bt_map = &dpld->bt_map;
 
-	bt_map->magic = (u32 *)dpld->dp_base;
-	bt_map->buff = (u8 *)(dpld->dp_base + DP_BOOT_BUFF_OFFSET);
-	bt_map->size = dpld->dp_size - 4;
+	bt_map->magic = (u32 *)dpld->base;
+	bt_map->buff = (u8 *)(dpld->base + DP_BOOT_BUFF_OFFSET);
+	bt_map->size = dpld->size - 4;
 }
 
 static void cbp72_init_dl_map(struct dpram_link_device *dpld)
 {
-	dpld->dl_map.magic = (u32 *)dpld->dp_base;
-	dpld->dl_map.buff = (u8 *)(dpld->dp_base + DP_DLOAD_BUFF_OFFSET);
+	dpld->dl_map.magic = (u32 *)dpld->base;
+	dpld->dl_map.buff = (u8 *)(dpld->base + DP_DLOAD_BUFF_OFFSET);
 }
 
 static int _cbp72_edpram_wait_resp(struct dpram_link_device *dpld, u32 resp)
@@ -136,7 +136,7 @@ exit:
 static int cbp72_download_binary(struct dpram_link_device *dpld,
 			struct sk_buff *skb)
 {
-	if (dpld->dp_type == EXT_DPRAM)
+	if (dpld->type == EXT_DPRAM)
 		return _cbp72_edpram_download_bin(dpld, skb);
 	else
 		return -ENODEV;
@@ -150,7 +150,7 @@ static int cbp72_dump_start(struct dpram_link_device *dpld)
 
 	ld->mode = LINK_MODE_ULOAD;
 
-	ret = del_timer(&dpld->dump_timer);
+	ret = del_timer(&dpld->crash_timer);
 	wake_lock(&dpld->wlock);
 
 	iowrite32(DP_MAGIC_UMDL, dpld->ul_map.magic);
@@ -161,7 +161,7 @@ static int cbp72_dump_start(struct dpram_link_device *dpld)
 	iowrite8((u8)0x0, dest + 3);
 	iowrite8((u8)END_FLAG, dest + 4);
 
-	init_completion(&dpld->dump_start_complete);
+	init_completion(&dpld->crash_start_complete);
 
 	return 0;
 }
@@ -294,26 +294,115 @@ static int cbp72_ioctl(struct dpram_link_device *dpld, struct io_device *iod,
 #endif
 
 #if defined(CONFIG_LTE_MODEM_CMC221)
+/* For CMC221 SFR for IDPRAM */
+#define CMC_INT2CP_REG		0x10	/* Interrupt to CP            */
+#define CMC_INT2AP_REG		0x50
+#define CMC_CLR_INT_REG		0x28	/* Clear Interrupt to AP      */
+#define CMC_RESET_REG		0x3C
+#define CMC_PUT_REG		0x40	/* AP->CP reg for hostbooting */
+#define CMC_GET_REG		0x50	/* CP->AP reg for hostbooting */
+
 static void cmc221_init_boot_map(struct dpram_link_device *dpld)
 {
 	struct dpram_boot_map *bt_map = &dpld->bt_map;
 
-	bt_map->buff = dpld->dp_base;
-	bt_map->size = dpld->dp_size;
-	bt_map->req = (u32 *)(dpld->dp_base + DP_BOOT_REQ_OFFSET);
-	bt_map->resp = (u32 *)(dpld->dp_base + DP_BOOT_RESP_OFFSET);
+	bt_map->buff = dpld->base;
+	bt_map->size = dpld->size;
+	bt_map->req = (u32 *)(dpld->base + DP_BOOT_REQ_OFFSET);
+	bt_map->resp = (u32 *)(dpld->base + DP_BOOT_RESP_OFFSET);
 }
 
 static void cmc221_init_dl_map(struct dpram_link_device *dpld)
 {
-	dpld->dl_map.magic = (u32 *)dpld->dp_base;
-	dpld->dl_map.buff = (u8 *)dpld->dp_base;
+	dpld->dl_map.magic = (u32 *)dpld->base;
+	dpld->dl_map.buff = (u8 *)dpld->base;
 }
 
 static void cmc221_init_ul_map(struct dpram_link_device *dpld)
 {
-	dpld->ul_map.magic = (u32 *)dpld->dp_base;
-	dpld->ul_map.buff = (u8 *)dpld->dp_base;
+	dpld->ul_map.magic = (u32 *)dpld->base;
+	dpld->ul_map.buff = (u8 *)dpld->base;
+}
+
+static void cmc221_init_ipc_map(struct dpram_link_device *dpld)
+{
+	struct dpram_ipc_16k_map *dpram_map;
+	struct dpram_ipc_device *dev;
+	u8 __iomem *sfr_base = dpld->sfr_base;
+
+	dpram_map = (struct dpram_ipc_16k_map *)dpld->base;
+
+	/* Magic code and access enable fields */
+	dpld->ipc_map.magic = (u16 __iomem *)&dpram_map->magic;
+	dpld->ipc_map.access = (u16 __iomem *)&dpram_map->access;
+
+	/* FMT */
+	dev = &dpld->ipc_map.dev[IPC_FMT];
+
+	strcpy(dev->name, "FMT");
+	dev->id = IPC_FMT;
+
+	dev->txq.head = (u16 __iomem *)&dpram_map->fmt_tx_head;
+	dev->txq.tail = (u16 __iomem *)&dpram_map->fmt_tx_tail;
+	dev->txq.buff = (u8 __iomem *)&dpram_map->fmt_tx_buff[0];
+	dev->txq.size = DP_16K_FMT_TX_BUFF_SZ;
+
+	dev->rxq.head = (u16 __iomem *)&dpram_map->fmt_rx_head;
+	dev->rxq.tail = (u16 __iomem *)&dpram_map->fmt_rx_tail;
+	dev->rxq.buff = (u8 __iomem *)&dpram_map->fmt_rx_buff[0];
+	dev->rxq.size = DP_16K_FMT_RX_BUFF_SZ;
+
+	dev->mask_req_ack = INT_MASK_REQ_ACK_F;
+	dev->mask_res_ack = INT_MASK_RES_ACK_F;
+	dev->mask_send    = INT_MASK_SEND_F;
+
+	/* RAW */
+	dev = &dpld->ipc_map.dev[IPC_RAW];
+
+	strcpy(dev->name, "RAW");
+	dev->id = IPC_RAW;
+
+	dev->txq.head = (u16 __iomem *)&dpram_map->raw_tx_head;
+	dev->txq.tail = (u16 __iomem *)&dpram_map->raw_tx_tail;
+	dev->txq.buff = (u8 __iomem *)&dpram_map->raw_tx_buff[0];
+	dev->txq.size = DP_16K_RAW_TX_BUFF_SZ;
+
+	dev->rxq.head = (u16 __iomem *)&dpram_map->raw_rx_head;
+	dev->rxq.tail = (u16 __iomem *)&dpram_map->raw_rx_tail;
+	dev->rxq.buff = (u8 __iomem *)&dpram_map->raw_rx_buff[0];
+	dev->rxq.size = DP_16K_RAW_RX_BUFF_SZ;
+
+	dev->mask_req_ack = INT_MASK_REQ_ACK_R;
+	dev->mask_res_ack = INT_MASK_RES_ACK_R;
+	dev->mask_send    = INT_MASK_SEND_R;
+
+	/* SFR */
+	dpld->sfr.int2cp = (u16 __iomem *)(sfr_base + CMC_INT2CP_REG);
+	dpld->sfr.int2ap = (u16 __iomem *)(sfr_base + CMC_INT2AP_REG);
+	dpld->sfr.clr_int2ap = (u16 __iomem *)(sfr_base + CMC_CLR_INT_REG);
+	dpld->sfr.reset = (u16 __iomem *)(sfr_base + CMC_RESET_REG);
+	dpld->sfr.msg2cp = (u16 __iomem *)(sfr_base + CMC_PUT_REG);
+	dpld->sfr.msg2ap = (u16 __iomem *)(sfr_base + CMC_GET_REG);
+
+	/* Interrupt ports */
+	dpld->ipc_map.mbx_cp2ap = dpld->sfr.int2ap;
+	dpld->ipc_map.mbx_ap2cp = dpld->sfr.int2cp;
+}
+
+static inline void cmc221_idpram_reset(struct dpram_link_device *dpld)
+{
+	iowrite16(1, dpld->sfr.reset);
+}
+
+static inline u16 cmc221_idpram_recv_msg(struct dpram_link_device *dpld)
+{
+	return ioread16(dpld->sfr.msg2ap);
+}
+
+static inline void cmc221_idpram_send_msg(struct dpram_link_device *dpld,
+					u16 msg)
+{
+	iowrite16(msg, dpld->sfr.msg2cp);
 }
 
 static int _cmc221_idpram_wait_resp(struct dpram_link_device *dpld, u32 resp)
@@ -328,7 +417,7 @@ static int _cmc221_idpram_wait_resp(struct dpram_link_device *dpld, u32 resp)
 			if (rcvd == resp)
 				break;
 
-			rcvd = dpld->dpctl->recv_msg();
+			rcvd = cmc221_idpram_recv_msg(dpld);
 			if (rcvd == 0x9999) {
 				mif_info("%s: Invalid resp 0x%04X\n",
 					ld->name, rcvd);
@@ -345,7 +434,7 @@ static int _cmc221_idpram_wait_resp(struct dpram_link_device *dpld, u32 resp)
 		}
 	} else {
 		while (1) {
-			rcvd = dpld->dpctl->recv_msg();
+			rcvd = cmc221_idpram_recv_msg(dpld);
 
 			if (rcvd == resp)
 				break;
@@ -414,7 +503,7 @@ static int _cmc221_idpram_send_boot(struct dpram_link_device *dpld, void *arg)
 		goto err;
 	}
 
-	dpld->dpctl->reset();
+	cmc221_idpram_reset(dpld);
 	usleep_range(1000, 2000);
 
 	if (cp_img.mode == HOST_BOOT_MODE_NORMAL) {
@@ -456,7 +545,7 @@ err:
 
 static int cmc221_download_boot(struct dpram_link_device *dpld, void *arg)
 {
-	if (dpld->dp_type == CP_IDPRAM)
+	if (dpld->type == CP_IDPRAM)
 		return _cmc221_idpram_send_boot(dpld, arg);
 	else
 		return -ENODEV;
@@ -481,7 +570,7 @@ static int _cmc221_idpram_download_bin(struct dpram_link_device *dpld,
 		memcpy(buff, bf->data, bf->len);
 
 	if (bf->req)
-		dpld->dpctl->send_msg((u16)bf->req);
+		cmc221_idpram_send_msg(dpld, (u16)bf->req);
 
 	if (bf->resp) {
 		err = _cmc221_idpram_wait_resp(dpld, bf->resp);
@@ -507,7 +596,7 @@ exit:
 static int cmc221_download_binary(struct dpram_link_device *dpld,
 			struct sk_buff *skb)
 {
-	if (dpld->dp_type == CP_IDPRAM)
+	if (dpld->type == CP_IDPRAM)
 		return _cmc221_idpram_download_bin(dpld, skb);
 	else
 		return -ENODEV;
@@ -520,13 +609,13 @@ static int cmc221_dump_start(struct dpram_link_device *dpld)
 
 	ld->mode = LINK_MODE_ULOAD;
 
-	ret = del_timer(&dpld->dump_timer);
+	ret = del_timer(&dpld->crash_timer);
 	wake_lock(&dpld->wlock);
 
-	dpld->dump_rcvd = 0;
+	dpld->crash_rcvd = 0;
 	iowrite32(CMC22x_CP_DUMP_MAGIC, dpld->ul_map.magic);
 
-	init_completion(&dpld->dump_start_complete);
+	init_completion(&dpld->crash_start_complete);
 
 	return 0;
 }
@@ -536,23 +625,23 @@ static void _cmc221_idpram_wait_dump(unsigned long arg)
 	struct dpram_link_device *dpld = (struct dpram_link_device *)arg;
 	u16 msg;
 
-	msg = dpld->dpctl->recv_msg();
+	msg = cmc221_idpram_recv_msg(dpld);
 	if (msg == CMC22x_CP_DUMP_END) {
-		complete_all(&dpld->dump_recv_done);
+		complete_all(&dpld->crash_recv_done);
 		return;
 	}
 
-	if (((dpld->dump_rcvd & 0x1) == 0) && (msg == CMC22x_1ST_BUFF_FULL)) {
-		complete_all(&dpld->dump_recv_done);
+	if (((dpld->crash_rcvd & 0x1) == 0) && (msg == CMC22x_1ST_BUFF_FULL)) {
+		complete_all(&dpld->crash_recv_done);
 		return;
 	}
 
-	if (((dpld->dump_rcvd & 0x1) == 1) && (msg == CMC22x_2ND_BUFF_FULL)) {
-		complete_all(&dpld->dump_recv_done);
+	if (((dpld->crash_rcvd & 0x1) == 1) && (msg == CMC22x_2ND_BUFF_FULL)) {
+		complete_all(&dpld->crash_recv_done);
 		return;
 	}
 
-	mif_add_timer(&dpld->dump_timer, DUMP_WAIT_TIMEOUT,
+	mif_add_timer(&dpld->crash_timer, DUMP_WAIT_TIMEOUT,
 		_cmc221_idpram_wait_dump, (unsigned long)dpld);
 }
 
@@ -564,29 +653,29 @@ static int _cmc221_idpram_upload(struct dpram_link_device *dpld,
 	u8 __iomem *src;
 	int buff_size = CMC22x_DUMP_BUFF_SIZE;
 
-	if ((dpld->dump_rcvd & 0x1) == 0)
-		dpld->dpctl->send_msg(CMC22x_1ST_BUFF_READY);
+	if ((dpld->crash_rcvd & 0x1) == 0)
+		cmc221_idpram_send_msg(dpld, CMC22x_1ST_BUFF_READY);
 	else
-		dpld->dpctl->send_msg(CMC22x_2ND_BUFF_READY);
+		cmc221_idpram_send_msg(dpld, CMC22x_2ND_BUFF_READY);
 
-	init_completion(&dpld->dump_recv_done);
+	init_completion(&dpld->crash_recv_done);
 
-	mif_add_timer(&dpld->dump_timer, DUMP_WAIT_TIMEOUT,
+	mif_add_timer(&dpld->crash_timer, DUMP_WAIT_TIMEOUT,
 		_cmc221_idpram_wait_dump, (unsigned long)dpld);
 
 	ret = wait_for_completion_interruptible_timeout(
-			&dpld->dump_recv_done, DUMP_TIMEOUT);
+			&dpld->crash_recv_done, DUMP_TIMEOUT);
 	if (!ret) {
 		mif_info("%s: ERR! CP didn't send dump data!!!\n", ld->name);
 		goto err_out;
 	}
 
-	if (dpld->dpctl->recv_msg() == CMC22x_CP_DUMP_END) {
+	if (cmc221_idpram_recv_msg(dpld) == CMC22x_CP_DUMP_END) {
 		mif_info("%s: CMC22x_CP_DUMP_END\n", ld->name);
 		return 0;
 	}
 
-	if ((dpld->dump_rcvd & 0x1) == 0)
+	if ((dpld->crash_rcvd & 0x1) == 0)
 		src = dpld->ul_map.buff;
 	else
 		src = dpld->ul_map.buff + CMC22x_DUMP_BUFF_SIZE;
@@ -599,7 +688,7 @@ static int _cmc221_idpram_upload(struct dpram_link_device *dpld,
 		goto err_out;
 	}
 
-	dpld->dump_rcvd++;
+	dpld->crash_rcvd++;
 	return buff_size;
 
 err_out:
@@ -642,6 +731,44 @@ static int cmc221_ioctl(struct dpram_link_device *dpld, struct io_device *iod,
 
 	return err;
 }
+
+static void cmc221_idpram_clr_int2ap(struct dpram_link_device *dpld)
+{
+	iowrite16(0xFFFF, dpld->sfr.clr_int2ap);
+}
+
+static int cmc221_idpram_wakeup(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+	struct modem_data *mdm_data = ld->mdm_data;
+	int cnt = 0;
+
+	gpio_set_value(mdm_data->gpio_dpram_wakeup, 1);
+
+	while (!gpio_get_value(mdm_data->gpio_dpram_status)) {
+		if (cnt++ > 10) {
+			if (in_irq())
+				mif_err("ERR! gpio_dpram_status == 0 in IRQ\n");
+			else
+				mif_err("ERR! gpio_dpram_status == 0\n");
+			return -EACCES;
+		}
+
+		mif_info("gpio_dpram_status == 0 (cnt %d)\n", cnt);
+		if (in_interrupt())
+			udelay(1000);
+		else
+			usleep_range(1000, 2000);
+	}
+
+	return 0;
+}
+
+static void cmc221_idpram_sleep(struct dpram_link_device *dpld)
+{
+	struct link_device *ld = &dpld->ld;
+	gpio_set_value(ld->mdm_data->gpio_dpram_wakeup, 0);
+}
 #endif
 
 #if defined(CONFIG_CDMA_MODEM_MDM6600) || defined(CONFIG_GSM_MODEM_ESC6270)
@@ -656,13 +783,13 @@ static void qc_dload_task(unsigned long data);
 
 static void qc_init_boot_map(struct dpram_link_device *dpld)
 {
-	struct qc_dpram_boot_map *bt_map = &dpld->qc_bt_map;
+	struct qc_dpram_boot_map *qbt_map = &dpld->qc_bt_map;
 	struct modemlink_dpram_control *dpctl = dpld->dpctl;
 
-	bt_map->buff = dpld->dp_base;
-	bt_map->frame_size = (u16 *)(dpld->dp_base + dpctl->boot_size_offset);
-	bt_map->tag = (u16 *)(dpld->dp_base + dpctl->boot_tag_offset);
-	bt_map->count = (u16 *)(dpld->dp_base + dpctl->boot_count_offset);
+	qbt_map->buff = dpld->base;
+	qbt_map->frame_size = (u16 *)(dpld->base + dpctl->boot_size_offset);
+	qbt_map->tag = (u16 *)(dpld->base + dpctl->boot_tag_offset);
+	qbt_map->count = (u16 *)(dpld->base + dpctl->boot_count_offset);
 
 	tasklet_init(&dpld->dl_tsk, qc_dload_task, (unsigned long)dpld);
 }
@@ -678,10 +805,10 @@ static int qc_prepare_download(struct dpram_link_device *dpld)
 			break;
 		}
 
-		msleep_interruptible(10);
+		usleep_range(10000, 11000);
 
 		count++;
-		if (count > 200) {
+		if (count > 300) {
 			mif_err("ERR! count %d\n", count);
 			return -1;
 		}
@@ -693,13 +820,13 @@ static int qc_prepare_download(struct dpram_link_device *dpld)
 static void _qc_do_download(struct dpram_link_device *dpld,
 			struct dpram_udl_param *param)
 {
-	struct qc_dpram_boot_map *bt_map = &dpld->qc_bt_map;
+	struct qc_dpram_boot_map *qbt_map = &dpld->qc_bt_map;
 
 	if (param->size <= dpld->dpctl->max_boot_frame_size) {
-		memcpy(bt_map->buff, param->addr, param->size);
-		iowrite16(param->size, bt_map->frame_size);
-		iowrite16(param->tag, bt_map->tag);
-		iowrite16(param->count, bt_map->count);
+		memcpy(qbt_map->buff, param->addr, param->size);
+		iowrite16(param->size, qbt_map->frame_size);
+		iowrite16(param->tag, qbt_map->tag);
+		iowrite16(param->count, qbt_map->count);
 		dpld->send_intr(dpld, 0xDB12);
 	} else {
 		mif_info("param->size %d\n", param->size);
@@ -762,7 +889,7 @@ static int _qc_download(struct dpram_link_device *dpld, void *arg,
 			break;
 		}
 
-		msleep(10);
+		usleep_range(10000, 11000);
 
 		count++;
 		if (count > cnt_limit) {
@@ -848,7 +975,7 @@ static int qc_boot_start(struct dpram_link_device *dpld)
 			break;
 		}
 
-		msleep_interruptible(10);
+		usleep_range(10000, 11000);
 
 		count++;
 		if (count > 200) {
@@ -870,7 +997,7 @@ static int qc_boot_post_process(struct dpram_link_device *dpld)
 			break;
 		}
 
-		msleep_interruptible(10);
+		usleep_range(10000, 11000);
 
 		count++;
 		if (count > 200) {
@@ -904,7 +1031,7 @@ static void qc_crash_log(struct dpram_link_device *dpld)
 	static unsigned char buf[151];
 	u8 __iomem *data = NULL;
 
-	data = dpld->get_rx_buff(dpld, IPC_FMT);
+	data = dpld->get_rxq_buff(dpld, IPC_FMT);
 	memcpy(buf, data, (sizeof(buf) - 1));
 
 	mif_info("PHONE ERR MSG\t| %s Crash\n", ld->mdm_data->name);
@@ -914,7 +1041,7 @@ static void qc_crash_log(struct dpram_link_device *dpld)
 static int _qc_data_upload(struct dpram_link_device *dpld,
 			struct dpram_udl_param *param)
 {
-	struct qc_dpram_boot_map *bt_map = &dpld->qc_bt_map;
+	struct qc_dpram_boot_map *qbt_map = &dpld->qc_bt_map;
 	int retval = 0;
 	u16 intval = 0;
 	int count = 0;
@@ -930,7 +1057,7 @@ static int _qc_data_upload(struct dpram_link_device *dpld,
 			}
 		}
 
-		msleep_interruptible(1);
+		usleep_range(1000, 2000);
 
 		count++;
 		if (count > 200) {
@@ -939,10 +1066,10 @@ static int _qc_data_upload(struct dpram_link_device *dpld,
 		}
 	}
 
-	param->size = ioread16(bt_map->frame_size);
-	memcpy(param->addr, bt_map->buff, param->size);
-	param->tag = ioread16(bt_map->tag);
-	param->count = ioread16(bt_map->count);
+	param->size = ioread16(qbt_map->frame_size);
+	memcpy(param->addr, qbt_map->buff, param->size);
+	param->tag = ioread16(qbt_map->tag);
+	param->count = ioread16(qbt_map->count);
 
 	dpld->send_intr(dpld, 0xDB12);
 
@@ -972,7 +1099,7 @@ static int qc_uload_step1(struct dpram_link_device *dpld)
 			}
 		}
 
-		msleep_interruptible(1);
+		usleep_range(1000, 2000);
 
 		count++;
 		if (count > 200) {
@@ -1092,12 +1219,16 @@ static irqreturn_t qc_dpram_irq_handler(int irq, void *data)
 {
 	struct dpram_link_device *dpld = (struct dpram_link_device *)data;
 	struct link_device *ld = (struct link_device *)&dpld->ld;
+	struct mem_status stat;
 	u16 int2ap = 0;
 
-	if (unlikely(ld->mode == LINK_MODE_OFFLINE))
+	if (ld->mode == LINK_MODE_OFFLINE) {
+		int2ap = dpld->recv_intr(dpld);
 		return IRQ_HANDLED;
+	}
 
-	int2ap = dpld->recv_intr(dpld);
+	dpld->get_dpram_status(dpld, RX, &stat);
+	int2ap = stat.int2ap;
 
 	if (int2ap == INT_POWERSAFE_FAIL) {
 		mif_info("%s: int2ap == INT_POWERSAFE_FAIL\n", ld->name);
@@ -1107,10 +1238,13 @@ static irqreturn_t qc_dpram_irq_handler(int irq, void *data)
 	if (int2ap == 0x1234 || int2ap == 0xDBAB || int2ap == 0xABCD) {
 		qc_dload_cmd_handler(dpld, int2ap);
 		goto exit;
+	} else if (int2ap == 0x4321 || int2ap == 0x5432) {
+		mif_err("%s: ERR! CP err cmd (err %d)\n", __func__, int2ap);
+		goto exit;
 	}
 
 	if (likely(INT_VALID(int2ap)))
-		dpld->ipc_rx_handler(dpld, int2ap);
+		dpld->ipc_rx_handler(dpld, &stat);
 	else
 		mif_info("%s: ERR! invalid intr 0x%04X\n", ld->name, int2ap);
 
@@ -1137,10 +1271,14 @@ static struct dpram_ext_op ext_op_set[] = {
 		.init_boot_map = cmc221_init_boot_map,
 		.init_dl_map = cmc221_init_dl_map,
 		.init_ul_map = cmc221_init_ul_map,
+		.init_ipc_map = cmc221_init_ipc_map,
 		.download_binary = cmc221_download_binary,
 		.dump_start = cmc221_dump_start,
 		.dump_update = cmc221_dump_update,
 		.ioctl = cmc221_ioctl,
+		.clear_intr = cmc221_idpram_clr_int2ap,
+		.wakeup = cmc221_idpram_wakeup,
+		.sleep = cmc221_idpram_sleep,
 	},
 #endif
 #if defined(CONFIG_CDMA_MODEM_MDM6600)

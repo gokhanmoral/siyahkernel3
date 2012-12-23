@@ -36,7 +36,7 @@
 
 /* PCLK(=PERIR=ACLK_100)/256/128 (~3200:1s) */
 #define TPS 3200
-#if defined(CONFIG_MACH_P4) && defined(CONFIG_TARGET_LOCALE_USA)
+#if 0
 #define PET_BY_WORKQUEUE
 #else
 #define PET_BY_DIRECT_TIMER

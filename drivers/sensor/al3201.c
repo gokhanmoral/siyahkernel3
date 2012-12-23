@@ -248,12 +248,10 @@ static void al3201_work_func_light(struct work_struct *work)
 
 	result = al3201_get_adc_value(data->client);
 
-	if (result == 0)
-		result = -1;
 #ifdef LSC_DBG
 	pr_info("%s, value = %d\n", __func__, result);
 #endif
-	input_report_rel(data->input, REL_MISC, result);
+	input_report_rel(data->input, REL_MISC, result+1);
 	input_sync(data->input);
 
 }

@@ -518,15 +518,19 @@ static int __init lowmem_init(void)
 #ifdef CONFIG_ZRAM_FOR_ANDROID
 	struct zone *zone;
 	unsigned int high_wmark = 0;
+	unsigned int low_wmark = 0;
 #endif
 	task_free_register(&task_nb);
 	register_shrinker(&lowmem_shrinker);
 
 #ifdef CONFIG_ZRAM_FOR_ANDROID
 	for_each_zone(zone) {
-		if (high_wmark < zone->watermark[WMARK_HIGH])
+		if (high_wmark < zone->watermark[WMARK_HIGH]) {
 			high_wmark = zone->watermark[WMARK_HIGH];
+			low_wmark = zone->watermark[WMARK_LOW];
+		}
 	}
+	high_wmark += low_wmark;
 	check_free_memory = (high_wmark != 0) ? high_wmark : CHECK_FREE_MEMORY;
 
 	lmk_class = class_create(THIS_MODULE, "lmk");

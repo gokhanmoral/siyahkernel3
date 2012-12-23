@@ -1662,8 +1662,6 @@ static void mshci_data_irq(struct mshci_host *host, u32 intmask, u8 intr_src)
 			printk(KERN_ERR "%s: Host timeout error\n",
 						mmc_hostname(host->mmc));
 			host->data->error = -ETIMEDOUT;
-			/* debugging for Host timeout error */
-			mshci_dumpregs(host);
 		} else if (intmask & INTMSK_DRTO) {
 			printk(KERN_ERR "%s: Data read timeout error\n",
 						mmc_hostname(host->mmc));
@@ -1704,12 +1702,8 @@ static void mshci_data_irq(struct mshci_host *host, u32 intmask, u8 intr_src)
 	if (host->data->error) {
 		/* to notify an error happend */
 		host->error_state = 1;
-#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_P4NOTE) || \
-		defined(CONFIG_MACH_C1_USA_ATT) \
-		|| defined(CONFIG_MACH_GRANDE) || defined(CONFIG_MACH_IRON)
 		if (host->mmc && host->mmc->card)
 			mshci_dumpregs(host);
-#endif
 		mshci_finish_data(host);
 	} else {
 		if (!(host->flags & MSHCI_REQ_USE_DMA) &&
@@ -1800,6 +1794,7 @@ static irqreturn_t mshci_irq(int irq, void *dev_id)
 			 * DTO intr comes later than error intr.
 			 * so, it has to wait for DTO intr.
 			 */
+			timeout = 0x10000;
 			while (--timeout && !(mshci_readl(host, MSHCI_MINTSTS)
 				& INTMSK_DTO))
 				; /* Nothing to do */

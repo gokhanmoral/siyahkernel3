@@ -1212,9 +1212,17 @@ int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 
 	if (PageHWPoison(page) && !(flags & TTU_IGNORE_HWPOISON)) {
 		if (PageAnon(page))
+		#ifdef CONFIG_LOWMEM_CHECK
+			dec_mm_counter(mm, MM_ANONPAGES, page);
+		#else
 			dec_mm_counter(mm, MM_ANONPAGES);
+		#endif
 		else
+		#ifdef CONFIG_LOWMEM_CHECK
+			dec_mm_counter(mm, MM_FILEPAGES, page);
+		#else
 			dec_mm_counter(mm, MM_FILEPAGES);
+		#endif
 		set_pte_at(mm, address, pte,
 				swp_entry_to_pte(make_hwpoison_entry(page)));
 	} else if (PageAnon(page)) {
@@ -1236,8 +1244,13 @@ int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 					list_add(&mm->mmlist, &init_mm.mmlist);
 				spin_unlock(&mmlist_lock);
 			}
+		#ifdef CONFIG_LOWMEM_CHECK
+			dec_mm_counter(mm, MM_ANONPAGES, page);
+			inc_mm_counter(mm, MM_SWAPENTS, page);
+		#else
 			dec_mm_counter(mm, MM_ANONPAGES);
 			inc_mm_counter(mm, MM_SWAPENTS);
+		#endif
 		} else if (PAGE_MIGRATION) {
 			/*
 			 * Store the pfn of the page in a special migration
@@ -1255,7 +1268,11 @@ int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 		entry = make_migration_entry(page, pte_write(pteval));
 		set_pte_at(mm, address, pte, swp_entry_to_pte(entry));
 	} else
+	#ifdef CONFIG_LOWMEM_CHECK
+		dec_mm_counter(mm, MM_FILEPAGES, page);
+	#else
 		dec_mm_counter(mm, MM_FILEPAGES);
+	#endif
 
 	page_remove_rmap(page);
 	page_cache_release(page);
@@ -1394,7 +1411,11 @@ static int try_to_unmap_cluster(unsigned long cursor, unsigned int *mapcount,
 
 		page_remove_rmap(page);
 		page_cache_release(page);
+	#ifdef CONFIG_LOWMEM_CHECK
+		dec_mm_counter(mm, MM_FILEPAGES, page);
+	#else
 		dec_mm_counter(mm, MM_FILEPAGES);
+	#endif
 		(*mapcount)--;
 	}
 	pte_unmap_unlock(pte - 1, ptl);

@@ -12,6 +12,8 @@
 
 #include <linux/wakelock.h>
 
+#define CAM_MAJOR	119
+
 #define CONFIG_CAM_DEBUG
 
 #define cam_warn(fmt, ...)	\
@@ -55,6 +57,17 @@
 #define cam_dbg(fmt, ...)
 #define cam_trace(fmt, ...)
 #define cam_i2c_dbg(fmt, ...)
+#endif
+
+/* Define default F/W version.
+ * - be cafeful of string size.
+ */
+#if defined(CONFIG_MACH_U1_BD)
+#define DEFAULT_PHONE_FW_VER	"TBEC28 Fujitsu M5MOLS"
+#elif defined(CONFIG_MACH_Q1_BD)
+#define DEFAULT_PHONE_FW_VER	"OOEI08 Fujitsu M5MOLS"
+#else
+#define DEFAULT_PHONE_FW_VER	"FAILED Fujitsu M5MOLS"
 #endif
 
 enum m5mo_prev_frmsize {
@@ -188,6 +201,12 @@ struct m5mo_state {
 	unsigned int check_dataline:1;
 	int anti_banding;
 };
+
+extern struct class *camera_class;
+
+/*
+ * ISP CMD Category Definitions
+ */
 
 /* Category */
 #define M5MO_CATEGORY_SYS	0x00

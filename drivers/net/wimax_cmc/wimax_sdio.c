@@ -1303,15 +1303,14 @@ static int wimax_power_on(struct wimax732_platform_data *pdata)
 	adapter->uwibro_dev.minor = MISC_DYNAMIC_MINOR;
 	adapter->uwibro_dev.name = "uwibro";
 	adapter->uwibro_dev.fops = &uwbr_fops;
-
-	strcpy(net->name, "uwbr%d");
-	net->netdev_ops = &wimax_net_ops;
-	net->watchdog_timeo = ADAPTER_TIMEOUT;
-	net->mtu = WIMAX_MTU_SIZE;
 	adapter->msg_enable = netif_msg_init(msg_level, NETIF_MSG_DRV
 					| NETIF_MSG_PROBE | NETIF_MSG_LINK);
 
 	ether_setup(net);
+	strcpy(net->name, "uwbr%d");
+	net->netdev_ops = &wimax_net_ops;
+	net->watchdog_timeo = ADAPTER_TIMEOUT;
+	net->mtu = WIMAX_MTU_SIZE;
 	net->flags |= IFF_NOARP;
 
 	SET_NETDEV_DEV(net, &adapter->func->dev);

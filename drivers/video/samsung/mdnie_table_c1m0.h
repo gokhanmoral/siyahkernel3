@@ -23,7 +23,7 @@ static const unsigned short tune_dynamic_gallery[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x0d93, /*CC lut r	16 144*/
+	0x0021, 0x0293, /*CC lut r	16 144*/
 	0x0022, 0x1aa5, /*CC lut r	32 160*/
 	0x0023, 0x29b7, /*CC lut r	48 176*/
 	0x0024, 0x39c8, /*CC lut r	64 192*/
@@ -54,7 +54,7 @@ static const unsigned short tune_dynamic_ui[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x0d93, /*CC lut r	16 144*/
+	0x0021, 0x0293, /*CC lut r	16 144*/
 	0x0022, 0x1aa5, /*CC lut r	32 160*/
 	0x0023, 0x29b7, /*CC lut r	48 176*/
 	0x0024, 0x39c8, /*CC lut r	64 192*/
@@ -97,7 +97,7 @@ static const unsigned short tune_dynamic_video[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x0d93, /*CC lut r	16 144*/
+	0x0021, 0x0293, /*CC lut r	16 144*/
 	0x0022, 0x1aa5, /*CC lut r	32 160*/
 	0x0023, 0x29b7, /*CC lut r	48 176*/
 	0x0024, 0x39c8, /*CC lut r	64 192*/
@@ -133,7 +133,7 @@ static const unsigned short tune_dynamic_vt[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	0*/
-	0x0021, 0x0d93, /*CC lut r	16 144*/
+	0x0021, 0x0293, /*CC lut r	16 144*/
 	0x0022, 0x1aa5, /*CC lut r	32 160*/
 	0x0023, 0x29b7, /*CC lut r	48 176*/
 	0x0024, 0x39c8, /*CC lut r	64 192*/
@@ -164,7 +164,7 @@ static const unsigned short tune_movie_gallery[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -195,7 +195,7 @@ static const unsigned short tune_movie_ui[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -236,7 +236,7 @@ static const unsigned short tune_movie_video[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -284,7 +284,7 @@ static const unsigned short tune_movie_vt[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -315,7 +315,7 @@ static const unsigned short tune_standard_gallery[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090,	/*CC lut r	16 144*/
+	0x0021, 0x0290,	/*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -346,7 +346,7 @@ static const unsigned short tune_standard_ui[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090,	/*CC lut r	16 144*/
+	0x0021, 0x0290,	/*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -389,7 +389,7 @@ static const unsigned short tune_standard_video[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090,	/*CC lut r	16 144*/
+	0x0021, 0x0290,	/*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -425,7 +425,7 @@ static const unsigned short tune_standard_vt[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090,	/*CC lut r	16 144*/
+	0x0021, 0x0290,	/*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -468,7 +468,7 @@ static const unsigned short tune_natural_gallery[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -511,7 +511,7 @@ static const unsigned short tune_natural_ui[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -554,7 +554,7 @@ static const unsigned short tune_natural_video[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -602,7 +602,7 @@ static const unsigned short tune_natural_vt[] = {
 	0x0000, 0x0001, /*BANK 1*/
 	0x001f, 0x0080, /*CC chsel strength*/
 	0x0020, 0x0000, /*CC lut r	 0*/
-	0x0021, 0x1090, /*CC lut r	16 144*/
+	0x0021, 0x0290, /*CC lut r	16 144*/
 	0x0022, 0x20a0, /*CC lut r	32 160*/
 	0x0023, 0x30b0, /*CC lut r	48 176*/
 	0x0024, 0x40c0, /*CC lut r	64 192*/
@@ -715,7 +715,7 @@ static const unsigned short tune_warm_outdoor[] = {
 	END_SEQ, 0x0000,
 };
 
-static struct mdnie_tunning_info etc_table[CABC_MAX][OUTDOOR_MAX][TONE_MAX] = {
+struct mdnie_tunning_info etc_table[CABC_MAX][OUTDOOR_MAX][TONE_MAX] = {
 	{
 		{
 			{"NORMAL",		NULL},
@@ -730,7 +730,7 @@ static struct mdnie_tunning_info etc_table[CABC_MAX][OUTDOOR_MAX][TONE_MAX] = {
 	}
 };
 
-static struct mdnie_tunning_info tunning_table[CABC_MAX][MODE_MAX][SCENARIO_MAX] = {
+struct mdnie_tunning_info tunning_table[CABC_MAX][MODE_MAX][SCENARIO_MAX] = {
 	{
 		{
 			{"DYNAMIC_UI",		tune_dynamic_ui},
@@ -772,7 +772,7 @@ static struct mdnie_tunning_info tunning_table[CABC_MAX][MODE_MAX][SCENARIO_MAX]
 	}
 };
 
-static struct mdnie_tunning_info camera_table[OUTDOOR_MAX] = {
+struct mdnie_tunning_info camera_table[OUTDOOR_MAX] = {
 	{"CAMERA",		tune_camera},
 	{"CAMERA_OUTDOOR",	tune_camera_outdoor},
 };

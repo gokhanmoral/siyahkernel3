@@ -975,9 +975,7 @@ static int link_pm_notifier_event(struct notifier_block *this,
 {
 	struct link_pm_data *pm_data =
 			container_of(this, struct link_pm_data,	pm_notifier);
-#ifdef CONFIG_UMTS_MODEM_XMM6262
 	struct modem_ctl *mc = if_usb_get_modemctl(pm_data);
-#endif
 
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
@@ -986,13 +984,11 @@ static int link_pm_notifier_event(struct notifier_block *this,
 	case PM_RESTORE_PREPARE:
 #endif
 		pm_data->dpm_suspending = true;
-#ifdef CONFIG_UMTS_MODEM_XMM6262
 		/* set PDA Active High if previous state was LPA */
 		if (!gpio_get_value(pm_data->gpio_link_active)) {
 			mif_info("PDA active High to LPA suspend spot\n");
 			gpio_set_value(mc->gpio_pda_active, 1);
 		}
-#endif
 		mif_debug("dpm suspending set to true\n");
 		return NOTIFY_OK;
 	case PM_POST_SUSPEND:
@@ -1006,15 +1002,14 @@ static int link_pm_notifier_event(struct notifier_block *this,
 			queue_delayed_work(pm_data->wq, &pm_data->link_pm_work,
 				0);
 			mif_info("post resume\n");
-		}
-#ifdef CONFIG_UMTS_MODEM_XMM6262
+		} else {
 		/* LPA to Kernel suspend and User Freezing task fail resume,
 		restore to LPA GPIO states. */
-		if (!gpio_get_value(pm_data->gpio_link_active)) {
-			mif_info("PDA active low to LPA GPIO state\n");
-			gpio_set_value(mc->gpio_pda_active, 0);
+			if (!gpio_get_value(pm_data->gpio_link_active)) {
+				mif_info("PDA active low to LPA GPIO state\n");
+				gpio_set_value(mc->gpio_pda_active, 0);
+			}
 		}
-#endif
 		mif_debug("dpm suspending set to false\n");
 		return NOTIFY_OK;
 	}

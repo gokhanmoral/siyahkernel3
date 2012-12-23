@@ -15,10 +15,8 @@
  */
 
 #include "core.h"
-#include "debug.h"
 
-static bool ath6kl_parse_event_pkt_for_wake_lock(struct ath6kl *ar,
-						 struct sk_buff *skb)
+static bool ath6kl_parse_event_pkt_for_wake_lock(struct sk_buff *skb)
 {
 	u16 cmd_id;
 	bool need_wake = false;
@@ -28,15 +26,6 @@ static bool ath6kl_parse_event_pkt_for_wake_lock(struct ath6kl *ar,
 
 	 cmd_id = *(const u16 *) skb->data;
 	 cmd_id = le16_to_cpu(cmd_id);
-
-	if (test_and_clear_bit(WOW_RESUME_PRINT, &ar->flag)) {
-		if (cmd_id == WMI_CONNECT_EVENTID)
-			ath6kl_dbg(ATH6KL_DBG_SUSPEND,
-			    "(wow) WMI_CONNECT_EVENTID\n");
-		else
-			ath6kl_dbg(ATH6KL_DBG_SUSPEND,
-			    "(wow) wmi event id : 0x%x\n", cmd_id);
-	}
 
 	 switch (cmd_id) {
 	 case WMI_CONNECT_EVENTID:
@@ -104,14 +93,6 @@ static bool ath6kl_parse_data_pkt_for_wake_lock(struct ath6kl *ar,
 
 	hdr = (struct ethhdr *) skb->data;
 
-	if (test_and_clear_bit(WOW_RESUME_PRINT, &ar->flag)) {
-		ath6kl_dbg(ATH6KL_DBG_SUSPEND,
-			   "(wow) dest mac:%s, src mac:%s, type/len :%04x\n",
-			   sec_conv_mac(hdr->h_dest),
-			   sec_conv_mac(hdr->h_source),
-			   be16_to_cpu(hdr->h_proto));
-	}
-
 	if (!is_multicast_ether_addr(hdr->h_dest)) {
 		switch (ntohs(hdr->h_proto)) {
 		case 0x0800: /* IP */
@@ -159,7 +140,7 @@ void ath6kl_config_suspend_wake_lock(struct ath6kl *ar, struct sk_buff *skb,
 {
 	struct ath6kl_vif *vif;
 #ifdef CONFIG_HAS_WAKELOCK
-	unsigned long wl_timeout = 5;
+	unsigned long wl_timeout = HZ;
 #endif
 	bool need_wake = false;
 
@@ -174,7 +155,7 @@ void ath6kl_config_suspend_wake_lock(struct ath6kl *ar, struct sk_buff *skb,
 			skb && test_bit(CONNECTED, &vif->flags)) {
 		if (is_event_pkt) { /* Ctrl pkt received */
 			need_wake =
-				ath6kl_parse_event_pkt_for_wake_lock(ar, skb);
+				ath6kl_parse_event_pkt_for_wake_lock(skb);
 			if (need_wake) {
 #ifdef CONFIG_HAS_WAKELOCK
 				wl_timeout = 3 * HZ;
@@ -210,7 +191,6 @@ void ath6kl_p2p_release_wakelock(struct ath6kl *ar)
 	return;
 }
 #endif
-
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void ath6kl_early_suspend(struct early_suspend *handler)
 {

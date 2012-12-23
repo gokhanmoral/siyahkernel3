@@ -469,6 +469,7 @@ struct fimc_control {
 	struct mutex			lock;		/* controller lock */
 	struct mutex			v4l2_lock;
 	spinlock_t			outq_lock;
+	spinlock_t			inq_lock;
 	wait_queue_head_t		wq;
 	struct device			*dev;
 #if defined(CONFIG_BUSFREQ_OPP) || defined(CONFIG_BUSFREQ_LOCK_WRAPPER)
@@ -498,8 +499,6 @@ struct fimc_control {
 	int 				suspend_framecnt;
 	enum fimc_sysmmu_flag		sysmmu_flag;
 	enum fimc_power_status		power_status;
-	struct timeval			curr_time;
-	struct timeval			before_time;
 	char 				cma_name[16];
 	bool				restart;
 #ifdef CONFIG_SLP_DMABUF

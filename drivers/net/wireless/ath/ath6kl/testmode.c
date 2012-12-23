@@ -17,6 +17,7 @@
 
 #include "testmode.h"
 #include "debug.h"
+#include "cfg80211.h"
 
 #include <net/netlink.h>
 #include "wmiconfig.h"
@@ -72,10 +73,18 @@ int ath6kl_tm_cmd(struct wiphy *wiphy, void *data, int len)
 {
 	struct ath6kl *ar = wiphy_priv(wiphy);
 	struct nlattr *tb[ATH6KL_TM_ATTR_MAX + 1];
+	struct ath6kl_vif *vif;
 	int err, buf_len;
 	void *buf;
 	u32 wmi_cmd;
 	struct sk_buff *skb;
+
+	vif = ath6kl_vif_first(ar);
+	if (!vif)
+		return -EIO;
+
+	if (!ath6kl_cfg80211_ready(vif))
+		return -EIO;
 
 	err = nla_parse(tb, ATH6KL_TM_ATTR_MAX, data, len,
 			ath6kl_tm_policy);

@@ -644,8 +644,14 @@ int akm8975_probe(struct i2c_client *client,
 {
 	struct akm8975_data *akm;
 	int err;
-
+#ifdef CONFIG_TARGET_LOCALE_KOR
+	int probe_retry_max = 3;
+#endif
 	printk(KERN_INFO "%s is called.\n", __func__);
+
+#ifdef CONFIG_TARGET_LOCALE_KOR
+probe_retry:
+#endif
 	if (client->dev.platform_data == NULL && client->irq == 0) {
 		dev_err(&client->dev, "platform data & irq are NULL.\n");
 		err = -ENODEV;
@@ -723,6 +729,7 @@ int akm8975_probe(struct i2c_client *client,
 		goto exit_i2c_failed;
 	}
 
+	err = -ENOMEM;
 	akm->dev = sensors_classdev_register("magnetic_sensor");
 	if (IS_ERR(akm->dev)) {
 		printk(KERN_ERR "Failed to create device!");
@@ -820,6 +827,14 @@ exit_set_mode_power_down_failed:
 exit_alloc_data_failed:
 exit_check_functionality_failed:
 exit_platform_data_null:
+#ifdef CONFIG_TARGET_LOCALE_KOR
+	if (probe_retry_max > 0) {
+		pr_err("%s: Failed to probe..(%d try left)\n",
+			__func__, probe_retry_max);
+		probe_retry_max--;
+		goto probe_retry;
+	}
+#endif
 	return err;
 }
 
@@ -833,12 +848,14 @@ static int __devexit akm8975_remove(struct i2c_client *client)
 	device_remove_file(akm->dev, &dev_attr_ak8975_asa);
 	device_remove_file(akm->dev, &dev_attr_ak8975_selftest);
 	device_remove_file(akm->dev, &dev_attr_ak8975_chk_registers);
+	device_remove_file(akm->dev, &dev_attr_ak8975_chk_cntl);
 	#endif
 	device_remove_file(akm->dev, &dev_attr_name);
 	device_remove_file(akm->dev, &dev_attr_vendor);
 	device_remove_file(akm->dev, &dev_attr_raw_data);
 	sensors_classdev_unregister(akm->dev);
 	misc_deregister(&akm->akmd_device);
+	disable_irq(akm->irq);
 	free_irq(akm->irq, akm);
 	gpio_free(akm->pdata->gpio_data_ready_int);
 	mutex_destroy(&akm->lock);

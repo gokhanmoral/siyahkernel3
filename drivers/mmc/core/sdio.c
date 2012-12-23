@@ -942,6 +942,7 @@ static int mmc_sdio_suspend(struct mmc_host *host)
 	}
 #endif
 
+out:
 	return err;
 }
 
@@ -990,6 +991,7 @@ static int mmc_sdio_resume(struct mmc_host *host)
 		}
 	}
 
+out:
 	return err;
 }
 

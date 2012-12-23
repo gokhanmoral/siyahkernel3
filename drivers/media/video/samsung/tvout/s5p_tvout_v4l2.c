@@ -11,6 +11,7 @@
  */
 #include <linux/version.h>
 #include <linux/slab.h>
+#include <linux/dma-mapping.h>
 
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
@@ -324,6 +325,13 @@ struct s5p_tvout_v4l2_private_data {
 
 	atomic_t			tvif_use;
 	atomic_t			vo_use;
+
+#ifdef CONFIG_USE_TVOUT_CMA
+	void				*vir_addr;
+	dma_addr_t			dma_addr;
+#endif
+
+	struct device			*dev;
 };
 
 static struct s5p_tvout_v4l2_private_data s5p_tvout_v4l2_private = {
@@ -929,18 +937,75 @@ end_tvif_ioctl:
 	return ret;
 }
 
+#ifdef CONFIG_USE_TVOUT_CMA
+static inline int alloc_vp_buff(void)
+{
+	int i;
+
+	s5p_tvout_v4l2_private.vir_addr = dma_alloc_coherent(
+				s5p_tvout_v4l2_private.dev,
+				S5PTV_VP_BUFF_CNT * S5PTV_VP_BUFF_SIZE,
+				&s5p_tvout_v4l2_private.dma_addr, 0);
+
+	if (!s5p_tvout_v4l2_private.vir_addr) {
+		printk(KERN_ERR "S5P-TVOUT: %s: dma_alloc_coherent returns "
+			"-ENOMEM\n", __func__);
+		return -ENOMEM;
+	}
+
+	printk(KERN_INFO "%s[%d] size 0x%x, vaddr 0x%x, base 0x%x\n",
+				__func__, __LINE__,
+				S5PTV_VP_BUFF_CNT * S5PTV_VP_BUFF_SIZE,
+				(int) s5p_tvout_v4l2_private.vir_addr,
+				(int) s5p_tvout_v4l2_private.dma_addr);
+
+	for (i = 0; i < S5PTV_VP_BUFF_CNT; i++) {
+		s5ptv_vp_buff.vp_buffs[i].phy_base =
+			(unsigned int) s5p_tvout_v4l2_private.dma_addr +
+					(i * S5PTV_VP_BUFF_SIZE);
+		s5ptv_vp_buff.vp_buffs[i].vir_base =
+			(unsigned int) s5p_tvout_v4l2_private.vir_addr +
+					(i * S5PTV_VP_BUFF_SIZE);
+	}
+
+	return 0;
+}
+
+static inline void free_vp_buff(void)
+{
+	dma_free_coherent(s5p_tvout_v4l2_private.dev,
+			S5PTV_VP_BUFF_CNT * S5PTV_VP_BUFF_SIZE,
+			s5p_tvout_v4l2_private.vir_addr,
+			s5p_tvout_v4l2_private.dma_addr);
+
+	printk(KERN_INFO "%s[%d] size 0x%x, vaddr 0x%x, base 0x%x\n",
+			__func__, __LINE__,
+			S5PTV_VP_BUFF_CNT * S5PTV_VP_BUFF_SIZE,
+			(int) s5p_tvout_v4l2_private.vir_addr,
+			(int) s5p_tvout_v4l2_private.dma_addr);
+}
+#else
+static inline int alloc_vp_buff(void) { return 0; }
+static inline void free_vp_buff(void) { }
+#endif
 
 static int s5p_tvout_tvif_open(struct file *file)
 {
+	int ret = 0;
+
 	mutex_lock(&s5p_tvout_tvif_mutex);
 
-	atomic_inc(&s5p_tvout_v4l2_private.tvif_use);
+	if (atomic_read(&s5p_tvout_v4l2_private.tvif_use) == 0)
+		ret = alloc_vp_buff();
+
+	if (!ret)
+		atomic_inc(&s5p_tvout_v4l2_private.tvif_use);
 
 	mutex_unlock(&s5p_tvout_tvif_mutex);
 
 	tvout_dbg("count=%d\n", atomic_read(&s5p_tvout_v4l2_private.tvif_use));
 
-	return 0;
+	return ret;
 }
 
 static int s5p_tvout_tvif_release(struct file *file)
@@ -958,6 +1023,8 @@ static int s5p_tvout_tvif_release(struct file *file)
 		s5p_tvout_mutex_lock();
 		s5p_tvif_ctrl_stop();
 		s5p_tvout_mutex_unlock();
+
+		free_vp_buff();
 	}
 
 	on_stop_process = false;
@@ -1445,6 +1512,7 @@ int s5p_tvout_v4l2_constructor(struct platform_device *pdev)
 		}
 	}
 
+	s5p_tvout_v4l2_private.dev = &pdev->dev;
 	s5p_tvout_v4l2_init_private();
 
 	return 0;

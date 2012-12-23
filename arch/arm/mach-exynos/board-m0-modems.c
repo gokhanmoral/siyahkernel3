@@ -444,7 +444,7 @@ static void umts_modem_cfg_gpio(void)
 
 		/* gpio_direction_input(gpio_sim_detect); */
 		s3c_gpio_cfgpin(gpio_sim_detect, S3C_GPIO_SFN(0xF));
-		s3c_gpio_setpull(gpio_sim_detect, S3C_GPIO_PULL_NONE);
+		s3c_gpio_setpull(gpio_sim_detect, S3C_GPIO_PULL_DOWN);
 		irq_set_irq_type(gpio_to_irq(gpio_sim_detect),
 							IRQ_TYPE_EDGE_BOTH);
 	}

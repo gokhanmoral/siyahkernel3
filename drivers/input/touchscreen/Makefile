@@ -54,7 +54,6 @@ obj-$(CONFIG_TOUCHSCREEN_PIXCIR)	+= pixcir_i2c_ts.o
 obj-$(CONFIG_TOUCHSCREEN_ST1232)	+= st1232.o
 obj-$(CONFIG_TOUCHSCREEN_STMPE)		+= stmpe-ts.o
 obj-$(CONFIG_TOUCHSCREEN_TNETV107X)	+= tnetv107x-ts.o
-obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI)	+= synaptics_i2c_rmi.o
 obj-$(CONFIG_TOUCHSCREEN_TOUCHIT213)	+= touchit213.o
 obj-$(CONFIG_TOUCHSCREEN_TOUCHRIGHT)	+= touchright.o
 obj-$(CONFIG_TOUCHSCREEN_TOUCHWIN)	+= touchwin.o
@@ -86,7 +85,8 @@ obj-$(CONFIG_TOUCHSCREEN_MXT768E)	+= mxt768e.o
 obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S7301)      += synaptics_s7301.o synaptics_fw_updater.o synaptics_sysfs.o
 obj-$(CONFIG_KEYPAD_MELFAS_TOUCH)                += grande_touchkey.o grande_download.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT540S)       += mxt540s.o
-obj-$(CONFIG_TOUCHSCREEN_CYTTSP4)   += cyttsp4_i2c.o cyttsp4_core.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_TMA46X)	+= cyttsp4_core.o cyttsp4_i2c.o cyttsp4_bus.o cyttsp4_mtb.o cyttsp4_mt_common.o cyttsp4_btn.o cyttsp4_device_access.o cyttsp4_loader.o cyttsp4_debug.o
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI)	+= synaptics_i2c_rmi.o rmi_dev.o rmi_f34.o
 
 ifeq ($(TARGET_BUILD_VARIANT), eng)
 KBUILD_CFLAGS		+= -DSEC_TSP_EVENT_DEBUG

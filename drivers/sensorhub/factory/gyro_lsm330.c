@@ -131,6 +131,9 @@ static ssize_t gyro_get_temp(struct device *dev,
 	int iDelayCnt = 0, iRet = 0;
 	struct ssp_data *data = dev_get_drvdata(dev);
 
+	if (!(data->uSensorState & (1 << GYROSCOPE_SENSOR)))
+		goto exit;
+
 	data->uFactorydataReady = 0;
 	memset(data->uFactorydata, 0, sizeof(char) * FACTORY_DATA_MAX);
 
@@ -146,6 +149,8 @@ static ssize_t gyro_get_temp(struct device *dev,
 		pr_err("[SSP]: %s - Gyro Temp Timeout!!\n", __func__);
 		goto exit;
 	}
+
+	mdelay(5);
 
 	chTemp = (char)data->uFactorydata[0];
 	ssp_dbg("[SSP]: %s - %d\n", __func__, chTemp);
@@ -172,14 +177,15 @@ static ssize_t gyro_selftest_show(struct device *dev,
 		chTempBuf, 2);
 
 	while (!(data->uFactorydataReady & (1 << GYROSCOPE_FACTORY))
-		&& (iDelayCnt++ < 150)
+		&& (iDelayCnt++ < 250)
 		&& (iRet == SUCCESS))
 		msleep(20);
 
-	if ((iDelayCnt >= 150) || (iRet != SUCCESS)) {
+	if ((iDelayCnt >= 250) || (iRet != SUCCESS)) {
 		pr_err("[SSP]: %s - Gyro Selftest Timeout!!\n", __func__);
 		goto exit;
 	}
+	mdelay(5);
 
 	iNOST[0] = (s16)((data->uFactorydata[0] << 8) + data->uFactorydata[1]);
 	iNOST[1] = (s16)((data->uFactorydata[2] << 8) + data->uFactorydata[3]);
@@ -231,6 +237,9 @@ static ssize_t gyro_selftest_dps_store(struct device *dev,
 
 	struct ssp_data *data = dev_get_drvdata(dev);
 
+	if (!(data->uSensorState & (1 << GYROSCOPE_SENSOR)))
+		goto exit;
+
 	sscanf(buf, "%d", &iNewDps);
 
 	if (iNewDps == GYROSCOPE_DPS250)
@@ -259,6 +268,8 @@ static ssize_t gyro_selftest_dps_store(struct device *dev,
 		pr_err("[SSP]: %s - Gyro Selftest DPS Timeout!!\n", __func__);
 		goto exit;
 	}
+
+	mdelay(5);
 
 	if (data->uFactorydata[0] != SUCCESS) {
 		pr_err("[SSP]: %s - Gyro Selftest DPS Error!!\n", __func__);
@@ -301,7 +312,10 @@ static struct device_attribute *gyro_attrs[] = {
 
 void initialize_gyro_factorytest(struct ssp_data *data)
 {
-	struct device *gyro_device = NULL;
+	sensors_register(data->gyro_device, data, gyro_attrs, "gyro_sensor");
+}
 
-	sensors_register(gyro_device, data, gyro_attrs, "gyro_sensor");
+void remove_gyro_factorytest(struct ssp_data *data)
+{
+	sensors_unregister(data->gyro_device, gyro_attrs);
 }

@@ -586,8 +586,7 @@ static int h264_pre_seq_start(struct mfc_inst_ctx *ctx)
 
 	if (h264->sps_pps_gen == 1) {
 		write_shm(ctx,
-			((h264->sps_pps_gen << 8) |
-				read_shm(ctx, EXT_ENC_CONTROL)),
+			((h264->sps_pps_gen << 8) | read_shm(ctx, EXT_ENC_CONTROL)),
 			EXT_ENC_CONTROL);
 	}
 
@@ -1066,10 +1065,8 @@ static int h264_set_codec_cfg(struct mfc_inst_ctx *ctx, int type, void *arg)
 	case MFC_ENC_SETCONF_SPS_PPS_GEN:
 		mfc_dbg("MFC_ENC_SETCONF_SPS_PPS_GEN : %d\n", ctx->state);
 
-		if ((ctx->state < INST_STATE_CREATE) ||
-					(ctx->state > INST_STATE_EXE)) {
-			mfc_err("MFC_ENC_SETCONF_SPS_PPS_GEN : "
-						" state is invalid\n");
+		if ((ctx->state < INST_STATE_CREATE) || (ctx->state > INST_STATE_EXE)) {
+			mfc_err("MFC_ENC_SETCONF_SPS_PPS_GEN : state is invalid\n");
 			return MFC_STATE_INVALID;
 		}
 
@@ -1079,6 +1076,7 @@ static int h264_set_codec_cfg(struct mfc_inst_ctx *ctx, int type, void *arg)
 			h264->sps_pps_gen = 0;
 
 		break;
+
 	default:
 		mfc_dbg("invalid set cfg type: 0x%08x\n", type);
 		ret = -2;
@@ -1545,6 +1543,22 @@ int mfc_init_encoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 
 		atomic_inc(&ctx->dev->busfreq_lock_cnt);
 		ctx->busfreq_flag = true;
+	}
+#endif
+
+#if defined(CONFIG_MACH_GC1) && defined(CONFIG_EXYNOS4_CPUFREQ)
+	if ((ctx->width >= 1280 && ctx->height >= 720)
+		|| (ctx->width >= 720 && ctx->height >= 1280)) {
+		if (atomic_read(&ctx->dev->cpufreq_lock_cnt) == 0) {
+			if (0 == ctx->dev->cpufreq_level) /* 800MHz */
+				exynos_cpufreq_get_level(800000,
+						&ctx->dev->cpufreq_level);
+			exynos_cpufreq_lock(DVFS_LOCK_ID_MFC,
+					ctx->dev->cpufreq_level);
+			mfc_dbg("[%s] CPU Freq Locked 800MHz!\n", __func__);
+		}
+		atomic_inc(&ctx->dev->cpufreq_lock_cnt);
+		ctx->cpufreq_flag = true;
 	}
 #endif
 

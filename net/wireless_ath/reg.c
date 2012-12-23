@@ -1128,10 +1128,6 @@ static void wiphy_update_regulatory(struct wiphy *wiphy,
 			handle_band(wiphy, band, initiator);
 	}
 
-#ifdef CONFIG_MACH_PX
-	last_request->processed = true;
-#endif
-
 	reg_process_beacons(wiphy);
 	reg_process_ht_flags(wiphy);
 	if (wiphy->reg_notifier)
@@ -1306,7 +1302,7 @@ static int ignore_request(struct wiphy *wiphy,
 		    !regdom_changes(pending_request->alpha2))
 			return -EALREADY;
 
-		return REG_INTERSECT;
+		return 0;
 	case NL80211_REGDOM_SET_BY_USER:
 		if (last_request->initiator == NL80211_REGDOM_SET_BY_COUNTRY_IE)
 			return REG_INTERSECT;
@@ -2021,7 +2017,7 @@ static int __set_regdom(const struct ieee80211_regdomain *rd)
 		 * checking if the alpha2 changes if CRDA was already called
 		 */
 		if (!regdom_changes(rd->alpha2))
-			return -EINVAL;
+			return -EALREADY;
 	}
 
 	/*
@@ -2055,13 +2051,6 @@ static int __set_regdom(const struct ieee80211_regdomain *rd)
 		 * For a driver hint, lets copy the regulatory domain the
 		 * driver wanted to the wiphy to deal with conflicts
 		 */
-
-		/*
-		 * Userspace could have sent two replies with only
-		 * one kernel request.
-		 */
-		if (request_wiphy->regd)
-			return -EALREADY;
 
 		r = reg_copy_regd(&request_wiphy->regd, rd);
 		if (r)
@@ -2135,6 +2124,9 @@ int set_regdom(const struct ieee80211_regdomain *rd)
 	/* Note that this doesn't update the wiphys, this is done below */
 	r = __set_regdom(rd);
 	if (r) {
+		if (r == -EALREADY)
+			reg_set_request_processed();
+
 		kfree(rd);
 		mutex_unlock(&reg_mutex);
 		return r;

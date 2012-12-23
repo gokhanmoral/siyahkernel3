@@ -214,7 +214,7 @@ static void smb347_charger_init(struct smb347_chg_data *chg)
 	smb347_i2c_write(chg->client, SMB347_INPUT_CURRENTLIMIT, 0x66);
 
 	/* Various func. : USBIN primary input, VCHG func. enable */
-	smb347_i2c_write(chg->client, SMB347_VARIOUS_FUNCTIONS, 0xA7);
+	smb347_i2c_write(chg->client, SMB347_VARIOUS_FUNCTIONS, 0xB7);
 
 	/* Float voltage : 4.2V */
 	smb347_i2c_write(chg->client, SMB347_FLOAT_VOLTAGE, 0x63);
@@ -376,7 +376,106 @@ int smb347_get_charging_current(void)
 		get_current = 700;
 		break;
 	}
-	pr_debug("%s: Get charging current as %dmA.\n", __func__, get_current);
+	pr_info("%s: Get charging current as %dmA.\n", __func__, get_current);
+	return get_current;
+}
+
+int smb347_get_input_current(void)
+{
+	struct smb347_chg_data *chg = smb347_chg;
+	u8 data = 0;
+	u8 data_dummy = 0;
+	int get_current = 0;
+
+	smb347_i2c_read(chg->client, SMB347_INPUT_CURRENTLIMIT, &data);
+	data_dummy = (data << 4);
+
+	switch (data_dummy >> 4) {
+	case 0:
+		get_current = 300;
+		break;
+	case 1:
+		get_current = 500;
+		break;
+	case 2:
+		get_current = 700;
+		break;
+	case 3:
+		get_current = 900;
+		break;
+	case 4:
+		get_current = 1200;
+		break;
+	case 5:
+		get_current = 1500;
+		break;
+	case 6:
+		get_current = 1800;
+		break;
+	case 7:
+		get_current = 2000;
+		break;
+	case 8:
+		get_current = 2200;
+		break;
+	default:
+		get_current = 2500;
+		break;
+	}
+	pr_info("%s: Get Input current as %dmA.\n", __func__, get_current);
+	return get_current;
+}
+
+
+
+int smb347_get_aicl_current(void)
+{
+	struct smb347_chg_data *chg = smb347_chg;
+	u8 data = 0;
+	u8 data_dummy = 0;
+	int get_current = 0;
+
+	smb347_i2c_read(chg->client, SMB347_STATUS_E, &data);
+	data_dummy = (data << 4);
+
+	if ((data & 0x10)) {
+		switch (data_dummy >> 4) {
+		case 0:
+			get_current = 300;
+			break;
+		case 1:
+			get_current = 500;
+			break;
+		case 2:
+			get_current = 700;
+			break;
+		case 3:
+			get_current = 900;
+			break;
+		case 4:
+			get_current = 1200;
+			break;
+		case 5:
+			get_current = 1500;
+			break;
+		case 6:
+			get_current = 1800;
+			break;
+		case 7:
+			get_current = 2000;
+			break;
+		case 8:
+			get_current = 2200;
+			break;
+		default:
+			get_current = 2500;
+			break;
+		}
+	} else {
+		get_current = 0;
+	}
+	pr_info("%s: Get AICL current as %dmA\n", __func__, get_current);
+
 	return get_current;
 }
 
@@ -437,6 +536,8 @@ static int smb347_i2c_probe
 	chg->callbacks->set_charging_current = smb347_set_charging_current;
 	chg->callbacks->get_charging_current = smb347_get_charging_current;
 	chg->callbacks->get_charger_is_full = smb347_get_charger_is_full;
+	chg->callbacks->get_aicl_current = smb347_get_aicl_current;
+	chg->callbacks->get_input_current = smb347_get_input_current;
 	if (chg->pdata && chg->pdata->register_callbacks)
 		chg->pdata->register_callbacks(chg->callbacks);
 

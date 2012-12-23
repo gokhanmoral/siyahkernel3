@@ -22,9 +22,6 @@
 #ifdef CONFIG_WAKELOCK_STAT
 #include <linux/proc_fs.h>
 #endif
-#ifdef CONFIG_FAST_BOOT
-#include <linux/delay.h>
-#endif
 #include "power.h"
 
 enum {
@@ -372,18 +369,12 @@ static long has_wake_lock_locked(int type)
 #endif
 	return max_timeout;
 }
-#ifdef CONFIG_FAST_BOOT
-extern bool fake_shut_down;
-#endif
 
 long has_wake_lock(int type)
 {
 	long ret;
 	unsigned long irqflags;
-#ifdef CONFIG_FAST_BOOT
-	if (fake_shut_down)
-		return 0;
-#endif
+
 	spin_lock_irqsave(&list_lock, irqflags);
 	ret = has_wake_lock_locked(type);
 	if (ret && (debug_mask & DEBUG_WAKEUP) && type == WAKE_LOCK_SUSPEND)
@@ -776,25 +767,6 @@ int wake_lock_active(struct wake_lock *lock)
 	return !!(lock->flags & WAKE_LOCK_ACTIVE);
 }
 EXPORT_SYMBOL(wake_lock_active);
-
-#ifdef CONFIG_FAST_BOOT
-void wakelock_force_suspend(void)
-{
-	static int cnt;
-
-	if (cnt > 0) {
-		pr_info("%s: duplicated\n", __func__);
-		return;
-	}
-	cnt++;
-
-	msleep(3000);
-	pr_info("%s: fake shut down\n", __func__);
-	queue_work(suspend_work_queue, &suspend_work);
-
-	cnt = 0;
-}
-#endif
 
 static int wakelock_stats_open(struct inode *inode, struct file *file)
 {

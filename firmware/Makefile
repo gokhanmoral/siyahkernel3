@@ -31,6 +31,16 @@ ifdef CONFIG_MACH_T0
 fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZK.bin \
 				      SlimISP_GK.bin
 else
+ifdef CONFIG_MACH_M3_USA_TMO
+fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZK.bin \
+				      SlimISP_GK.bin
+else
+ifdef CONFIG_MACH_BAFFIN
+fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZK.bin \
+				      SlimISP_GK.bin \
+				      SlimISP_BK.bin \
+				      SlimISP_GM.bin
+else
 ifdef CONFIG_MACH_GRANDE
 fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_GJ.bin
 else
@@ -42,7 +52,8 @@ fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZD.bin \
 endif
 endif
 endif
-
+endif
+endif
 
 fw-shipped-$(CONFIG_3C359) += 3com/3C359.bin
 fw-shipped-$(CONFIG_ACENIC) += $(acenic-objs)
@@ -160,7 +171,11 @@ fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 fw-shipped-$(CONFIG_EPEN_WACOM_G5SP) += epen/W8501.bin epen/W8501_P48.bin
-fw-shipped-$(CONFIG_EPEN_WACOM_G9PM) += epen/W9001_B746.bin epen/W9001_B713.bin epen/W9001_B660.bin
+fw-shipped-$(CONFIG_EPEN_WACOM_G9PM) += epen/W9001_B746.bin epen/W9001_B713.bin epen/W9001_B660.bin \
+			epen/W9001_B746S.bin epen/W9001_B746L.bin \
+			epen/W9001_B746JD.bin \
+			epen/W9001_B746VZW.bin \
+			epen/W9001_0700.bin
 
 #for sensorhub
 fw-shipped-$(CONFIG_SENSORS_SSP) += ssp.fw
@@ -202,11 +217,11 @@ endif
 
 TSPFIRMWARE_DIRECTORY_MEL_NOTE = firmware/tsp_melfas/note
 ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY_MEL_NOTE) && echo yes),yes)
-fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/melfasl.fw
-fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/melfasm.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/melfas.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/BOOT.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/CORE.fw
-fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/PRIV.fw
-fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/PUBL.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/CONF.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/mms_boot.fw
 else
 $(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
 endif

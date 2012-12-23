@@ -173,6 +173,7 @@ int diag_bridge_read(char *data, int size)
 	struct diag_bridge	*dev = __dev;
 	int			ret;
 	int			spin = 50;
+	struct usb_device	*udev;
 
 	if (!dev || !dev->udev)
 		return -ENODEV;
@@ -205,6 +206,13 @@ int diag_bridge_read(char *data, int size)
 	if (!urb) {
 		dev_err(&dev->udev->dev, "unable to allocate urb\n");
 		return -ENOMEM;
+	}
+
+	udev = interface_to_usbdev(dev->ifc);
+	/* if dev handling suspend wait for suspended or active*/
+	if (pm_dev_runtime_get_enabled(udev) < 0) {
+		usb_free_urb(urb);
+		return -EAGAIN;
 	}
 
 	ret = usb_autopm_get_interface(dev->ifc);
@@ -268,8 +276,10 @@ int diag_bridge_write(char *data, int size)
 	struct urb		*urb = NULL;
 	unsigned int		pipe;
 	struct diag_bridge	*dev = __dev;
+	struct usb_device	*udev;
 	int			ret;
 	int			spin;
+
 
 	if (!dev || !dev->udev)
 		return -ENODEV;
@@ -305,29 +315,26 @@ int diag_bridge_write(char *data, int size)
 		return -ENOMEM;
 	}
 
-	ret = usb_autopm_get_interface_async(dev->ifc);
+	udev = interface_to_usbdev(dev->ifc);
+	/* if dev handling suspend wait for suspended or active*/
+	if (pm_dev_runtime_get_enabled(udev) < 0) {
+		usb_free_urb(urb);
+		return -EAGAIN;
+	}
+
+	ret = usb_autopm_get_interface(dev->ifc);
 	if (ret < 0) {
 		dev_err(&dev->udev->dev, "autopm_get failed:%d\n", ret);
 		usb_free_urb(urb);
 		return ret;
 	}
 
-	for (spin = 0; spin < 10; spin++) {
-		/* check rpm active */
-		if (dev->udev->dev.power.runtime_status == RPM_ACTIVE) {
-			ret = 0;
-			break;
-		} else {
-			dev_err(&dev->udev->dev, "waiting rpm active\n");
-			ret = -EAGAIN;
-		}
-		msleep(20);
-	}
-	if (ret < 0) {
-		dev_err(&dev->udev->dev, "rpm active failed:%d\n", ret);
-		usb_free_urb(urb);
-		usb_autopm_put_interface(dev->ifc);
-		return ret;
+	if (size == 4 || size == 5) {
+		if (data[0] == 0x1d && data[1] == 0x1c && data[2] == 0x3b)
+			pr_info("%s: diag.cfg [send start]\n", __func__);
+		else if (data[0] == 0x60 && data[1] == 0x00 &&
+					data[2] == 0x12 && data[3] == 0x6a)
+			pr_info("%s: diag.cfg [send complete]\n", __func__);
 	}
 
 	pipe = usb_sndbulkpipe(dev->udev, dev->out_epAddr);

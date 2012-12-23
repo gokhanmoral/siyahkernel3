@@ -42,15 +42,51 @@ const char Firmware_checksum[] = { 0x1F, 0xee, 0x06, 0x4b, 0xdd, };
 #elif defined(CONFIG_MACH_T0)
 const unsigned int Binary_nLength = 0xEFFF;
 const unsigned char Mpu_type = 0x28;
-unsigned int Firmware_version_of_file = 0x24F;
+
+/*KOR*/
+#if defined(CONFIG_TARGET_LOCALE_KOR)
+#if defined(CONFIG_MACH_T0_KOR_SKT) || defined(CONFIG_MACH_T0_KOR_KT)
+unsigned int Firmware_version_of_file = 0x312;
+unsigned char *firmware_name = "epen/W9001_B746S.bin";
+char Firmware_checksum[] = { 0x1F, 0x37, 0x28, 0xC8, 0x7C, };
+#elif defined(CONFIG_MACH_T0_KOR_LGT)
+unsigned int Firmware_version_of_file = 0x40A;
+unsigned char *firmware_name = "epen/W9001_B746L.bin";
+char Firmware_checksum[] = { 0x1F, 0xAA, 0x40, 0x78, 0x48, };
+#endif
+
+/*JPN*/
+#elif defined(CONFIG_MACH_T0_JPN_LTE_DCM)
+unsigned int Firmware_version_of_file = 0x310;
+unsigned char *firmware_name = "epen/W9001_B746JD.bin";
+char Firmware_checksum[] = { 0x1F, 0x81, 0x72, 0xDC, 0x5E, };
+
+/*USA*/
+#elif defined(CONFIG_MACH_T0_USA_VZW) \
+	|| defined(CONFIG_MACH_T0_USA_SPR) \
+	|| defined(CONFIG_MACH_T0_USA_USCC)
+unsigned int Firmware_version_of_file = 0x602;
+unsigned char *firmware_name = "epen/W9001_B746VZW.bin";
+
+char Firmware_checksum[] = { 0x1F, 0x46, 0xB1, 0x68, 0x88, };
+
+/*CHN*/
+#elif defined(CONFIG_MACH_T0_CHN_CTC)
+unsigned int Firmware_version_of_file = 0x700;
+unsigned char *firmware_name = "epen/W9001_0700.bin";
+char Firmware_checksum[] = { 0x1F, 0xD4, 0xD1, 0x5A, 0x91, };
+
+/*EUR3G/EURLTE/ATT/TMO/CMCC*/
+#else
+unsigned int Firmware_version_of_file = 0x268;
 unsigned char *firmware_name = "epen/W9001_B746.bin";
 
-char Firmware_checksum[] = { 0x1F, 0xDD, 0x87, 0x97, 0xFF, };
+char Firmware_checksum[] = { 0x1F, 0x78, 0xB1, 0xAB, 0x78, };
+#endif
 /*checksum for 0x13D*/
 const char B713X_checksum[] = { 0x1F, 0xB5, 0x84, 0x38, 0x34, };
 /*checksum for 0x16*/
 const char B660X_checksum[] = { 0x1F, 0x83, 0x88, 0xD4, 0x67, };
-
 #endif
 
 void wacom_i2c_set_firm_data(unsigned char *Binary_new)

@@ -32,6 +32,7 @@
 #include <linux/mfd/wm8994/core.h>
 #include <linux/mfd/wm8994/registers.h>
 #include <linux/mfd/wm8994/pdata.h>
+#include <linux/mfd/wm8994/gpio.h>
 
 #if defined(CONFIG_SND_USE_MUIC_SWITCH)
 #include <linux/mfd/max77693-private.h>
@@ -1131,6 +1132,7 @@ static int m3_card_resume_post(struct snd_soc_card *card)
 {
 	struct snd_soc_codec *codec = card->rtd->codec;
 	struct wm8994_priv *wm8994 = snd_soc_codec_get_drvdata(codec);
+	int reg = 0;
 
 #ifdef CONFIG_SND_USE_LINEOUT_SWITCH
 	if (lineout_mode == 1 &&
@@ -1141,6 +1143,11 @@ static int m3_card_resume_post(struct snd_soc_card *card)
 		gpio_set_value(GPIO_VPS_SOUND_EN, 1);
 	}
 #endif
+	reg = snd_soc_read(codec, WM8994_GPIO_1);
+	if ((reg & WM8994_GPN_FN_MASK) != WM8994_GP_FN_IRQ) {
+		dev_err(codec->dev, "%s: GPIO1 type 0x%x\n", __func__, reg);
+		snd_soc_write(codec, WM8994_GPIO_1, WM8994_GP_FN_IRQ);
+	}
 #ifdef CONFIG_SEC_DEV_JACK
 	snd_soc_dapm_force_enable_pin(&codec->dapm, "AIF1CLK");
 #endif

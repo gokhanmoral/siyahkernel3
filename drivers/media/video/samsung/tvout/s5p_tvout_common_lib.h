@@ -59,10 +59,6 @@ do {								\
 
 #define HDMI_START_NUM 0x1000
 
-#ifdef CONFIG_CPU_EXYNOS4210
-#define CLOCK_GATING_ON_EARLY_SUSPEND
-#endif
-
 enum s5p_tvout_disp_mode {
 	TVOUT_NTSC_M = 0,
 	TVOUT_PAL_BDGHI,
@@ -275,4 +271,9 @@ extern void s5p_tvout_mutex_unlock(void);
 extern void s5p_hdmi_ctrl_phy_power_resume(void);
 #endif
 
+#if defined(CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE) &&\
+	!defined(CONFIG_SAMSUNG_MHL_9290)
+extern void call_sched_mhl_hpd_handler(void);
+extern int (*hpd_intr_state)(void);
+#endif
 #endif /* _S5P_TVOUT_COMMON_LIB_H_ */

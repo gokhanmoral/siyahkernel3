@@ -21,7 +21,7 @@
 #define L1_DESCRIPTOR_SIZE	SZ_16K
 
 /* Get Modified virtual address to use 1MB page */
-#define GET_MVA(V, P) ((V & 0xfff00000) | (P & 0x000fffff))
+#define GET_MVA(V, P) (/*(V & 0xfff00000) |*/ (P & 0x000fffff))
 
 /**
  * cache_opr - [kernel] cache operation mode

@@ -301,6 +301,7 @@ static struct exynos4_pmu_conf exynos4412_pmu_config[] = {
 	{ S5P_GPS_ALIVE_SYS,			{ 7, 0, 0 } },
 	{ S5P_CMU_SYSCLK_ISP_SYS,		{ 1, 0, 0 } },
 	{ S5P_CMU_SYSCLK_GPS_SYS,		{ 1, 0, 0 } },
+	{ S5P_LOGIC_RESET_DURATION3,	{ 0xf, 0xf, 0xf } },
 	{ S5P_XUSBXTI_SYS,			{ 1, 1, 0 } },
 };
 

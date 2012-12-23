@@ -72,7 +72,8 @@ static struct device_attribute factory_attrs[] = {
 	FACTORY_ATTR(batt_temp_adc_cal),
 	FACTORY_ATTR(auth_battery),
 
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)\
+	|| defined(CONFIG_MACH_T0_CHN_CTC)
 	FACTORY_ATTR(batt_temp_adc_spec),
 	FACTORY_ATTR(batt_sysrev),
 #endif
@@ -108,7 +109,8 @@ enum {
 	BATT_TEMP_ADC_CAL,
 	AUTH_BATTERY,
 
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)\
+	|| defined(CONFIG_MACH_T0_CHN_CTC)
 	BATT_TEMP_ADC_SPEC,
 	BATT_SYSREV,
 #endif
@@ -248,7 +250,8 @@ static ssize_t factory_show_property(struct device *dev,
 	case AUTH_BATTERY:
 		i += scnprintf(buf + i, PAGE_SIZE - i, "N/A\n");
 		break;
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)
+#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_MACH_M0_CTC)\
+	|| defined(CONFIG_MACH_T0_CHN_CTC)
 	case BATT_SYSREV:
 		val = system_rev;
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n", val);
@@ -519,7 +522,7 @@ int battery_info_proc(char *buf, char **start,
 		info->charge_start_time);
 	return len;
 }
-#elif defined(CONFIG_MACH_M0_CTC)
+#elif defined(CONFIG_MACH_M0_CTC) || defined(CONFIG_MACH_T0_CHN_CTC)
 int battery_info_proc(char *buf, char **start,
 			off_t offset, int count, int *eof, void *data)
 {

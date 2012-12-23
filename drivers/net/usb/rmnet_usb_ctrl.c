@@ -303,12 +303,14 @@ static int rmnet_usb_ctrl_start_rx(struct rmnet_ctrl_dev *dev)
 	struct usb_device *udev;
 	iface_num = dev->intf->cur_altsetting->desc.bInterfaceNumber;
 
+	dev->rx_stop_by_close = false;
 	udev = interface_to_usbdev(dev->intf);
 	usb_mark_last_busy(udev);
 	retval = usb_submit_urb(dev->inturb, GFP_KERNEL);
 	if (retval < 0)
 		dev_err(dev->devicep, "%s Intr submit %d\n", __func__, retval);
-	pr_info("[CHKRA:%d]>\n", iface_num);
+	else
+		pr_info("[CHKRA:%d]>\n", iface_num);
 
 	return retval;
 }
@@ -424,6 +426,23 @@ static void ctrl_write_callback(struct urb *urb)
 		usb_autopm_put_interface_async(dev->intf);
 }
 
+static int usb_anchor_len(struct usb_anchor *anchor)
+{
+	unsigned long flags;
+	struct urb *urb;
+	int len = 0;
+
+	spin_lock_irqsave(&anchor->lock, flags);
+	list_for_each_entry(urb, &anchor->urb_list, anchor_list) {
+		len++;
+	}
+	spin_unlock_irqrestore(&anchor->lock, flags);
+
+	pr_debug("%s:%d", __func__, len);
+
+	return len;
+}
+
 static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 		size_t size)
 {
@@ -431,26 +450,23 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 	struct urb		*sndurb;
 	struct usb_ctrlrequest	*out_ctlreq;
 	struct usb_device	*udev;
-	int			spin = 50;
 
 	if (!is_dev_connected(dev))
 		return -ENETRESET;
 
-	/* move it to mdm _hsic pm .c, check return code */
-	while (lpa_handling && spin--) {
-		pr_info("%s: lpa wake wait loop\n", __func__);
-		msleep(20);
+	/* check remain urb in tx anchor */
+	if (usb_anchor_len(&dev->tx_submitted) > 50) {
+		dev_err(dev->devicep, "remain tx exceed TX LIMIT\n");
+		mdm_force_fatal();
 	}
 
-	if (lpa_handling) {
-		pr_err("%s: in lpa wakeup, return EAGAIN\n", __func__);
+	/* wait till, LPA wake complete */
+	if (pm_dev_wait_lpa_wake() < 0)
 		return -EAGAIN;
-	}
 
-	DUMP_BUFFER("Write: ", size, buf);
-
-	udev = interface_to_usbdev(dev->intf);
-	usb_mark_last_busy(udev);
+	/* wait more 50ms if kernel is in resuming */
+	if (check_request_blocked(rmnet_pm_dev))
+		msleep(50);
 
 	sndurb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!sndurb) {
@@ -466,6 +482,9 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 		return -ENOMEM;
 	}
 
+	udev = interface_to_usbdev(dev->intf);
+	usb_mark_last_busy(udev);
+
 	/* CDC Send Encapsulated Request packet */
 	out_ctlreq->bRequestType = (USB_DIR_OUT | USB_TYPE_CLASS |
 			     USB_RECIP_INTERFACE);
@@ -478,6 +497,17 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 			     usb_sndctrlpipe(udev, 0),
 			     (unsigned char *)out_ctlreq, (void *)buf, size,
 			     ctrl_write_callback, dev);
+
+	/* if dev handling suspend wait for suspended or active*/
+	if (pm_dev_runtime_get_enabled(udev) < 0) {
+		kfree(buf);
+		usb_free_urb(sndurb);
+		kfree(out_ctlreq);
+		return -EAGAIN;
+	}
+	usb_mark_last_busy(udev);
+
+	DUMP_BUFFER("Write: ", size, buf);
 
 	result = usb_autopm_get_interface(dev->intf);
 	if (result < 0) {
@@ -523,9 +553,12 @@ static int rmnet_ctl_open(struct inode *inode, struct file *file)
 	int			retval = 0;
 	struct rmnet_ctrl_dev	*dev =
 		container_of(inode->i_cdev, struct rmnet_ctrl_dev, cdev);
+	struct usb_device	*udev;
 
 	if (!dev)
 		return -ENODEV;
+
+	atomic_inc(&dev->open_cnt);
 
 	if (dev->is_opened)
 		goto already_opened;
@@ -540,10 +573,12 @@ static int rmnet_ctl_open(struct inode *inode, struct file *file)
 		if (retval == 0) {
 			dev_err(dev->devicep, "%s: Timeout opening %s\n",
 						__func__, dev->name);
+			atomic_dec(&dev->open_cnt);
 			return -ETIMEDOUT;
 		} else if (retval < 0) {
 			dev_err(dev->devicep, "%s: Error waiting for %s\n",
 						__func__, dev->name);
+			atomic_dec(&dev->open_cnt);
 			return retval;
 		}
 	}
@@ -551,6 +586,7 @@ static int rmnet_ctl_open(struct inode *inode, struct file *file)
 	if (!dev->resp_available) {
 		dev_dbg(dev->devicep, "%s: Connection timedout opening %s\n",
 					__func__, dev->name);
+		atomic_dec(&dev->open_cnt);
 		return -ETIMEDOUT;
 	}
 
@@ -558,9 +594,13 @@ static int rmnet_ctl_open(struct inode *inode, struct file *file)
 	dev->is_opened = 1;
 	mutex_unlock(&dev->dev_lock);
 
-	file->private_data = dev;
+	udev = interface_to_usbdev(dev->intf);
+	if (dev->rx_stop_by_close &&
+				udev->dev.power.runtime_status == RPM_ACTIVE)
+		rmnet_usb_ctrl_start_rx(dev);
 
 already_opened:
+	file->private_data = dev;
 	DBG("%s: Open called for %s\n", __func__, dev->name);
 
 	return 0;
@@ -578,6 +618,12 @@ static int rmnet_ctl_release(struct inode *inode, struct file *file)
 
 	DBG("%s Called on %s device\n", __func__, dev->name);
 
+	if (!atomic_dec_and_test(&dev->open_cnt)) {
+		pr_debug("%s: %s open count = %d\n", __func__, dev->name,
+				atomic_read(&dev->open_cnt));
+		return 0;
+	}
+
 	spin_lock_irqsave(&dev->rx_lock, flag);
 	while (!list_empty(&dev->rx_list)) {
 		list_elem = list_first_entry(
@@ -592,6 +638,7 @@ static int rmnet_ctl_release(struct inode *inode, struct file *file)
 
 	mutex_lock(&dev->dev_lock);
 	dev->is_opened = 0;
+	dev->rx_stop_by_close = true;
 	mutex_unlock(&dev->dev_lock);
 
 	rmnet_usb_ctrl_stop_rx(dev);
@@ -888,7 +935,11 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 	dev->set_ctrl_line_state_cnt = 0;
 	dev->tx_ctrl_in_req_cnt = 0;
 	dev->tx_block = false;
+	dev->rx_stop_by_close = false;
 
+	/* give margin before send DTR high */
+	msleep(20);
+	pr_info("%s: send DTR high to Modem\n", __func__);
 	ret = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0),
 			USB_CDC_REQ_SET_CONTROL_LINE_STATE,
 			(USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE),
@@ -941,9 +992,12 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 
 	ctl_msg_dbg_mask = MSM_USB_CTL_DUMP_BUFFER;
 
-	dev->reset_notifier_block.notifier_call = rmnet_ctrl_reset_notifier;
-	blocking_notifier_chain_register(&mdm_reset_notifier_list,
+	if (!ret) {
+		dev->reset_notifier_block.notifier_call =
+						rmnet_ctrl_reset_notifier;
+		blocking_notifier_chain_register(&mdm_reset_notifier_list,
 						&dev->reset_notifier_block);
+	}
 
 	return ret;
 }
@@ -1099,6 +1153,7 @@ int rmnet_usb_ctrl_init(void)
 		init_waitqueue_head(&dev->open_wait_queue);
 		INIT_LIST_HEAD(&dev->rx_list);
 		init_usb_anchor(&dev->tx_submitted);
+		atomic_set(&dev->open_cnt, 0);
 
 		wake_lock_init(&dev->ctrl_wake, WAKE_LOCK_SUSPEND, dev->name);
 

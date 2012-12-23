@@ -633,6 +633,15 @@ config SEC_THERMISTOR
 	 U1 has two thermistors. this device driver use one of those
 	 to check system temperature.
 
+config SEC_SUBTHERMISTOR
+	bool "Use sub thermistor"
+	depends on SAMSUNG_DEV_ADC
+	default n
+	help
+	  Use sub thermistor driver.
+	  This device driver use only Japan model.
+	  Japan model has sub thermistors.
+
 config EXYNOS_SYSREG_PM
 	bool "PM Support for System Registers"
 	depends on CPU_EXYNOS4210 || CPU_EXYNOS4412 || CPU_EXYNOS4212
@@ -871,6 +880,9 @@ config MACH_Q1_BD
 	bool "Q1 Board"
 
 endchoice
+config TARGET_LOCALE_NAATT_TEMP
+        bool "Support North America GSM ATT Board"
+        default n
 
 config MACH_PX
 	bool "PX board"
@@ -952,7 +964,7 @@ config PANEL_U1_NA_SPR
 
 endchoice
 
-if MACH_U1 || MACH_C1 || MACH_M3 || MACH_M0 || MACH_P4 || MACH_P2 || MACH_P4NOTE || MACH_T0 || MACH_TRATS || MACH_GRANDE || MACH_GC1 || MACH_BAFFIN
+if MACH_U1 || MACH_C1 || MACH_M3 || MACH_M0 || MACH_P4 || MACH_P2 || MACH_P4NOTE || MACH_T0 || MACH_TRATS || MACH_GRANDE || MACH_GC1 || MACH_BAFFIN || MACH_P8
 source "arch/arm/mach-exynos/Kconfig.local"
 endif
 
@@ -1076,7 +1088,6 @@ config MACH_P4NOTE
 config MACH_GC1
 	bool "Galuxy Camera board"
 	select S3C_DEV_I2C4
-	select S3C_DEV_I2C5
 	select GC1_00_BD
 
 config MACH_T0
@@ -1130,6 +1141,8 @@ config IRON_BD
 
 config GRANDE_BD
 	bool "Grande common Board"
+
+
 
 config WRITEBACK_ENABLED
 	bool "Samsung Writeback Enable"
@@ -1712,9 +1725,20 @@ config SEC_MODEM_T0_TD_DUAL
 	select TDSCDMA_MODEM_SPRD8803
 	select LINK_DEVICE_SPI
 
+config SEC_MODEM_U1_SPR
+        bool "U1 with qsc6085"
+        select CDMA_MODEM_QSC6085
+        select LINK_DEVICE_DPRAM
+        select INTERNAL_MODEM_IF
+
 endchoice
 
 endif
+
+comment "Connectivity Feature"
+config GPS_BRCM_475X
+	bool "BRCM_475X_CHIPSET"
+	default n
 
 if BT
 config BT_CSR8811
@@ -1765,6 +1789,10 @@ config EMI_ERROR_RECOVERY
 	bool "unsuspected emi error recovery on HUB"
 	default n
 
+config SIM_DETECT
+	bool "support sim detect"
+	default n
+
 if QC_MODEM
 choice
 	prompt "QC MODEM CONFIG"
@@ -1804,3 +1832,8 @@ config CORESIGHT_ETM_DEFAULT_ENABLE
 	help
 	  Turns on ETM tracing by default. Otherwise, tracing is
 	  disabled by default but can be enabled by other means.
+
+config CPU_FREQ_TETHERING
+	bool "Lock cpu freq & bus clock when tethering mode turn on"
+	depends on QC_MODEM
+	default n

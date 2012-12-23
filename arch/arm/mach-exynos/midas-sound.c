@@ -187,6 +187,16 @@ static struct regulator_init_data wm1811_ldo2_initdata = {
 };
 
 static struct wm8994_drc_cfg drc_value[] = {
+#if defined(CONFIG_MACH_GC1)
+	{
+		.name = "AIF1DAC DRC -3 dB",
+		.regs[0] = 0x009C,
+		.regs[1] = 0x0845,
+		.regs[2] = 0x0000,
+		.regs[3] = 0x0004,
+		.regs[4] = 0x0000,
+	},
+#else
 	{
 		.name = "voice call DRC",
 		.regs[0] = 0x009B,
@@ -195,7 +205,9 @@ static struct wm8994_drc_cfg drc_value[] = {
 		.regs[3] = 0x0210,
 		.regs[4] = 0x0000,
 	},
-#if defined(CONFIG_MACH_C1_KOR_LGT)
+#endif
+
+#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN_KOR_LGT)
 	{
 		.name = "voice call DRC",
 		.regs[0] = 0x008c,
@@ -253,6 +265,8 @@ static struct wm8994_pdata wm1811_pdata = {
 	.micbias = {0x22, 0x22},
 #elif defined(CONFIG_MACH_C1_USA_ATT)
 	.micbias = {0x2f, 0x29},
+#elif defined(CONFIG_MACH_GC1)
+	.micbias = {0x2f, 0x2b},
 #else
 	.micbias = {0x2f, 0x27},
 #endif
@@ -297,7 +311,7 @@ static struct fm34_platform_data fm34_we395_pdata = {
 	.gpio_bp = GPIO_FM34_BYPASS,
 	.set_mclk = midas_snd_set_mclk,
 };
-#ifdef CONFIG_MACH_C1_KOR_LGT
+#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN_KOR_LGT)
 static struct fm34_platform_data fm34_we395_pdata_rev05 = {
 	.gpio_pwdn = GPIO_FM34_PWDN,
 	.gpio_rst = GPIO_FM34_RESET_05,
@@ -313,7 +327,7 @@ static struct i2c_board_info i2c_2mic[] __initdata = {
 	},
 };
 
-#if defined(CONFIG_MACH_C1_KOR_LGT)
+#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN_KOR_LGT)
 static struct i2c_gpio_platform_data gpio_i2c_fm34 = {
 	.sda_pin = GPIO_FM34_SDA,
 	.scl_pin = GPIO_FM34_SCL,
@@ -331,11 +345,16 @@ struct platform_device s3c_device_fm34 = {
 	defined(CONFIG_FM_SI4705_MODULE)
 static void fmradio_power(int on)
 {
+	int err;
 #if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M0_CTC)
 	gpio_set_value(si47xx_data.gpio_sw, GPIO_LEVEL_HIGH);
 #endif
 	if (on) {
-		gpio_request(GPIO_FM_INT, "GPC1");
+		err = gpio_request(GPIO_FM_INT, "GPC1");
+		if (err) {
+			pr_err(KERN_ERR "GPIO_FM_INT GPIO set error!\n");
+			return;
+		}
 		gpio_direction_output(GPIO_FM_INT, 1);
 		gpio_set_value(si47xx_data.gpio_rst, GPIO_LEVEL_LOW);
 		gpio_set_value(GPIO_FM_INT, GPIO_LEVEL_LOW);
@@ -431,7 +450,7 @@ static struct i2c_board_info i2c_2mic[] __initdata = {
 #endif
 
 static struct platform_device *midas_sound_devices[] __initdata = {
-#if defined(CONFIG_MACH_C1_KOR_LGT)
+#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN_KOR_LGT)
 #ifdef CONFIG_FM34_WE395
 	&s3c_device_fm34,
 #endif
@@ -471,6 +490,14 @@ void __init midas_sound_init(void)
 		i2c_register_board_info(I2C_NUM_CODEC, i2c_wm1811,
 						ARRAY_SIZE(i2c_wm1811));
 
+#elif defined(CONFIG_MACH_M3)
+		SET_PLATDATA_CODEC(NULL);
+		i2c_register_board_info(I2C_NUM_CODEC, i2c_wm1811,
+						ARRAY_SIZE(i2c_wm1811));
+#elif defined(CONFIG_MACH_BAFFIN)
+		SET_PLATDATA_CODEC(NULL);
+		i2c_register_board_info(I2C_NUM_CODEC, i2c_wm1811,
+						ARRAY_SIZE(i2c_wm1811));
 #else
 	if (system_rev != 3 && system_rev >= 0) {
 		SET_PLATDATA_CODEC(NULL);
@@ -486,6 +513,9 @@ void __init midas_sound_init(void)
 
 #if defined(CONFIG_MACH_C1_KOR_LGT)
 	if (system_rev > 5)
+		i2c_2mic[0].platform_data = &fm34_we395_pdata_rev05;
+#endif
+#if defined(CONFIG_MACH_BAFFIN_KOR_LGT)
 		i2c_2mic[0].platform_data = &fm34_we395_pdata_rev05;
 #endif
 
@@ -505,4 +535,3 @@ void __init midas_sound_init(void)
 #endif
 
 }
-

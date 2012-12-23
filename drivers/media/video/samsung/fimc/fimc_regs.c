@@ -374,6 +374,8 @@ int fimc_hwget_overflow_state(struct fimc_control *ctrl)
 	flag = S3C_CISTATUS_OVFIY | S3C_CISTATUS_OVFICB | S3C_CISTATUS_OVFICR;
 
 	if (status & flag) {
+		printk(KERN_INFO "FIMC%d overflow has occured status 0x%x\n",
+				ctrl->id, status);
 		cfg = readl(ctrl->regs + S3C_CIWDOFST);
 		cfg |= (S3C_CIWDOFST_CLROVFIY | S3C_CIWDOFST_CLROVFICB |
 			S3C_CIWDOFST_CLROVFICR);

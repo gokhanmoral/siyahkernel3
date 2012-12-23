@@ -353,6 +353,7 @@ static struct dpram_ipc_map msm_ipc_map;
 
 static struct modemlink_dpram_control msm_edpram_ctrl = {
 	.dp_type = EXT_DPRAM,
+	.disabled = true,
 
 	.dpram_irq = MSM_DPRAM_INT_IRQ,
 	.dpram_irq_flags = IRQF_TRIGGER_FALLING,
@@ -390,15 +391,15 @@ static struct modem_io_t cdma_io_devices[] = {
 		.links = LINKTYPE(LINKDEV_PLD),
 	},
 	[2] = {
-		.name = "umts_ipc0",
-		.id = 0x01,
+		.name = "cdma_ipc0",
+		.id = 0x00,
 		.format = IPC_FMT,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_PLD),
 	},
 	[3] = {
-		.name = "cdma_ipc0",
-		.id = 0x00,
+		.name = "umts_ipc0",
+		.id = 0x01,
 		.format = IPC_FMT,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_PLD),
@@ -541,15 +542,15 @@ static struct modem_io_t cdma_io_devices[] = {
 		.links = LINKTYPE(LINKDEV_DPRAM),
 	},
 	[2] = {
-		.name = "umts_ipc0",
-		.id = 0x01,
+		.name = "cdma_ipc0",
+		.id = 0x00,
 		.format = IPC_FMT,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
 	},
 	[3] = {
-		.name = "cdma_ipc0",
-		.id = 0x00,
+		.name = "umts_ipc0",
+		.id = 0x01,
 		.format = IPC_FMT,
 		.io_type = IODEV_MISC,
 		.links = LINKTYPE(LINKDEV_DPRAM),
@@ -720,7 +721,11 @@ static struct modem_data cdma_modem_data = {
 	.link_name = "mdm6600_edpram",
 	.dpram_ctl = &msm_edpram_ctrl,
 
+#if defined(CONFIG_MACH_M0_CTC) && !defined(CONFIG_GSM_MODEM_ESC6270)
 	.ipc_version = SIPC_VER_42,
+#else
+	.ipc_version = SIPC_VER_41,
+#endif
 
 	.num_iodevs = ARRAY_SIZE(cdma_io_devices),
 	.iodevs = cdma_io_devices,
@@ -1265,6 +1270,7 @@ static struct sromc_access_cfg gsm_edpram_access_cfg[] = {
 
 static struct modemlink_dpram_control gsm_edpram_ctrl = {
 	.dp_type = EXT_DPRAM,
+	.disabled = true,
 
 	.dpram_irq = ESC_DPRAM_INT_IRQ,
 	.dpram_irq_flags = IRQF_TRIGGER_FALLING,
@@ -2235,6 +2241,7 @@ static int host_port_enable(int port, int enable)
 			goto exit;
 		}
 
+#if !defined(CONFIG_MACH_GRANDE) && !defined(CONFIG_MACH_M0_DUOSCTC)
 		gpio_direction_output(GPIO_USB_BOOT_EN, 0);
 		s3c_gpio_setpull(GPIO_USB_BOOT_EN, S3C_GPIO_PULL_NONE);
 		gpio_set_value(GPIO_USB_BOOT_EN, 0);
@@ -2312,6 +2319,7 @@ static int host_port_enable(int port, int enable)
 			gpio_set_value(GPIO_BOOT_SW_SEL_REV06, 1);
 
 		}
+#endif
 
 	}
 

@@ -1904,6 +1904,20 @@ int mfc_init_decoding(struct mfc_inst_ctx *ctx, union mfc_args *args)
 	}
 #endif
 
+#if defined(CONFIG_MACH_GC1) && defined(CONFIG_EXYNOS4_CPUFREQ)
+	if ((ctx->width >= 1280 && ctx->height >= 720)
+		|| (ctx->width >= 720 && ctx->height >= 1280)) {
+		if (atomic_read(&ctx->dev->cpufreq_lock_cnt) == 0) {
+			if (0 == ctx->dev->cpufreq_level) /* 800MHz */
+				exynos_cpufreq_get_level(800000, &ctx->dev->cpufreq_level);
+			exynos_cpufreq_lock(DVFS_LOCK_ID_MFC, ctx->dev->cpufreq_level);
+			mfc_dbg("[%s] CPU Freq Locked 800MHz!\n", __func__);
+		}
+		atomic_inc(&ctx->dev->cpufreq_lock_cnt);
+		ctx->cpufreq_flag = true;
+	}
+#endif
+
 #if defined(CONFIG_CPU_EXYNOS4210) && defined(CONFIG_EXYNOS4_CPUFREQ)
 	if ((ctx->width >= 1280 && ctx->height >= 720)
 		|| (ctx->width >= 720 && ctx->height >= 1280)) {

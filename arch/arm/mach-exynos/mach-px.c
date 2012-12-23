@@ -1520,6 +1520,7 @@ static struct s5k5bafx_platform_data s5k5bafx_plat = {
 	.freq = 24000000,
 	.is_mipi = 1,
 	.streamoff_delay = S5K5BAFX_STREAMOFF_DELAY,
+	.init_streamoff = false,
 	.dbg_level = CAMDBG_LEVEL_DEFAULT,
 };
 #define FRONT_CAM_PLAT		(s5k5bafx_plat)
@@ -2197,9 +2198,7 @@ static struct s3c_sdhci_platdata exynos4_hsmmc3_pdata __initdata = {
 	.cd_type = S3C_SDHCI_CD_EXTERNAL,
 	.clk_type = S3C_SDHCI_CLK_DIV_EXTERNAL,
 	.host_caps = MMC_CAP_4_BIT_DATA,
-#if defined(CONFIG_MACH_P8LTE)
 	.pm_flags = S3C_SDHCI_PM_IGNORE_SUSPEND_RESUME,
-#endif
 #ifdef CONFIG_MACH_PX
 	.ext_cd_init = register_wlan_status_notify,
 	.ext_pdev = register_wlan_pdev
@@ -3049,16 +3048,16 @@ static struct mpu3050_platform_data mpu3050_pdata = {
 	 * So X & Y are swapped and Y is negated.
 	 */
 #if defined(CONFIG_MACH_P8)
-	.orientation = {0, 1, 0,
-			1, 0, 0,
+	.orientation = {1, 0, 0,
+			0, -1, 0,
 			0, 0, -1},
 #elif defined(CONFIG_MACH_P8LTE)
 	.orientation = {0, -1, 0,
 			1, 0, 0,
 			0, 0, 1},
 #elif defined(CONFIG_MACH_P2)
-	.orientation = {0, 1, 0,
-			1, 0, 0,
+	.orientation = {1, 0, 0,
+			0, -1, 0,
 			0, 0, -1},
 #elif defined(CONFIG_MACH_P4)
 	.orientation = {1 , 0, 0,
@@ -3081,16 +3080,16 @@ static struct mpu3050_platform_data mpu3050_pdata = {
 		 * So X & Y are both negated.
 		 */
 #if defined(CONFIG_MACH_P8)
-		.orientation = {0, 1, 0,
-				1, 0, 0,
+		.orientation = {1, 0, 0,
+				0, -1, 0,
 				0, 0, -1},
 #elif defined(CONFIG_MACH_P8LTE)
 		.orientation = {0, 1, 0,
 				-1, 0, 0,
 				0, 0, 1},
 #elif defined(CONFIG_MACH_P2)
-		.orientation = {0, 1, 0,
-				1, 0, 0,
+		.orientation = {1, 0, 0,
+				0, -1, 0,
 				0, 0, -1},
 #elif defined(CONFIG_MACH_P4)
 		.orientation = {0, -1, 0,
@@ -3113,8 +3112,8 @@ static struct mpu3050_platform_data mpu3050_pdata = {
 		 * 90 degrees clockwise from natural orientation.
 		 * So X & Y are swapped and Y & Z are negated.
 		 */
-		.orientation = {0, -1, 0,
-				1, 0, 0,
+		.orientation = {1, 0, 0,
+				0, 1, 0,
 				0, 0, 1},
 	},
 
@@ -4327,7 +4326,7 @@ static u8 t8_config_e[] = { GEN_ACQUISITIONCONFIG_T8,
 };
 
 static u8 t9_config_e[] = { TOUCH_MULTITOUCHSCREEN_T9,
-	139, 0, 0, 24, 32, 0, 176, MXT768E_THRESHOLD_BATT, 2, 1,
+	139, 0, 0, 24, 32, 0, 176, MXT768E_THRESHOLD_BATT, 2, 2,
 	10, 10, 1, 13, MXT768E_MAX_MT_FINGERS, 20, 40, 20, 31, 3,
 	255, 4, MXT768E_XLOCLIP_BATT, MXT768E_XHICLIP_BATT,
 	MXT768E_YLOCLIP_BATT, MXT768E_YHICLIP_BATT,
@@ -4444,9 +4443,9 @@ static struct mxt_platform_data mxt_data = {
 	.gpio_read_done = GPIO_TSP_INT_18V,
 	.config = mxt768e_config,
 	.min_x = 0,
-	.max_x = 1279,
+	.max_x = 799,
 	.min_y = 0,
-	.max_y = 799,
+	.max_y = 1279,
 	.min_z = 0,
 	.max_z = 255,
 	.min_w = 0,
@@ -6414,6 +6413,7 @@ if (system_rev >= 4)
 		acc_en_token |= (1 << token);
 		enable = true;
 		gpio_direction_output(gpio_acc_en, 1);
+		usleep_range(2000, 2000);
 
 		if (0 != gpio_acc_5v) {
 			gpio_request(gpio_acc_5v, "gpio_acc_5v");
@@ -6474,6 +6474,16 @@ static int check_sec_keyboard_dock(bool attached)
 	return 0;
 }
 
+/* call 30pin func. from sec_keyboard */
+static struct sec_30pin_callbacks *s30pin_callbacks;
+static int noti_sec_univ_kbd_dock(unsigned int code)
+{
+	if (s30pin_callbacks && s30pin_callbacks->noti_univ_kdb_dock)
+		return s30pin_callbacks->
+			noti_univ_kdb_dock(s30pin_callbacks, code);
+	return 0;
+}
+
 static void check_uart_path(bool en)
 {
 	int gpio_uart_sel;
@@ -6501,6 +6511,11 @@ static void check_uart_path(bool en)
 		gpio_get_value(gpio_uart_sel));
 }
 
+static void sec_30pin_register_cb(struct sec_30pin_callbacks *cb)
+{
+	 s30pin_callbacks = cb;
+}
+
 static void sec_keyboard_register_cb(struct sec_keyboard_callbacks *cb)
 {
 	keyboard_callbacks = cb;
@@ -6511,6 +6526,7 @@ static struct sec_keyboard_platform_data kbd_pdata = {
 	.acc_power = smdk_accessory_power,
 	.check_uart_path = check_uart_path,
 	.register_cb = sec_keyboard_register_cb,
+	.noti_univ_kbd_dock = noti_sec_univ_kbd_dock,
 	.wakeup_key = NULL,
 };
 
@@ -6636,6 +6652,7 @@ struct acc_con_platform_data acc_con_pdata = {
 #ifdef CONFIG_SEC_KEYBOARD_DOCK
 	.check_keyboard = check_sec_keyboard_dock,
 #endif
+	.register_cb = sec_30pin_register_cb,
 	.accessory_irq_gpio = GPIO_ACCESSORY_INT,
 	.dock_irq_gpio = GPIO_DOCK_INT,
 #ifdef CONFIG_MHL_SII9234

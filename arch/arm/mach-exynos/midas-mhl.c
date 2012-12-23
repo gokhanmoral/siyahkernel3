@@ -15,6 +15,10 @@
 #include "midas.h"
 #include <plat/udc-hs.h>
 
+#ifdef	CONFIG_MACH_M3_USA_TMO
+#define	CONFIG_USE_HPD_EN
+#endif
+
 /*Event of receiving*/
 #define PSY_BAT_NAME "battery"
 /*Event of sending*/
@@ -23,6 +27,7 @@
 #ifdef CONFIG_SAMSUNG_MHL
 static void sii9234_cfg_gpio(void)
 {
+	int ret;
 	printk(KERN_INFO "%s()\n", __func__);
 
 	/* AP_MHL_SDA */
@@ -38,7 +43,11 @@ static void sii9234_cfg_gpio(void)
 	irq_set_irq_type(MHL_WAKEUP_IRQ, IRQ_TYPE_EDGE_RISING);
 	s3c_gpio_setpull(GPIO_MHL_WAKE_UP, S3C_GPIO_PULL_DOWN);
 
-	gpio_request(GPIO_MHL_INT, "MHL_INT");
+	ret = gpio_request(GPIO_MHL_INT, "MHL_INT");
+	if (unlikely(ret)) {
+		pr_err("[ERROR] %s(): failed on gpio_request()!\n", __func__);
+		return;
+	}
 	s5p_register_gpio_interrupt(GPIO_MHL_INT);
 	s3c_gpio_setpull(GPIO_MHL_INT, S3C_GPIO_PULL_DOWN);
 	irq_set_irq_type(MHL_INT_IRQ, IRQ_TYPE_EDGE_RISING);
@@ -60,6 +69,12 @@ static void sii9234_cfg_gpio(void)
 	gpio_set_value(GPIO_MHL_SEL, GPIO_LEVEL_LOW);
 #endif
 #endif
+
+#ifdef	CONFIG_USE_HPD_EN
+	s3c_gpio_cfgpin(GPIO_HDMI_HPD_EN, S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(GPIO_HDMI_HPD_EN, S3C_GPIO_PULL_NONE);
+	gpio_set_value(GPIO_HDMI_HPD_EN, GPIO_LEVEL_LOW);
+#endif
 }
 
 static void sii9234_power_onoff(bool on)
@@ -75,6 +90,10 @@ static void sii9234_power_onoff(bool on)
 		s3c_gpio_setpull(GPIO_MHL_SCL_1_8V, S3C_GPIO_PULL_DOWN);
 		s3c_gpio_setpull(GPIO_MHL_SCL_1_8V, S3C_GPIO_PULL_NONE);
 
+#ifdef	CONFIG_USE_HPD_EN
+		gpio_set_value(GPIO_HDMI_HPD_EN, GPIO_LEVEL_HIGH);
+#endif
+
 		/* sii9234_unmaks_interrupt(); // - need to add */
 		/* VCC_SUB_2.0V is always on */
 	} else {
@@ -88,6 +107,10 @@ static void sii9234_power_onoff(bool on)
 		gpio_set_value(GPIO_HDMI_EN, GPIO_LEVEL_LOW);
 
 		gpio_set_value(GPIO_MHL_RST, GPIO_LEVEL_LOW);
+
+#ifdef	CONFIG_USE_HPD_EN
+		gpio_set_value(GPIO_HDMI_HPD_EN, GPIO_LEVEL_LOW);
+#endif
 	}
 }
 

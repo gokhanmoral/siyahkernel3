@@ -21,6 +21,14 @@
 #include <linux/platform_device.h>
 #include <linux/mfd/s5m87xx/s5m-core.h>
 #include <linux/mfd/s5m87xx/s5m-rtc.h>
+#if defined(CONFIG_RTC_ALARM_BOOT)
+#include <linux/reboot.h>
+#endif
+
+
+#if defined(CONFIG_RTC_POWER_OFF)
+extern bool fake_shut_down;
+#endif
 
 struct s5m_rtc_info {
 	struct device		*dev;
@@ -31,10 +39,14 @@ struct s5m_rtc_info {
 	int irq;
 #if defined(CONFIG_RTC_POWER_OFF)
 	int irq2;
+	bool fake_pwr_off;
+#elif defined(CONFIG_RTC_ALARM_BOOT)
+	int irq2;
 #endif
 	int device_type;
 	int rtc_24hr_mode;
 	bool wtsr_smpl;
+	bool alarm_enabled;
 };
 
 static inline int s5m8767_rtc_calculate_wday(u8 shifted)
@@ -96,14 +108,15 @@ static inline int s5m8767_rtc_set_time_reg(struct s5m_rtc_info *info)
 		return ret;
 
 	data |= RTC_TIME_EN_MASK;
-	data |= RTC_UDR_MASK;
+	data |= (RTC_UDR_MASK | RTC_UDR_T_MASK);
+	data &= ~RTC_TEST_OSC_MASK;
 
 	ret = s5m_reg_write(info->rtc, S5M87XX_RTC_UDR_CON, data);
 	if (ret < 0)
 		dev_err(info->dev, "%s: fail to write update reg(%d)\n",
 			__func__, ret);
 	else
-		msleep(20);
+		usleep_range(1000, 1000);
 
 	return ret;
 }
@@ -118,16 +131,18 @@ static inline int s5m8767_rtc_set_alarm_reg(struct s5m_rtc_info *info)
 		return ret;
 
 	data &= ~RTC_TIME_EN_MASK;
-	data |= RTC_UDR_MASK;
+	data |= (RTC_UDR_MASK | RTC_UDR_T_MASK);
+	data &= ~RTC_TEST_OSC_MASK;
 
 	ret = s5m_reg_write(info->rtc, S5M87XX_RTC_UDR_CON, data);
+
 	if (ret < 0) {
 		dev_err(info->dev, "%s: fail to write update reg(%d)\n",
 				__func__, ret);
-	} else {
-		msleep(20);
-	}
-
+	} else if (fake_shut_down) {
+		mdelay(1);
+	} else
+		usleep_range(1000, 1000);
 	return ret;
 }
 
@@ -203,7 +218,7 @@ static int s5m_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
 	struct s5m_rtc_info *info = dev_get_drvdata(dev);
 	u8 data[8];
-	int ret;
+	int ret, i;
 
 	switch (info->device_type) {
 	case S5M8763X:
@@ -226,7 +241,8 @@ static int s5m_rtc_set_time(struct device *dev, struct rtc_time *tm)
         if (ret < 0)
 		goto out;
 
-	ret = s5m8767_rtc_set_time_reg(info);
+	for (i = 0; i < 2; i++)
+		ret = s5m8767_rtc_set_time_reg(info);
 
 out:
 	mutex_unlock(&info->lock);
@@ -303,8 +319,14 @@ static int s5m_rtc_stop_alarm(struct s5m_rtc_info *info)
 	int ret, i;
 	struct rtc_time tm;
 
-	if (!mutex_is_locked(&info->lock))
+#if defined(CONFIG_RTC_POWER_OFF)
+	if (info->fake_pwr_off)
+		return 0;
+#endif
+	if (!mutex_is_locked(&info->lock)) {
 		dev_warn(info->dev, "%s: should have mutex locked\n", __func__);
+		return -EPERM;
+	}
 
 	ret = s5m_bulk_read(info->rtc, S5M87XX_ALARM0_SEC, 8, data);
 	if (ret < 0)
@@ -336,18 +358,22 @@ static int s5m_rtc_stop_alarm(struct s5m_rtc_info *info)
 		return -EINVAL;
 	}
 
+	info->alarm_enabled = false;
+
 	return ret;
 }
 
-#if defined(CONFIG_RTC_POWER_OFF)
+#if defined(CONFIG_RTC_POWER_OFF) || defined(CONFIG_RTC_ALARM_BOOT)
 static int s5m_rtc_stop_alarm_poweroff(struct s5m_rtc_info *info)
 {
 	u8 data[8];
 	int ret, i;
 	struct rtc_time tm;
 
-	if (!mutex_is_locked(&info->lock))
+	if (!mutex_is_locked(&info->lock)) {
 		dev_warn(info->dev, "%s: should have mutex locked\n", __func__);
+		return -EPERM;
+	}
 
 	ret = s5m_bulk_read(info->rtc, S5M87XX_ALARM1_SEC, 8, data);
 	if (ret < 0)
@@ -390,8 +416,14 @@ static int s5m_rtc_start_alarm(struct s5m_rtc_info *info)
 	u8 alarm0_conf;
 	struct rtc_time tm;
 
-	if (!mutex_is_locked(&info->lock))
+#if defined(CONFIG_RTC_POWER_OFF)
+	if (info->fake_pwr_off)
+		return 0;
+#endif
+	if (!mutex_is_locked(&info->lock)) {
 		dev_warn(info->dev, "%s: should have mutex locked\n", __func__);
+		return -EPERM;
+	}
 
 	ret = s5m_bulk_read(info->rtc, S5M87XX_ALARM0_SEC, 8, data);
 	if (ret < 0)
@@ -431,10 +463,12 @@ static int s5m_rtc_start_alarm(struct s5m_rtc_info *info)
 		return -EINVAL;
 	}
 
+	info->alarm_enabled = true;
+
 	return ret;
 }
 
-#if defined(CONFIG_RTC_POWER_OFF)
+#if defined(CONFIG_RTC_POWER_OFF) || defined(CONFIG_RTC_ALARM_BOOT)
 static int s5m_rtc_start_alarm_poweroff(struct s5m_rtc_info *info)
 {
 	int ret;
@@ -442,8 +476,10 @@ static int s5m_rtc_start_alarm_poweroff(struct s5m_rtc_info *info)
 	u8 alarm0_conf;
 	struct rtc_time tm;
 
-	if (!mutex_is_locked(&info->lock))
+	if (!mutex_is_locked(&info->lock)) {
 		dev_warn(info->dev, "%s: should have mutex locked\n", __func__);
+		return -EPERM;
+	}
 
 	ret = s5m_bulk_read(info->rtc, S5M87XX_ALARM1_SEC, 8, data);
 	if (ret < 0)
@@ -654,12 +690,148 @@ static irqreturn_t s5m_rtc_alarm_irq(int irq, void *data)
 static irqreturn_t s5m_rtc_alarm2_irq(int irq, void *data)
 {
 	struct s5m_rtc_info *info = data;
+	char temp_buf[30];
+	char *envp[2];
+
+	snprintf(temp_buf, sizeof(temp_buf), "PMEVENT=AutoPowerOff");
+	envp[0] = temp_buf;
+	envp[1] = NULL;
+
+	dev_info(info->dev, "%s: uevent: %s\n", __func__, temp_buf);
+	kobject_uevent_env(&info->dev->kobj, KOBJ_CHANGE, envp);
+
+	return IRQ_HANDLED;
+}
+
+static int s5m_rtc_alarm_enable(struct device *dev, int enable)
+{
+	struct s5m_rtc_info *info = dev_get_drvdata(dev);
+	int ret = 0;
+
+	mutex_lock(&info->lock);
+	if (enable) {
+		info->fake_pwr_off = false;
+		if (info->alarm_enabled)
+			ret = s5m_rtc_start_alarm(info);
+	} else {
+		if (!info->alarm_enabled)
+			ret = s5m_rtc_stop_alarm(info);
+		info->fake_pwr_off = true;
+	}
+	mutex_unlock(&info->lock);
+
+	return ret;
+}
+#elif defined(CONFIG_RTC_ALARM_BOOT)
+static irqreturn_t s5m_rtc_alarm2_irq(int irq, void *data)
+{
+	struct s5m_rtc_info *info = data;
+	char temp_buf[30];
+	char *envp[2];
+
+	snprintf(temp_buf, sizeof(temp_buf), "PMEVENT=AutoPowerOff");
+	envp[0] = temp_buf;
+	envp[1] = NULL;
+
+	if (lpcharge == 1)
+		kernel_restart(NULL);
 
 	rtc_update_irq(info->rtc_dev, 1, RTC_IRQF | RTC_AF);
 
-	pr_info("%s called", __func__);
-
 	return IRQ_HANDLED;
+}
+#endif
+
+
+#if defined(CONFIG_RTC_ALARM_BOOT)
+static int s5m_rtc_set_alarm_boot(struct device *dev,
+				      struct rtc_wkalrm *alrm)
+{
+	struct s5m_rtc_info *info = dev_get_drvdata(dev);
+	u8 data[8];
+	int ret;
+
+	switch (info->device_type) {
+	case S5M8763X:
+		if (alrm->enabled) {
+			data[RTC_SEC] = bin2bcd(alrm->time.tm_sec);
+			data[RTC_MIN] = bin2bcd(alrm->time.tm_min);
+			data[RTC_HOUR] = bin2bcd(alrm->time.tm_hour);
+			data[RTC_WEEKDAY] = 0;
+			data[RTC_DATE] = bin2bcd(alrm->time.tm_mday);
+			data[RTC_MONTH] = bin2bcd(alrm->time.tm_mon);
+			data[RTC_YEAR1] = bin2bcd(alrm->time.tm_year % 100);
+			data[RTC_YEAR2] =
+				bin2bcd((alrm->time.tm_year + 1900) / 100);
+		} else {
+			data[RTC_SEC] = 0;
+			data[RTC_MIN] = 0;
+			data[RTC_HOUR] = 0;
+			data[RTC_WEEKDAY] = 0;
+			data[RTC_DATE] = 1;
+			data[RTC_MONTH] = 0;
+			data[RTC_YEAR1] = 0;
+			data[RTC_YEAR2] = 0;
+		}
+		break;
+
+	case S5M8767X:
+		if (alrm->enabled) {
+			data[RTC_SEC] = alrm->time.tm_sec;
+			data[RTC_MIN] = alrm->time.tm_min;
+			if (alrm->time.tm_hour >= 12)
+				data[RTC_HOUR] =
+					alrm->time.tm_hour | HOUR_PM_MASK;
+			else
+				data[RTC_HOUR] =
+					alrm->time.tm_hour & ~HOUR_PM_MASK;
+			data[RTC_WEEKDAY] = 1 << alrm->time.tm_wday;
+			data[RTC_DATE] = alrm->time.tm_mday;
+			data[RTC_MONTH] = alrm->time.tm_mon + 1;
+			data[RTC_YEAR1] = alrm->time.tm_year % 100;
+			data[RTC_YEAR2] =
+				bin2bcd((alrm->time.tm_year + 1900) / 100);
+		} else {
+			data[RTC_SEC] = 0;
+			data[RTC_MIN] = 0;
+			data[RTC_HOUR] = 0;
+			data[RTC_WEEKDAY] = 0;
+			data[RTC_DATE] = 1;
+			data[RTC_MONTH] = 0;
+			data[RTC_YEAR1] = 0;
+			data[RTC_YEAR2] = 0;
+		}
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	printk(KERN_INFO "%s: %d/%d/%d %d:%d:%d(%d)\n", __func__,
+		1900 + alrm->time.tm_year, 1 + alrm->time.tm_mon,
+		alrm->time.tm_mday, alrm->time.tm_hour, alrm->time.tm_min,
+		alrm->time.tm_sec, alrm->time.tm_wday);
+
+	mutex_lock(&info->lock);
+
+	ret = s5m_rtc_stop_alarm_poweroff(info);
+	if (ret < 0)
+		goto out;
+
+	ret = s5m_bulk_write(info->rtc, S5M87XX_ALARM1_SEC, 8, data);
+	if (ret < 0)
+		goto out;
+
+	ret = s5m8767_rtc_set_alarm_reg(info);
+	if (ret < 0)
+		goto out;
+
+	if (alrm->enabled)
+		ret = s5m_rtc_start_alarm_poweroff(info);
+out:
+	mutex_unlock(&info->lock);
+	return ret;
+
 }
 #endif
 
@@ -670,7 +842,12 @@ static const struct rtc_class_ops s5m_rtc_ops = {
 	.set_alarm = s5m_rtc_set_alarm,
 #if defined(CONFIG_RTC_POWER_OFF)
 	.set_alarm_poweroff = s5m_rtc_set_alarm_poweroff,
+	.set_alarm_enable = s5m_rtc_alarm_enable,
 #endif
+#if defined(CONFIG_RTC_ALARM_BOOT)
+	.set_alarm_boot = s5m_rtc_set_alarm_boot,
+#endif
+
 	.alarm_irq_enable = s5m_rtc_alarm_irq_enable,
 };
 
@@ -731,7 +908,7 @@ static int s5m8767_rtc_init_reg(struct s5m_rtc_info *info)
 	u8 data[2], tp_read;
 	int ret;
 	struct rtc_time tm;
-#if defined(CONFIG_RTC_POWER_OFF)
+#if defined(CONFIG_RTC_POWER_OFF) || defined(CONFIG_RTC_ALARM_BOOT)
 	u8 data_alm2[8];
 
 	ret = s5m_bulk_read(info->rtc, S5M87XX_ALARM1_SEC, 8, data_alm2);
@@ -807,14 +984,14 @@ static int __devinit s5m_rtc_probe(struct platform_device *pdev)
 	switch (pdata->device_type) {
 	case S5M8763X:
 		info->irq = s5m87xx->irq_base + S5M8763_IRQ_ALARM0;
-#if defined(CONFIG_RTC_POWER_OFF)
+#if defined(CONFIG_RTC_POWER_OFF) || defined(CONFIG_RTC_ALARM_BOOT)
 		info->irq2 = s5m87xx->irq_base + S5M8763_IRQ_ALARM1;
 #endif
 		break;
 
 	case S5M8767X:
 		info->irq = s5m87xx->irq_base + S5M8767_IRQ_RTCA1;
-#if defined(CONFIG_RTC_POWER_OFF)
+#if defined(CONFIG_RTC_POWER_OFF) || defined(CONFIG_RTC_ALARM_BOOT)
 		info->irq2 = s5m87xx->irq_base + S5M8767_IRQ_RTCA2;
 #endif
 		break;
@@ -851,7 +1028,7 @@ static int __devinit s5m_rtc_probe(struct platform_device *pdev)
 	if (ret < 0)
 		dev_err(&pdev->dev, "Failed to request alarm IRQ: %d: %d\n",
 			info->irq, ret);
-#if defined(CONFIG_RTC_POWER_OFF)
+#if defined(CONFIG_RTC_POWER_OFF) || defined(CONFIG_RTC_ALARM_BOOT)
 	ret = request_threaded_irq(info->irq2, NULL, s5m_rtc_alarm2_irq, 0,
 			"rtc-alarm0", info);
 
@@ -875,7 +1052,7 @@ static int __devexit s5m_rtc_remove(struct platform_device *pdev)
 
 	if (info) {
 		free_irq(info->irq, info);
-#if defined(CONFIG_RTC_POWER_OFF)
+#if defined(CONFIG_RTC_POWER_OFF) || defined(CONFIG_RTC_ALARM_BOOT)
 		free_irq(info->irq2, info);
 #endif
 		rtc_device_unregister(info->rtc_dev);
@@ -912,13 +1089,15 @@ static const struct platform_device_id s5m_rtc_id[] = {
 };
 
 #if defined(CONFIG_RTC_POWER_OFF)
-extern bool fake_shut_down;
 
 static int s5m_rtc_resume(struct device *dev)
 {
 	struct s5m_rtc_info *info = dev_get_drvdata(dev);
 	int ret;
+
+	mutex_lock(&info->lock);
 	ret = s5m_rtc_stop_alarm_poweroff(info);
+	mutex_unlock(&info->lock);
 
 	return ret;
 }

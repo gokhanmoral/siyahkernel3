@@ -88,6 +88,7 @@ struct lcd_info {
 	unsigned int			bl;
 	unsigned int			auto_brightness;
 	unsigned int			acl_enable;
+	unsigned int			siop_enable;
 	unsigned int			current_acl;
 	unsigned int			current_bl;
 	unsigned int			current_elvss;
@@ -532,9 +533,13 @@ static int s6e8ax0_set_acl(struct lcd_info *lcd, u8 force)
 		break;
 	}
 
+	if (lcd->siop_enable)
+		goto acl_update;
+
 	if (!lcd->acl_enable)
 		level = ACL_STATUS_0P;
 
+acl_update:
 	enable = !!level;
 
 	//if (force || lcd->acl_enable != enable) {
@@ -820,7 +825,11 @@ static int init_aid_dimming_table(struct lcd_info *lcd)
 	}
 
 	for (i = 0; i < GAMMA_MAX; i++) {
+#if defined(CONFIG_LCD_REVERSE)
+		memcpy(lcd->f8[i], SEQ_REVERSE_PANEL_CONDITION_SET_500MBPS, AID_PARAM_SIZE);
+#else
 		memcpy(lcd->f8[i], SEQ_PANEL_CONDITION_SET_500MBPS, AID_PARAM_SIZE);
+#endif
 		lcd->f8[i][0x12] = aid_command_table[i][0];
 		lcd->f8[i][0x01] = aid_command_table[i][1];
 	}
@@ -938,8 +947,13 @@ static int s6e8ax0_ldi_init(struct lcd_info *lcd)
 
 	/* 4.8" HD for M0/C1*/
 	if (lcd->id[1] == 0x20 || lcd->id[1] == 0x40 || lcd->id[1] == 0x60) {
+#if defined(CONFIG_LCD_REVERSE)
+		s6e8ax0_write(lcd, SEQ_REVERSE_PANEL_CONDITION_SET_500MBPS,\
+			ARRAY_SIZE(SEQ_REVERSE_PANEL_CONDITION_SET_500MBPS));
+#else
 		s6e8ax0_write(lcd, SEQ_PANEL_CONDITION_SET_500MBPS,\
 			ARRAY_SIZE(SEQ_PANEL_CONDITION_SET_500MBPS));
+#endif
 		s6e8ax0_write(lcd, SEQ_DISPLAY_CONDITION_SET, ARRAY_SIZE(SEQ_DISPLAY_CONDITION_SET));
 		s6e8ax0_gamma_ctl(lcd);
 		s6e8ax0_write(lcd, SEQ_ETC_SOURCE_CONTROL, ARRAY_SIZE(SEQ_ETC_SOURCE_CONTROL));
@@ -1159,6 +1173,43 @@ static ssize_t power_reduce_store(struct device *dev,
 
 static DEVICE_ATTR(power_reduce, 0664, power_reduce_show, power_reduce_store);
 
+static ssize_t siop_enable_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct lcd_info *lcd = dev_get_drvdata(dev);
+	char temp[3];
+
+	sprintf(temp, "%d\n", lcd->siop_enable);
+	strcpy(buf, temp);
+
+	return strlen(buf);
+}
+
+static ssize_t siop_enable_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct lcd_info *lcd = dev_get_drvdata(dev);
+	int value;
+	int rc;
+
+	rc = strict_strtoul(buf, (unsigned int)0, (unsigned long *)&value);
+	if (rc < 0)
+		return rc;
+	else {
+		if (lcd->siop_enable != value) {
+			dev_info(dev, "%s - %d, %d\n", __func__, lcd->siop_enable, value);
+			mutex_lock(&lcd->bl_lock);
+			lcd->siop_enable = value;
+			mutex_unlock(&lcd->bl_lock);
+			if (lcd->ldi_enable)
+				update_brightness(lcd, 1);
+		}
+	}
+	return size;
+}
+
+static DEVICE_ATTR(siop_enable, 0664, siop_enable_show, siop_enable_store);
+
 static ssize_t lcd_type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -1239,13 +1290,16 @@ struct lcd_info *g_lcd;
 void s6e8ax0_early_suspend(void)
 {
 	struct lcd_info *lcd = g_lcd;
+	int err = 0;
 
 	set_dsim_lcd_enabled(0);
 
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 #if defined(GPIO_OLED_DET)
 	disable_irq(lcd->irq);
-	gpio_request(GPIO_OLED_DET, "OLED_DET");
+	err = gpio_request(GPIO_OLED_DET, "OLED_DET");
+	if (err)
+		pr_err("fail to request gpio RESET_REQ_N : %d\n", err);
 	s3c_gpio_cfgpin(GPIO_OLED_DET, S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(GPIO_OLED_DET, S3C_GPIO_PULL_NONE);
 	gpio_direction_output(GPIO_OLED_DET, GPIO_LEVEL_LOW);
@@ -1280,7 +1334,7 @@ static void s6e8ax0_read_id(struct lcd_info *lcd, u8 *buf)
 {
 	int ret = 0;
 
-	ret = s6e8ax0_read(lcd, LDI_ID_REG, LDI_ID_LEN, buf, 3);
+	ret = s6e8ax0_read(lcd, LDI_ID_REG, LDI_ID_LEN, buf, 2);
 	if (!ret) {
 		lcd->connected = 0;
 		dev_info(&lcd->ld->dev, "panel is not connected well\n");
@@ -1292,7 +1346,7 @@ static int s6e8ax0_read_mtp(struct lcd_info *lcd, u8 *mtp_data)
 {
 	int ret;
 
-	ret = s6e8ax0_read(lcd, LDI_MTP_ADDR, LDI_MTP_LENGTH, mtp_data, 0);
+	ret = s6e8ax0_read(lcd, LDI_MTP_ADDR, LDI_MTP_LENGTH, mtp_data, 1);
 
 	return ret;
 }
@@ -1395,6 +1449,7 @@ static int s6e8ax0_probe(struct device *dev)
 	lcd->current_bl = lcd->bl;
 
 	lcd->acl_enable = 0;
+	lcd->siop_enable = 0;
 	lcd->current_acl = 0;
 
 	lcd->power = FB_BLANK_UNBLANK;
@@ -1403,6 +1458,10 @@ static int s6e8ax0_probe(struct device *dev)
 	lcd->auto_brightness = 0;
 
 	ret = device_create_file(&lcd->ld->dev, &dev_attr_power_reduce);
+	if (ret < 0)
+		dev_err(&lcd->ld->dev, "failed to add sysfs entries, %d\n", __LINE__);
+
+	ret = device_create_file(&lcd->ld->dev, &dev_attr_siop_enable);
 	if (ret < 0)
 		dev_err(&lcd->ld->dev, "failed to add sysfs entries, %d\n", __LINE__);
 

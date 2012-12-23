@@ -261,11 +261,30 @@ static unsigned tx_build_link_header(struct sipc5_frame_data *frm,
 	return frm->hdr_len;
 }
 
+static inline int enqueue_skb_to_iod(struct sk_buff *skb, struct io_device *iod)
+{
+	struct sk_buff_head *rxq = &iod->sk_rx_q;
+	struct sk_buff *victim;
+
+	skb_queue_tail(rxq, skb);
+	if (unlikely(rxq->qlen > MAX_IOD_RXQ_LEN)) {
+		mif_info("%s: %s application may be dead (rxq->qlen %d > %d)\n",
+			iod->name, iod->app ? iod->app : "corresponding",
+			rxq->qlen, MAX_IOD_RXQ_LEN);
+		victim = skb_dequeue(rxq);
+		if (victim)
+			dev_kfree_skb_any(victim);
+		return -ENOSPC;
+	} else {
+		mif_debug("%s: rxq->qlen = %d\n", iod->name, rxq->qlen);
+		return 0;
+	}
+}
+
 static int rx_fmt_frame(struct sk_buff *skb)
 {
 	struct io_device *iod = skbpriv(skb)->iod;
 	struct link_device *ld = skbpriv(skb)->ld;
-	struct sk_buff_head *rxq = &iod->sk_rx_q;
 	struct sipc_fmt_hdr *fh;
 	struct sk_buff *rx_skb;
 	u8 ctrl = skbpriv(skb)->control;
@@ -279,18 +298,7 @@ static int rx_fmt_frame(struct sk_buff *skb)
 			/*
 			** It is a single frame because the "more" bit is 0.
 			*/
-			skb_queue_tail(rxq, skb);
-			if (unlikely(rxq->qlen > 2048)) {
-				struct sk_buff *victim;
-				mif_info("%s: WARNING! rxq->qlen %d > 2048\n",
-					iod->name, rxq->qlen);
-				victim = skb_dequeue(rxq);
-				dev_kfree_skb_any(victim);
-			} else {
-				mif_debug("%s: rxq->qlen = %d\n",
-					iod->name, rxq->qlen);
-			}
-
+			enqueue_skb_to_iod(skb, iod);
 			wake_up(&iod->wq);
 			return 0;
 		}
@@ -327,17 +335,7 @@ static int rx_fmt_frame(struct sk_buff *skb)
 		/* It is the last frame because the "more" bit is 0. */
 		mif_debug("%s: end multi-frame (ID:%d rcvd:%d)\n",
 			iod->name, id, rx_skb->len);
-		skb_queue_tail(rxq, rx_skb);
-		if (unlikely(rxq->qlen > 2048)) {
-			struct sk_buff *victim;
-			mif_info("%s: WARNING! rxq->qlen %d > 2048\n",
-				iod->name, rxq->qlen);
-			victim = skb_dequeue(rxq);
-			dev_kfree_skb_any(victim);
-		} else {
-			mif_debug("%s: rxq->qlen = %d\n", iod->name, rxq->qlen);
-		}
-
+		enqueue_skb_to_iod(rx_skb, iod);
 		iod->skb[id] = NULL;
 		wake_up(&iod->wq);
 	}
@@ -345,76 +343,11 @@ static int rx_fmt_frame(struct sk_buff *skb)
 	return 0;
 }
 
-static int rx_rfs_frame(struct sk_buff *skb)
-{
-	struct io_device *iod = skbpriv(skb)->iod;
-	struct sk_buff_head *rxq = &iod->sk_rx_q;
-
-	skb_queue_tail(rxq, skb);
-	if (unlikely(rxq->qlen > 2048)) {
-		struct sk_buff *victim;
-		mif_debug("%s: rxq->qlen %d > 2048\n", iod->name, rxq->qlen);
-		victim = skb_dequeue(rxq);
-		dev_kfree_skb_any(victim);
-	} else {
-		mif_debug("%s: rxq->qlen %d\n", iod->name, rxq->qlen);
-	}
-
-	wake_up(&iod->wq);
-
-	return 0;
-}
-
-static int rx_loopback(struct sk_buff *skb)
-{
-	struct io_device *iod = skbpriv(skb)->iod;
-	struct link_device *ld = get_current_link(iod);
-	struct sipc5_frame_data frm;
-	unsigned headroom;
-	unsigned tailroom = 0;
-	int ret;
-
-	headroom = tx_build_link_header(&frm, iod, ld, skb->len);
-
-	if (ld->aligned)
-		tailroom = sipc5_calc_padding_size(headroom + skb->len);
-
-	/* We need not to expand skb in here. dev_alloc_skb (in rx_alloc_skb)
-	 * already alloc 32bytes padding in headroom. 32bytes are enough.
-	 */
-
-	/* store IPC link header to start of skb
-	 * this is skb_push not skb_put. different with misc_write.
-	 */
-	memcpy(skb_push(skb, headroom), frm.hdr, headroom);
-
-	/* store padding */
-	if (tailroom)
-		skb_put(skb, tailroom);
-
-	/* forward */
-	ret = ld->send(ld, iod, skb);
-	if (ret < 0)
-		mif_err("%s->%s: ld->send fail: %d\n", iod->name,
-				ld->name, ret);
-	return ret;
-}
-
 static int rx_raw_misc(struct sk_buff *skb)
 {
 	struct io_device *iod = skbpriv(skb)->iod; /* same with real_iod */
-	struct sk_buff_head *rxq = &iod->sk_rx_q;
 
-	skb_queue_tail(rxq, skb);
-	if (unlikely(rxq->qlen > 2048)) {
-		struct sk_buff *victim;
-		mif_debug("%s: rxq->qlen %d > 2048\n", iod->name, rxq->qlen);
-		victim = skb_dequeue(rxq);
-		dev_kfree_skb_any(victim);
-	} else {
-		mif_debug("%s: rxq->qlen %d\n", iod->name, rxq->qlen);
-	}
-
+	enqueue_skb_to_iod(skb, iod);
 	wake_up(&iod->wq);
 
 	return 0;
@@ -469,16 +402,79 @@ static int rx_multi_pdp(struct sk_buff *skb)
 	return ret;
 }
 
+static int rx_loopback(struct sk_buff *skb)
+{
+	struct io_device *iod = skbpriv(skb)->iod;
+	struct link_device *ld = get_current_link(iod);
+	struct sipc5_frame_data frm;
+	unsigned headroom;
+	unsigned tailroom = 0;
+	int ret;
+
+	headroom = tx_build_link_header(&frm, iod, ld, skb->len);
+
+	if (ld->aligned)
+		tailroom = sipc5_calc_padding_size(headroom + skb->len);
+
+	/* We need not to expand skb in here. dev_alloc_skb (in rx_alloc_skb)
+	 * already alloc 32bytes padding in headroom. 32bytes are enough.
+	 */
+
+	/* store IPC link header to start of skb
+	 * this is skb_push not skb_put. different with misc_write.
+	 */
+	memcpy(skb_push(skb, headroom), frm.hdr, headroom);
+
+	/* store padding */
+	if (tailroom)
+		skb_put(skb, tailroom);
+
+	/* forward */
+	ret = ld->send(ld, iod, skb);
+	if (ret < 0)
+		mif_err("%s->%s: ld->send fail: %d\n", iod->name,
+				ld->name, ret);
+	return ret;
+}
+
+static int rx_netif_flow_ctrl(struct link_device *ld, struct sk_buff *skb)
+{
+	u8 cmd = skb->data[0];
+
+	if (cmd == FLOW_CTRL_SUSPEND) {
+		if (ld->suspend_netif_tx)
+			goto exit;
+		ld->suspend_netif_tx = true;
+		mif_netif_stop(ld);
+		mif_info("%s: FLOW_CTRL_SUSPEND\n", ld->name);
+	} else if (cmd == FLOW_CTRL_RESUME) {
+		if (!ld->suspend_netif_tx)
+			goto exit;
+		ld->suspend_netif_tx = false;
+		mif_netif_wake(ld);
+		mif_info("%s: FLOW_CTRL_RESUME\n", ld->name);
+	} else {
+		mif_info("%s: ERR! invalid command %02X\n", ld->name, cmd);
+	}
+
+exit:
+	dev_kfree_skb_any(skb);
+	return 0;
+}
+
 static int rx_demux(struct link_device *ld, struct sk_buff *skb)
 {
 	struct io_device *iod = NULL;
 	char *link = ld->name;
 	u8 ch = skbpriv(skb)->ch_id;
 
-	if (unlikely(ch == SIPC5_CH_ID_MAX || ch == 0)) {
+	if (unlikely(ch == 0)) {
 		mif_info("%s: ERR! invalid ch# %d\n", link, ch);
 		return -ENODEV;
 	}
+
+	if (unlikely(ch == SIPC5_CH_ID_FLOW_CTRL))
+		return rx_netif_flow_ctrl(ld, skb);
 
 	/* IP loopback */
 	if (ch == DATA_LOOPBACK_CHANNEL && ld->msd->loopback_ipaddr)
@@ -504,7 +500,7 @@ static int rx_demux(struct link_device *ld, struct sk_buff *skb)
 	}
 
 	if (ch >= SIPC5_CH_ID_RFS_0)
-		return rx_rfs_frame(skb);
+		return rx_raw_misc(skb);
 	else if (ch >= SIPC5_CH_ID_FMT_0)
 		return rx_fmt_frame(skb);
 	else if (iod->io_typ == IODEV_MISC)
@@ -834,7 +830,6 @@ static int rx_frame_from_mem(struct io_device *iod, struct link_device *ld,
 static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 		struct link_device *ld, const char *data, unsigned int len)
 {
-	struct sk_buff_head *rxq = &iod->sk_rx_q;
 	struct sk_buff *skb;
 	char *link = ld->name;
 	int err;
@@ -881,14 +876,8 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 		mif_debug("%s: len:%d -> iod:%s\n", link, len, iod->name);
 
 		memcpy(skb_put(skb, len), data, len);
-		skb_queue_tail(rxq, skb);
-		if (unlikely(rxq->qlen > 2048)) {
-			struct sk_buff *victim;
-			mif_info("%s: ERR! rxq->qlen %d > 2048\n",
-				iod->name, rxq->qlen);
-			victim = skb_dequeue(rxq);
-			dev_kfree_skb_any(victim);
-		}
+
+		enqueue_skb_to_iod(skb, iod);
 		wake_up(&iod->wq);
 
 		return len;
@@ -936,7 +925,8 @@ static int rx_frame_from_skb(struct io_device *iod, struct link_device *ld,
 
 	/* Demux the frame */
 	if (rx_demux(ld, skb) < 0) {
-		mif_err("%s: ERR! rx_demux fail\n", ld->name);
+		mif_info("%s: ERR! rx_demux fail\n", ld->name);
+		dev_kfree_skb_any(skb);
 		return -EINVAL;
 	}
 
@@ -960,11 +950,9 @@ static int io_dev_recv_skb_from_link_dev(struct io_device *iod,
 			wake_lock_timeout(&iod->wakelock, iod->waketime);
 
 		err = rx_frame_from_skb(iod, ld, skb);
-		if (err < 0) {
-			dev_kfree_skb_any(skb);
+		if (err < 0)
 			mif_info("%s: ERR! rx_frame_from_skb fail (err %d)\n",
 				link, err);
-		}
 
 		return err;
 
@@ -1239,7 +1227,6 @@ static ssize_t misc_write(struct file *filp, const char __user *data,
 	unsigned tailroom = 0;
 	size_t tx_size;
 	struct sipc5_frame_data frm;
-	struct timespec epoch;
 
 	if (iod->format <= IPC_RFS && iod->id == 0)
 		return -EINVAL;
@@ -1268,10 +1255,17 @@ static ssize_t misc_write(struct file *filp, const char __user *data,
 		return -EFAULT;
 	}
 
-	if (iod->id == SIPC5_CH_ID_FMT_0) {
+	if (iod->format == IPC_FMT) {
+		struct timespec epoch;
+		u8 *msg = (skb->data + headroom);
+#if 0
+		char str[MIF_MAX_STR_LEN];
+		snprintf(str, MIF_MAX_STR_LEN, "%s: RL2MIF", iod->mc->name);
+		pr_ipc(str, msg, (count > 16 ? 16 : count));
+#endif
 		getnstimeofday(&epoch);
 		mif_time_log(iod->mc->msd, epoch, NULL, 0);
-		mif_ipc_log(MIF_IPC_RL2AP, iod->mc->msd, skb->data, skb->len);
+		mif_ipc_log(MIF_IPC_RL2AP, iod->mc->msd, msg, count);
 	}
 
 	/* store padding */
@@ -1304,7 +1298,6 @@ static ssize_t misc_read(struct file *filp, char *buf, size_t count,
 	struct sk_buff_head *rxq = &iod->sk_rx_q;
 	struct sk_buff *skb;
 	int copied = 0;
-	struct timespec epoch;
 
 	skb = skb_dequeue(rxq);
 	if (!skb) {
@@ -1312,7 +1305,13 @@ static ssize_t misc_read(struct file *filp, char *buf, size_t count,
 		return 0;
 	}
 
-	if (iod->id == SIPC5_CH_ID_FMT_0) {
+	if (iod->format == IPC_FMT) {
+		struct timespec epoch;
+#if 0
+		char str[MIF_MAX_STR_LEN];
+		snprintf(str, MIF_MAX_STR_LEN, "%s: MIF2RL", iod->mc->name);
+		pr_ipc(str, skb->data, (skb->len > 16 ? 16 : skb->len));
+#endif
 		getnstimeofday(&epoch);
 		mif_time_log(iod->mc->msd, epoch, NULL, 0);
 		mif_ipc_log(MIF_IPC_AP2RL, iod->mc->msd, skb->data, skb->len);
@@ -1581,16 +1580,19 @@ int sipc5_init_io_device(struct io_device *iod)
 		ret = misc_register(&iod->miscdev);
 		if (ret)
 			mif_info("%s: ERR! misc_register fail\n", iod->name);
+
 		ret = device_create_file(iod->miscdev.this_device,
 					&attr_waketime);
 		if (ret)
 			mif_info("%s: ERR! device_create_file fail\n",
 				iod->name);
+
 		ret = device_create_file(iod->miscdev.this_device,
 				&attr_loopback);
 		if (ret)
 			mif_err("failed to create `loopback file' : %s\n",
 					iod->name);
+
 		ret = device_create_file(iod->miscdev.this_device,
 				&attr_txlink);
 		if (ret)

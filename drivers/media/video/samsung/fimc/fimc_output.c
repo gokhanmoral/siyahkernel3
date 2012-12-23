@@ -2833,7 +2833,8 @@ int fimc_qbuf_output(void *fh, struct v4l2_buffer *b)
 		if (ctrl->regs == NULL) {
 			fimc_err("%s:FIMC%d power is off!!! (ctx=%d)\n",
 				 __func__, ctrl->id, ctx_id);
-			return -EINVAL;
+			ret = -EINVAL;
+			goto err_routine;
 		}
 
 		ctx = &ctrl->out->ctx[ctx_num];

@@ -157,7 +157,7 @@ endif
 DEFINES += -DMALI_UKK_HAS_IMPLICIT_MMAP_CLEANUP
 
 # UMP
-ifeq ($(CONFIG_VIDEO_UMP),y)
+ifeq ($(CONFIG_VIDEO_MALI400MP_UMP),y)
 	DEFINES += -DMALI_USE_UNIFIED_MEMORY_PROVIDER=1 -DHAVE_UNLOCKED_IOCTL
 	EXTRA_CFLAGS += -I$(MALI_INCLUDE_PREFIX)../ump/include
 else
@@ -189,7 +189,7 @@ EXTRA_CFLAGS += -I$(MALI_INCLUDE_PREFIX)linux/license/gpl
 EXTRA_CFLAGS += -I$(MALI_INCLUDE_PREFIX)common/pmm
 
 # Source files which always are included in a build
-ifeq ($(CONFIG_VIDEO_UMP),y)
+ifeq ($(CONFIG_VIDEO_MALI400MP_UMP),y)
 OSKFILES=\
         $(FILES_PREFIX)$(OSKOS)/mali_osk_irq.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_low_level_mem.o \
@@ -210,7 +210,7 @@ OSKFILES=\
         $(FILES_PREFIX)$(OSKOS)/mali_osk_notification.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_time.o \
         $(FILES_PREFIX)$(OSKOS)/mali_osk_timers.o
-endif #($(CONFIG_VIDEO_UMP),y)
+endif #($(CONFIG_VIDEO_MALI400MP_UMP),y)
 
 ifeq ($(CONFIG_CPU_EXYNOS4210),y)
 	MALI_PLATFORM_DIR = platform/orion-m400

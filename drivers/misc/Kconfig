@@ -420,6 +420,14 @@ config SENSORS_AK8975
 	  If you say yes here you get support for Asahi Kasei's
 	  orientation sensor AK8975.
 
+config SENSORS_AK8963
+	tristate "AK8963 compass support"
+	default n
+	depends on I2C
+	help
+	  If you say yes here you get support for Asahi Kasei's
+	  orientation sensor AK8963.
+
 config EP93XX_PWM
 	tristate "EP93xx PWM support"
 	depends on ARCH_EP93XX
@@ -566,6 +574,12 @@ config SWITCH_DUAL_MODEM
 	 This can offer an interface to switch UART/USB to AP/CP1/CP2 at *#7284# keystring application.
 	 Need to change UI at *#7284# also to have effect on this.
 	 Use a combination of MAX77693 switch function and GPIO control.
+
+config SWITCH_USB_PATH_AUTO
+	bool "Switch USB path automatically"
+	default n
+	help
+	 This feature can be switch the path of USB automatically when switching the USB path by using the sysfs node
 
 config WIMAX_CMC
         bool "SUB PMIC FOR WIMAX CMC"
@@ -718,6 +732,7 @@ source "drivers/misc/carma/Kconfig"
 source "drivers/misc/c2c/Kconfig"
 source "drivers/misc/modem_if/Kconfig"
 source "drivers/misc/modem_if_na/Kconfig"
+source "drivers/misc/modem_if_na_spr/Kconfig"
 
 config SLP_LOWMEM_NOTIFY
 	bool "Driver for SLP Low Memory Notification"
@@ -738,7 +753,6 @@ config CPU_UNDERVOLTING
 
 config MALI_CONTROL
 	tristate "mali gpu control interfaces"
-	depends on VIDEO_MALI400MP
 	default y
 
 config M0_MODS

@@ -277,7 +277,7 @@ int cmc221_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	dev_set_drvdata(mc->dev, mc);
 
 	pdev = to_platform_device(mc->dev);
-	mc->irq_phone_active = platform_get_irq_byname(pdev, "cp_active_irq");
+	mc->irq_phone_active = platform_get_irq_byname(pdev, STR_CP_ACTIVE_IRQ);
 	if (!mc->irq_phone_active) {
 		mif_err("%s: ERR! get cp_active_irq fail\n", mc->name);
 		return -1;

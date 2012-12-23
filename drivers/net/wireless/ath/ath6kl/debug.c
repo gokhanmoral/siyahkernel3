@@ -63,21 +63,6 @@ int ath6kl_printk(const char *level, const char *fmt, ...)
 	return rtn;
 }
 
-char *sec_conv_mac(const u8 *mac)
-{
-	static char ret_mac[16];
-	char *p = ret_mac;
-
-	p = pack_hex_byte(p, mac[0]);
-	*p++ = '_';
-	p = pack_hex_byte(p, mac[4]);
-	*p++ = ':';
-	p = pack_hex_byte(p, mac[5]);
-	*p++ = '\0';
-
-	return ret_mac;
-}
-
 #ifdef CONFIG_ATH6KL_DEBUG
 
 #define REG_OUTPUT_LEN_PER_LINE	25
@@ -1603,6 +1588,7 @@ static ssize_t ath6kl_bgscan_int_write(struct file *file,
 		bgscan_int = 0xffff;
 
 	vif->bg_scan_period = bgscan_int;
+
 	ath6kl_wmi_scanparams_cmd(ar->wmi, 0, 0, 0, bgscan_int, 0, 0, 0, 3,
 				  vif->scan_ctrl_flag, 0, 0);
 
@@ -1674,61 +1660,6 @@ static const struct file_operations fops_listen_int = {
 	.llseek = default_llseek,
 };
 
-static ssize_t ath6kl_mcastrate_write(struct file *file,
-				       const char __user *user_buf,
-				       size_t count, loff_t *ppos)
-{
-	struct ath6kl *ar = file->private_data;
-	struct ath6kl_vif *vif;
-	u16 mcastrate;
-	char buf[32];
-	ssize_t len;
-
-	vif = ath6kl_vif_first(ar);
-	if (!vif)
-		return -EIO;
-
-	len = min(count, sizeof(buf) - 1);
-	if (copy_from_user(buf, user_buf, len))
-		return -EFAULT;
-
-	buf[len] = '\0';
-	if (kstrtou16(buf, 0, &mcastrate))
-		return -EINVAL;
-
-	vif->mcastrate = mcastrate;
-	ath6kl_wmi_mcastrate_cmd(ar->wmi, vif->fw_vif_idx,
-				      vif->mcastrate);
-
-	return count;
-}
-
-static ssize_t ath6kl_mcastrate_read(struct file *file,
-				      char __user *user_buf,
-				      size_t count, loff_t *ppos)
-{
-	struct ath6kl *ar = file->private_data;
-	struct ath6kl_vif *vif;
-	char buf[32];
-	int len;
-
-	vif = ath6kl_vif_first(ar);
-	if (!vif)
-		return -EIO;
-
-	len = scnprintf(buf, sizeof(buf), "%u\n", vif->mcastrate);
-
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations fops_mcastrate = {
-	.read = ath6kl_mcastrate_read,
-	.write = ath6kl_mcastrate_write,
-	.open = ath6kl_debugfs_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
 static ssize_t ath6kl_power_params_write(struct file *file,
 						const char __user *user_buf,
 						size_t count, loff_t *ppos)
@@ -1784,139 +1715,6 @@ static ssize_t ath6kl_power_params_write(struct file *file,
 
 static const struct file_operations fops_power_params = {
 	.write = ath6kl_power_params_write,
-	.open = ath6kl_debugfs_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath6kl_lrssi_roam_config_write(struct file *file,
-				       const char __user *user_buf,
-				       size_t count, loff_t *ppos)
-{
-	struct ath6kl *ar = file->private_data;
-	struct low_rssi_scan_params lrssi_params;
-	char buf[32];
-	ssize_t len;
-	char *sptr, *token;
-	u16 val16;
-
-	len = min(count, sizeof(buf) - 1);
-	if (copy_from_user(buf, user_buf, len))
-		return -EFAULT;
-
-	buf[len] = '\0';
-	sptr = buf;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou16(token, 0, &val16))
-		return -EINVAL;
-	lrssi_params.lrssi_scan_period = cpu_to_le16(val16);
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou16(token, 0, &val16))
-		return -EINVAL;
-	lrssi_params.lrssi_scan_threshold = cpu_to_le16(val16);
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou16(token, 0, &val16))
-		return -EINVAL;
-	lrssi_params.lrssi_roam_threshold = cpu_to_le16(val16);
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &lrssi_params.roam_rssi_floor))
-		return -EINVAL;
-
-	ath6kl_wmi_set_roam_lrssi_config_cmd(ar->wmi, &lrssi_params);
-
-	return count;
-}
-
-static const struct file_operations fops_lrssi_roam_config = {
-	.write = ath6kl_lrssi_roam_config_write,
-	.open = ath6kl_debugfs_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static ssize_t ath6kl_ht_cap_write(struct file *file,
-				       const char __user *user_buf,
-				       size_t count, loff_t *ppos)
-{
-	struct ath6kl *ar = file->private_data;
-	struct ath6kl_vif *vif;
-	struct wmi_set_ht_cap_cmd ht_cap;
-	char buf[32];
-	ssize_t len;
-	char *sptr, *token;
-
-	vif = ath6kl_vif_first(ar);
-	if (!vif)
-		return -EIO;
-
-	len = min(count, sizeof(buf) - 1);
-	if (copy_from_user(buf, user_buf, len))
-		return -EFAULT;
-
-	buf[len] = '\0';
-	sptr = buf;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &ht_cap.band))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &ht_cap.enable))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &ht_cap.chan_width_40m_supported))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &ht_cap.short_gi_20mhz))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &ht_cap.short_gi_40mhz))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &ht_cap.intolerance_40mhz))
-		return -EINVAL;
-
-	token = strsep(&sptr, " ");
-	if (!token)
-		return -EINVAL;
-	if (kstrtou8(token, 0, &ht_cap.max_ampdu_len_exp))
-		return -EINVAL;
-
-	ath6kl_wmi_set_ht_cap_cmd(ar->wmi, vif->fw_vif_idx, &ht_cap);
-
-	return count;
-}
-
-static const struct file_operations fops_ht_cap = {
-	.write = ath6kl_ht_cap_write,
 	.open = ath6kl_debugfs_open,
 	.owner = THIS_MODULE,
 	.llseek = default_llseek,
@@ -1998,17 +1796,8 @@ int ath6kl_debug_init(struct ath6kl *ar)
 	debugfs_create_file("listen_interval", S_IRUSR | S_IWUSR,
 			    ar->debugfs_phy, ar, &fops_listen_int);
 
-	debugfs_create_file("mcast_rate", S_IRUSR | S_IWUSR,
-			    ar->debugfs_phy, ar, &fops_mcastrate);
-
 	debugfs_create_file("power_params", S_IWUSR, ar->debugfs_phy, ar,
 						&fops_power_params);
-
-	debugfs_create_file("lrssi_roam_config", S_IRUSR, ar->debugfs_phy, ar,
-			    &fops_lrssi_roam_config);
-
-	debugfs_create_file("ht_cap", S_IRUSR, ar->debugfs_phy, ar,
-			    &fops_ht_cap);
 
 	return ath6kl_init_debugfs_pri(ar);
 }

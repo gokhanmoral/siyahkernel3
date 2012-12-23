@@ -53,12 +53,15 @@ obj-y				+= carma/
 obj-$(CONFIG_WL127X_RFKILL)	+= wl127x-rfkill.o
 obj-$(CONFIG_APANIC)		+= apanic.o
 obj-$(CONFIG_SENSORS_AK8975)	+= akm8975.o
+obj-$(CONFIG_SENSORS_AK8963)	+= akm8963.o
 obj-$(CONFIG_SAMSUNG_C2C)	+= c2c/
 obj-$(CONFIG_USBHUB_USB3503)	+= usb3503.o
 obj-$(CONFIG_USBHUB_USB3503_OTG_CONN)	+= usb3503_otg_conn.o
 obj-$(CONFIG_USBHUB_USB3803)	+= usb3803.o
 ifeq ($(CONFIG_SEC_MODEM_P8LTE),y)
 obj-$(CONFIG_SEC_MODEM)         += modem_if_na/
+else ifeq ($(CONFIG_SEC_MODEM_U1_SPR),y)
+obj-$(CONFIG_SEC_MODEM)		+= modem_if_na_spr/
 else
 obj-$(CONFIG_SEC_MODEM)		+= modem_if/
 endif

@@ -20,6 +20,7 @@
 #include <linux/mfd/max77686.h>
 #include <linux/mfd/max77686-private.h>
 #if defined(CONFIG_RTC_ALARM_BOOT)
+#include <linux/wakelock.h>
 #include <linux/reboot.h>
 #endif
 
@@ -73,6 +74,9 @@ struct max77686_rtc_info {
 	int irq;
 #if defined(CONFIG_RTC_ALARM_BOOT)
 	int irq2;
+	bool lpm_mode;
+	bool alarm_irq_flag;
+	struct wake_lock alarm_wake_lock;
 #endif
 	int rtc_24hr_mode;
 };
@@ -564,6 +568,19 @@ out:
 	return ret;
 }
 
+static int max77686_rtc_get_alarm_boot(struct device *dev,
+				      struct rtc_wkalrm *alrm)
+{
+	struct max77686_rtc_info *info = dev_get_drvdata(dev);
+
+	if (info->alarm_irq_flag)
+		alrm->enabled = 0x1;
+	else
+		alrm->enabled = 0x0;
+	printk(KERN_INFO "max77686_rtc_get_alarm_boot : %d, %d\n",
+				info->lpm_mode, alrm->enabled);
+	return info->lpm_mode;
+}
 #endif
 
 static int max77686_rtc_alarm_irq_enable(struct device *dev,
@@ -597,17 +614,18 @@ static irqreturn_t max77686_rtc_alarm_irq(int irq, void *data)
 static irqreturn_t max77686_rtc_alarm2_irq(int irq, void *data)
 {
 	struct max77686_rtc_info *info = data;
-	int ret;
-	u8 val;
 
-	dev_info(info->dev, "%s:irq(%d)\n", __func__, irq);
+	dev_info(info->dev, "%s:irq(%d), lpm_mode:(%d)\n",
+				__func__, irq, info->lpm_mode);
 
 #if defined(CONFIG_SLP)
 	if (strstr(saved_command_line, "charger_detect_boot") != 0)
 		kernel_restart(NULL);
 #else
-	if (lpcharge == 1)
-		kernel_restart(NULL);
+	if (info->lpm_mode) {
+		wake_lock(&info->alarm_wake_lock);
+		info->alarm_irq_flag = true;
+	}
 #endif
 
 	rtc_update_irq(info->rtc_dev, 1, RTC_IRQF | RTC_AF);
@@ -628,6 +646,7 @@ static const struct rtc_class_ops max77686_rtc_ops = {
 
 #if defined(CONFIG_RTC_ALARM_BOOT)
 	.set_alarm_boot = max77686_rtc_set_alarm_boot,
+	.get_alarm_boot = max77686_rtc_get_alarm_boot,
 #endif
 	.alarm_irq_enable = max77686_rtc_alarm_irq_enable,
 };
@@ -846,6 +865,11 @@ static int __devinit max77686_rtc_probe(struct platform_device *pdev)
 			info->irq2, ret);
 		goto err_rtc;
 	}
+
+	info->lpm_mode = lpcharge;
+	if (info->lpm_mode)
+		wake_lock_init(&info->alarm_wake_lock,
+			WAKE_LOCK_SUSPEND, "alarm_wake_lock");
 #endif
 
 	goto out;

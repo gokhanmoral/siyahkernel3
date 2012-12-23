@@ -214,23 +214,6 @@ void cfg80211_bss_expire(struct cfg80211_registered_device *dev)
 		dev->bss_generation++;
 }
 
-/* must hold dev->bss_lock! */
-void cfg80211_bss_expire_all(struct cfg80211_registered_device *dev)
-{
-	struct cfg80211_internal_bss *bss, *tmp;
-	bool expired = false;
-
-    printk("%s() Enter - steven", __func__);
-
-	list_for_each_entry_safe(bss, tmp, &dev->bss_list, list) {
-		__cfg80211_unlink_bss(dev, bss);
-		expired = true;
-	}
-
-	if (expired)
-		dev->bss_generation++;
-}
-
 const u8 *cfg80211_find_ie(u8 eid, const u8 *ies, int len)
 {
 	while (len > 2 && ies[0] != eid) {
@@ -918,18 +901,6 @@ void cfg80211_unlink_bss(struct wiphy *wiphy, struct cfg80211_bss *pub)
 	spin_unlock_bh(&dev->bss_lock);
 }
 EXPORT_SYMBOL(cfg80211_unlink_bss);
-
-void cfg80211_unlink_allbss(struct wiphy *wiphy)
-{
-	struct cfg80211_registered_device *dev = wiphy_to_dev(wiphy);
-
-    printk("%s() Enter - steven", __func__);
-
-	spin_lock_bh(&dev->bss_lock);
-	cfg80211_bss_expire_all(dev);
-	spin_unlock_bh(&dev->bss_lock);
-}
-EXPORT_SYMBOL(cfg80211_unlink_allbss);
 
 #ifdef CONFIG_CFG80211_WEXT
 int cfg80211_wext_siwscan(struct net_device *dev,
