@@ -396,7 +396,7 @@ static struct platform_driver ir_remocon_device_driver = {
 
 static int __init ir_remocon_init(void)
 {
-#if defined(CONFIG_IR_REMOCON_GPIO_EUR)
+#if defined(CONFIG_IR_REMOCON_GPIO_EUR) || defined(CONFIG_IR_REMOCON_GPIO_TMO)
 	if (system_rev >= 11)
 		return 0;
 #endif

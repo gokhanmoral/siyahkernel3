@@ -38,7 +38,7 @@
 //============================================================
 
 #define MCS5000_CHIP		0x93
-#define MCS5080_CHIP		0x90
+#define MCS5080_CHIP		0x3
 
 static UINT8 MCS_VERSION;
 
@@ -230,7 +230,7 @@ static void EXT_I2C_SEND_ACK(u32 delay)
 
 }
 
-#define EXT_I2C_DELAY	1
+#define EXT_I2C_DELAY	3
 //============================================================
 //
 //	Porting section 6.	I2C function calling
@@ -489,8 +489,8 @@ void melfas_send_download_enable_command(void)
 //============================================================
 //#include "MCS5080_SAMPLE_FIRMWARE_R01_V00_bin.c"
 //#include "MMH_SVESTA_R00_V02_bin.c"  //1 include bin file
-#define BINARY_FIRMWARE_VERSION 0x10
-#include "MCH_SW999_R03_V17_bin.c"
+#define BINARY_FIRMWARE_VERSION 0x01
+#include "MCH_SW889_R01_V01_bin.c"
 
 //============================================================
 //

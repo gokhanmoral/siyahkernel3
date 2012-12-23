@@ -121,7 +121,7 @@ static int rmnet_usb_suspend(struct usb_interface *iface, pm_message_t message)
 			iface->dev.power.power_state.event = message.event;
 		}
 		/*  TBD : do we need to set/clear usbnet->udev->reset_resume*/
-		} else
+	} else
 		dev_dbg(&unet->udev->dev,
 			"%s: device is busy can not suspend\n", __func__);
 
@@ -420,7 +420,7 @@ static void rmnet_usb_setup(struct net_device *dev)
 
 	dev->needed_headroom = HEADROOM_FOR_QOS;
 	random_ether_addr(dev->dev_addr);
-	dev->watchdog_timeo = 1000; /* 10 seconds? */
+	dev->watchdog_timeo = 15 * HZ;
 }
 
 static int rmnet_usb_data_status(struct seq_file *s, void *unused)
@@ -557,8 +557,12 @@ static int rmnet_usb_probe(struct usb_interface *iface,
 
 	status = rmnet_usb_ctrl_probe(iface, unet->status,
 		(struct rmnet_ctrl_dev *)unet->data[1]);
-	if (status)
-		goto out;
+	if (status) {
+		if (status == -EPIPE)
+			return status;
+		else
+			goto out;
+	}
 
 	status = rmnet_usb_data_debugfs_init(unet);
 	if (status)
@@ -575,6 +579,11 @@ static int rmnet_usb_probe(struct usb_interface *iface,
 	/* allow modem to wake up suspended system */
 	device_set_wakeup_enable(&udev->dev, 1);
 out:
+#ifdef CONFIG_MDM_HSIC_PM
+	/* make reset or dump at 2nd enumeration fail */
+	if (status < 0)
+		mdm_force_fatal();
+#endif
 	return status;
 }
 
@@ -626,6 +635,7 @@ static const struct driver_info rmnet_info_pid9034 = {
 
 static const struct driver_info rmnet_info_pid9048 = {
 	.description   = "RmNET net device",
+	.flags		= FLAG_SEND_ZLP,
 	.bind          = rmnet_usb_bind,
 	.tx_fixup      = rmnet_usb_tx_fixup,
 	.rx_fixup      = rmnet_usb_rx_fixup,
@@ -635,6 +645,7 @@ static const struct driver_info rmnet_info_pid9048 = {
 
 static const struct driver_info rmnet_info_pid904c = {
 	.description   = "RmNET net device",
+	.flags		= FLAG_SEND_ZLP,
 	.bind          = rmnet_usb_bind,
 	.tx_fixup      = rmnet_usb_tx_fixup,
 	.rx_fixup      = rmnet_usb_rx_fixup,

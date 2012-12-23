@@ -99,6 +99,7 @@ int fimc_is_init_mem_mgr(struct fimc_is_dev *dev)
 {
 	struct cma_info mem_info;
 	int err;
+	unsigned char *membase;
 
 	/* Alloc FW memory */
 	err = cma_info(&mem_info, &dev->pdev->dev, FIMC_IS_MEM_FW);
@@ -119,6 +120,10 @@ int fimc_is_init_mem_mgr(struct fimc_is_dev *dev)
 	dev->is_shared_region =
 		(struct is_share_region *)(phys_to_virt(dev->mem.base +
 				FIMC_IS_SHARED_REGION_ADDR));
+
+	membase = (unsigned char *)(phys_to_virt(dev->mem.base));
+	memset(membase, 0x0, FIMC_IS_A5_MEM_SIZE);
+
 	memset((void *)dev->is_p_region, 0,
 		(unsigned long)sizeof(struct is_region));
 	fimc_is_mem_cache_clean((void *)dev->is_p_region, IS_PARAM_SIZE);

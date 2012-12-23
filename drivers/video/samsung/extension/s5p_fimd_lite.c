@@ -42,6 +42,11 @@
 #include "s5p_fimd_lite.h"
 #include "regs_fimd_lite.h"
 
+#ifdef CONFIG_SLP_DISP_DEBUG
+#define FIMD_LITE_MAX_REG	128
+#define FIMD_LITE_BASE_REG	0x11C40000
+#endif
+
 static void *to_fimd_lite_platform_data(struct s5p_fimd_ext_device *fx_dev)
 {
 	return fx_dev->dev.platform_data ? (void *)fx_dev->dev.platform_data :
@@ -394,12 +399,53 @@ static void s5p_fimd_lite_power_off(struct s5p_fimd_ext_device *fx_dev)
 	clk_disable(fimd_lite->clk);
 }
 
+#ifdef CONFIG_SLP_DISP_DEBUG
+static int s5p_fimd_lite_read_reg(struct s5p_fimd_lite *fimd_lite, char *buf)
+{
+	u32 cfg;
+	int i;
+	int pos = 0;
+
+	pos += sprintf(buf+pos, "0x%.8x | ", FIMD_LITE_BASE_REG);
+	for (i = 1; i < FIMD_LITE_MAX_REG + 1; i++) {
+		cfg = readl(fimd_lite->iomem_base + ((i-1) * sizeof(u32)));
+		pos += sprintf(buf+pos, "0x%.8x ", cfg);
+		if (i % 4 == 0)
+			pos += sprintf(buf+pos, "\n0x%.8x | ",
+				FIMD_LITE_BASE_REG + (i * sizeof(u32)));
+	}
+
+	return pos;
+}
+
+static ssize_t show_read_reg(struct device *dev, struct device_attribute *attr,
+			char *buf)
+{
+	struct s5p_fimd_ext_device *fx_dev = to_fimd_ext_device(dev);
+	struct s5p_fimd_lite *fimd_lite = fimd_ext_get_drvdata(fx_dev);
+
+	if (!fimd_lite->iomem_base) {
+		dev_err(dev, "failed to get current register.\n");
+		return -EINVAL;
+	}
+
+	return s5p_fimd_lite_read_reg(fimd_lite, buf);
+}
+
+static struct device_attribute device_attrs[] = {
+	__ATTR(read_reg, S_IRUGO, show_read_reg, NULL),
+};
+#endif
+
 static int s5p_fimd_lite_probe(struct s5p_fimd_ext_device *fx_dev)
 {
 	struct clk *sclk = NULL;
 	struct resource *res;
 	struct s5p_fimd_lite *fimd_lite;
 	int ret = -1;
+#ifdef CONFIG_SLP_DISP_DEBUG
+	int i;
+#endif
 
 	fimd_lite = kzalloc(sizeof(struct s5p_fimd_lite), GFP_KERNEL);
 	if (!fimd_lite) {
@@ -449,6 +495,18 @@ static int s5p_fimd_lite_probe(struct s5p_fimd_ext_device *fx_dev)
 		ret = -EINVAL;
 		goto err3;
 	}
+
+#ifdef CONFIG_SLP_DISP_DEBUG
+	for (i = 0; i < ARRAY_SIZE(device_attrs); i++) {
+		ret = device_create_file(&(fx_dev->dev),
+					&device_attrs[i]);
+		if (ret)
+			break;
+	}
+
+	if (ret < 0)
+		dev_err(&fx_dev->dev, "failed to add sysfs entries\n");
+#endif
 
 	fimd_ext_set_drvdata(fx_dev, fimd_lite);
 

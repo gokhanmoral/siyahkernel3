@@ -1,0 +1,5 @@
+config LGUIWLAN
+	tristate "LGU IWLAN support"
+	default n
+	---help---
+	  This module adds support for LGU IWLAN

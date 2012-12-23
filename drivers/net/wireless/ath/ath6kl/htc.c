@@ -75,10 +75,7 @@ static void ath6kl_credit_init(struct ath6kl_htc_credit_info *cred_info,
 			 * never goes inactive EVER.
 			 */
 			cur_ep_dist->dist_flags |= HTC_EP_ACTIVE;
-		} else if (cur_ep_dist->svc_id == WMI_DATA_BK_SVC)
-			/* this is the lowest priority data endpoint */
-			/* FIXME: this looks fishy, check */
-			cred_info->lowestpri_ep_dist = cur_ep_dist->list;
+		}
 
 		/*
 		 * Streams have to be created (explicit | implicit) for all
@@ -91,6 +88,13 @@ static void ath6kl_credit_init(struct ath6kl_htc_credit_info *cred_info,
 		 * as traffic activity demands
 		 */
 	}
+
+	/*
+	 * For ath6kl_credit_seek function,
+	 * it use list_for_each_entry_reverse to walk around the whole ep list.
+	 * Therefore assign this lowestpri_ep_dist after walk around the ep_list
+	 */
+	cred_info->lowestpri_ep_dist = cur_ep_dist->list;
 
 	WARN_ON(cred_info->cur_free_credits <= 0);
 
@@ -1354,9 +1358,7 @@ static int ath6kl_htc_rx_setup(struct htc_target *target,
 					sizeof(*htc_hdr));
 
 	if (!htc_valid_rx_frame_len(target, ep->eid, full_len)) {
-		ath6kl_warn("Rx buffer requested with invalid length"
-			" htc_hdr : eid - %d, flags = 0x%x, len - %d\n",
-			htc_hdr->eid, htc_hdr->flags, le16_to_cpu(htc_hdr->payld_len));
+		ath6kl_warn("Rx buffer requested with invalid length\n");
 		return -EINVAL;
 	}
 
@@ -1451,8 +1453,6 @@ static int ath6kl_htc_rx_alloc(struct htc_target *target,
 	struct htc_packet *packet, *tmp_pkt;
 	struct htc_frame_hdr *htc_hdr;
 	int i, n_msg;
-	struct ath6kl_vif *vif;
-	vif = ath6kl_vif_first(target->dev->ar);
 
 	spin_lock_bh(&target->rx_lock);
 
@@ -1478,11 +1478,6 @@ static int ath6kl_htc_rx_alloc(struct htc_target *target,
 			ath6kl_err("payload len %d exceeds max htc : %d !\n",
 				   htc_hdr->payld_len,
 				   (u32) HTC_MAX_PAYLOAD_LENGTH);
-#ifdef CONFIG_MACH_PX
-			cfg80211_priv_event(vif->ndev, "HANG", GFP_ATOMIC);
-			ath6kl_hif_rx_control(target->dev, false);
-			ssleep(3);
-#endif
 			status = -ENOMEM;
 			break;
 		}
@@ -2135,8 +2130,6 @@ int ath6kl_htc_rxmsg_pending_handler(struct htc_target *target,
 	int num_look_ahead = 1;
 	enum htc_endpoint_id id;
 	int n_fetched = 0;
-	struct ath6kl_vif *vif;
-	vif = ath6kl_vif_first(target->dev->ar);
 
 	INIT_LIST_HEAD(&comp_pktq);
 	*num_pkts = 0;
@@ -2159,11 +2152,6 @@ int ath6kl_htc_rxmsg_pending_handler(struct htc_target *target,
 		if (id >= ENDPOINT_MAX) {
 			ath6kl_err("MsgPend, invalid endpoint in look-ahead: %d\n",
 				   id);
-#ifdef CONFIG_MACH_PX
-			cfg80211_priv_event(vif->ndev, "HANG", GFP_ATOMIC);
-			ath6kl_hif_rx_control(target->dev, false);
-			ssleep(3);
-#endif
 			status = -ENOMEM;
 			break;
 		}
@@ -2486,7 +2474,8 @@ int ath6kl_htc_conn_service(struct htc_target *target,
 		max_msg_sz = le16_to_cpu(resp_msg->max_msg_sz);
 	}
 
-	if (assigned_ep >= ENDPOINT_MAX || !max_msg_sz) {
+	if (WARN_ON_ONCE(assigned_ep == ENDPOINT_UNUSED ||
+			 assigned_ep >= ENDPOINT_MAX || !max_msg_sz)) {
 		status = -ENOMEM;
 		goto fail_tx;
 	}
@@ -2514,6 +2503,15 @@ int ath6kl_htc_conn_service(struct htc_target *target,
 	endpoint->cred_dist.htc_ep = endpoint;
 	endpoint->cred_dist.endpoint = assigned_ep;
 	endpoint->cred_dist.cred_sz = target->tgt_cred_sz;
+
+	switch (endpoint->svc_id) {
+	case WMI_DATA_BK_SVC:
+		endpoint->tx_drop_packet_threshold = MAX_DEF_COOKIE_NUM / 3;
+		break;
+	default:
+		endpoint->tx_drop_packet_threshold = MAX_HI_COOKIE_NUM;
+		break;
+	}
 
 	if (conn_req->max_rxmsg_sz) {
 		/*

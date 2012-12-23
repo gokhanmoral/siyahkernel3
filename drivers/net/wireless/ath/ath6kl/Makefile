@@ -37,13 +37,10 @@ ath6kl_sdio-y += txrx.o
 ath6kl_sdio-y += wmi.o
 ath6kl_sdio-y += wmi_btcoex.o
 ath6kl_sdio-y += sdio.o
-ifeq ($(CONFIG_MACH_PX),y)
-ath6kl_sdio-y += c210.o
-else
-ath6kl_sdio-y += msm.o
-endif
+ath6kl_sdio-y += platform.o
 ath6kl_sdio-y += softmac.o
 ath6kl_sdio-y += wmiconfig.o
+ath6kl_sdio-y += recovery.o
 ath6kl_sdio-$(CONFIG_NL80211_TESTMODE) += testmode.o
 
 obj-$(CONFIG_ATH6KL_USB) += ath6kl_usb.o

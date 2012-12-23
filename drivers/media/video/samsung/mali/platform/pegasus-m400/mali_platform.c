@@ -114,6 +114,10 @@ extern struct platform_device exynos4_device_pd[];
 #endif
 #endif
 
+/*This code for reference value of GPU activation*/
+int activity_index = -1;
+EXPORT_SYMBOL(activity_index);
+
 mali_io_address clk_register_map=0;
 
 _mali_osk_lock_t *mali_dvfs_lock = 0;
@@ -518,6 +522,7 @@ static _mali_osk_errcode_t enable_mali_clocks(void)
 	err = clk_enable(mali_clock);
 	MALI_DEBUG_PRINT(3,("enable_mali_clocks mali_clock %p error %d \n", mali_clock, err));
 
+	mali_runtime_resume.vol = mali_dvfs_get_vol(MALI_DVFS_STEPS + 1);
 #if MALI_PMM_RUNTIME_JOB_CONTROL_ON
 #if MALI_DVFS_ENABLED
 	// set clock rate
@@ -528,9 +533,11 @@ static _mali_osk_errcode_t enable_mali_clocks(void)
 		mali_clk_set_rate(mali_runtime_resume.clk, GPU_MHZ);
 	}
 	if (mali_gpu_clk <= mali_runtime_resume.clk)
-		set_mali_dvfs_current_step(5);
+		set_mali_dvfs_current_step(MALI_DVFS_STEPS + 1);
 	/* lock/unlock CPU freq by Mali */
-	if (mali_gpu_clk == 440)
+	if (mali_gpu_clk >= 533)
+		err = cpufreq_lock_by_mali(1400);
+	else if (mali_gpu_clk >= 440)
 		err = cpufreq_lock_by_mali(1200);
 #else
 	mali_regulator_set_voltage(mali_runtime_resume.vol, mali_runtime_resume.vol);
@@ -693,8 +700,12 @@ _mali_osk_errcode_t mali_platform_powerup(u32 cores)
 	MALI_SUCCESS;
 }
 
+/*This code for reference value of GPU activation*/
 void mali_gpu_utilization_handler(u32 utilization)
 {
+	/*printk("[TEST] GPU_UTILIZATION:%d per 1sec.", utilization);*/
+	activity_index = utilization;
+
 	if (bPoweroff==0)
 	{
 #if MALI_DVFS_ENABLED

@@ -27,6 +27,8 @@
 
 #define IOCTL_LINK_PORT_ON		_IO('o', 0x35)
 #define IOCTL_LINK_PORT_OFF		_IO('o', 0x36)
+#define IOCTL_LINK_BLOCK_AUTOSUSPEND	_IO('o', 0x37)
+#define IOCTL_LINK_ENABLE_AUTOSUSPEND	_IO('o', 0x38)
 
 enum hub_status {
 	HUB_STATE_OFF,		/* usb3503 0ff*/
@@ -76,6 +78,7 @@ struct link_pm_data {
 	int (*cpufreq_unlock)(void);
 
 	int autosuspend_delay_ms; /* if zero, the default value is used */
+	bool block_autosuspend;
 };
 
 bool link_pm_set_active(struct usb_link_device *usb_ld);

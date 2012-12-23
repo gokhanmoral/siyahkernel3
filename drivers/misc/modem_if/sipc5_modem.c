@@ -44,6 +44,7 @@
 static struct modem_shared *create_modem_shared_data(void)
 {
 	struct modem_shared *msd;
+	int size = MAX_MIF_BUFF_SIZE;
 
 	msd = kzalloc(sizeof(struct modem_shared), GFP_KERNEL);
 	if (!msd)
@@ -56,6 +57,20 @@ static struct modem_shared *create_modem_shared_data(void)
 	msd->iodevs_tree_chan = RB_ROOT;
 	msd->iodevs_tree_fmt = RB_ROOT;
 
+	msd->storage.cnt = 0;
+	msd->storage.addr = kzalloc(MAX_MIF_BUFF_SIZE +
+		(MAX_MIF_SEPA_SIZE * 2), GFP_KERNEL);
+	if (!msd->storage.addr) {
+		mif_err("IPC logger buff alloc failed!!\n");
+		return NULL;
+	}
+	memset(msd->storage.addr, 0, size + (MAX_MIF_SEPA_SIZE * 2));
+	memcpy(msd->storage.addr, MIF_SEPARATOR, MAX_MIF_SEPA_SIZE);
+	msd->storage.addr += MAX_MIF_SEPA_SIZE;
+	memcpy(msd->storage.addr, &size, MAX_MIF_SEPA_SIZE);
+	msd->storage.addr += MAX_MIF_SEPA_SIZE;
+	spin_lock_init(&msd->lock);
+
 	return msd;
 }
 
@@ -66,7 +81,6 @@ static struct modem_ctl *create_modemctl_device(struct platform_device *pdev,
 	struct modem_data *pdata;
 	struct modem_ctl *modemctl;
 	struct device *dev = &pdev->dev;
-	int count, i;
 
 	/* create modem control device */
 	modemctl = kzalloc(sizeof(struct modem_ctl), GFP_KERNEL);
@@ -87,15 +101,6 @@ static struct modem_ctl *create_modemctl_device(struct platform_device *pdev,
 		kfree(modemctl);
 		return NULL;
 	}
-
-	modemctl->msd->storage.cnt = 0;
-	modemctl->msd->storage.addr = kzalloc(MAX_MIF_BUFF_SIZE, GFP_KERNEL);
-	if (!modemctl->msd->storage.addr) {
-		mif_err("IPC logger buff alloc failed!!\n");
-		return NULL;
-	}
-	memset(modemctl->msd->storage.addr, 0, MAX_MIF_BUFF_SIZE);
-	spin_lock_init(&modemctl->msd->lock);
 
 	mif_info("%s is created!!!\n", pdata->name);
 
@@ -123,6 +128,7 @@ static struct io_device *create_io_device(struct modem_io_t *io_t,
 	iod->format = io_t->format;
 	iod->io_typ = io_t->io_type;
 	iod->link_types = io_t->links;
+	iod->app = io_t->app;
 	iod->net_typ = pdata->modem_net;
 	iod->use_handover = pdata->use_handover;
 	iod->ipc_version = pdata->ipc_version;
@@ -300,17 +306,33 @@ static void modem_shutdown(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct modem_ctl *mc = dev_get_drvdata(dev);
+	struct utc_time utc;
+
 	mc->ops.modem_off(mc);
 	mc->phone_state = STATE_OFFLINE;
+
+	get_utc_time(&utc);
+	mif_info("%s: at [%02d:%02d:%02d.%03d]\n",
+		mc->name, utc.hour, utc.min, utc.sec, utc.msec);
 }
 
 static int modem_suspend(struct device *pdev)
 {
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
+	struct utc_time utc;
+#endif
+
 #ifndef CONFIG_LINK_DEVICE_HSIC
 	struct modem_ctl *mc = dev_get_drvdata(pdev);
 
-	if (mc->gpio_pda_active)
+	if (mc->gpio_pda_active) {
 		gpio_set_value(mc->gpio_pda_active, 0);
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
+		get_utc_time(&utc);
+		mif_info("%s: at [%02d:%02d:%02d.%03d]\n",
+			mc->name, utc.hour, utc.min, utc.sec, utc.msec);
+#endif
+	}
 #endif
 
 	return 0;
@@ -318,19 +340,29 @@ static int modem_suspend(struct device *pdev)
 
 static int modem_resume(struct device *pdev)
 {
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
+	struct utc_time utc;
+#endif
+
 #ifndef CONFIG_LINK_DEVICE_HSIC
 	struct modem_ctl *mc = dev_get_drvdata(pdev);
 
-	if (mc->gpio_pda_active)
+	if (mc->gpio_pda_active) {
 		gpio_set_value(mc->gpio_pda_active, 1);
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
+		get_utc_time(&utc);
+		mif_info("%s: at [%02d:%02d:%02d.%03d]\n",
+			mc->name, utc.hour, utc.min, utc.sec, utc.msec);
+#endif
+	}
 #endif
 
 	return 0;
 }
 
 static const struct dev_pm_ops modem_pm_ops = {
-	.suspend    = modem_suspend,
-	.resume     = modem_resume,
+	.suspend = modem_suspend,
+	.resume = modem_resume,
 };
 
 static struct platform_driver modem_driver = {
@@ -338,7 +370,7 @@ static struct platform_driver modem_driver = {
 	.shutdown = modem_shutdown,
 	.driver = {
 		.name = "mif_sipc5",
-		.pm   = &modem_pm_ops,
+		.pm = &modem_pm_ops,
 	},
 };
 

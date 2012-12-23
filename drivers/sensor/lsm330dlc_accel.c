@@ -71,7 +71,11 @@ enum {
 
 #define ACC_DEV_NAME "accelerometer"
 
+#ifdef CONFIG_SLP
+#define CALIBRATION_FILE_PATH	"/csa/sensor/accel_cal_data"
+#else
 #define CALIBRATION_FILE_PATH	"/efs/calibration_data"
+#endif
 #define CAL_DATA_AMOUNT	20
 
 static const struct odr_delay {
@@ -88,7 +92,6 @@ static const struct odr_delay {
 	{    ODR1, 1000000000LL }, /*    1Hz */
 };
 
-/* It will be used, when google fusion is enabled. */
 static const int position_map[][3][3] = {
 	{{-1,  0,  0}, { 0, -1,  0}, { 0,  0,  1} }, /* 0 top/upper-left */
 	{{ 0, -1,  0}, { 1,  0,  0}, { 0,  0,  1} }, /* 1 top/upper-right */
@@ -149,6 +152,10 @@ static int lsm330dlc_accel_read_raw_xyz(struct lsm330dlc_accel_data *data,
 	acc->x = acc->x >> 4;
 	acc->y = acc->y >> 4;
 	acc->z = acc->z >> 4;
+
+#if defined(CONFIG_MACH_M3_JPN_DCM)
+	acc->y = -acc->y;
+#endif
 
 	return 0;
 }
@@ -558,15 +565,9 @@ static ssize_t lsm330dlc_accel_fs_read(struct device *dev,
 				accel_adjusted[i]
 				+= position_map[data->position][i][j] * raw[j];
 		}
-#ifdef CONFIG_SLP
-		return sprintf(buf, "raw:%d,%d,%d adjust:%d,%d,%d\n",
-			raw[0], raw[1], raw[2], accel_adjusted[0],
-			accel_adjusted[1], accel_adjusted[2]);
-#else
 		return sprintf(buf, "%d,%d,%d\n",
 			accel_adjusted[0], accel_adjusted[1],
 			accel_adjusted[2]);
-#endif
 	} else
 		return sprintf(buf, "%d,%d,%d\n",
 			data->acc_xyz.x, data->acc_xyz.y, data->acc_xyz.z);
@@ -1044,15 +1045,26 @@ static int lsm330dlc_accel_probe(struct i2c_client *client,
 {
 	struct lsm330dlc_accel_data *data;
 	struct accel_platform_data *pdata;
-	int err = 0;
+	int err = 0, retry;
+	int probe_retry_max = 3;
 
 	accel_dbgmsg("is started\n");
-	if (!i2c_check_functionality(client->adapter,
-				     I2C_FUNC_SMBUS_WRITE_BYTE_DATA |
-				     I2C_FUNC_SMBUS_READ_I2C_BLOCK)) {
-		pr_err("%s: i2c functionality check failed!\n", __func__);
-		err = -ENODEV;
-		goto exit;
+
+probe_retry:
+	for (retry = 0; retry < 5; retry++) {
+		if (!i2c_check_functionality(client->adapter,
+					     I2C_FUNC_SMBUS_WRITE_BYTE_DATA |
+					     I2C_FUNC_SMBUS_READ_I2C_BLOCK)) {
+			pr_err("%s: i2c functionality failed!\n", __func__);
+
+			if (retry == 4) {
+				err = -ENODEV;
+				goto exit;
+			}
+			i2c_smbus_write_byte_data(client, CTRL_REG1, PM_OFF);
+			mdelay(2);
+		} else
+			break;
 	}
 
 	data = kzalloc(sizeof(struct lsm330dlc_accel_data), GFP_KERNEL);
@@ -1277,14 +1289,12 @@ err_position_device_create_file:
 #ifdef DEBUG_ODR
 	device_remove_file(data->dev, &dev_attr_odr);
 err_odr_device_create_file:
+#endif
 #ifdef USES_MOVEMENT_RECOGNITION
 	device_remove_file(data->dev, &dev_attr_reactive_alert);
-#else
-	device_remove_file(data->dev, &dev_attr_calibration);
-#endif
-#endif
-#ifdef USES_MOVEMENT_RECOGNITION
 err_reactive_device_create_file:
+	device_remove_file(data->dev, &dev_attr_calibration);
+#else
 	device_remove_file(data->dev, &dev_attr_calibration);
 #endif
 err_cal_device_create_file:
@@ -1314,6 +1324,12 @@ err_misc_register:
 err_read_reg:
 	kfree(data);
 exit:
+	if (probe_retry_max > 0) {
+		pr_err("%s: Failed to probe..(%d try left)\n",
+			__func__, probe_retry_max);
+		probe_retry_max--;
+		goto probe_retry;
+	}
 	return err;
 }
 

@@ -1274,11 +1274,11 @@ static void melfas_ts_get_data(struct work_struct *work)
 			    (uint16_t) (buf[i + 1] & 0x0F) << 8 | buf[i + 2];
 			g_Mtouch_info[FingerID].posY =
 			    (uint16_t) (buf[i + 1] & 0xF0) << 4 | buf[i + 3];
-#if !defined(CONFIG_MACH_C1) && !defined(CONFIG_MACH_C1VZW) && !defined(CONFIG_MACH_C2) && \
-			!defined(CONFIG_MACH_M0) && \
-			!defined(CONFIG_MACH_SLP_PQ) && \
-			!defined(CONFIG_MACH_SLP_PQ_LTE) && \
-			!defined(CONFIG_MACH_M3)
+#if !defined(CONFIG_MACH_C1) && \
+	!defined(CONFIG_MACH_M3) && \
+	!defined(CONFIG_MACH_M0) && \
+	!defined(CONFIG_MACH_SLP_PQ) && \
+	!defined(CONFIG_MACH_SLP_PQ_LTE)
 			g_Mtouch_info[FingerID].posX =
 			    720 - g_Mtouch_info[FingerID].posX;
 			g_Mtouch_info[FingerID].posY =

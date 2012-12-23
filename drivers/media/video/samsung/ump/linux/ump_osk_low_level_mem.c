@@ -193,11 +193,17 @@ _mali_osk_errcode_t _ump_osk_mem_mapregion_map( ump_memory_allocation * descript
 	struct vm_area_struct *vma;
 	_mali_osk_errcode_t retval;
 
-	if (NULL == descriptor) return _MALI_OSK_ERR_FAULT;
+	if (NULL == descriptor)	{
+		MSG_ERR(("descriptor is NULL in _ump_osk_mem_mapregion_map()"));
+		return _MALI_OSK_ERR_FAULT;
+	}
 
 	vma = (struct vm_area_struct*)descriptor->process_mapping_info;
 
-	if (NULL == vma ) return _MALI_OSK_ERR_FAULT;
+	if (NULL == vma) {
+		MSG_ERR(("vma is NULL in _ump_osk_mem_mapregion_map()"));
+		return _MALI_OSK_ERR_FAULT;
+	}
 
 	retval = remap_pfn_range( vma, ((u32)descriptor->mapping) + offset, (*phys_addr) >> PAGE_SHIFT, size, vma->vm_page_prot) ? _MALI_OSK_ERR_FAULT : _MALI_OSK_ERR_OK;;
 
@@ -313,94 +319,13 @@ void _ump_osk_msync( ump_dd_mem * mem, ump_uk_msync_op op, u32 start, u32 addres
 		 phys_to_virt(mem->block_array[0].addr),
 		 mem->block_array[0].size));
 
-#ifndef USING_DMA_FLUSH
-	if (address) {
-		if ((address >= start)
-		    && ((address + size) <= start + mem->size_bytes)) {
-			if (size >= SZ_64K) {
-				flush_all_cpu_caches();
-			} else if (op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE)
-				dmac_flush_range((void *)address,
-						 (void *)(address + size - 1));
-			else
-				dmac_map_area((void *)address, size,
-					      DMA_TO_DEVICE);
+	flush_all_cpu_caches();
 #ifdef CONFIG_CACHE_L2X0
-			if (size >= SZ_1M)
-				outer_clean_all();
-			else
-				_ump_osk_msync_with_virt(mem, op, start, address, size);
+	if ((op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE))
+		outer_flush_all();
+	else
+		outer_clean_all();
 #endif
-			return;
-		}
-	}
-
-	if ((op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE)) {
-		if ((mem->size_bytes >= SZ_1M)) {
-			flush_all_cpu_caches();
-#ifdef CONFIG_CACHE_L2X0
-			outer_flush_all();
-#endif
-			return;
-		} else if ((mem->size_bytes >= SZ_64K)) {
-			flush_all_cpu_caches();
-#ifdef CONFIG_CACHE_L2X0
-			for (i = 0; i < mem->nr_blocks; i++) {
-				block = &mem->block_array[i];
-				start_p = (u32) block->addr;
-				end_p = start_p + block->size - 1;
-				outer_flush_range(start_p, end_p);
-			}
-#endif
-			return;
-		}
-	} else {
-		if ((mem->size_bytes >= SZ_1M)) {
-			flush_all_cpu_caches();
-#ifdef CONFIG_CACHE_L2X0
-			outer_clean_all();
-#endif
-			return;
-		} else if ((mem->size_bytes >= SZ_64K)) {
-			flush_all_cpu_caches();
-#ifdef CONFIG_CACHE_L2X0
-			for (i = 0; i < mem->nr_blocks; i++) {
-				block = &mem->block_array[i];
-				start_p = (u32) block->addr;
-				end_p = start_p + block->size - 1;
-				outer_clean_range(start_p, end_p);
-			}
-#endif
-			return;
-		}
-	}
-#endif
-
-	for (i = 0; i < mem->nr_blocks; i++) {
-		/* TODO: Find out which flush method is best of 1)Dma OR  2)Normal flush functions */
-		/*#define USING_DMA_FLUSH */
-#ifdef USING_DMA_FLUSH
-		DEBUG_ASSERT((PAGE_SIZE == mem->block_array[i].size));
-		dma_map_page(NULL,
-			     pfn_to_page(mem->block_array[i].
-					 addr >> PAGE_SHIFT), 0, PAGE_SIZE,
-			     DMA_BIDIRECTIONAL);
-		/*dma_unmap_page(NULL, mem->block_array[i].addr, PAGE_SIZE, DMA_BIDIRECTIONAL); */
-#else
-		block = &mem->block_array[i];
-		start_p = (u32) block->addr;
-		end_p = start_p + block->size - 1;
-		if (op == _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE) {
-			dmac_flush_range(phys_to_virt(start_p),
-					 phys_to_virt(end_p));
-			outer_flush_range(start_p, end_p);
-		} else {
-			dmac_map_area(phys_to_virt(start_p), block->size,
-				      DMA_TO_DEVICE);
-			outer_clean_range(start_p, end_p);
-		}
-#endif
-	}
 }
 
 

@@ -130,9 +130,8 @@ static u8 ath6kl_remove_sta(struct ath6kl *ar, u8 *mac, u16 reason)
 		for (i = 0; i < AP_MAX_NUM_STA; i++) {
 			if (memcmp(ar->sta_list[i].mac, mac, ETH_ALEN) == 0) {
 				ath6kl_dbg(ATH6KL_DBG_TRC,
-				    "deleting station %s aid=%d reason=%d\n",
-				    sec_conv_mac(mac),
-				    ar->sta_list[i].aid, reason);
+					   "deleting station %pM aid=%d reason=%d\n",
+					   mac, ar->sta_list[i].aid, reason);
 				ath6kl_sta_cleanup(ar, i);
 				removed = 1;
 				break;
@@ -149,14 +148,23 @@ enum htc_endpoint_id ath6kl_ac2_endpoint_id(void *devt, u8 ac)
 	return ar->ac2ep_map[ac];
 }
 
-struct ath6kl_cookie *ath6kl_alloc_cookie(struct ath6kl *ar)
+struct ath6kl_cookie *ath6kl_alloc_cookie(struct ath6kl *ar, bool isctrl)
 {
 	struct ath6kl_cookie *cookie;
 
-	cookie = ar->cookie_list;
-	if (cookie != NULL) {
-		ar->cookie_list = cookie->arc_list_next;
-		ar->cookie_count--;
+	/* If this cookie is for control packet*/
+	if (isctrl) {
+		cookie = ar->wmi_cookie_list;
+		if (cookie != NULL) {
+			ar->wmi_cookie_list = cookie->arc_list_next;
+			ar->wmi_cookie_count--;
+		}
+	} else {
+		cookie = ar->cookie_list;
+		if (cookie != NULL) {
+			ar->cookie_list = cookie->arc_list_next;
+			ar->cookie_count--;
+		}
 	}
 
 	return cookie;
@@ -166,31 +174,54 @@ void ath6kl_cookie_init(struct ath6kl *ar)
 {
 	u32 i;
 
+	/* Initilize data cookie list */
 	ar->cookie_list = NULL;
 	ar->cookie_count = 0;
 
 	memset(ar->cookie_mem, 0, sizeof(ar->cookie_mem));
 
 	for (i = 0; i < MAX_COOKIE_NUM; i++)
-		ath6kl_free_cookie(ar, &ar->cookie_mem[i]);
+		ath6kl_free_cookie(ar, &ar->cookie_mem[i], false);
+
+	/* Initilize control cookie list */
+	ar->wmi_cookie_list = NULL;
+	ar->wmi_cookie_count = 0;
+
+	memset(ar->wmi_cookie_mem, 0, sizeof(ar->wmi_cookie_mem));
+
+	for (i = 0; i < WMI_MAX_COOKIE_NUM; i++)
+		ath6kl_free_cookie(ar, &ar->wmi_cookie_mem[i], true);
 }
 
 void ath6kl_cookie_cleanup(struct ath6kl *ar)
 {
+	/* Cleanup the data cookie */
 	ar->cookie_list = NULL;
 	ar->cookie_count = 0;
+
+	/* Cleanup the control cookie */
+	ar->wmi_cookie_list = NULL;
+	ar->wmi_cookie_count = 0;
 }
 
-void ath6kl_free_cookie(struct ath6kl *ar, struct ath6kl_cookie *cookie)
+void ath6kl_free_cookie(struct ath6kl *ar, struct ath6kl_cookie *cookie,
+			bool isctrl)
 {
 	/* Insert first */
 
 	if (!ar || !cookie)
 		return;
 
-	cookie->arc_list_next = ar->cookie_list;
-	ar->cookie_list = cookie;
-	ar->cookie_count++;
+	/* If it is control cookie */
+	if (isctrl) {
+		cookie->arc_list_next = ar->wmi_cookie_list;
+		ar->wmi_cookie_list = cookie;
+		ar->wmi_cookie_count++;
+	} else {
+		cookie->arc_list_next = ar->cookie_list;
+		ar->cookie_list = cookie;
+		ar->cookie_count++;
+	}
 }
 
 /*
@@ -340,88 +371,6 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_MACH_PX
-void ath6kl_print_ar6k_registers(struct ath6kl *ar)
-{
-#if 0
-	u32 reg_addr;
-	u32 epc_addr1, epc_addr2, epc_addr3, epc_addr4;
-	u32 epc1, epc2, epc3, epc4;
-	u32 intrs, resetc, ssleep;
-	int ret;
-
-	epc_addr1 = EPC1_ADDR;
-	if (epc_addr1 != 0x00)
-	{
-		epc_addr2 = epc_addr1 + 4;
-		epc_addr3 = epc_addr1 + 8;
-		epc_addr4 = epc_addr1 + 12;
-
-		reg_addr = TARG_VTOP(ar->target_type, le32_to_cpu(epc_addr1));
-
-		ret = ath6kl_diag_read32(ar, reg_addr, &epc1);
-		if (ret)
-			ath6kl_err("diag_read of epc1 is failed\n");
-
-
-		reg_addr = TARG_VTOP(ar->target_type, le32_to_cpu(epc_addr2));
-
-		ret = ath6kl_diag_read32(ar, reg_addr, &epc2);
-		if (ret)
-			ath6kl_err("diag_read of epc2 is failed\n");
-
-
-		reg_addr = TARG_VTOP(ar->target_type, le32_to_cpu(epc_addr3));
-
-		ret = ath6kl_diag_read32(ar, reg_addr, &epc3);
-		if (ret)
-			ath6kl_err("diag_read of epc3 is failed\n");
-
-
-		reg_addr = TARG_VTOP(ar->target_type, le32_to_cpu(epc_addr4));
-
-		ret = ath6kl_diag_read32(ar, reg_addr, &epc4);
-		if (ret)
-			ath6kl_err("diag_read of epc4 is failed\n");
-
-		ath6kl_dbg(ATH6KL_DBG_TRC, "ath6kl:reg_dump EPC: %x %x %x %x\n",
-							epc1, epc2, epc3, epc4);
-	}
-
-    /* Interrupt Status */
-	reg_addr = TARG_VTOP(ar->target_type, le32_to_cpu(0x4034));
-
-	ret = ath6kl_diag_read32(ar, reg_addr, &intrs);
-	if (ret)
-		ath6kl_err("diag_read of intrs is failed\n");
-	else
-		ath6kl_dbg(ATH6KL_DBG_TRC,
-			"ath6kl:reg_dump interrupt status: %x\n", intrs);
-
-    /* Reset Cause */
-	reg_addr = TARG_VTOP(ar->target_type, le32_to_cpu(0x40C0));
-
-	ret = ath6kl_diag_read32(ar, reg_addr, &resetc);
-	if (ret)
-		ath6kl_err("diag_read of resetc is failed\n");
-	else
-		ath6kl_dbg(ATH6KL_DBG_TRC, "ath6kl:reg_dump reset cause: %x\n",
-									resetc);
-
-
-    /* System Sleep */
-	reg_addr = TARG_VTOP(ar->target_type, le32_to_cpu(0x40C4));
-
-	ret = ath6kl_diag_read32(ar, reg_addr, &ssleep);
-	if (ret)
-		ath6kl_err("diag_read of ssleep is failed\n");
-	else
-		ath6kl_dbg(ATH6KL_DBG_TRC,
-			"ath6kl:reg_dump system sleep: %x\n", ssleep);
-#endif
-}
-#endif
-
 /* FIXME: move to a better place, target.h? */
 #define AR6003_RESET_CONTROL_ADDRESS 0x00004000
 #define AR6004_RESET_CONTROL_ADDRESS 0x00004000
@@ -518,6 +467,10 @@ void ath6kl_connect_ap_mode_bss(struct ath6kl_vif *vif, u16 channel)
 		break;
 	}
 
+	if (ar->last_ch != channel)
+		/* we actually don't know the phymode, default to HT20 */
+		ath6kl_cfg80211_ch_switch_notify(vif, channel, WMI_11G_HT20);
+
 	ath6kl_wmi_bssfilter_cmd(ar->wmi, vif->fw_vif_idx, NONE_BSS_FILTER, 0);
 	set_bit(CONNECTED, &vif->flags);
 	netif_carrier_on(vif->ndev);
@@ -531,8 +484,7 @@ void ath6kl_connect_ap_mode_sta(struct ath6kl_vif *vif, u16 aid, u8 *mac_addr,
 	size_t ies_len = 0;
 	struct station_info sinfo;
 
-	ath6kl_dbg(ATH6KL_DBG_TRC, "new station %s aid=%d\n",
-					sec_conv_mac(mac_addr), aid);
+	ath6kl_dbg(ATH6KL_DBG_TRC, "new station %pM aid=%d\n", mac_addr, aid);
 
 	if (assoc_req_len > sizeof(struct ieee80211_hdr_3addr)) {
 		struct ieee80211_mgmt *mgmt =
@@ -629,19 +581,23 @@ void ath6kl_ready_event(void *devt, u8 *datap, u32 sw_ver, u32 abi_ver)
 	struct ath6kl *ar = devt;
 
 	memcpy(ar->mac_addr, datap, ETH_ALEN);
-	ath6kl_dbg(ATH6KL_DBG_TRC, "%s: mac addr = %s\n",
-		   __func__, sec_conv_mac(ar->mac_addr));
+
+	ath6kl_dbg(ATH6KL_DBG_BOOT,
+		   "ready event mac addr %pM sw_ver 0x%x abi_ver 0x%x\n",
+		   ar->mac_addr, sw_ver, abi_ver);
 
 	ar->version.wlan_ver = sw_ver;
 	ar->version.abi_ver = abi_ver;
 
-	snprintf(ar->wiphy->fw_version,
-		 sizeof(ar->wiphy->fw_version),
-		 "%u.%u.%u.%u",
-		 (ar->version.wlan_ver & 0xf0000000) >> 28,
-		 (ar->version.wlan_ver & 0x0f000000) >> 24,
-		 (ar->version.wlan_ver & 0x00ff0000) >> 16,
-		 (ar->version.wlan_ver & 0x0000ffff));
+	if (strlen(ar->wiphy->fw_version) == 0) {
+		snprintf(ar->wiphy->fw_version,
+			 sizeof(ar->wiphy->fw_version),
+			 "%u.%u.%u.%u",
+			 (ar->version.wlan_ver & 0xf0000000) >> 28,
+			 (ar->version.wlan_ver & 0x0f000000) >> 24,
+			 (ar->version.wlan_ver & 0x00ff0000) >> 16,
+			 (ar->version.wlan_ver & 0x0000ffff));
+	}
 
 	/* indicate to the waiting thread that the ready event was received */
 	set_bit(WMI_READY, &ar->flag);
@@ -667,6 +623,60 @@ void ath6kl_scan_complete_evt(struct ath6kl_vif *vif, int status)
 	ath6kl_dbg(ATH6KL_DBG_WLAN_CFG, "scan complete: %d\n", status);
 }
 
+static int ath6kl_commit_ch_switch(struct ath6kl_vif *vif, u16 channel)
+{
+
+	struct ath6kl *ar = vif->ar;
+
+	vif->next_chan = channel;
+	vif->profile.ch = cpu_to_le16(channel);
+
+	switch (vif->nw_type) {
+	case AP_NETWORK:
+		/*
+		 * reconfigure any saved RSN IE capabilites in the beacon /
+		 * probe response to stay in sync with the supplicant.
+		 */
+		if (vif->rsn_capab &&
+		    test_bit(ATH6KL_FW_CAPABILITY_RSN_CAP_OVERRIDE,
+			     ar->fw_capabilities))
+			ath6kl_wmi_set_ie_cmd(ar->wmi, vif->fw_vif_idx,
+					      WLAN_EID_RSN, WMI_RSN_IE_CAPB,
+					      (const u8 *) &vif->rsn_capab,
+					      sizeof(vif->rsn_capab));
+
+		return ath6kl_wmi_ap_profile_commit(ar->wmi, vif->fw_vif_idx,
+						    &vif->profile);
+	default:
+		ath6kl_err("won't switch channels nw_type=%d\n", vif->nw_type);
+		return -ENOTSUPP;
+	}
+}
+
+static void ath6kl_check_ch_switch(struct ath6kl *ar, u16 channel)
+{
+
+	struct ath6kl_vif *vif;
+	int res = 0;
+
+	if (!ar->want_ch_switch)
+		return;
+
+	spin_lock_bh(&ar->list_lock);
+	list_for_each_entry(vif, &ar->vif_list, list) {
+		if (ar->want_ch_switch & (1 << vif->fw_vif_idx))
+			res = ath6kl_commit_ch_switch(vif, channel);
+
+		/* if channel switch failed, oh well we tried */
+		ar->want_ch_switch &= ~(1 << vif->fw_vif_idx);
+
+		if (res)
+			ath6kl_err("channel switch failed nw_type %d res %d\n",
+				   vif->nw_type, res);
+	}
+	spin_unlock_bh(&ar->list_lock);
+}
+
 void ath6kl_connect_event(struct ath6kl_vif *vif, u16 channel, u8 *bssid,
 			  u16 listen_int, u16 beacon_int,
 			  enum network_type net_type, u8 beacon_ie_len,
@@ -684,9 +694,11 @@ void ath6kl_connect_event(struct ath6kl_vif *vif, u16 channel, u8 *bssid,
 	memcpy(vif->bssid, bssid, sizeof(vif->bssid));
 	vif->bss_ch = channel;
 
-	if ((vif->nw_type == INFRA_NETWORK))
+	if ((vif->nw_type == INFRA_NETWORK)) {
 		ath6kl_wmi_listeninterval_cmd(ar->wmi, vif->fw_vif_idx,
 					      vif->listen_intvl_t, 0);
+		ath6kl_check_ch_switch(ar, channel);
+	}
 
 	netif_wake_queue(vif->ndev);
 
@@ -1011,6 +1023,28 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 	struct ath6kl *ar = vif->ar;
 
 	if (vif->nw_type == AP_NETWORK) {
+		/* disconnect due to other STA vif switching channels */
+		if (reason == BSS_DISCONNECTED &&
+		    prot_reason_status == WMI_AP_REASON_STA_ROAM) {
+			ar->want_ch_switch |= 1 << vif->fw_vif_idx;
+			/* bail back to this channel if STA vif fails connect */
+			ar->last_ch = le16_to_cpu(vif->profile.ch);
+		}
+
+		if (prot_reason_status == WMI_AP_REASON_MAX_STA) {
+			/* send max client reached notification to user space */
+			cfg80211_conn_failed(vif->ndev, bssid,
+					     NL80211_CONN_FAIL_MAX_CLIENTS,
+					     GFP_KERNEL);
+		}
+
+		if (prot_reason_status == WMI_AP_REASON_ACL) {
+			/* send blocked client notification to user space */
+			cfg80211_conn_failed(vif->ndev, bssid,
+					     NL80211_CONN_FAIL_BLOCKED_CLIENT,
+					     GFP_KERNEL);
+		}
+
 		if (!ath6kl_remove_sta(ar, bssid, prot_reason_status))
 			return;
 
@@ -1067,6 +1101,9 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 			return;
 		}
 	}
+
+	/* restart disconnected concurrent vifs waiting for new channel */
+	ath6kl_check_ch_switch(ar, ar->last_ch);
 
 	/* update connect & link status atomically */
 	spin_lock_bh(&vif->if_lock);
@@ -1140,7 +1177,11 @@ static struct net_device_stats *ath6kl_get_stats(struct net_device *dev)
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,39))
+#if 1 /*(LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))*/
+static int ath6kl_set_features(struct net_device *dev, netdev_features_t features)
+#else
 static int ath6kl_set_features(struct net_device *dev, u32 features)
+#endif
 {
 	struct ath6kl_vif *vif = netdev_priv(dev);
 	struct ath6kl *ar = vif->ar;
@@ -1191,29 +1232,36 @@ static void ath6kl_set_multicast_list(struct net_device *ndev)
 	/* Enable multicast-all filter. */
 	mc_all_on = !!(ndev->flags & IFF_PROMISC) ||
 		    !!(ndev->flags & IFF_ALLMULTI) ||
-			!!(mc_count > ATH6K_MAX_MC_FILTERS_PER_LIST) ||
-			(vif->ar->state == ATH6KL_STATE_ON);
+		    !!(mc_count > ATH6K_MAX_MC_FILTERS_PER_LIST);
 
-	if (!(ndev->flags & IFF_MULTICAST))
+	if (mc_all_on)
+		set_bit(NETDEV_MCAST_ALL_ON, &vif->flags);
+	else
+		clear_bit(NETDEV_MCAST_ALL_ON, &vif->flags);
+
+	mc_all_on = mc_all_on || (vif->ar->state == ATH6KL_STATE_ON);
+
+	if (!(ndev->flags & IFF_MULTICAST)) {
 		mc_all_on = false;
-
-	ath6kl_dbg(ATH6KL_DBG_TRC, "multicast state IFF_ALLMULTI = %d , IFF_MULTICAST = %d, "
-					"mc_count = %d, mc_all_on = %d",
-			  ndev->flags & IFF_ALLMULTI, ndev->flags & IFF_MULTICAST, mc_count,
-			  mc_all_on);
+		set_bit(NETDEV_MCAST_ALL_OFF, &vif->flags);
+	} else {
+		clear_bit(NETDEV_MCAST_ALL_OFF, &vif->flags);
+	}
 
 	/* Enable/disable "multicast-all" filter*/
 	ath6kl_dbg(ATH6KL_DBG_TRC, "%s multicast-all filter\n",
-			mc_all_on ? "enabling" : "disabling");
-
+		    mc_all_on ? "enabling" : "disabling");
 	ret = ath6kl_wmi_mcast_filter_cmd(vif->ar->wmi, vif->fw_vif_idx,
-			mc_all_on);
+					  mc_all_on);
 
 	if (ret) {
-		ath6kl_warn("Failed to %s multicast receive\n",
+		ath6kl_warn("Failed to %s multicast-all receive\n",
 			    mc_all_on ? "enable" : "disable");
 		return;
 	}
+
+	if (test_bit(NETDEV_MCAST_ALL_ON, &vif->flags))
+		return;
 
 	/* Keep the driver and firmware mcast list in sync. */
 	list_for_each_entry_safe(mc_filter, tmp, &vif->mc_filter, list) {
@@ -1232,14 +1280,14 @@ static void ath6kl_set_multicast_list(struct net_device *ndev)
 			 * but not in the new request.
 			 */
 			ath6kl_dbg(ATH6KL_DBG_TRC,
-				   "Removing %s from multicast filter\n",
-				   sec_conv_mac(mc_filter->hw_addr));
+				   "Removing %pM from multicast filter\n",
+				   mc_filter->hw_addr);
 			ret = ath6kl_wmi_add_del_mcast_filter_cmd(vif->ar->wmi,
 					vif->fw_vif_idx, mc_filter->hw_addr,
 					false);
 			if (ret) {
-				ath6kl_warn("Failed to remove multicast filter:%s\n",
-					     sec_conv_mac(mc_filter->hw_addr));
+				ath6kl_warn("Failed to remove multicast filter:%pM\n",
+					     mc_filter->hw_addr);
 				return;
 			}
 
@@ -1268,24 +1316,20 @@ static void ath6kl_set_multicast_list(struct net_device *ndev)
 				goto out;
 			}
 
-			if (memcmp(ha->addr, "\x33\x33\x00\x00\x00\x01", ETH_ALEN) == 0) {
-				ath6kl_warn("Skipped : %s\n", sec_conv_mac(ha->addr));
-			} else {
-				memcpy(mc_filter->hw_addr, ha->addr,
-				       ATH6KL_MCAST_FILTER_MAC_ADDR_SIZE);
-				/* Set the multicast filter */
-				ath6kl_dbg(ATH6KL_DBG_TRC,
-					   "Adding %s to multicast filter list\n",
-					   sec_conv_mac(mc_filter->hw_addr));
-				ret = ath6kl_wmi_add_del_mcast_filter_cmd(vif->ar->wmi,
-						vif->fw_vif_idx, mc_filter->hw_addr,
-						true);
-				if (ret) {
-					ath6kl_warn("Failed to add multicast filter :%s\n",
-						     sec_conv_mac(mc_filter->hw_addr));
-					kfree(mc_filter);
-					goto out;
-				}
+			memcpy(mc_filter->hw_addr, ha->addr,
+			       ATH6KL_MCAST_FILTER_MAC_ADDR_SIZE);
+			/* Set the multicast filter */
+			ath6kl_dbg(ATH6KL_DBG_TRC,
+				   "Adding %pM to multicast filter list\n",
+				   mc_filter->hw_addr);
+			ret = ath6kl_wmi_add_del_mcast_filter_cmd(vif->ar->wmi,
+					vif->fw_vif_idx, mc_filter->hw_addr,
+					true);
+			if (ret) {
+				ath6kl_warn("Failed to add multicast filter :%pM\n",
+					     mc_filter->hw_addr);
+				kfree(mc_filter);
+				goto out;
 			}
 
 			list_add_tail(&mc_filter->list, &mc_filter_new);
@@ -1296,6 +1340,13 @@ out:
 	list_splice_tail(&mc_filter_new, &vif->mc_filter);
 }
 
+#if 1 /*(LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))*/
+static int ath6kl_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
+{
+	return 0;
+}
+#endif
+
 static struct net_device_ops ath6kl_netdev_ops = {
 	.ndo_open               = ath6kl_open,
 	.ndo_stop               = ath6kl_close,
@@ -1305,6 +1356,9 @@ static struct net_device_ops ath6kl_netdev_ops = {
 	.ndo_set_features       = ath6kl_set_features,
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,39)) */
 	.ndo_set_rx_mode	= ath6kl_set_multicast_list,
+#if 1 /*(LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))*/
+	.ndo_do_ioctl           = ath6kl_ioctl,
+#endif
 };
 
 void init_netdev(struct net_device *dev)

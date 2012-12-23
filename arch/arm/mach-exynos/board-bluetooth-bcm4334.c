@@ -207,7 +207,7 @@ static int bcm_bt_lpm_init(struct platform_device *pdev)
 
 	hrtimer_init(&bt_lpm.enter_lpm_timer, CLOCK_MONOTONIC,
 			HRTIMER_MODE_REL);
-	bt_lpm.enter_lpm_delay = ktime_set(4, 0);  /* 1 sec */ /*1->3*//*3->4*/
+	bt_lpm.enter_lpm_delay = ktime_set(5, 0);  /* 1 sec */ /*1->3*//*3->4*/
 	bt_lpm.enter_lpm_timer.function = enter_lpm;
 
 	bt_lpm.host_wake = 0;

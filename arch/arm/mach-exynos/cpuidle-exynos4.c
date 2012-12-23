@@ -90,13 +90,7 @@ unsigned int log_en;
 module_param_named(log_en, log_en, uint, 0644);
 
 #if defined(CONFIG_MACH_MIDAS) || defined(CONFIG_SLP)
-#if defined(CONFIG_MACH_T0_EUR_LTE) || defined(CONFIG_MACH_T0_USA_ATT) \
-|| defined(CONFIG_MACH_T0_USA_TMO) || defined(CONFIG_MACH_T0_USA_VZW) \
-|| defined(CONFIG_MACH_T0_USA_SPR) || defined(CONFIG_MACH_T0_USA_USCC)
-#define CPUDILE_ENABLE_MASK (0)
-#else
 #define CPUDILE_ENABLE_MASK (ENABLE_LPA)
-#endif
 #else
 #define CPUDILE_ENABLE_MASK (ENABLE_AFTR | ENABLE_LPA)
 #endif
@@ -348,6 +342,9 @@ static int check_usb_op(void)
 }
 
 #ifdef CONFIG_SND_SAMSUNG_RP
+#if defined(CONFIG_MACH_U1_NA_SPR)
+#include "../../../sound/soc/samsung/srp-types.h"
+#endif
 extern int srp_get_op_level(void);	/* By srp driver */
 #endif
 
@@ -376,11 +373,38 @@ static inline int check_gps_uart_op(void)
 #ifdef CONFIG_INTERNAL_MODEM_IF
 static int check_idpram_op(void)
 {
+#ifdef CONFIG_SEC_MODEM_U1_SPR
+	/* This pin is high when CP might be accessing dpram */
+	/* int val = gpio_get_value(GPIO_CP_DUMP_INT); */
+	/* int val = __raw_readl(S5P_VA_GPIO2 + 0xC24) & 4; */ /* GPX1(2) */
+	int val = gpio_get_value(GPIO_PDA_ACTIVE);
+	static int prev_val = -1;
+
+	if (prev_val != val) {
+		prev_val = val;
+		pr_info("%s GPIO_PDA_ACTIVE = %d\n", __func__, val);
+	}
+
+	return val;
+#else
 	/* This pin is high when CP might be accessing dpram */
 	int cp_int = gpio_get_value(GPIO_CP_AP_DPRAM_INT);
 	if (cp_int != 0)
 		pr_info("%s cp_int is high.\n", __func__);
 	return cp_int;
+#endif
+}
+#endif
+
+#if defined(CONFIG_ISDBT)
+static int check_isdbt_op(void)
+{
+	/* This pin is high when isdbt is working */
+	int isdbt_is_running = gpio_get_value(GPIO_ISDBT_EN);
+
+	if (isdbt_is_running != 0)
+		printk(KERN_INFO "isdbt_is_running is high\n");
+	return isdbt_is_running;
 }
 #endif
 
@@ -413,9 +437,18 @@ static int exynos4_check_operation(void)
 #ifdef CONFIG_SND_SAMSUNG_RP
 	if (srp_get_op_level())
 		return 1;
+#if defined(CONFIG_MACH_U1_NA_SPR)
+	if (!srp_get_status(IS_RUNNING))
+		return 1;
+#endif
 #endif
 	if (check_usb_op())
 		return 1;
+
+#if defined(CONFIG_ISDBT)
+	if (check_isdbt_op())
+		return 1;
+#endif
 
 #if defined(CONFIG_BT)
 	if (check_bt_op())
@@ -861,12 +894,18 @@ static int exynos4_check_entermode(void)
 	return ret;
 }
 
+#ifdef CONFIG_CORESIGHT_ETM
+extern int etm_enable(int pm_enable);
+extern int etm_disable(int pm_enable);
+#endif
+
 static int exynos4_enter_lowpower(struct cpuidle_device *dev,
 				  struct cpuidle_state *state)
 {
 	struct cpuidle_state *new_state = state;
 	unsigned int enter_mode;
 	unsigned int tmp;
+	int ret;
 
 	/* This mode only can be entered when only Core0 is online */
 	if (num_online_cpus() != 1) {
@@ -886,10 +925,20 @@ static int exynos4_enter_lowpower(struct cpuidle_device *dev,
 	enter_mode = exynos4_check_entermode();
 	if (!enter_mode)
 		return exynos4_enter_idle(dev, new_state);
-	else if (enter_mode == S5P_CHECK_DIDLE)
-		return exynos4_enter_core0_aftr(dev, new_state);
-	else
-		return exynos4_enter_core0_lpa(dev, new_state);
+	else {
+#ifdef CONFIG_CORESIGHT_ETM
+		etm_disable(0);
+#endif
+		if (enter_mode == S5P_CHECK_DIDLE)
+			ret = exynos4_enter_core0_aftr(dev, new_state);
+		else
+			ret = exynos4_enter_core0_lpa(dev, new_state);
+#ifdef CONFIG_CORESIGHT_ETM
+		etm_enable(0);
+#endif
+	}
+
+	return ret;
 }
 
 static int exynos4_cpuidle_notifier_event(struct notifier_block *this,
@@ -1027,7 +1076,7 @@ static int __init exynos4_init_cpuidle(void)
 
 	ret = cpuidle_register_driver(&exynos4_idle_driver);
 
-	if(ret < 0){
+	if (ret < 0) {
 		printk(KERN_ERR "exynos4 idle register driver failed\n");
 		return ret;
 	}

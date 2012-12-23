@@ -12,22 +12,74 @@
  *
  */
 
-#include <linux/netdevice.h>
-#include <linux/platform_data/modem.h>
+#include <linux/init.h>
+#include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/interrupt.h>
+#include <linux/miscdevice.h>
+#include <linux/netdevice.h>
 #include <linux/skbuff.h>
 #include <linux/ip.h>
+#include <net/ip.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
 #include <linux/rtc.h>
 #include <linux/time.h>
-#include <net/ip.h>
 
+#include <linux/uaccess.h>
+#include <linux/fs.h>
+#include <linux/io.h>
+#include <linux/wait.h>
+#include <linux/time.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/mutex.h>
+#include <linux/irq.h>
+#include <linux/gpio.h>
+#include <linux/delay.h>
+#include <linux/wakelock.h>
+
+#include <linux/platform_data/modem.h>
 #include "modem_prj.h"
+#include "modem_variation.h"
 #include "modem_utils.h"
 
 #define CMD_SUSPEND	((unsigned short)(0x00CA))
 #define CMD_RESUME	((unsigned short)(0x00CB))
+
+#define TX_SEPARATOR	"mif: >>>>>>>>>> Outgoing packet "
+#define RX_SEPARATOR	"mif: Incoming packet <<<<<<<<<<"
+#define LINE_SEPARATOR	\
+	"mif: ------------------------------------------------------------"
+#define LINE_BUFF_SIZE	80
+
+static const char *hex = "0123456789abcdef";
+
+void ts2utc(struct timespec *ts, struct utc_time *utc)
+{
+	struct tm tm;
+
+	time_to_tm((ts->tv_sec - (sys_tz.tz_minuteswest * 60)), 0, &tm);
+	utc->year = 1900 + tm.tm_year;
+	utc->mon = 1 + tm.tm_mon;
+	utc->day = tm.tm_mday;
+	utc->hour = tm.tm_hour;
+	utc->min = tm.tm_min;
+	utc->sec = tm.tm_sec;
+	utc->msec = (ts->tv_nsec > 0) ? (ts->tv_nsec / 1000000) : 0;
+}
+
+int ns2us(long ns)
+{
+	return (ns > 0) ? (ns / 1000) : 0;
+}
+
+void get_utc_time(struct utc_time *utc)
+{
+	struct timespec ts;
+	getnstimeofday(&ts);
+	ts2utc(&ts, utc);
+}
 
 #ifdef CONFIG_LINK_DEVICE_DPRAM
 #include "modem_link_device_dpram.h"
@@ -35,14 +87,14 @@ int mif_dump_dpram(struct io_device *iod)
 {
 	struct link_device *ld = get_current_link(iod);
 	struct dpram_link_device *dpld = to_dpram_link_device(ld);
-	u32 size = dpld->dpctl->dp_size;
+	u32 size = dpld->size;
 	unsigned long read_len = 0;
 	struct sk_buff *skb;
 	char *buff;
 
 	buff = kzalloc(size, GFP_ATOMIC);
 	if (!buff) {
-		pr_err("[MIF] <%s> alloc dpram buff  failed\n", __func__);
+		mif_err("ERR! kzalloc fail\n");
 		return -ENOMEM;
 	} else {
 		dpld->dpram_dump(ld, buff);
@@ -51,7 +103,7 @@ int mif_dump_dpram(struct io_device *iod)
 	while (read_len < size) {
 		skb = alloc_skb(MAX_IPC_SKB_SIZE, GFP_ATOMIC);
 		if (!skb) {
-			pr_err("[MIF] <%s> alloc skb failed\n", __func__);
+			mif_err("ERR! alloc_skb fail\n");
 			kfree(buff);
 			return -ENOMEM;
 		}
@@ -76,7 +128,8 @@ int mif_dump_log(struct modem_shared *msd, struct io_device *iod)
 	while (read_len < MAX_MIF_BUFF_SIZE) {
 		skb = alloc_skb(MAX_IPC_SKB_SIZE, GFP_ATOMIC);
 		if (!skb) {
-			pr_err("[MIF] <%s> alloc skb failed\n", __func__);
+			mif_err("ERR! alloc_skb fail\n");
+			spin_unlock_irqrestore(&msd->lock, flags);
 			return -ENOMEM;
 		}
 		memcpy(skb_put(skb, MAX_IPC_SKB_SIZE),
@@ -202,13 +255,12 @@ void _mif_time_log(enum mif_log_id id, struct modem_shared *msd,
 
 /* dump2hex
  * dump data to hex as fast as possible.
- * the length of @buf must be greater than "@len * 3"
+ * the length of @buff must be greater than "@len * 3"
  * it need 3 bytes per one data byte to print.
  */
-static inline int dump2hex(char *buf, const char *data, size_t len)
+static inline int dump2hex(char *buff, const char *data, size_t len)
 {
-	static const char *hex = "0123456789abcdef";
-	char *dest = buf;
+	char *dest = buff;
 	int i;
 
 	for (i = 0; i < len; i++) {
@@ -221,24 +273,18 @@ static inline int dump2hex(char *buf, const char *data, size_t len)
 
 	*dest = '\0';
 
-	return dest - buf;
+	return dest - buff;
 }
 
-int pr_ipc(const char *str, const char *data, size_t len)
+void pr_ipc(const char *tag, const char *data, size_t len)
 {
-	struct timeval tv;
-	struct tm date;
-	unsigned char hexstr[128];
+	struct utc_time utc;
+	unsigned char str[128];
 
-	do_gettimeofday(&tv);
-	time_to_tm((tv.tv_sec - sys_tz.tz_minuteswest * 60), 0, &date);
-
-	dump2hex(hexstr, data, (len > 40 ? 40 : len));
-
-	return pr_info("mif: %s: [%02d-%02d %02d:%02d:%02d.%03ld] %s\n",
-			str, date.tm_mon + 1, date.tm_mday,
-			date.tm_hour, date.tm_min, date.tm_sec,
-			(tv.tv_usec > 0 ? tv.tv_usec / 1000 : 0), hexstr);
+	get_utc_time(&utc);
+	dump2hex(str, data, (len > 32 ? 32 : len));
+	pr_info("%s: %s: [%02d:%02d:%02d.%03d] %s\n",
+		MIF_TAG, tag, utc.hour, utc.min, utc.sec, utc.msec, str);
 }
 
 /* print buffer as hex string */
@@ -246,12 +292,12 @@ int pr_buffer(const char *tag, const char *data, size_t data_len,
 							size_t max_len)
 {
 	size_t len = min(data_len, max_len);
-	unsigned char hexstr[len ? len * 3 : 1]; /* 1 <= sizeof <= max_len*3 */
-	dump2hex(hexstr, data, len);
+	unsigned char str[len ? len * 3 : 1]; /* 1 <= sizeof <= max_len*3 */
+	dump2hex(str, data, len);
 
 	/* don't change this printk to mif_debug for print this as level7 */
-	return printk(KERN_INFO "%s(%u): %s%s\n", tag, data_len, hexstr,
-			len == data_len ? "" : " ...");
+	return printk(KERN_INFO "%s: %s(%u): %s%s\n", MIF_TAG, tag, data_len,
+			str, (len == data_len) ? "" : " ...");
 }
 
 /* flow control CM from CP, it use in serial devices */
@@ -278,7 +324,7 @@ int link_rx_flowctl_cmd(struct link_device *ld, const char *data, size_t len)
 			break;
 
 		default:
-			mif_err("flowctl BACMD: %04X\n", *cmd);
+			mif_err("flowctl BAD CMD: %04X\n", *cmd);
 			break;
 		}
 	}
@@ -391,7 +437,7 @@ void iodev_netif_stop(struct io_device *iod, void *args)
 static void iodev_set_tx_link(struct io_device *iod, void *args)
 {
 	struct link_device *ld = (struct link_device *)args;
-	if (iod->io_typ == IODEV_NET && IS_CONNECTED(iod, ld)) {
+	if (iod->format == IPC_RAW && IS_CONNECTED(iod, ld)) {
 		set_current_link(iod, ld);
 		mif_err("%s -> %s\n", iod->name, ld->name);
 	}
@@ -402,6 +448,65 @@ void rawdevs_set_tx_link(struct modem_shared *msd, enum modem_link link_type)
 	struct link_device *ld = find_linkdev(msd, link_type);
 	if (ld)
 		iodevs_for_each(msd, iodev_set_tx_link, ld);
+}
+
+void mif_netif_stop(struct link_device *ld)
+{
+	struct io_device *iod;
+
+	if (ld->ipc_version < SIPC_VER_50)
+		iod = link_get_iod_with_channel(ld, 0x20 | RMNET0_CH_ID);
+	else
+		iod = link_get_iod_with_channel(ld, RMNET0_CH_ID);
+
+	if (iod)
+		iodevs_for_each(iod->msd, iodev_netif_stop, 0);
+}
+
+void mif_netif_wake(struct link_device *ld)
+{
+	struct io_device *iod;
+
+	/**
+	 * If ld->suspend_netif_tx is true, this means that there was a SUSPEND
+	 * flow control command from CP so MIF must wait for a RESUME command
+	 * from CP.
+	 */
+	if (ld->suspend_netif_tx) {
+		mif_info("%s: waiting for FLOW_CTRL_RESUME\n", ld->name);
+		return;
+	}
+
+	if (ld->ipc_version < SIPC_VER_50)
+		iod = link_get_iod_with_channel(ld, 0x20 | RMNET0_CH_ID);
+	else
+		iod = link_get_iod_with_channel(ld, RMNET0_CH_ID);
+
+	if (iod)
+		iodevs_for_each(iod->msd, iodev_netif_wake, 0);
+}
+
+/**
+ * ipv4str_to_be32 - ipv4 string to be32 (big endian 32bits integer)
+ * @return: return zero when errors occurred
+ */
+__be32 ipv4str_to_be32(const char *ipv4str, size_t count)
+{
+	unsigned char ip[4];
+	char ipstr[16]; /* == strlen("xxx.xxx.xxx.xxx") + 1 */
+	char *next = ipstr;
+	char *p;
+	int i;
+
+	strncpy(ipstr, ipv4str, ARRAY_SIZE(ipstr));
+
+	for (i = 0; i < 4; i++) {
+		p = strsep(&next, ".");
+		if (kstrtou8(p, 10, &ip[i]) < 0)
+			return 0; /* == 0.0.0.0 */
+	}
+
+	return *((__be32 *)ip);
 }
 
 void mif_add_timer(struct timer_list *timer, unsigned long expire,
@@ -417,7 +522,7 @@ void mif_add_timer(struct timer_list *timer, unsigned long expire,
 	add_timer(timer);
 }
 
-void mif_print_data(char *buf, int len)
+void mif_print_data(const char *buff, int len)
 {
 	int words = len >> 4;
 	int residue = len - (words << 4);
@@ -430,7 +535,7 @@ void mif_print_data(char *buf, int len)
 	if (residue > 0) {
 		memset(last, 0, sizeof(last));
 		memset(tb, 0, sizeof(tb));
-		b = buf + (words << 4);
+		b = (char *)buff + (words << 4);
 
 		sprintf(last, "%04X: ", (words << 4));
 		for (i = 0; i < residue; i++) {
@@ -444,7 +549,7 @@ void mif_print_data(char *buf, int len)
 	}
 
 	for (i = 0; i < words; i++) {
-		b = buf + (i << 4);
+		b = (char *)buff + (i << 4);
 		mif_err("%04X: "
 			"%02x %02x %02x %02x  %02x %02x %02x %02x  "
 			"%02x %02x %02x %02x  %02x %02x %02x %02x\n",
@@ -456,6 +561,134 @@ void mif_print_data(char *buf, int len)
 	/* Print the last line */
 	if (residue > 0)
 		mif_err("%s\n", last);
+}
+
+void mif_dump2format16(const char *data, int len, char *buff, char *tag)
+{
+	char *d;
+	int i;
+	int words = len >> 4;
+	int residue = len - (words << 4);
+	char line[LINE_BUFF_SIZE];
+	char tb[8];
+
+	for (i = 0; i < words; i++) {
+		memset(line, 0, LINE_BUFF_SIZE);
+		d = (char *)data + (i << 4);
+
+		if (tag)
+			sprintf(line, "%s%04X| "
+				"%02x %02x %02x %02x  "
+				"%02x %02x %02x %02x  "
+				"%02x %02x %02x %02x  "
+				"%02x %02x %02x %02x\n",
+				tag, (i << 4),
+				d[0], d[1], d[2], d[3],
+				d[4], d[5], d[6], d[7],
+				d[8], d[9], d[10], d[11],
+				d[12], d[13], d[14], d[15]);
+		else
+			sprintf(line, "%04X| "
+				"%02x %02x %02x %02x  "
+				"%02x %02x %02x %02x  "
+				"%02x %02x %02x %02x  "
+				"%02x %02x %02x %02x\n",
+				(i << 4),
+				d[0], d[1], d[2], d[3],
+				d[4], d[5], d[6], d[7],
+				d[8], d[9], d[10], d[11],
+				d[12], d[13], d[14], d[15]);
+
+		strcat(buff, line);
+	}
+
+	/* Make the last line, if (len % 16) > 0 */
+	if (residue > 0) {
+		memset(line, 0, LINE_BUFF_SIZE);
+		memset(tb, 0, sizeof(tb));
+		d = (char *)data + (words << 4);
+
+		if (tag)
+			sprintf(line, "%s%04X|", tag, (words << 4));
+		else
+			sprintf(line, "%04X|", (words << 4));
+
+		for (i = 0; i < residue; i++) {
+			sprintf(tb, " %02x", d[i]);
+			strcat(line, tb);
+			if ((i & 0x3) == 0x3) {
+				sprintf(tb, " ");
+				strcat(line, tb);
+			}
+		}
+		strcat(line, "\n");
+
+		strcat(buff, line);
+	}
+}
+
+void mif_dump2format4(const char *data, int len, char *buff, char *tag)
+{
+	char *d;
+	int i;
+	int words = len >> 2;
+	int residue = len - (words << 2);
+	char line[LINE_BUFF_SIZE];
+	char tb[8];
+
+	for (i = 0; i < words; i++) {
+		memset(line, 0, LINE_BUFF_SIZE);
+		d = (char *)data + (i << 2);
+
+		if (tag)
+			sprintf(line, "%s%04X| %02x %02x %02x %02x\n",
+				tag, (i << 2), d[0], d[1], d[2], d[3]);
+		else
+			sprintf(line, "%04X| %02x %02x %02x %02x\n",
+				(i << 2), d[0], d[1], d[2], d[3]);
+
+		strcat(buff, line);
+	}
+
+	/* Make the last line, if (len % 4) > 0 */
+	if (residue > 0) {
+		memset(line, 0, LINE_BUFF_SIZE);
+		memset(tb, 0, sizeof(tb));
+		d = (char *)data + (words << 2);
+
+		if (tag)
+			sprintf(line, "%s%04X|", tag, (words << 2));
+		else
+			sprintf(line, "%04X|", (words << 2));
+
+		for (i = 0; i < residue; i++) {
+			sprintf(tb, " %02x", d[i]);
+			strcat(line, tb);
+		}
+		strcat(line, "\n");
+
+		strcat(buff, line);
+	}
+}
+
+void mif_print_dump(const char *data, int len, int width)
+{
+	char *buff;
+
+	buff = kzalloc(len << 3, GFP_ATOMIC);
+	if (!buff) {
+		mif_err("ERR! kzalloc fail\n");
+		return;
+	}
+
+	if (width == 16)
+		mif_dump2format16(data, len, buff, LOG_TAG);
+	else
+		mif_dump2format4(data, len, buff, LOG_TAG);
+
+	pr_info("%s", buff);
+
+	kfree(buff);
 }
 
 void print_sipc4_hdlc_fmt_frame(const u8 *psrc)
@@ -567,13 +800,12 @@ void print_sipc5_link_fmt_frame(const u8 *psrc)
 	mif_err("-----------------------------------------------------------\n");
 }
 
-static void print_tcp_header(u8 *pkt)
+static void strcat_tcp_header(char *buff, u8 *pkt)
 {
-	int i;
-	char tcp_flags[32];
 	struct tcphdr *tcph = (struct tcphdr *)pkt;
-	u8 *opt = pkt + TCP_HDR_SIZE;
-	unsigned opt_len = (tcph->doff << 2) - TCP_HDR_SIZE;
+	int eol;
+	char line[LINE_BUFF_SIZE];
+	char flag_str[32];
 
 /*-------------------------------------------------------------------------
 
@@ -601,44 +833,55 @@ static void print_tcp_header(u8 *pkt)
 
 -------------------------------------------------------------------------*/
 
-	memset(tcp_flags, 0, sizeof(tcp_flags));
-	if (tcph->cwr)
-		strcat(tcp_flags, "CWR ");
-	if (tcph->ece)
-		strcat(tcp_flags, "ECE");
-	if (tcph->urg)
-		strcat(tcp_flags, "URG ");
-	if (tcph->ack)
-		strcat(tcp_flags, "ACK ");
-	if (tcph->psh)
-		strcat(tcp_flags, "PSH ");
-	if (tcph->rst)
-		strcat(tcp_flags, "RST ");
-	if (tcph->syn)
-		strcat(tcp_flags, "SYN ");
-	if (tcph->fin)
-		strcat(tcp_flags, "FIN ");
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: TCP:: Src.Port %u, Dst.Port %u\n",
+		MIF_TAG, ntohs(tcph->source), ntohs(tcph->dest));
+	strcat(buff, line);
 
-	mif_err("TCP:: Src.Port %u, Dst.Port %u\n",
-		ntohs(tcph->source), ntohs(tcph->dest));
-	mif_err("TCP:: SEQ 0x%08X(%u), ACK 0x%08X(%u)\n",
-		ntohs(tcph->seq), ntohs(tcph->seq),
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: TCP:: SEQ 0x%08X(%u), ACK 0x%08X(%u)\n",
+		MIF_TAG, ntohs(tcph->seq), ntohs(tcph->seq),
 		ntohs(tcph->ack_seq), ntohs(tcph->ack_seq));
-	mif_err("TCP:: Flags {%s}\n", tcp_flags);
-	mif_err("TCP:: Window %u, Checksum 0x%04X, Urg Pointer %u\n",
-		ntohs(tcph->window), ntohs(tcph->check), ntohs(tcph->urg_ptr));
+	strcat(buff, line);
 
-	if (opt_len > 0) {
-		mif_err("TCP:: Options {");
-		for (i = 0; i < opt_len; i++)
-			mif_err("%02X ", opt[i]);
-		mif_err("}\n");
-	}
+	memset(line, 0, LINE_BUFF_SIZE);
+	memset(flag_str, 0, sizeof(flag_str));
+	if (tcph->cwr)
+		strcat(flag_str, "CWR ");
+	if (tcph->ece)
+		strcat(flag_str, "ECE");
+	if (tcph->urg)
+		strcat(flag_str, "URG ");
+	if (tcph->ack)
+		strcat(flag_str, "ACK ");
+	if (tcph->psh)
+		strcat(flag_str, "PSH ");
+	if (tcph->rst)
+		strcat(flag_str, "RST ");
+	if (tcph->syn)
+		strcat(flag_str, "SYN ");
+	if (tcph->fin)
+		strcat(flag_str, "FIN ");
+	eol = strlen(flag_str) - 1;
+	if (eol > 0)
+		flag_str[eol] = 0;
+	snprintf(line, LINE_BUFF_SIZE, "%s: TCP:: Flags {%s}\n",
+		MIF_TAG, flag_str);
+	strcat(buff, line);
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: TCP:: Window %u, Checksum 0x%04X, Urgent %u\n", MIF_TAG,
+		ntohs(tcph->window), ntohs(tcph->check), ntohs(tcph->urg_ptr));
+	strcat(buff, line);
 }
 
-static void print_udp_header(u8 *pkt)
+static void strcat_udp_header(char *buff, u8 *pkt)
 {
 	struct udphdr *udph = (struct udphdr *)pkt;
+	char line[LINE_BUFF_SIZE];
 
 /*-------------------------------------------------------------------------
 
@@ -654,30 +897,45 @@ static void print_udp_header(u8 *pkt)
 
 -------------------------------------------------------------------------*/
 
-	mif_err("UDP:: Src.Port %u, Dst.Port %u\n",
-		ntohs(udph->source), ntohs(udph->dest));
-	mif_err("UDP:: Length %u, Checksum 0x%04X\n",
-		ntohs(udph->len), ntohs(udph->check));
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: UDP:: Src.Port %u, Dst.Port %u\n",
+		MIF_TAG, ntohs(udph->source), ntohs(udph->dest));
+	strcat(buff, line);
 
-	if (ntohs(udph->dest) == 53)
-		mif_err("UDP:: DNS query!!!\n");
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: UDP:: Length %u, Checksum 0x%04X\n",
+		MIF_TAG, ntohs(udph->len), ntohs(udph->check));
+	strcat(buff, line);
 
-	if (ntohs(udph->source) == 53)
-		mif_err("UDP:: DNS response!!!\n");
+	if (ntohs(udph->dest) == 53) {
+		memset(line, 0, LINE_BUFF_SIZE);
+		snprintf(line, LINE_BUFF_SIZE, "%s: UDP:: DNS query!!!\n",
+			MIF_TAG);
+		strcat(buff, line);
+	}
+
+	if (ntohs(udph->source) == 53) {
+		memset(line, 0, LINE_BUFF_SIZE);
+		snprintf(line, LINE_BUFF_SIZE, "%s: UDP:: DNS response!!!\n",
+			MIF_TAG);
+		strcat(buff, line);
+	}
 }
 
-void print_ip4_packet(u8 *ip_pkt)
+void print_ip4_packet(const u8 *ip_pkt, bool tx)
 {
-	char ip_flags[16];
+	char *buff;
 	struct iphdr *iph = (struct iphdr *)ip_pkt;
-	u8 *pkt = ip_pkt + (iph->ihl << 2);
+	u8 *pkt = (u8 *)ip_pkt + (iph->ihl << 2);
 	u16 flags = (ntohs(iph->frag_off) & 0xE000);
 	u16 frag_off = (ntohs(iph->frag_off) & 0x1FFF);
-
-	mif_err("-----------------------------------------------------------\n");
+	int eol;
+	char line[LINE_BUFF_SIZE];
+	char flag_str[16];
 
 /*---------------------------------------------------------------------------
-
 				IPv4 Header Format
 
 	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -705,44 +963,88 @@ void print_ip4_packet(u8 *ip_pkt)
 
 ---------------------------------------------------------------------------*/
 
-	memset(ip_flags, 0, sizeof(ip_flags));
-	if (flags & IP_CE)
-		strcat(ip_flags, "C");
-	if (flags & IP_DF)
-		strcat(ip_flags, "D");
-	if (flags & IP_MF)
-		strcat(ip_flags, "M");
+	if (iph->version != 4)
+		return;
 
-	mif_err("IP4:: Version %u, Header Length %u, TOS %u, Length %u\n",
-		iph->version, (iph->ihl << 2), iph->tos, ntohs(iph->tot_len));
-	mif_err("IP4:: I%u, Fragment Offset %u\n",
-		ntohs(iph->id), frag_off);
-	mif_err("IP4:: Flags {%s}\n", ip_flags);
-	mif_err("IP4:: TTL %u, Protocol %u, Header Checksum 0x%04X\n",
-		iph->ttl, iph->protocol, ntohs(iph->check));
-	mif_err("IP4:: Src.IP %u.%u.%u.%u, Dst.IP %u.%u.%u.%u\n",
-		ip_pkt[12], ip_pkt[13], ip_pkt[14], ip_pkt[15],
+	buff = kzalloc(4096, GFP_ATOMIC);
+	if (!buff)
+		return;
+
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	if (tx)
+		snprintf(line, LINE_BUFF_SIZE, "\n%s\n", TX_SEPARATOR);
+	else
+		snprintf(line, LINE_BUFF_SIZE, "\n%s\n", RX_SEPARATOR);
+	strcat(buff, line);
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE, "%s\n", LINE_SEPARATOR);
+	strcat(buff, line);
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: IP4:: Version %u, Header Length %u, TOS %u, Length %u\n",
+		MIF_TAG, iph->version, (iph->ihl << 2), iph->tos,
+		ntohs(iph->tot_len));
+	strcat(buff, line);
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE, "%s: IP4:: ID %u, Fragment Offset %u\n",
+		MIF_TAG, ntohs(iph->id), frag_off);
+	strcat(buff, line);
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	memset(flag_str, 0, sizeof(flag_str));
+	if (flags & IP_CE)
+		strcat(flag_str, "CE ");
+	if (flags & IP_DF)
+		strcat(flag_str, "DF ");
+	if (flags & IP_MF)
+		strcat(flag_str, "MF ");
+	eol = strlen(flag_str) - 1;
+	if (eol > 0)
+		flag_str[eol] = 0;
+	snprintf(line, LINE_BUFF_SIZE, "%s: IP4:: Flags {%s}\n",
+		MIF_TAG, flag_str);
+	strcat(buff, line);
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: IP4:: TTL %u, Protocol %u, Header Checksum 0x%04X\n",
+		MIF_TAG, iph->ttl, iph->protocol, ntohs(iph->check));
+	strcat(buff, line);
+
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE,
+		"%s: IP4:: Src.IP %u.%u.%u.%u, Dst.IP %u.%u.%u.%u\n",
+		MIF_TAG, ip_pkt[12], ip_pkt[13], ip_pkt[14], ip_pkt[15],
 		ip_pkt[16], ip_pkt[17], ip_pkt[18], ip_pkt[19]);
+	strcat(buff, line);
 
 	switch (iph->protocol) {
-	case 6:
-		/* TCP */
-		print_tcp_header(pkt);
+	case 6: /* TCP */
+		strcat_tcp_header(buff, pkt);
 		break;
 
-	case 17:
-		/* UDP */
-		print_udp_header(pkt);
+	case 17: /* UDP */
+		strcat_udp_header(buff, pkt);
 		break;
 
 	default:
 		break;
 	}
 
-	mif_err("-----------------------------------------------------------\n");
+	memset(line, 0, LINE_BUFF_SIZE);
+	snprintf(line, LINE_BUFF_SIZE, "%s\n", LINE_SEPARATOR);
+	strcat(buff, line);
+
+	pr_info("%s", buff);
+
+	kfree(buff);
 }
 
-bool is_dns_packet(u8 *ip_pkt)
+bool is_dns_packet(const u8 *ip_pkt)
 {
 	struct iphdr *iph = (struct iphdr *)ip_pkt;
 	struct udphdr *udph = (struct udphdr *)(ip_pkt + (iph->ihl << 2));
@@ -757,7 +1059,7 @@ bool is_dns_packet(u8 *ip_pkt)
 		return false;
 }
 
-bool is_syn_packet(u8 *ip_pkt)
+bool is_syn_packet(const u8 *ip_pkt)
 {
 	struct iphdr *iph = (struct iphdr *)ip_pkt;
 	struct tcphdr *tcph = (struct tcphdr *)(ip_pkt + (iph->ihl << 2));
@@ -766,24 +1068,10 @@ bool is_syn_packet(u8 *ip_pkt)
 	if (iph->protocol != 6)
 		return false;
 
-	if (tcph->syn)
+	if (tcph->syn || tcph->fin)
 		return true;
 	else
 		return false;
-}
-
-int get_sipc5_hdr_size(u8 *buff)
-{
-	u8 config = buff[0];
-
-	if (unlikely(config & SIPC5_EXT_FIELD_EXIST)) {
-		if (config & SIPC5_CTL_FIELD_EXIST)
-			return SIPC5_HEADER_SIZE_WITH_CTL_FLD;
-		else
-			return SIPC5_HEADER_SIZE_WITH_EXT_LEN;
-	} else {
-		return SIPC5_MIN_HEADER_SIZE;
-	}
 }
 
 int memcmp16_to_io(const void __iomem *to, void *from, int size)
@@ -801,7 +1089,7 @@ int memcmp16_to_io(const void __iomem *to, void *from, int size)
 		s1 = *s;
 		if (d1 != s1) {
 			diff++;
-			mif_info("ERR! [%d] d:0x%04X != s:0x%04X\n", i, d1, s1);
+			mif_err("ERR! [%d] d:0x%04X != s:0x%04X\n", i, d1, s1);
 		}
 		d++;
 		s++;
@@ -905,5 +1193,50 @@ int mif_test_dpram(char *dp_name, u8 __iomem *start, u32 size)
 
 	mif_info("%s: PASS!!!\n", dp_name);
 	return 0;
+}
+
+struct file *mif_open_file(const char *path)
+{
+	struct file *fp;
+	mm_segment_t old_fs;
+
+	old_fs = get_fs();
+	set_fs(get_ds());
+
+	fp = filp_open(path, O_RDWR|O_CREAT|O_APPEND, 0666);
+
+	set_fs(old_fs);
+
+	if (IS_ERR(fp))
+		return NULL;
+
+	return fp;
+}
+
+void mif_save_file(struct file *fp, const char *buff, size_t size)
+{
+	int ret;
+	mm_segment_t old_fs;
+
+	old_fs = get_fs();
+	set_fs(get_ds());
+
+	ret = fp->f_op->write(fp, buff, size, &fp->f_pos);
+	if (ret < 0)
+		mif_err("ERR! write fail\n");
+
+	set_fs(old_fs);
+}
+
+void mif_close_file(struct file *fp)
+{
+	mm_segment_t old_fs;
+
+	old_fs = get_fs();
+	set_fs(get_ds());
+
+	filp_close(fp, NULL);
+
+	set_fs(old_fs);
 }
 

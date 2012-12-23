@@ -29,14 +29,6 @@ struct wmi_tgt_err_report_evt {
 	__le32 err_val;
 } __packed;
 
-#define ATH6KL_DEFAULT_SCAN_CTRL_FLAGS    (CONNECT_SCAN_CTRL_FLAGS   |  \
-					   SCAN_CONNECTED_CTRL_FLAGS |  \
-					   ACTIVE_SCAN_CTRL_FLAGS    |  \
-					   ROAM_SCAN_CTRL_FLAGS      |  \
-					   ENABLE_AUTO_CTRL_FLAGS)
-
-#define ATH6KL_MAX_SCAN_CTRL_FLAGS	   0x7F
-
 int ath6kl_wmi_error_report_event(struct wmi *wmi, u8 *data, int len);
 int ath6kl_init_debugfs_pri(struct ath6kl *ar);
 #endif

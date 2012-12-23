@@ -781,6 +781,17 @@ void cfg80211_del_sta(struct net_device *dev, const u8 *mac_addr, gfp_t gfp)
 }
 EXPORT_SYMBOL(cfg80211_del_sta);
 
+void cfg80211_conn_failed(struct net_device *dev, const u8 *mac_addr,
+			  enum nl80211_connect_failed_reason reason,
+			  gfp_t gfp)
+{
+	struct wiphy *wiphy = dev->ieee80211_ptr->wiphy;
+	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
+
+	nl80211_send_conn_failed_event(rdev, dev, mac_addr, reason, gfp);
+}
+EXPORT_SYMBOL(cfg80211_conn_failed);
+
 struct cfg80211_mgmt_registration {
 	struct list_head list;
 
@@ -1090,6 +1101,19 @@ void cfg80211_cqm_pktloss_notify(struct net_device *dev,
 }
 EXPORT_SYMBOL(cfg80211_cqm_pktloss_notify);
 
+void cfg80211_cqm_txe_notify(struct net_device *dev,
+			     const u8 *peer, u32 num_packets,
+			     u32 rate, u32 intvl, gfp_t gfp)
+{
+	struct wireless_dev *wdev = dev->ieee80211_ptr;
+	struct wiphy *wiphy = wdev->wiphy;
+	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
+
+	nl80211_send_cqm_txe_notify(rdev, dev, peer, num_packets,
+				    rate, intvl, gfp);
+}
+EXPORT_SYMBOL(cfg80211_cqm_txe_notify);
+
 void cfg80211_gtk_rekey_notify(struct net_device *dev, const u8 *bssid,
 			       const u8 *replay_ctr, gfp_t gfp)
 {
@@ -1111,6 +1135,33 @@ void cfg80211_pmksa_candidate_notify(struct net_device *dev, int index,
 	nl80211_pmksa_candidate_notify(rdev, dev, index, bssid, preauth, gfp);
 }
 EXPORT_SYMBOL(cfg80211_pmksa_candidate_notify);
+
+void cfg80211_ch_switch_notify(struct net_device *dev, int freq,
+			       enum nl80211_channel_type type)
+{
+	struct wireless_dev *wdev = dev->ieee80211_ptr;
+	struct wiphy *wiphy = wdev->wiphy;
+	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
+	struct ieee80211_channel *chan;
+
+	wdev_lock(wdev);
+
+	if (WARN_ON(wdev->iftype != NL80211_IFTYPE_AP &&
+		    wdev->iftype != NL80211_IFTYPE_P2P_GO))
+		goto out;
+
+	chan = rdev_freq_to_chan(rdev, freq, type);
+	if (WARN_ON(!chan))
+		goto out;
+
+	wdev->channel = chan;
+
+	nl80211_ch_switch_notify(rdev, dev, freq, type, GFP_KERNEL);
+out:
+	wdev_unlock(wdev);
+	return;
+}
+EXPORT_SYMBOL(cfg80211_ch_switch_notify);
 
 bool cfg80211_rx_spurious_frame(struct net_device *dev,
 				const u8 *addr, gfp_t gfp)

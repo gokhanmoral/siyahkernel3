@@ -38,7 +38,14 @@
 #define GSC_MAX_SRC		8
 #define GSC_MAX_DST		32
 #define GSC_RESET_TIMEOUT	50
+#ifdef CONFIG_SLP_DISP_DEBUG
+#define GSC_MAX_REG		128
+#define GSC_BASE_REG(id)	(0x13E00000 + (0x10000 * id))
+#endif
 #define GSC_CLK_RATE	166750000
+#define GSC_BUF_STOP	1
+#define GSC_BUF_START	2
+#define GSC_REG_SZ		32
 #define GSC_WIDTH_ITU_709	1280
 
 #define get_gsc_context(dev)	platform_get_drvdata(to_platform_device(dev))
@@ -50,7 +57,7 @@
 enum gsc_wb {
 	GSC_WB_NONE,
 	GSC_WB_A,
-	GSC_WB_B
+	GSC_WB_B,
 };
 
 /*
@@ -248,6 +255,70 @@ static void gsc_handle_irq(struct gsc_context *ctx, bool enable,
 	gsc_write(cfg, GSC_IRQ);
 }
 
+static int gsc_set_planar_addr(struct drm_exynos_ipp_buf_info *buf_info,
+			       u32 fmt, struct drm_exynos_sz *sz)
+{
+	dma_addr_t *y_addr = &buf_info->base[EXYNOS_DRM_PLANAR_Y];
+	dma_addr_t *cb_addr = &buf_info->base[EXYNOS_DRM_PLANAR_CB];
+	dma_addr_t *cr_addr = &buf_info->base[EXYNOS_DRM_PLANAR_CR];
+	uint64_t y_ofs, cb_ofs, cr_ofs;
+
+	/*
+	* ToDo: check the buffer size between gem allocated buffers
+	* and each planar size.
+	*/
+	switch (fmt) {
+	case DRM_FORMAT_NV12:
+	case DRM_FORMAT_NV21:
+	case DRM_FORMAT_NV16:
+	case DRM_FORMAT_NV61:
+		y_ofs = sz->hsize * sz->vsize;
+		cb_ofs = y_ofs >> 1;
+		cr_ofs = 0;
+		break;
+	case DRM_FORMAT_NV12M:
+		y_ofs = ALIGN(ALIGN(sz->hsize, 16) *
+				ALIGN(sz->vsize, 16), SZ_2K);
+		cb_ofs = ALIGN(ALIGN(sz->hsize, 16) *
+				ALIGN(sz->vsize >> 1, 16), SZ_2K);
+		cr_ofs = 0;
+		break;
+	case DRM_FORMAT_NV12MT:
+		y_ofs = ALIGN(ALIGN(sz->hsize, 128) *
+				ALIGN(sz->vsize, 32), SZ_8K);
+		cb_ofs = ALIGN(ALIGN(sz->hsize, 128) *
+				ALIGN(sz->vsize >> 1, 32), SZ_8K);
+		cr_ofs = 0;
+		break;
+	case DRM_FORMAT_YUV410:
+	case DRM_FORMAT_YVU410:
+	case DRM_FORMAT_YUV411:
+	case DRM_FORMAT_YVU411:
+	case DRM_FORMAT_YUV420:
+	case DRM_FORMAT_YVU420:
+	case DRM_FORMAT_YUV422:
+	case DRM_FORMAT_YVU422:
+	case DRM_FORMAT_YUV444:
+	case DRM_FORMAT_YVU444:
+	case DRM_FORMAT_YUV420M:
+		y_ofs = sz->hsize * sz->vsize;
+		cb_ofs = cr_ofs = y_ofs >> 2;
+		break;
+	default:
+		y_ofs = cb_ofs = cr_ofs = 0;
+		break;
+	}
+
+	if (y_ofs && *y_addr) {
+		*cb_addr = *y_addr + y_ofs;
+
+		if (cb_ofs && *cb_addr)
+			*cr_addr = *cb_addr + cb_ofs;
+	}
+
+	return 0;
+}
+
 static int gsc_src_set_fmt(struct device *dev, u32 fmt)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);
@@ -368,21 +439,33 @@ static int gsc_src_set_size(struct device *dev, int swap,
 	struct drm_exynos_pos *pos, struct drm_exynos_sz *sz)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);
+	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
+	struct drm_exynos_ipp_config *config =
+		&property->config[EXYNOS_DRM_OPS_SRC];
+	struct drm_exynos_pos img_pos = *pos;
+	struct drm_exynos_sz img_sz = *sz;
 	u32 cfg;
 
 	/* ToDo: check width and height */
+	if (swap) {
+		img_pos.w = pos->h;
+		img_pos.h = pos->w;
+		img_sz.hsize = sz->vsize;
+		img_sz.vsize = sz->hsize;
+	}
 
 	DRM_DEBUG_KMS("%s:x[%d]y[%d]w[%d]h[%d]\n",
 		__func__, pos->x, pos->y, pos->w, pos->h);
 
 	/* pixel offset */
-	cfg = (GSC_SRCIMG_OFFSET_X(pos->x) |
-		GSC_SRCIMG_OFFSET_Y(pos->y));
+	cfg = (GSC_SRCIMG_OFFSET_X(img_pos.x) |
+		GSC_SRCIMG_OFFSET_Y(img_pos.y));
 	gsc_write(cfg, GSC_SRCIMG_OFFSET);
 
 	/* cropped size */
-	cfg = (GSC_CROPPED_WIDTH(pos->w) |
-		GSC_CROPPED_HEIGHT(pos->h));
+	cfg = (GSC_CROPPED_WIDTH(img_pos.w) |
+		GSC_CROPPED_HEIGHT(img_pos.h));
 	gsc_write(cfg, GSC_CROPPED_SIZE);
 
 	DRM_DEBUG_KMS("%s:swap[%d]hsize[%d]vsize[%d]\n",
@@ -393,37 +476,35 @@ static int gsc_src_set_size(struct device *dev, int swap,
 	cfg &= ~(GSC_SRCIMG_HEIGHT_MASK |
 		GSC_SRCIMG_WIDTH_MASK);
 
-	if (swap)
-		cfg |= (GSC_SRCIMG_WIDTH(sz->vsize) |
-			GSC_SRCIMG_HEIGHT(sz->hsize));
-	else
-		cfg |= (GSC_SRCIMG_WIDTH(sz->hsize) |
-			GSC_SRCIMG_HEIGHT(sz->vsize));
+	cfg |= (GSC_SRCIMG_WIDTH(sz->hsize) |
+		GSC_SRCIMG_HEIGHT(sz->vsize));
 
 	gsc_write(cfg, GSC_SRCIMG_SIZE);
+
+	config->sz = img_sz;
+	config->pos = img_pos;
 
 	return 0;
 }
 
-static int gsc_src_set_buf_seq(struct gsc_context *ctx, u32 shift,
+static int gsc_src_set_buf_seq(struct gsc_context *ctx, u32 buf_id,
 	enum drm_exynos_ipp_buf_ctrl buf_ctrl)
 {
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
 	bool masked;
 	u32 cfg;
-	u32 mask = 0x00000001 << shift;
+	u32 mask = 0x00000001 << buf_id;
 
-	DRM_DEBUG_KMS("%s:shift[%d]buf_ctrl[%d]\n", __func__, shift, buf_ctrl);
+	DRM_DEBUG_KMS("%s:buf_id[%d]buf_ctrl[%d]\n", __func__,
+		buf_id, buf_ctrl);
 
 	/* mask register set */
 	cfg = gsc_read(GSC_IN_BASE_ADDR_Y_MASK);
 
 	switch (buf_ctrl) {
-	case IPP_BUF_CTRL_MAP:
 	case IPP_BUF_CTRL_QUEUE:
 		masked = false;
 		break;
-	case IPP_BUF_CTRL_UNMAP:
 	case IPP_BUF_CTRL_DEQUEUE:
 		masked = true;
 		break;
@@ -434,7 +515,7 @@ static int gsc_src_set_buf_seq(struct gsc_context *ctx, u32 shift,
 
 	/* sequence id */
 	cfg &= (~mask);
-	cfg |= masked << shift;
+	cfg |= masked << buf_id;
 	gsc_write(cfg, GSC_IN_BASE_ADDR_Y_MASK);
 	gsc_write(cfg, GSC_IN_BASE_ADDR_CB_MASK);
 	gsc_write(cfg, GSC_IN_BASE_ADDR_CR_MASK);
@@ -442,32 +523,49 @@ static int gsc_src_set_buf_seq(struct gsc_context *ctx, u32 shift,
 	return 0;
 }
 
-static int gsc_src_set_addr(struct device *dev, dma_addr_t *base,
-		u32 id, enum drm_exynos_ipp_buf_ctrl buf_ctrl)
+static int gsc_src_set_addr(struct device *dev,
+			struct drm_exynos_ipp_buf_info *buf_info, u32 buf_id,
+			enum drm_exynos_ipp_buf_ctrl buf_ctrl)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
+	struct drm_exynos_ipp_config *config =
+		&property->config[EXYNOS_DRM_OPS_SRC];
+	int ret;
 
-	DRM_DEBUG_KMS("%s:id[%d]buf_ctrl[%d]\n", __func__, id, buf_ctrl);
+	DRM_DEBUG_KMS("%s:buf_id[%d]buf_ctrl[%d]\n", __func__,
+		buf_id, buf_ctrl);
 
-	if (id > GSC_MAX_SRC) {
-		dev_err(ippdrv->dev, "inavlid id value %d.\n", id);
-		return -EINVAL;
+	if (buf_id > GSC_MAX_SRC) {
+		dev_info(ippdrv->dev, "inavlid buf_id %d.\n", buf_id);
+		return -ENOMEM;
 	}
 
 	/* address register set */
 	switch (buf_ctrl) {
-	case IPP_BUF_CTRL_MAP:
-	case IPP_BUF_CTRL_UNMAP:
-		gsc_write(base[EXYNOS_DRM_PLANAR_Y], GSC_IN_BASE_ADDR_Y(id));
-		gsc_write(base[EXYNOS_DRM_PLANAR_CB], GSC_IN_BASE_ADDR_CB(id));
-		gsc_write(base[EXYNOS_DRM_PLANAR_CR], GSC_IN_BASE_ADDR_CR(id));
+	case IPP_BUF_CTRL_QUEUE:
+	case IPP_BUF_CTRL_DEQUEUE:
+		ret = gsc_set_planar_addr(buf_info, config->fmt, &config->sz);
+
+		if (ret) {
+			dev_err(dev, "failed to set plane addr.\n");
+			return ret;
+		}
+
+		gsc_write(buf_info->base[EXYNOS_DRM_PLANAR_Y],
+			GSC_IN_BASE_ADDR_Y(buf_id));
+		gsc_write(buf_info->base[EXYNOS_DRM_PLANAR_CB],
+			GSC_IN_BASE_ADDR_CB(buf_id));
+		gsc_write(buf_info->base[EXYNOS_DRM_PLANAR_CR],
+			GSC_IN_BASE_ADDR_CR(buf_id));
+		break;
 	default:
 		/* bypass */
 		break;
 	}
 
-	return gsc_src_set_buf_seq(ctx, id, buf_ctrl);
+	return gsc_src_set_buf_seq(ctx, buf_id, buf_ctrl);
 }
 
 static struct exynos_drm_ipp_ops gsc_src_ops = {
@@ -679,45 +777,45 @@ static int gsc_dst_set_size(struct device *dev, int swap,
 	struct drm_exynos_pos *pos, struct drm_exynos_sz *sz)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);
+	struct drm_exynos_pos img_pos = *pos;
+	struct drm_exynos_sz img_sz = *sz;
 	struct gsc_scaler *sc = &ctx->sc;
-	u32 cfg, swap_w;
+	u32 cfg;
 
 	DRM_DEBUG_KMS("%s:swap[%d]x[%d]y[%d]w[%d]h[%d]\n",
 		__func__, swap, pos->x, pos->y, pos->w, pos->h);
 
+	if (swap) {
+		img_pos.w = pos->h;
+		img_pos.h = pos->w;
+		img_sz.hsize = sz->vsize;
+		img_sz.vsize = sz->hsize;
+	}
+
 	/* pixel offset */
-	cfg = (GSC_DSTIMG_OFFSET_X(pos->x) |
-		GSC_DSTIMG_OFFSET_Y(pos->y));
+	cfg = (GSC_DSTIMG_OFFSET_X(img_pos.x) |
+		GSC_DSTIMG_OFFSET_Y(img_pos.y));
 	gsc_write(cfg, GSC_DSTIMG_OFFSET);
 
 	/* scaled size */
-	if (swap) {
-		cfg = (GSC_SCALED_WIDTH(pos->h) |
-			GSC_SCALED_HEIGHT(pos->w));
-		swap_w = pos->h;
-	} else {
-		cfg = (GSC_SCALED_WIDTH(pos->w) |
-			GSC_SCALED_HEIGHT(pos->h));
-		swap_w = pos->w;
-	}
-
+	cfg = (GSC_SCALED_WIDTH(pos->w) | GSC_SCALED_HEIGHT(pos->h));
 	gsc_write(cfg, GSC_SCALED_SIZE);
 
-	DRM_DEBUG_KMS("%s:swap_w[%d]hsize[%d]vsize[%d]\n",
-		__func__, swap_w, sz->hsize, sz->vsize);
+	DRM_DEBUG_KMS("%s:hsize[%d]vsize[%d]\n",
+		__func__, sz->hsize, sz->vsize);
 
 	/* original size */
 	cfg = gsc_read(GSC_DSTIMG_SIZE);
 	cfg &= ~(GSC_DSTIMG_HEIGHT_MASK |
 		GSC_DSTIMG_WIDTH_MASK);
-	cfg |= (GSC_DSTIMG_WIDTH(sz->hsize) |
-		GSC_DSTIMG_HEIGHT(sz->vsize));
+	cfg |= (GSC_DSTIMG_WIDTH(img_sz.hsize) |
+		GSC_DSTIMG_HEIGHT(img_sz.vsize));
 	gsc_write(cfg, GSC_DSTIMG_SIZE);
 
 	cfg = gsc_read(GSC_OUT_CON);
 	cfg &= ~GSC_OUT_RGB_TYPE_MASK;
 
-	if (swap_w >= GSC_WIDTH_ITU_709)
+	if (pos->w >= GSC_WIDTH_ITU_709)
 		if (sc->range)
 			cfg |= GSC_OUT_RGB_HD_WIDE;
 		else
@@ -733,25 +831,40 @@ static int gsc_dst_set_size(struct device *dev, int swap,
 	return 0;
 }
 
-static int gsc_dst_set_buf_seq(struct gsc_context *ctx, u32 shift,
+static int gsc_dst_get_buf_seq(struct gsc_context *ctx)
+{
+	u32 cfg, i, buf_num = GSC_REG_SZ;
+	u32 mask = 0x00000001;
+
+	cfg = gsc_read(GSC_OUT_BASE_ADDR_Y_MASK);
+
+	for (i = 0; i < GSC_REG_SZ; i++)
+		if (cfg & (mask << i))
+			buf_num--;
+
+	DRM_DEBUG_KMS("%s:buf_num[%d]\n", __func__, buf_num);
+
+	return buf_num;
+}
+
+static int gsc_dst_set_buf_seq(struct gsc_context *ctx, u32 buf_id,
 	enum drm_exynos_ipp_buf_ctrl buf_ctrl)
 {
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
 	bool masked;
 	u32 cfg;
-	u32 mask = 0x00000001 << shift;
+	u32 mask = 0x00000001 << buf_id;
 
-	DRM_DEBUG_KMS("%s:shift[%d]buf_ctrl[%d]\n", __func__, shift, buf_ctrl);
+	DRM_DEBUG_KMS("%s:buf_id[%d]buf_ctrl[%d]\n", __func__,
+		buf_id, buf_ctrl);
 
 	/* mask register set */
 	cfg = gsc_read(GSC_OUT_BASE_ADDR_Y_MASK);
 
 	switch (buf_ctrl) {
-	case IPP_BUF_CTRL_MAP:
 	case IPP_BUF_CTRL_QUEUE:
 		masked = false;
 		break;
-	case IPP_BUF_CTRL_UNMAP:
 	case IPP_BUF_CTRL_DEQUEUE:
 		masked = true;
 		break;
@@ -762,40 +875,62 @@ static int gsc_dst_set_buf_seq(struct gsc_context *ctx, u32 shift,
 
 	/* sequence id */
 	cfg &= (~mask);
-	cfg |= masked << shift;
+	cfg |= masked << buf_id;
 	gsc_write(cfg, GSC_OUT_BASE_ADDR_Y_MASK);
 	gsc_write(cfg, GSC_OUT_BASE_ADDR_CB_MASK);
 	gsc_write(cfg, GSC_OUT_BASE_ADDR_CR_MASK);
 
+	/* interrupt enable */
+	if (buf_ctrl == IPP_BUF_CTRL_QUEUE &&
+	    gsc_dst_get_buf_seq(ctx) >= GSC_BUF_START)
+		gsc_handle_irq(ctx, true, false, true);
+
 	return 0;
 }
 
-static int gsc_dst_set_addr(struct device *dev, dma_addr_t *base,
-			u32 id, enum drm_exynos_ipp_buf_ctrl buf_ctrl)
+static int gsc_dst_set_addr(struct device *dev,
+			struct drm_exynos_ipp_buf_info *buf_info, u32 buf_id,
+			enum drm_exynos_ipp_buf_ctrl buf_ctrl)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
+	struct drm_exynos_ipp_config *config =
+		&property->config[EXYNOS_DRM_OPS_DST];
+	int ret;
 
-	DRM_DEBUG_KMS("%s:id[%d]buf_ctrl[%d]\n", __func__, id, buf_ctrl);
+	DRM_DEBUG_KMS("%s:buf_id[%d]buf_ctrl[%d]\n", __func__,
+		buf_id, buf_ctrl);
 
-	if (id > GSC_MAX_DST) {
-		dev_err(ippdrv->dev, "inavlid id value %d.\n", id);
-		return -EINVAL;
+	if (buf_id > GSC_MAX_DST) {
+		dev_info(ippdrv->dev, "inavlid buf_id %d.\n", buf_id);
+		return -ENOMEM;
 	}
 
 	/* address register set */
 	switch (buf_ctrl) {
-	case IPP_BUF_CTRL_MAP:
-	case IPP_BUF_CTRL_UNMAP:
-		gsc_write(base[EXYNOS_DRM_PLANAR_Y], GSC_OUT_BASE_ADDR_Y(id));
-		gsc_write(base[EXYNOS_DRM_PLANAR_CB], GSC_OUT_BASE_ADDR_CB(id));
-		gsc_write(base[EXYNOS_DRM_PLANAR_CR], GSC_OUT_BASE_ADDR_CR(id));
+	case IPP_BUF_CTRL_QUEUE:
+	case IPP_BUF_CTRL_DEQUEUE:
+		ret = gsc_set_planar_addr(buf_info, config->fmt, &config->sz);
+
+		if (ret) {
+			dev_err(dev, "failed to set plane addr.\n");
+			return ret;
+		}
+
+		gsc_write(buf_info->base[EXYNOS_DRM_PLANAR_Y],
+			GSC_OUT_BASE_ADDR_Y(buf_id));
+		gsc_write(buf_info->base[EXYNOS_DRM_PLANAR_CB],
+			GSC_OUT_BASE_ADDR_CB(buf_id));
+		gsc_write(buf_info->base[EXYNOS_DRM_PLANAR_CR],
+			GSC_OUT_BASE_ADDR_CR(buf_id));
+		break;
 	default:
 		/* bypass */
 		break;
 	}
 
-	return gsc_dst_set_buf_seq(ctx, id, buf_ctrl);
+	return gsc_dst_set_buf_seq(ctx, buf_id, buf_ctrl);
 }
 
 static struct exynos_drm_ipp_ops gsc_dst_ops = {
@@ -827,7 +962,9 @@ static irqreturn_t gsc_irq_handler(int irq, void *dev_id)
 	struct gsc_context *ctx = dev_id;
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
 	u32 cfg, status;
-	int buf_idx = 0;
+	int buf_id = 0;
+
+	DRM_DEBUG_KMS("%s:gsc id[%d]\n", __func__, ctx->id);
 
 	status = gsc_read(GSC_IRQ);
 	if (status & GSC_IRQ_STATUS_OR_IRQ) {
@@ -842,23 +979,41 @@ static irqreturn_t gsc_irq_handler(int irq, void *dev_id)
 		/* ToDo: Frame control */
 	}
 
-	/* ToDo: buf idx count */
-	cfg = gsc_read(GSC_IN_BASE_ADDR_Y_MASK);
-	buf_idx = GSC_IN_CURR_GET_INDEX(cfg);
-
-	DRM_DEBUG_KMS("%s:id[%d]buf_idx[%d]\n", __func__, ctx->id, buf_idx);
-
 	if (list_empty(&ippdrv->event_list)) {
 		DRM_DEBUG_KMS("%s:event list empty.\n", __func__);
 
-		gsc_handle_irq(ctx, false, false, true);
 		return IRQ_HANDLED;
 	}
 
-	/* ToDo: How can fix interrupt pending ? */
-	ipp_send_event_handler(ippdrv, buf_idx);
+	cfg = gsc_read(GSC_IN_BASE_ADDR_Y_MASK);
+	buf_id = GSC_IN_CURR_GET_INDEX(cfg);
+	if (buf_id < 0)
+		return IRQ_HANDLED;
+
+	DRM_DEBUG_KMS("%s:buf_id[%d]\n", __func__, buf_id);
+
+	if (gsc_dst_set_buf_seq(ctx, buf_id,
+		IPP_BUF_CTRL_DEQUEUE) < 0) {
+		DRM_ERROR("failed to dequeue.\n");
+
+		return IRQ_HANDLED;
+	}
+
+	ipp_send_event_handler(ippdrv, buf_id);
+
+	if (gsc_dst_get_buf_seq(ctx) <= GSC_BUF_STOP)
+		gsc_handle_irq(ctx, false, false, true);
 
 	return IRQ_HANDLED;
+}
+
+static int gsc_ippdrv_check_property(struct device *dev,
+				struct drm_exynos_ipp_property *property)
+{
+	/* ToDo: check valid using property information */
+	DRM_DEBUG_KMS("%s\n", __func__);
+
+	return 0;
 }
 
 static int gsc_ippdrv_reset(struct device *dev)
@@ -880,19 +1035,35 @@ static int gsc_ippdrv_reset(struct device *dev)
 	return 0;
 }
 
+static int gsc_check_prepare(struct gsc_context *ctx)
+{
+	/* ToDo: check prepare using read register */
+	DRM_DEBUG_KMS("%s\n", __func__);
+
+	return 0;
+}
+
 static int gsc_ippdrv_start(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);
 	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
+	struct drm_exynos_ipp_property *property = ippdrv->property;
 	struct drm_exynos_ipp_config *config =
-		&ippdrv->property.config[EXYNOS_DRM_OPS_DST];
+		&property->config[EXYNOS_DRM_OPS_DST];
 	u32 cfg;
 	int ret;
 	int enable = 1;
 
 	DRM_DEBUG_KMS("%s:cmd[%d]\n", __func__, cmd);
 
+	ret = gsc_check_prepare(ctx);
+	if (ret) {
+		dev_err(dev, "failed to check prepare.\n");
+		return ret;
+	}
+
 	ippdrv->cmd = cmd;
+	gsc_handle_irq(ctx, true, false, true);
 
 	switch (cmd) {
 	case IPP_CMD_M2M:
@@ -902,7 +1073,7 @@ static int gsc_ippdrv_start(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 		gsc_set_gscblk_fimd_wb(ctx, enable);
 		exynos_drm_ippnb_send_event(IPP_SET_WRITEBACK, (void *)enable);
 		break;
-	case IPP_CMD_OUT:
+	case IPP_CMD_OUTPUT:
 	default:
 		ret = -EINVAL;
 		dev_err(dev, "invalid operations.\n");
@@ -925,18 +1096,10 @@ static int gsc_ippdrv_start(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 	return 0;
 }
 
-static int gsc_ippdrv_check_prepare(struct device *dev,
-	struct exynos_drm_ippdrv *ippdrv)
-{
-	/* ToDo: check prepare */
-	DRM_DEBUG_KMS("%s\n", __func__);
-
-	return 0;
-}
-
 static void gsc_ippdrv_stop(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 {
 	struct gsc_context *ctx = get_gsc_context(dev);
+	struct exynos_drm_ippdrv *ippdrv = &ctx->ippdrv;
 	u32 cfg;
 	int enable = 0;
 
@@ -950,16 +1113,63 @@ static void gsc_ippdrv_stop(struct device *dev, enum drm_exynos_ipp_cmd cmd)
 		gsc_set_gscblk_fimd_wb(ctx, enable);
 		exynos_drm_ippnb_send_event(IPP_SET_WRITEBACK, (void *)enable);
 		break;
-	case IPP_CMD_OUT:
+	case IPP_CMD_OUTPUT:
 	default:
 		dev_err(dev, "invalid operations.\n");
 		break;
 	}
 
+	ippdrv->cmd = IPP_CMD_NONE;
+	gsc_handle_irq(ctx, false, false, true);
+
+	/* reset sequence */
+	gsc_write(0xff, GSC_OUT_BASE_ADDR_Y_MASK);
+	gsc_write(0xff, GSC_OUT_BASE_ADDR_CB_MASK);
+	gsc_write(0xff, GSC_OUT_BASE_ADDR_CR_MASK);
+
 	cfg = gsc_read(GSC_ENABLE);
 	cfg &= ~GSC_ENABLE_ON;
 	gsc_write(cfg, GSC_ENABLE);
 }
+
+#ifdef CONFIG_SLP_DISP_DEBUG
+static int gsc_read_reg(struct gsc_context *ctx, char *buf)
+{
+	u32 cfg;
+	int i;
+	int pos = 0;
+
+	pos += sprintf(buf+pos, "0x%.8x | ", GSC_BASE_REG(ctx->id));
+	for (i = 1; i < GSC_MAX_REG + 1; i++) {
+		cfg = gsc_read((i-1) * sizeof(u32));
+		pos += sprintf(buf+pos, "0x%.8x ", cfg);
+		if (i % 4 == 0)
+			pos += sprintf(buf+pos, "\n0x%.8x | ",
+				GSC_BASE_REG(ctx->id) + (i * sizeof(u32)));
+	}
+
+	pos += sprintf(buf+pos, "\n");
+
+	return pos;
+}
+
+static ssize_t show_read_reg(struct device *dev, struct device_attribute *attr,
+			char *buf)
+{
+	struct gsc_context *ctx = get_gsc_context(dev);
+
+	if (!ctx->regs) {
+		dev_err(dev, "failed to get current register.\n");
+		return -EINVAL;
+	}
+
+	return gsc_read_reg(ctx, buf);
+}
+
+static struct device_attribute device_attrs[] = {
+	__ATTR(read_reg, S_IRUGO, show_read_reg, NULL),
+};
+#endif
 
 static int __devinit gsc_probe(struct platform_device *pdev)
 {
@@ -969,6 +1179,9 @@ static int __devinit gsc_probe(struct platform_device *pdev)
 	struct exynos_drm_ippdrv *ippdrv;
 	struct exynos_drm_gsc_pdata *pdata;
 	int ret = -EINVAL;
+#ifdef CONFIG_SLP_DISP_DEBUG
+	int i;
+#endif
 
 	pdata = pdev->dev.platform_data;
 	if (!pdata) {
@@ -1019,7 +1232,8 @@ static int __devinit gsc_probe(struct platform_device *pdev)
 	}
 
 	ctx->irq = res->start;
-	ret = request_irq(ctx->irq, gsc_irq_handler, 0, "drm_gsc", ctx);
+	ret = request_threaded_irq(ctx->irq, NULL, gsc_irq_handler,
+		IRQF_ONESHOT, "drm_gsc", ctx);
 	if (ret < 0) {
 		dev_err(dev, "failed to request irq.\n");
 		goto err_get_regs;
@@ -1033,15 +1247,27 @@ static int __devinit gsc_probe(struct platform_device *pdev)
 		goto err_get_irq;
 	}
 
+#ifdef CONFIG_SLP_DISP_DEBUG
+	for (i = 0; i < ARRAY_SIZE(device_attrs); i++) {
+		ret = device_create_file(&(pdev->dev),
+					&device_attrs[i]);
+		if (ret)
+			break;
+	}
+
+	if (ret < 0)
+		dev_err(&pdev->dev, "failed to add sysfs entries\n");
+#endif
+
 	DRM_DEBUG_KMS("%s:id[%d]\n", __func__, ctx->id);
 
 	ippdrv = &ctx->ippdrv;
 	ippdrv->dev = dev;
 	ippdrv->ops[EXYNOS_DRM_OPS_SRC] = &gsc_src_ops;
 	ippdrv->ops[EXYNOS_DRM_OPS_DST] = &gsc_dst_ops;
+	ippdrv->check_property = gsc_ippdrv_check_property;
 	ippdrv->reset = gsc_ippdrv_reset;
 	ippdrv->start = gsc_ippdrv_start;
-	ippdrv->check_prepare = gsc_ippdrv_check_prepare;
 	ippdrv->stop = gsc_ippdrv_stop;
 
 	mutex_init(&ctx->lock);

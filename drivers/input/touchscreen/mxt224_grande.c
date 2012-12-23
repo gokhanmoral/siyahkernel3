@@ -55,7 +55,7 @@
 
 /* Slave addresses */
 #define QT602240_APP_LOW		0x4a
-#define QT602240_APP_HIGH		0x4a//0x4b
+#define QT602240_APP_HIGH		0x4b
 #define QT602240_BOOT_LOW		0x24
 #define QT602240_BOOT_HIGH		0x25
 
@@ -261,27 +261,6 @@ static void TSP_forced_release_for_call(void);
 static void mxt224_ta_probe(int ta_status);
 static uint8_t calibrate_chip(void);
 
-#if defined(CONFIG_CHN_MODEL_SCH_I929)
-int mxt224_tsp_ldo(int a)
-{
-	if(a==1) { // on
-		gpio_tlmm_config(GPIO_CFG(TSP_SCL, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_8MA),GPIO_CFG_ENABLE);
-		gpio_tlmm_config(GPIO_CFG(TSP_SDA, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_8MA),GPIO_CFG_ENABLE);
-		gpio_tlmm_config(GPIO_CFG(TSP_INT, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_8MA),GPIO_CFG_ENABLE);
-
-	} else { // off
-		gpio_tlmm_config(GPIO_CFG(TSP_SCL, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),GPIO_CFG_ENABLE);
-		gpio_tlmm_config(GPIO_CFG(TSP_SDA, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),GPIO_CFG_ENABLE);
-		gpio_tlmm_config(GPIO_CFG(TSP_INT, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),GPIO_CFG_ENABLE);
-
-		gpio_set_value( TSP_SCL , 0 ); 
-		gpio_set_value( TSP_SDA , 0 ); 
-		gpio_set_value( TSP_INT , 0); 
-	}
-
-	return a;
-}
-#endif
 #ifdef W999_FLIP 
 static int mxt224_switch_release(void);
 static int mxt224_switch_suspend(struct mxt224_data *data);
@@ -321,21 +300,6 @@ void samsung_switching_tsp(int init, int flip)
 	}
 	printk(KERN_ERR "[TSP] swtiching %d, %d, old:%d, check_sleep=%d\n",init,flip,Flip_status_tsp,check_sleep);
 
-#if 0
-	if(check_sleep == 1)
-	{
-		mxt224_tsp_ldo(0);
-		copy_data->power_on();
-		mdelay(100);
-		mxt224_tsp_ldo(1);
-		resume_power = 1;
-	}
-	else
-	{
-		resume_power = 0;
-	}
-#endif // end 0
-
 	if(init){
 //		mxt224_switch_suspend(data);
 		Flip_status_tsp_init=flip;
@@ -348,11 +312,9 @@ void samsung_switching_tsp(int init, int flip)
 					ingnore_report_before_flip = 0;
 					disable_irq(copy_data->client->irq);
 					printk("[TSP] Disable_Irq SS Line 311\n");
-					gpio_direction_output(LCD_SEL, Flip_status_tsp);
 					mxt224_switch_suspend(copy_data);
 					printk(KERN_ERR "[TSP] samsung_switching_tsp: mxt224_switch_suspend done!!\n");
 					Flip_status_tsp=flip;
-					gpio_direction_output(LCD_SEL, Flip_status_tsp);
 					mxt224_switch_resume(copy_data);
 					if(resume_cal_check_flag!=0x11)
 						mxt224_switch_late_resume(copy_data);
@@ -368,6 +330,8 @@ void samsung_switching_tsp(int init, int flip)
 		if(Flip_status_tsp != flip){
 			// TEST
 			printk("[TSP] Disable_Irq SS Line 329, init_fail : %d \n",init_fail); // Add Disable_Irq log
+			Flip_status_tsp = flip;
+#if 0
 			if(init_fail)  // if chip initialization fail, avoid disable_irq
 			{
 				ingnore_report_before_flip = 0;
@@ -388,6 +352,7 @@ void samsung_switching_tsp(int init, int flip)
 					enable_irq(copy_data->client->irq);
 				}
 			}
+#endif
 		}
 		else  // due to rapid switching, ignored force release event.
 		{ 
@@ -400,6 +365,10 @@ void samsung_switching_tsp(int init, int flip)
 }
 EXPORT_SYMBOL(samsung_switching_tsp);
 
+#define USE_FOR_SAME_ADDR
+#ifdef USE_FOR_SAME_ADDR
+	static int continue_4a_maintsp	= 9;
+#endif
 
 static int read_mem(struct mxt224_data *data, u16 reg, u8 len, u8 *buf)
 {
@@ -445,13 +414,26 @@ static int read_mem(struct mxt224_data *data, u16 reg, u8 len, u8 *buf)
 	if(probe_check==1) retry = 1;  // for SMD test in factory
 
 	if(Flip_status_tsp==FLIP_OPEN){
-
-		if (probe_check == 1)
-			gpio_direction_output(LCD_SEL, 0);
-		udelay(500);
+#ifdef USE_FOR_SAME_ADDR
+		if (continue_4a_maintsp == 9) {
+			continue_4a_maintsp = 1;
+			while (retry--) {
+				ret = i2c_transfer(data->client->adapter, msg_in, 2);
+				if (ret >= 0)
+					continue_4a_maintsp = 0;
+				}
+		}
+#endif
 
 		while (retry--) {
+#ifdef USE_FOR_SAME_ADDR
+			if (continue_4a_maintsp == 1)
+				ret = i2c_transfer(data->client->adapter, msg_ex, 2);
+			else
+				ret = i2c_transfer(data->client->adapter, msg_in, 2);
+#else
 			ret = i2c_transfer(data->client->adapter, msg_in, 2);
+#endif
 			//printk("[TSP] read_mem, ret = %d, retry = %d\n", ret, retry);
 			if (ret >=0 ){
 //				printk("[TSP] read_mem, ret = %d, retry = %d\n", ret, retry);
@@ -460,10 +442,6 @@ static int read_mem(struct mxt224_data *data, u16 reg, u8 len, u8 *buf)
 		}
 	}
 	else{
-		if (probe_check == 1)
-			gpio_direction_output(LCD_SEL, 1);
-		udelay(500);
-		
 		while (retry--) {
 			ret = i2c_transfer(data->client->adapter, msg_ex, 2);
 //			printk("[TSP] read_mem, ret = %d, retry = %d\n", ret, retry);
@@ -582,18 +560,19 @@ static int write_mem(struct mxt224_data *data, u16 reg, u8 len, const u8 *buf)
 
 #ifdef W999_FLIP 
 	if(Flip_status_tsp==FLIP_OPEN){
-		if (probe_check == 1)
-			gpio_direction_output(LCD_SEL, 0);
 		udelay(500);
 
-		data->client->addr =QT602240_APP_HIGH; 
+#ifdef USE_FOR_SAME_ADDR
+		if (continue_4a_maintsp == 1)
+			data->client->addr = QT602240_APP_LOW;
+		else
+			data->client->addr = QT602240_APP_HIGH;
+#else
+			data->client->addr = QT602240_APP_HIGH;
+#endif
 	}
 	else{
-		if (probe_check == 1)
-			gpio_direction_output(LCD_SEL, 1);
-		udelay(500);
-
-		data->client->addr =QT602240_APP_LOW; 
+		data->client->addr = QT602240_APP_LOW;
 	}	
 #endif
 	//ret = i2c_master_send(data->client, tmp, sizeof(tmp));
@@ -1949,10 +1928,9 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 	static int irq_low_count = 0;
 //	static int cal_move =0;
 	bool ta_status=0;
-
+	int val;
 	//int status =0;
 	irq_low_count++;
-
 	disable_irq_nosync(irq);
 
 	// remove plam_recovery. it is for only mxt_224
@@ -1969,7 +1947,6 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 		irq_low_count=0;
 	}
 #endif
-
 do {
 
 		touch_message_flag = 0;
@@ -2370,9 +2347,6 @@ static int mxt224_internal_suspend(struct mxt224_data *data)
 	report_input_data(data);
 	check_touch_press_swiching = 0;
 
-#if 1//def W999_FLIP 
-//	mxt224_tsp_ldo(0);
-#endif
 	data->power_off();
 
 	return 0;
@@ -2402,10 +2376,6 @@ static int mxt224_internal_resume(struct mxt224_data *data)
 	printk("[TSP] %s %d resume_power : %d",__func__, __LINE__,resume_power);
 	if(resume_power == 0){
 #endif	
-
-#if 1//def W999_FLIP 
-//	mxt224_tsp_ldo(0);
-#endif
 	data->power_on();
 
 	mdelay(100);	// power on reset delay, 100ms
@@ -2486,23 +2456,9 @@ static void mxt224_late_resume(struct early_suspend *h)
 #ifdef W999_FLIP 
 		{
 			int val= 0;
-			//int j=0;
-		        //int k=0;
-			//int gpio =0;
-			//gpio =	PM8058_GPIO_PM_TO_SYS( 36); 
+
 			val = gpio_get_value(HALL_SW);
-			//val = gpio_get_value_cansleep(PM8058_GPIO_PM_TO_SYS(36));
-	
-			// 1. probe시 in->out init
-			// 2.  3에서 in 된다면	=> 여기서는 out으로 등록해야만함  
-			 // 3. flip init -> switch now(ex.in)
-			if(val) 	// open
-				Flip_status_tsp=FLIP_CLOSE;
-			else			// close
-				Flip_status_tsp=FLIP_OPEN;
-			printk(KERN_ERR "[TSP] resume-switch 1 %d, %d\n",val, Flip_status_tsp);
-		
-			mxt224_switch_suspend(data);
+
 			if(val){ 	// open
 				Flip_status_tsp=FLIP_OPEN;
 				resume_cal_check_flag = 0x10;
@@ -2515,8 +2471,6 @@ static void mxt224_late_resume(struct early_suspend *h)
 			mxt224_switch_resume(data);
 
 		}
-//			for(j=0; j<2; j++){
-//				resume_cal_check_flag=0;
 #endif
 
 	

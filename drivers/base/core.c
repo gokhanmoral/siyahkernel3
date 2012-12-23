@@ -1748,7 +1748,7 @@ void device_shutdown(void)
 		pm_runtime_get_noresume(dev);
 		pm_runtime_barrier(dev);
 
-#if defined(CONFIG_MACH_Q1_BD) || defined(CONFIG_MACH_PX)
+#if defined(CONFIG_MACH_Q1_BD) || defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_MIDAS)
 		/* Temporary log to analyze a problem during shutdown */
 		if (dev->bus && dev->bus->shutdown) {
 			dev_info(dev, "shutdown +: %pF\n", dev->bus->shutdown);

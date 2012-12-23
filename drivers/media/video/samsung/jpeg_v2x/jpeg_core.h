@@ -68,6 +68,9 @@ enum  jpeg_img_quality_level {
 	QUALITY_LEVEL_2,
 	QUALITY_LEVEL_3,
 	QUALITY_LEVEL_4,	/* low */
+	QUALITY_LEVEL_FRONT_1 = 4,
+	QUALITY_LEVEL_FRONT_2,
+	QUALITY_LEVEL_FRONT_3,
 };
 
 /* raw data image format */

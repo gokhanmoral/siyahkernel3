@@ -564,7 +564,7 @@ static int wm8994_get_retune_mobile_enum(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN_KOR_LGT)
 static const char *fm_control[] = {
 "OFF", "RCV", "EAR", "SPK", "SPK",
 };
@@ -813,10 +813,12 @@ SOC_ENUM("AIF2DAC Noise Gate Hold Time", wm8958_aif2dac_ng_hold),
 SOC_SINGLE_TLV("AIF2DAC Noise Gate Threshold Volume",
 	       WM8958_AIF2_DAC_NOISE_GATE, WM8958_AIF2DAC_NG_THR_SHIFT,
 	       7, 1, ng_tlv),
-#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_C1_KOR_LGT) || defined(CONFIG_MACH_BAFFIN_KOR_LGT)
 SOC_ENUM_EXT("FM Control", fm_control_enum,
 		wm8994_get_fm_control, wm8994_put_fm_control),
 #endif
+SOC_SINGLE("AIF2ADCL DAT Invert", WM8994_AIF2ADC_DATA, 1, 1, 0),
+SOC_SINGLE("AIF2ADCR DAT Invert", WM8994_AIF2ADC_DATA, 0, 1, 0),
 };
 
 static const struct snd_kcontrol_new wm1811_snd_controls[] = {
@@ -1264,9 +1266,11 @@ static int aif2clk_ev(struct snd_soc_dapm_widget *w,
 		snd_soc_update_bits(codec, WM8994_POWER_MANAGEMENT_5,
 				    WM8994_AIF2DACL_ENA |
 				    WM8994_AIF2DACR_ENA, 0);
+ #if !defined(CONFIG_MACH_BAFFIN)
 		snd_soc_update_bits(codec, WM8994_POWER_MANAGEMENT_4,
 				    WM8994_AIF2ADCL_ENA |
 				    WM8994_AIF2ADCR_ENA, 0);
+ #endif
 
 		val = snd_soc_read(codec, WM8994_CLOCKING_1);
 		if (val & WM8994_AIF1DSPCLK_ENA)
@@ -3122,6 +3126,9 @@ static int wm8994_codec_resume(struct snd_soc_codec *codec)
 		/* force a HW read */
 		val = wm8994_reg_read(codec->control_data,
 				      WM8994_POWER_MANAGEMENT_5);
+		if (val < 0)
+			dev_err(codec->dev, "[%s]Failed to read PM5 ret[%d]\n",
+					__func__, val);
 
 		/* modify the cache only */
 		codec->cache_only = 1;

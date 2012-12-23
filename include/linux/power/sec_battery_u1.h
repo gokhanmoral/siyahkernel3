@@ -27,8 +27,8 @@
 #define HWREV_FOR_BATTERY	0x06
 #elif defined(CONFIG_MACH_Q1_BD)
 #define HWREV_FOR_BATTERY	0x02
-#elif defined(CONFIG_MACH_U1CAMERA_BD)
-#define HWREV_FOR_BATTERY	0x00
+#elif defined(CONFIG_MACH_TRATS)
+#define HWREV_FOR_BATTERY	0x02
 #else	/*U1 EUR OPEN */
 #define HWREV_FOR_BATTERY	0x08
 #endif
@@ -77,7 +77,8 @@ struct sec_bat_platform_data {
 	unsigned int (*get_lpcharging_state) (void);
 	void (*no_bat_cb) (void);
 	void (*initial_check) (void);
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	int adc_vf_channel;
 #endif
 };

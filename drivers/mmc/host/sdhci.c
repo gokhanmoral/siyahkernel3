@@ -645,19 +645,15 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd)
 	/* timeout in us */
 	if (!data)
 		target_timeout = cmd->cmd_timeout_ms * 1000;
-	else {  
-	/* patch added for divide by zero once issue for P2_USA_TMO project. */
-		#ifndef CONFIG_TARGET_LOCALE_P2TMO_TEMP
-		target_timeout = data->timeout_ns / 1000 +
-			data->timeout_clks / host->clock;
-	        #else
-		if (host!=NULL)
-                target_timeout = data->timeout_ns / 1000 +
-                        data->timeout_clks / host->clock;
+	else {
+		/* patch added for divide by zero once issue. */
+		if (host && host->clock)
+			target_timeout = data->timeout_ns / 1000 +
+				data->timeout_clks / host->clock;
 		else
 			return 0;
-	        #endif
-             }
+	}
+
 	if (host->quirks & SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK)
 		host->timeout_clk = host->clock / 1000;
 
@@ -1972,6 +1968,10 @@ static void sdhci_tasklet_finish(unsigned long param)
 		   controllers do not like that. */
 		sdhci_reset(host, SDHCI_RESET_CMD);
 		sdhci_reset(host, SDHCI_RESET_DATA);
+#ifdef CONFIG_MACH_PX
+		printk(KERN_DEBUG "%s: Controller is resetted!\n",
+			mmc_hostname(host->mmc));
+#endif
 	}
 
 	host->mrq = NULL;
@@ -2068,6 +2068,10 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 
 	if (host->cmd->error) {
 		tasklet_schedule(&host->finish_tasklet);
+#ifdef CONFIG_MACH_PX
+		printk(KERN_DEBUG "%s: finish tasklet schedule\n",
+			mmc_hostname(host->mmc));
+#endif
 		return;
 	}
 
@@ -2351,6 +2355,29 @@ int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 }
 
 EXPORT_SYMBOL_GPL(sdhci_suspend_host);
+
+void sdhci_shutdown_host(struct sdhci_host *host)
+{
+	u32 irqs = 0xFFFF;
+
+	/* all interrupt has to be masked */
+	sdhci_mask_irqs(host, irqs);
+
+	free_irq(host->irq, host);
+
+	if (host->vmmc) {
+		if (regulator_is_enabled(host->vmmc)) {
+#ifdef CONFIG_MIDAS_COMMON
+			if (host->ops->set_power)
+				host->ops->set_power(0);
+#endif
+			regulator_disable(host->vmmc);
+			pr_info("%s : MMC Card OFF\n", __func__);
+			mdelay(5);
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(sdhci_shutdown_host);
 
 int sdhci_resume_host(struct sdhci_host *host)
 {
@@ -2665,6 +2692,9 @@ int sdhci_add_host(struct sdhci_host *host)
 		mmc->caps |= MMC_CAP_DRIVER_TYPE_C;
 	if (caps[1] & SDHCI_DRIVER_TYPE_D)
 		mmc->caps |= MMC_CAP_DRIVER_TYPE_D;
+
+	if (mmc->pm_flags & MMC_PM_IGNORE_SUSPEND_RESUME)
+		mmc->pm_caps |= MMC_PM_KEEP_POWER;
 
 	/*
 	 * If Power Off Notify capability is enabled by the host,

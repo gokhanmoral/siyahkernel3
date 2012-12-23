@@ -45,6 +45,12 @@ do {								\
 #endif
 #endif
 
+/*
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3)
+#define	__CONFIG_HDMI_SUPPORT_FULL_RANGE__
+#endif
+*/
+
 #define S5PTV_FB_CNT	2
 #define S5PTV_VP_BUFF_CNT	4
 #define S5PTV_VP_BUFF_SIZE	(4*1024*1024)
@@ -265,4 +271,9 @@ extern void s5p_tvout_mutex_unlock(void);
 extern void s5p_hdmi_ctrl_phy_power_resume(void);
 #endif
 
+#if defined(CONFIG_SAMSUNG_WORKAROUND_HPD_GLANCE) &&\
+	!defined(CONFIG_SAMSUNG_MHL_9290)
+extern void call_sched_mhl_hpd_handler(void);
+extern int (*hpd_intr_state)(void);
+#endif
 #endif /* _S5P_TVOUT_COMMON_LIB_H_ */

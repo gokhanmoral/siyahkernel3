@@ -29,18 +29,25 @@
 #include <plat/adc.h>
 #include <linux/power/sec_battery_u1.h>
 
-#if defined(CONFIG_TARGET_LOCALE_NA) || defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NA) || defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 #define POLLING_INTERVAL	(10 * 1000)
 #else
 #define POLLING_INTERVAL	(40 * 1000)
 #endif				/* CONFIG_TARGET_LOCALE_NA */
 
 #ifdef SEC_BATTERY_INDEPEDENT_VF_CHECK
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 #define VF_CHECK_INTERVAL	(5 * 1000)
 
+#if defined(CONFIG_MACH_U1_NA_SPR) || defined(CONFIG_MACH_U1_NA_USCC)
+#define	MAX_VF	1500
+#define	MIN_VF	1350
+#else
 #define	MAX_VF	1800
 #define	MIN_VF	1100
+#endif
 #define	VF_COUNT	1
 #elif defined(CONFIG_MACH_Q1_BD)
 #define VF_CHECK_INTERVAL	(5 * 1000)
@@ -58,7 +65,8 @@
 #define RECHARGING_TIME		(90 * 60 * HZ)	/* 1.5hr */
 #endif
 #define RESETTING_CHG_TIME	(10 * 60 * HZ)	/* 10Min */
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 #define EVENT_OVER_TIME		(10 * 60 * HZ)	/* 10Min */
 #endif
 #ifdef CONFIG_TARGET_LOCALE_NA
@@ -90,7 +98,8 @@
 #endif
 #define ADC_TOTAL_COUNT		5
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 #define OFFSET_VIDEO_PLAY	(0x1 << 0)
 #define OFFSET_MP3_PLAY	(0x1 << 1)
 #define OFFSET_VOICE_CALL_2G	(0x1 << 2)
@@ -126,6 +135,17 @@
 #define LOW_BLOCK_TEMP_ADC_LPM         521
 #define HIGH_RECOVER_TEMP_ADC_LPM      714
 #define LOW_RECOVER_TEMP_ADC_LPM       522
+#elif defined(CONFIG_MACH_U1_NA_USCC)
+#define EVENT_BLOCK_TEMP_ADC		770
+#define HIGH_BLOCK_TEMP_ADC		770
+#define LOW_BLOCK_TEMP_ADC		502
+#define HIGH_RECOVER_TEMP_ADC		699
+#define LOW_RECOVER_TEMP_ADC		516
+
+#define HIGH_BLOCK_TEMP_ADC_LPM		710
+#define LOW_BLOCK_TEMP_ADC_LPM		506
+#define HIGH_RECOVER_TEMP_ADC_LPM	702
+#define LOW_RECOVER_TEMP_ADC_LPM	512
 #else
 #define EVENT_BLOCK_TEMP_ADC           777
 #define HIGH_BLOCK_TEMP_ADC            729
@@ -138,7 +158,8 @@
 #define HIGH_RECOVER_TEMP_ADC_LPM      702
 #define LOW_RECOVER_TEMP_ADC_LPM       512
 #endif
-#elif defined(CONFIG_TARGET_LOCALE_NAATT)
+#elif defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 #define EVENT_BLOCK_TEMP			620
 #define HIGH_BLOCK_TEMP			490
 #define LOW_BLOCK_TEMP			(-30)
@@ -158,7 +179,8 @@
 #define LOW_RECOVER_TEMP		0
 #endif
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 #define HIGH_DEC_CURR_TEMP			410
 #define HIGH_INC_CURR_TEMP			380
 #endif
@@ -232,7 +254,8 @@ enum {
 	BAT_DETECTED
 };
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 enum batt_temp_extra {
 	BATT_TEMP_EXT_NONE = 0,
 	BATT_TEMP_EXT_CAMCORDING_NORMAL,
@@ -264,7 +287,8 @@ struct sec_bat_info {
 	struct sec_bat_adc_table_data *adc_table;
 	unsigned int adc_channel;
 	struct adc_sample temper_adc_sample;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	int vf_adc_channel;
 #endif
 
@@ -283,7 +307,8 @@ struct sec_bat_info {
 	int batt_temp_high_cnt;
 	int batt_temp_low_cnt;
 	int batt_temp_recover_cnt;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	enum batt_temp_extra batt_temp_ext;
 	enum batt_temp_extra batt_temp_ext_pre;
 #endif
@@ -305,7 +330,8 @@ struct sec_bat_info {
 	unsigned int batt_temp_radc;
 #endif
 	unsigned int batt_current_adc;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	int batt_vf_adc;
 	int batt_event_status;
 	unsigned long event_end_time;
@@ -367,6 +393,10 @@ static enum power_supply_property sec_battery_props[] = {
 	POWER_SUPPLY_PROP_TECHNOLOGY,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
+#ifdef CONFIG_SLP
+	POWER_SUPPLY_PROP_CHARGE_NOW,
+	POWER_SUPPLY_PROP_CHARGE_FULL,
+#endif
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_CURRENT_AVG,
 };
@@ -492,6 +522,20 @@ static int sec_bat_get_property(struct power_supply *ps,
 		if (val->intval == -1)
 			return -EINVAL;
 		break;
+#ifdef CONFIG_SLP
+	case POWER_SUPPLY_PROP_CHARGE_FULL:
+		if (info->charging_status == POWER_SUPPLY_STATUS_FULL)
+			val->intval = true;
+		else
+			val->intval = false;
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_NOW:
+		if (info->charging_status == POWER_SUPPLY_STATUS_CHARGING)
+			val->intval = true;
+		else
+			val->intval = false;
+		break;
+#endif
 	case POWER_SUPPLY_PROP_CAPACITY:
 #ifdef CONFIG_TARGET_LOCALE_NA
 		if (info->charging_status != POWER_SUPPLY_STATUS_FULL
@@ -513,7 +557,7 @@ static int sec_bat_get_property(struct power_supply *ps,
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
-		val->intval = -1;
+		val->intval = 1;
 		break;
 	default:
 		return -EINVAL;
@@ -768,7 +812,8 @@ static inline int s3c_read_temper_adc(struct sec_bat_info *info)
 }
 #endif
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 static int is_event_end_timer_running(struct sec_bat_info *info)
 {
 	unsigned long passed_time = 0;
@@ -783,12 +828,16 @@ static int is_event_end_timer_running(struct sec_bat_info *info)
 
 	if (time_after(passed_time, (unsigned long)EVENT_OVER_TIME)) {
 		info->event_end_time = 0xFFFFFFFF;
+		#ifndef PRODUCT_SHIP
 		dev_info(info->dev, "%s: Event timer is over 10 min\n",
 			 __func__);
+		#endif
 		return false;
 	} else {
+	#ifndef PRODUCT_SHIP
 		dev_info(info->dev, "%s: Event timer is running(%u s)\n",
 			 __func__, jiffies_to_msecs(passed_time) / 1000);
+	#endif
 		return true;
 	}
 
@@ -816,13 +865,17 @@ static int is_event_end_timer_running(struct sec_bat_info *info)
 
 	if (time_after(passed_time, (unsigned long)BAT_USE_TIMER_EXPIRE)) {
 		info->event_expired_time = 0xFFFFFFFF;
+		#ifndef PRODUCT_SHIP
 		dev_info(info->dev, "[SPR_NA] %s: Event timer is over 10 min\n",
 			 __func__);
+		#endif
 		return false;
 	} else {
+#ifndef PRODUCT_SHIP
 		dev_info(info->dev,
 			 "[SPR_NA] %s: Event timer is running(%u s)\n",
 			 __func__, jiffies_to_msecs(passed_time) / 1000);
+#endif
 		return true;
 	}
 
@@ -932,9 +985,11 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 		} else {
 			if ((info->batt_event_status)
 			    || (is_event_end_timer_running(info))) {
+#ifndef PRODUCT_SHIP
 				dev_info(info->dev,
-					 "[NA_SPR] Changed Put off Current",
+					 "%s: [NA_SPR] Changed Put off Current",
 					 __func__);
+#endif
 				if (temp_radc >= EVENT_BLOCK_TEMP_ADC) {
 					if (health !=
 					    POWER_SUPPLY_HEALTH_OVERHEAT
@@ -943,7 +998,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 						if (info->batt_temp_high_cnt <
 						    TEMP_BLOCK_COUNT)
 							info->
-							    batt_temp_high_cnt++;
+							batt_temp_high_cnt++;
 					dev_info(info->dev,
 						 "%s: high count = %d\n",
 						 __func__,
@@ -962,7 +1017,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 						    batt_temp_recover_cnt <
 						    TEMP_BLOCK_COUNT)
 							info->
-							    batt_temp_recover_cnt++;
+							batt_temp_recover_cnt++;
 						dev_info(info->dev,
 							 "%s: recovery count = %d\n",
 							 __func__,
@@ -995,7 +1050,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 						if (info->batt_temp_high_cnt <
 						    TEMP_BLOCK_COUNT)
 							info->
-							    batt_temp_high_cnt++;
+							batt_temp_high_cnt++;
 					dev_info(info->dev,
 						 "%s: high count = %d\n",
 						 __func__,
@@ -1015,7 +1070,7 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 						    batt_temp_recover_cnt <
 						    TEMP_BLOCK_COUNT)
 							info->
-							    batt_temp_recover_cnt++;
+							batt_temp_recover_cnt++;
 						dev_info(info->dev,
 							 "%s: recovery count = %d\n",
 							 __func__,
@@ -1073,9 +1128,9 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 				__func__, ret);
 		}
 	}
-
+#ifndef PRODUCT_SHIP
 	dev_info(info->dev, "%s: temp=%d, adc=%d\n", __func__, temp, temp_adc);
-
+#endif
 	return temp;
 }
 
@@ -1099,7 +1154,8 @@ static void sec_bat_get_dcinovp(struct sec_bat_info *info)
 	}
 }
 
-#elif defined(CONFIG_TARGET_LOCALE_NAATT)
+#elif defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 static int sec_bat_check_temper(struct sec_bat_info *info)
 {
 	struct power_supply *psy
@@ -1176,7 +1232,8 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 			info->batt_temp_recover_cnt = 0;
 		}
 	} else {
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 		info->batt_temp_ext_pre = info->batt_temp_ext;
 		switch (info->batt_temp_ext) {
 		case BATT_TEMP_EXT_NONE:
@@ -1263,8 +1320,9 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 				__func__, ret);
 		}
 	}
-
+#ifndef PRODUCT_SHIP
 	dev_info(info->dev, "%s: temp=%d, adc=%d\n", __func__, temp, temp_adc);
+#endif
 
 	return temp;
 }
@@ -1350,9 +1408,9 @@ static int sec_bat_check_temper(struct sec_bat_info *info)
 				__func__, ret);
 		}
 	}
-
+#ifndef PRODUCT_SHIP
 	dev_info(info->dev, "%s: temp=%d, adc=%d\n", __func__, temp, temp_adc);
-
+#endif
 	return temp;
 }
 #endif
@@ -1539,7 +1597,8 @@ static int sec_bat_enable_charging_sub(struct sec_bat_info *info, bool enable)
 				break;
 			case CABLE_TYPE_AC:
 				val_type.intval = POWER_SUPPLY_STATUS_CHARGING;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 				if (info->batt_temp_ext ==
 				    BATT_TEMP_EXT_CAMCORDING_HIGH)
 					val_chg_current.intval = 450;	/* mA */
@@ -1632,7 +1691,8 @@ static void sec_bat_cable_work(struct work_struct *work)
 			info->batt_temp_high_cnt = 0;
 			info->batt_temp_low_cnt = 0;
 			info->batt_temp_recover_cnt = 0;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 			info->batt_temp_ext = BATT_TEMP_EXT_NONE;
 			info->batt_temp_ext_pre = BATT_TEMP_EXT_NONE;
 #endif
@@ -1729,14 +1789,16 @@ static bool sec_bat_charging_time_management(struct sec_bat_info *info)
 		dev_info(info->dev, "%s: Undefine Battery Status\n", __func__);
 		return false;
 	}
-
+#ifndef PRODUCT_SHIP
 	dev_info(info->dev, "Time past : %u secs\n",
 		 jiffies_to_msecs(info->charging_passed_time) / 1000);
+#endif
 
 	return false;
 }
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 static void sec_bat_check_vf_adc(struct sec_bat_info *info)
 {
 	int adc;
@@ -1953,9 +2015,9 @@ static bool sec_bat_check_ing_level_trigger(struct sec_bat_info *info)
 						    charging_int_full_count >=
 						    FULL_CHG_COND_COUNT) {
 							info->
-							    charging_int_full_count
+						charging_int_full_count
 							    = 0;
-							sec_bat_handle_charger_topoff
+						sec_bat_handle_charger_topoff
 							    (info);
 							return true;
 						}
@@ -1963,7 +2025,7 @@ static bool sec_bat_check_ing_level_trigger(struct sec_bat_info *info)
 							 "%s : full interrupt cnt = %d\n",
 							 __func__,
 							 info->
-							 charging_int_full_count);
+						 charging_int_full_count);
 					} else {
 						info->charging_int_full_count =
 						    0;
@@ -2042,9 +2104,9 @@ static bool sec_bat_check_ing_level_trigger(struct sec_bat_info *info)
 						    charging_int_full_count >=
 						    FULL_CHG_COND_COUNT) {
 							info->
-							    charging_int_full_count
+						charging_int_full_count
 							    = 0;
-							sec_bat_handle_charger_topoff
+						sec_bat_handle_charger_topoff
 							    (info);
 							return true;
 						}
@@ -2052,13 +2114,14 @@ static bool sec_bat_check_ing_level_trigger(struct sec_bat_info *info)
 							 "%s : full interrupt cnt = %d\n",
 							 __func__,
 							 info->
-							 charging_int_full_count);
+						charging_int_full_count);
 					} else {
 						info->charging_int_full_count =
 						    0;
 						/*reactivate charging in */
 						/*next monitor work */
-						/*for abnormal full-charged status */
+						/*for abnormal
+						full-charged status */
 						info->charging_next_time =
 						    info->charging_passed_time +
 						    HZ;
@@ -2170,7 +2233,8 @@ static void sec_bat_monitor_work(struct work_struct *work)
 		break;
 	case POWER_SUPPLY_STATUS_CHARGING:
 		switch (info->batt_health) {
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 		case POWER_SUPPLY_HEALTH_GOOD:
 			if (info->batt_temp_ext_pre != info->batt_temp_ext) {
 				sec_bat_enable_charging(info, false);
@@ -2223,18 +2287,21 @@ static void sec_bat_monitor_work(struct work_struct *work)
 	}
 
  full_charged:
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	dev_info(info->dev,
 		 "soc(%d), vfocv(%d), vcell(%d), temp(%d), charging(%d), health(%d), vf(%d)\n",
 		 info->batt_soc, info->batt_vfocv, info->batt_vcell / 1000,
 		 info->batt_temp / 10, info->charging_status, info->batt_health,
 		 info->batt_vf_adc);
 #else
+#ifndef PRODUCT_SHIP
 	dev_info(info->dev,
 		 "soc(%d), vfocv(%d), vcell(%d), temp(%d), charging(%d), health(%d), chg_adc(%d)\n",
 		 info->batt_soc, info->batt_vfocv, info->batt_vcell / 1000,
 		 info->batt_temp / 10, info->charging_status,
 		 info->batt_health, info->batt_current_adc);
+#endif
 #endif
 
 	power_supply_changed(&info->psy_bat);
@@ -2250,10 +2317,11 @@ static void sec_bat_vf_check_work(struct work_struct *work)
 	struct sec_bat_info *info;
 	info = container_of(work, struct sec_bat_info, vf_check_work.work);
 
-	sec_bat_check_vf(info);
-
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	sec_bat_check_vf_adc(info);
+#else
+	sec_bat_check_vf(info);
 #endif
 
 #if (defined(CONFIG_MACH_Q1_BD) && defined(CONFIG_SMB328_CHARGER))
@@ -2334,7 +2402,8 @@ static struct device_attribute sec_battery_attrs[] = {
 #ifdef SPRINT_SLATE_TEST
 	SEC_BATTERY_ATTR(slate_test_mode),
 #endif
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	SEC_BATTERY_ATTR(batt_v_f_adc),
 	SEC_BATTERY_ATTR(batt_voice_call_2g),
 	SEC_BATTERY_ATTR(batt_voice_call_3g),
@@ -2384,7 +2453,8 @@ enum {
 #ifdef SPRINT_SLATE_TEST
 	SLATE_TEST_MODE,
 #endif
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	BATT_V_F_ADC,
 	BATT_VOICE_CALL_2G,
 	BATT_VOICE_CALL_3G,
@@ -2404,7 +2474,8 @@ enum {
 #endif
 };
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 static void sec_bat_check_event_status(struct sec_bat_info *info, int mode,
 				       int offset)
 {
@@ -2449,10 +2520,10 @@ static void sec_bat_check_event_status(struct sec_bat_info *info, int mode,
 		if (info->batt_event_status & offset)
 			info->batt_event_status &= ~offset;
 	}
-
+#ifndef PRODUCT_SHIP
 	printk(KERN_DEBUG "[%s] current batt_event_status = 0x%x\n", __func__,
 	       info->batt_event_status);
-
+#endif
 	if ((info->batt_event_status == 0) && (is_event_running == 1))
 		info->event_expired_time = jiffies;
 
@@ -2463,6 +2534,7 @@ int sec_bat_use_wimax(int onoff)
 {
 	struct sec_bat_info *info = pchg;
 	sec_bat_check_event_status(info, onoff, USE_WIMAX);
+	return 0;
 }
 EXPORT_SYMBOL(sec_bat_use_wimax);
 #endif
@@ -2614,7 +2686,8 @@ static ssize_t sec_bat_show_property(struct device *dev,
 			       info->slate_test_mode);
 		break;
 #endif
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	case BATT_V_F_ADC:
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 			       info->batt_vf_adc);
@@ -2775,7 +2848,8 @@ static ssize_t sec_bat_store(struct device *dev,
 		if (sscanf(buf, "%d\n", &x) == 1) {
 			dev_info(info->dev, "%s: video(%d)\n", __func__, x);
 			ret = count;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 			sec_bat_check_event_status(info, x, OFFSET_VIDEO_PLAY);
 #elif defined(CONFIG_TARGET_LOCALE_NA)
 			info->use_video = x;
@@ -2788,7 +2862,8 @@ static ssize_t sec_bat_store(struct device *dev,
 		if (sscanf(buf, "%d\n", &x) == 1) {
 			dev_info(info->dev, "%s: mp3(%d)\n", __func__, x);
 			ret = count;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 			sec_bat_check_event_status(info, x, OFFSET_MP3_PLAY);
 #elif defined(CONFIG_TARGET_LOCALE_NA)
 			info->use_music = x;
@@ -2821,7 +2896,8 @@ static ssize_t sec_bat_store(struct device *dev,
 		}
 		break;
 #endif
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	case BATT_VOICE_CALL_2G:
 		/* TODO */
 		if (sscanf(buf, "%d\n", &x) == 1) {
@@ -2916,6 +2992,7 @@ static ssize_t sec_bat_store(struct device *dev,
 	case BATT_CAMERA:
 		/* TODO */
 		if (sscanf(buf, "%d\n", &x) == 1) {
+			info->use_camera = x;
 			dev_info(info->dev, "[NA_SPR]%s: CAMERA(%d)\n",
 				 __func__, x);
 			ret = count;
@@ -3092,7 +3169,8 @@ static __devinit int sec_bat_probe(struct platform_device *pdev)
 		info->use_sub_charger = false;
 	}
 	info->get_lpcharging_state = pdata->get_lpcharging_state;
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	info->vf_adc_channel = pdata->adc_vf_channel;
 #endif
 
@@ -3170,7 +3248,8 @@ static __devinit int sec_bat_probe(struct platform_device *pdev)
 	info->padc = s3c_adc_register(pdev, NULL, NULL, 0);
 	info->charging_start_time = 0;
 
-#if defined(CONFIG_TARGET_LOCALE_NAATT)
+#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
+	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
 	info->batt_vf_adc = 0;
 	info->batt_event_status = 0;
 	info->event_end_time = 0xFFFFFFFF;

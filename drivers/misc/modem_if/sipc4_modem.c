@@ -56,6 +56,18 @@ static struct modem_shared *create_modem_shared_data(void)
 	msd->iodevs_tree_chan = RB_ROOT;
 	msd->iodevs_tree_fmt = RB_ROOT;
 
+	msd->storage.cnt = 0;
+	msd->storage.addr =
+		kzalloc(MAX_MIF_BUFF_SIZE + MAX_MIF_SEPA_SIZE, GFP_KERNEL);
+	if (!msd->storage.addr) {
+		mif_err("IPC logger buff alloc failed!!\n");
+		return NULL;
+	}
+	memset(msd->storage.addr, 0, MAX_MIF_BUFF_SIZE);
+	memcpy(msd->storage.addr, MIF_SEPARATOR, MAX_MIF_SEPA_SIZE);
+	msd->storage.addr += MAX_MIF_SEPA_SIZE;
+	spin_lock_init(&msd->lock);
+
 	return msd;
 }
 
@@ -88,6 +100,7 @@ static struct modem_ctl *create_modemctl_device(struct platform_device *pdev,
 	}
 
 	mif_info("%s is created!!!\n", pdata->name);
+
 	return modemctl;
 }
 
@@ -315,9 +328,22 @@ static int modem_resume(struct device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_FAST_BOOT
+static void modem_complete(struct device *pdev)
+{
+	struct modem_ctl *mc = dev_get_drvdata(pdev);
+
+	if (mc->modem_complete)
+		mc->modem_complete(mc);
+}
+#endif
+
 static const struct dev_pm_ops modem_pm_ops = {
 	.suspend    = modem_suspend,
 	.resume     = modem_resume,
+#ifdef CONFIG_FAST_BOOT
+	.complete  = modem_complete,
+#endif
 };
 
 static struct platform_driver modem_driver = {

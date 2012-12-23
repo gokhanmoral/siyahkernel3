@@ -17,7 +17,9 @@
 #include "core.h"
 #include "debug.h"
 #include <linux/vmalloc.h>
+#if 1
 #include <linux/random.h>
+#endif
 #define MAC_FILE "ath6k/AR6003/hw2.1.1/softmac"
 
 typedef char            A_CHAR;
@@ -63,38 +65,70 @@ static void ath6kl_calculate_crc(u32 target_type, u8 *data, size_t len)
 	ath6kl_dbg(ATH6KL_DBG_BOOT, "New Checksum: %u\n", checksum);
 }
 
-#ifdef CONFIG_MACH_PX
+#ifdef CONFIG_MACH_MSM7X27A_FFA
+#if 0
+static int ath6kl_fetch_nvmac_info(struct ath6kl *ar)
+{
+	char softmac_filename[256];
+	int ret = 0;
+
+	do {
+		snprintf(softmac_filename, sizeof(softmac_filename),
+			 "/data/.nvmac.info");
+
+		if ( (ret = android_readwrite_file(
+			softmac_filename, NULL, NULL, 0)) < 0) {
+			break;
+		} else {
+			ath6kl_softmac_len = ret;
+		}
+		ath6kl_softmac = vmalloc(ath6kl_softmac_len);
+		if (!ath6kl_softmac) {
+			ath6kl_dbg(ATH6KL_DBG_BOOT,
+			   "%s: Cannot allocate buffer for nvmac.info"
+			   "(%d)\n", __func__,ath6kl_softmac_len);
+			ret = -ENOMEM;
+			break;
+		}
+
+		if ( (ret = android_readwrite_file(softmac_filename,
+			 (char*)ath6kl_softmac, NULL, ath6kl_softmac_len)) !=
+				 ath6kl_softmac_len) {
+			ath6kl_dbg(ATH6KL_DBG_BOOT,"%s: file read error, length %d\n",
+					 __func__, ath6kl_softmac_len);
+			vfree(ath6kl_softmac);
+			ret = -1;
+			break;
+		}
+
+		if (!strncmp(ath6kl_softmac,"00:00:00:00:00:00",17)) {
+			ath6kl_dbg(ATH6KL_DBG_BOOT,"%s: mac address is zero\n",
+					 __func__);
+			vfree(ath6kl_softmac);
+			ret = -1;
+			break;
+		}
+
+		ret = 0;
+	} while (0);
+
+	return ret;
+}
+#else
 static int ath6kl_fetch_nvmac_info(struct ath6kl *ar)
 {
 	char softmac_temp[64];
-	int ret = 0, ath6kl_softmac_len = 0;
-	int isnvmac_imei = 0, isnvmac_wifi = 0;
+	int ret = 0;
 	int isnvmac_file = 0, ismac_file = 0;
 
-	char nvfilepath[32] = {0};
-	char *nvfilepath_imei = "/efs/imei/.nvmac.info";
-	char *nvfilepath_wifi = "/efs/wifi/.nvmac.info";
+	char *nvfilepath = "/efs/wifi/.nvmac.info";
 	char *softmac_filename = "/efs/wifi/.mac.info";
 	char *softmac_old_filename = "/data/.mac.info";
 
 	do {
-		isnvmac_imei = android_readwrite_file(nvfilepath_imei,
-								NULL, NULL, 0);
-		isnvmac_wifi = android_readwrite_file(nvfilepath_wifi,
-								NULL, NULL, 0);
+		isnvmac_file = android_readwrite_file(nvfilepath, NULL, NULL, 0);
 		ismac_file = android_readwrite_file(softmac_filename,
 								NULL, NULL, 0);
-
-		if (isnvmac_imei >= 16 && isnvmac_wifi >= 16) {
-			strcpy(nvfilepath, nvfilepath_wifi);
-			isnvmac_file = isnvmac_wifi;
-		} else if (isnvmac_wifi >= 16) {
-			strcpy(nvfilepath, nvfilepath_wifi);
-			isnvmac_file = isnvmac_wifi;
-		} else if (isnvmac_imei >= 16) {
-			strcpy(nvfilepath, nvfilepath_imei);
-			isnvmac_file = isnvmac_imei;
-		}
 
 		/* copy .nvmac.info file to .mac.info
 		   wifi driver will use .mac.info finally */
@@ -172,6 +206,8 @@ static int ath6kl_fetch_nvmac_info(struct ath6kl *ar)
 	return ret;
 }
 
+#endif
+
 #else
 static int ath6kl_fetch_mac_file(struct ath6kl *ar)
 {
@@ -195,12 +231,16 @@ static int ath6kl_fetch_mac_file(struct ath6kl *ar)
 }
 #endif
 
+#if 0
 void ath6kl_mangle_mac_address(struct ath6kl *ar)
+#else
+void ath6kl_mangle_mac_address(struct ath6kl *ar, u8 locally_administered_bit)
+#endif
 {
 	u8 *ptr_mac;
 	int i, ret;
-#ifdef CONFIG_MACH_PX
-	unsigned int softmac[6];
+#ifdef CONFIG_MACH_MSM7X27A_FFA
+	u8 *macbuf;
 #endif
 
 	switch (ar->target_type) {
@@ -215,38 +255,45 @@ void ath6kl_mangle_mac_address(struct ath6kl *ar)
 		return;
 	}
 
-#if 0
+/* #if 0 mac address issue - It sometimes changed macaddress */
 	ath6kl_dbg(ATH6KL_DBG_BOOT,
 		   "MAC from EEPROM %02X:%02X:%02X:%02X:%02X:%02X\n",
 		   ptr_mac[0], ptr_mac[1], ptr_mac[2],
 		   ptr_mac[3], ptr_mac[4], ptr_mac[5]);
-#endif
+/* #endif */
 
-#ifdef CONFIG_MACH_PX
+#ifdef CONFIG_MACH_MSM7X27A_FFA
 	ret = ath6kl_fetch_nvmac_info(ar);
 
 	if (ret) {
-		ath6kl_err("MAC address file not found\n");
+		ath6kl_err("MAC address nvmac file not found\n");
 		return;
 	}
+	macbuf = kmalloc(ath6kl_softmac_len + 1, GFP_ATOMIC);
+	if (macbuf) {
+		unsigned int softmac[6];
+		memcpy(macbuf, ath6kl_softmac, ath6kl_softmac_len);
+		macbuf[ath6kl_softmac_len] = '\0';
 
-	if (sscanf(ath6kl_softmac, "%02x:%02x:%02x:%02x:%02x:%02x",
-			   &softmac[0], &softmac[1], &softmac[2],
-			   &softmac[3], &softmac[4], &softmac[5])==6) {
 
-		for (i=0; i<6; ++i) {
-			ptr_mac[i] = softmac[i] & 0xff;
-		}
+		if (sscanf(macbuf, "%02x:%02x:%02x:%02x:%02x:%02x",
+				   &softmac[0], &softmac[1], &softmac[2],
+				   &softmac[3], &softmac[4], &softmac[5])
+				 == 6) {
+
+			for (i = 0; i < 6; ++i)
+				ptr_mac[i] = softmac[i] & 0xff;
 	}
 
-	ath6kl_dbg(ATH6KL_DBG_BOOT,
-		   "MAC from SoftMAC %02X_%02X:%02X\n",
-		   ptr_mac[0], ptr_mac[4], ptr_mac[5]);
+		ath6kl_dbg(ATH6KL_DBG_BOOT,
+			"MAC from SoftMAC %02X_%02X:%02X\n",
+			ptr_mac[0], ptr_mac[4], ptr_mac[5]);
+		}
 	vfree(ath6kl_softmac);
 #else
 	ret = ath6kl_fetch_mac_file(ar);
 	if (ret) {
-		ath6kl_err("MAC address file not found\n");
+		ath6kl_err("MAC address mac file not found\n");
 		return;
 	}
 
@@ -255,6 +302,10 @@ void ath6kl_mangle_mac_address(struct ath6kl *ar)
 	}
 
 	kfree(ath6kl_softmac);
+#endif
+
+#if 1
+	if (locally_administered_bit)		ptr_mac[0] |= 0x02;
 #endif
 
 	ath6kl_calculate_crc(ar->target_type, ar->fw_board, ar->fw_board_len);

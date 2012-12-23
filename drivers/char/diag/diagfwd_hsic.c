@@ -29,6 +29,14 @@
 #include "diagfwd.h"
 #include "diagfwd_hsic.h"
 
+// zero_pky.patch by jagadish
+/* ascii value of zero cfg packet */
+static char zero_cfg_buf[]= {29,28,59,126,0,120,240,126,124,147,73,126,28,149,42,126,12,20,58,126,99,229,161,126,75,15,0,0,187,96,126,75,9,0,0,98,182,126,75,8,0,0,190,236,126,75,8,1,0,102,245,126,75,4,0,0,29,73,126,75,4,15,0,213,202,126,125,93,5,0,0,0,0,0,0,116,65,126,115,0,0,0,0,0,0,0,218,129,126,96,0,18,106,126};
+/* zero cfg packet is divided into number of sub packets
+   and the size of each sub packet is given below*/
+static unsigned int zero_cfg_packet_lens[] = {4,4,4,4,4,4,7,7,7,7,7,7,12,11,5};
+
+
 static void diag_read_hsic_work_fn(struct work_struct *work)
 {
 	if (!driver->hsic_ch) {
@@ -40,7 +48,8 @@ static void diag_read_hsic_work_fn(struct work_struct *work)
 	 * If there is no hsic data being read from the hsic and there
 	 * is no hsic data being written to the usb mdm channel
 	 */
-	if (!driver->in_busy_hsic_read && !driver->in_busy_hsic_write_on_mdm) {
+	if (!driver->in_busy_hsic_read && (!driver->in_busy_hsic_write_on_mdm ||
+		driver->logging_mode == MEMORY_DEVICE_MODE)) {
 		/*
 		 * Initiate the read from the hsic.  The hsic read is
 		 * asynchronous.  Once the read is complete the read
@@ -84,6 +93,25 @@ static void diag_hsic_read_complete_callback(void *ctxt, char *buf,
 		return;
 	}
 
+       // zero_pky.patch by jagadish
+       /* if zero cfg packet mode is enabled, then send the sub packets */
+	if (driver->zero_cfg_mode) {
+		driver->zero_cfg_index += zero_cfg_packet_lens
+			[driver->zero_cfg_packet_lens_index];
+		driver->zero_cfg_packet_lens_index++;
+		if (driver->zero_cfg_packet_lens_index == ZERO_CFG_SUBPACKET_MAX) {
+			pr_info("%s sending zero_cfg packet over\n", __func__);
+			driver->zero_cfg_mode = 0;
+			queue_work(driver->diag_hsic_wq, &driver->diag_disconnect_work);
+		}
+		else {
+			pr_info("%s zero_cfg sub packet number:%d\n", __func__,driver->zero_cfg_packet_lens_index);
+			queue_work(driver->diag_hsic_wq, &driver->diag_zero_cfg_hsic_work);
+		}
+		return ;
+	}
+
+
 	APPEND_DEBUG('j');
 	if (actual_size > 0) {
 		if (!buf) {
@@ -114,6 +142,25 @@ static void diag_hsic_read_complete_callback(void *ctxt, char *buf,
 			!driver->hsic_suspend)
 		queue_work(driver->diag_hsic_wq, &driver->diag_read_hsic_work);
 }
+
+// zero_pky.patch by jagadish
+/* Work function used to send zero cfg packet and receive ack */
+static void diag_zero_cfg_hsic_work_fn(struct work_struct *work)
+{
+	int index = driver->zero_cfg_packet_lens_index;
+	if (index >= ZERO_CFG_SUBPACKET_MAX)
+		return;
+
+	if (!driver->in_busy_hsic_write && !driver->in_busy_hsic_read) {
+		driver->in_busy_hsic_write = 1;
+		diag_bridge_write(&zero_cfg_buf[driver->zero_cfg_index],
+						zero_cfg_packet_lens[index]);
+		driver->in_busy_hsic_read = 1;
+		diag_bridge_read((char *)driver->buf_in_hsic,
+				IN_BUF_SIZE);
+	}
+}
+
 
 static void diag_hsic_write_complete_callback(void *ctxt, char *buf,
 					int buf_size, int actual_size)
@@ -147,7 +194,8 @@ static void diag_hsic_resume(void *ctxt)
 {
 	driver->hsic_suspend = 0;
 
-	if (!driver->in_busy_hsic_write_on_mdm && driver->usb_mdm_connected)
+	if ((!driver->in_busy_hsic_write_on_mdm && driver->usb_mdm_connected)
+			|| driver->logging_mode == MEMORY_DEVICE_MODE)
 		queue_work(driver->diag_hsic_wq, &driver->diag_read_hsic_work);
 }
 
@@ -161,10 +209,24 @@ static struct diag_bridge_ops hsic_diag_bridge_ops = {
 
 static int diag_hsic_close(void)
 {
+        // zero_pky.patch by jagadish
+	/* if zero cfg mode is enabled, dont close the bridge */
+	if (driver->zero_cfg_mode) {
+		pr_info("%s sending zero_cfg packet start\n", __func__);
+		driver->in_busy_hsic_write = 0;
+		driver->in_busy_hsic_read = 0;
+		queue_work(driver->diag_hsic_wq, &driver->diag_zero_cfg_hsic_work);
+		return 0;
+	}
+
+
 	if (driver->hsic_device_enabled) {
 		driver->hsic_ch = 0;
 		if (driver->hsic_device_opened) {
 			driver->hsic_device_opened = 0;
+			// zero_pky.patch by jagadish
+			driver->zero_cfg_packet_lens_index = 0;
+			driver->zero_cfg_index =0;
 			diag_bridge_close();
 		}
 		pr_debug("DIAG in %s: closed successfully\n", __func__);
@@ -176,21 +238,34 @@ static int diag_hsic_close(void)
 }
 
 /* diagfwd_connect_hsic is called when the USB mdm channel is connected */
-static int diagfwd_connect_hsic(void)
+int diagfwd_connect_hsic(unsigned int mode)
 {
 	int err;
 
 	pr_info("DIAG in %s\n", __func__);
 
-	err = usb_diag_alloc_req(driver->mdm_ch, N_MDM_WRITE, N_MDM_READ);
-	if (err)
-		pr_err("DIAG: unable to alloc USB req on mdm ch err:%d\n", err);
-
-	driver->usb_mdm_connected = 1;
+	if (mode == WRITE_TO_USB) {
+		err = usb_diag_alloc_req(driver->mdm_ch, N_MDM_WRITE,
+								N_MDM_READ);
+		if (err)
+			pr_err("DIAG: unable to alloc req on mdm ch err:%d\n",
+									err);
+		driver->usb_mdm_connected = 1;
+	} else {
+		pr_info("silent log %s\n", __func__);
+		driver->usb_mdm_connected = 0;
+	}
 	driver->in_busy_hsic_write_on_mdm = 0;
 	driver->in_busy_hsic_read_on_mdm = 0;
 	driver->in_busy_hsic_write = 0;
 	driver->in_busy_hsic_read = 0;
+
+	// zero_pky.patch by jagadish
+	/* zero cfg packet variables are set to 0 again here,
+	   just in case to prevent any looping  */
+	driver->zero_cfg_mode = 0;
+	driver->zero_cfg_packet_lens_index = 0;
+	driver->zero_cfg_index =0;
 
 	/* If the hsic (diag_bridge) platform device is not open */
 	if (driver->hsic_device_enabled) {
@@ -214,8 +289,11 @@ static int diagfwd_connect_hsic(void)
 		if (driver->hsic_device_opened)
 			driver->hsic_ch = 1;
 
-		/* Poll USB mdm channel to check for data */
-		queue_work(driver->diag_hsic_wq, &driver->diag_read_mdm_work);
+		if (mode == WRITE_TO_USB) {
+			/* Poll USB mdm channel to check for data */
+			queue_work(driver->diag_hsic_wq,
+						&driver->diag_read_mdm_work);
+		}
 
 		/* Poll HSIC channel to check for data */
 		queue_work(driver->diag_hsic_wq, &driver->diag_read_hsic_work);
@@ -231,12 +309,14 @@ static int diagfwd_connect_hsic(void)
  * diagfwd_disconnect_hsic is called when the USB mdm channel
  * is disconnected
  */
-static int diagfwd_disconnect_hsic(void)
+int diagfwd_disconnect_hsic(void)
 {
 	pr_debug("DIAG in %s\n", __func__);
 
+	if (driver->usb_mdm_connected)
+		usb_diag_free_req(driver->mdm_ch);
+	// zero_pky.patch by jagadish
 	driver->usb_mdm_connected = 0;
-	usb_diag_free_req(driver->mdm_ch);
 	driver->in_busy_hsic_write_on_mdm = 1;
 	driver->in_busy_hsic_read_on_mdm = 1;
 	driver->in_busy_hsic_write = 1;
@@ -329,8 +409,12 @@ static void diagfwd_hsic_notifier(void *priv, unsigned event,
 {
 	switch (event) {
 	case USB_DIAG_CONNECT:
-		diagfwd_connect_hsic();
+		diagfwd_connect_hsic(WRITE_TO_USB);
 		break;
+	case USB_DIAG_QXDM_DISCONNECT: // zero_pky.patch by jagadish
+		/* send zero packet */
+		driver->zero_cfg_mode = 1;
+		/* Intentional fall through */
 	case USB_DIAG_DISCONNECT:
 		queue_work(driver->diag_hsic_wq, &driver->diag_disconnect_work);
 		break;
@@ -416,6 +500,8 @@ int diag_hsic_enable(void)
 	INIT_WORK(&(driver->diag_read_mdm_work), diag_read_mdm_work_fn);
 #endif
 	INIT_WORK(&(driver->diag_read_hsic_work), diag_read_hsic_work_fn);
+	INIT_WORK(&(driver->diag_zero_cfg_hsic_work), diag_zero_cfg_hsic_work_fn);
+
 
 	driver->hsic_device_enabled = 1;
 
@@ -434,7 +520,7 @@ err:
 
 static int diag_hsic_probe(struct platform_device *pdev)
 {
-	int err;
+	int err = 0;
 
 	if (!driver->hsic_device_enabled) {
 		err = diag_hsic_enable();

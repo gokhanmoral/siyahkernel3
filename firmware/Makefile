@@ -26,8 +26,34 @@ fw-shipped- += acenic/tg1.bin
 else
 acenic-objs := acenic/tg1.bin acenic/tg2.bin
 endif
+
+ifdef CONFIG_MACH_T0
+fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZK.bin \
+				      SlimISP_GK.bin
+else
+ifdef CONFIG_MACH_M3_USA_TMO
+fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZK.bin \
+				      SlimISP_GK.bin
+else
+ifdef CONFIG_MACH_BAFFIN
+fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZK.bin \
+				      SlimISP_GK.bin \
+				      SlimISP_BK.bin \
+				      SlimISP_GM.bin
+else
+ifdef CONFIG_MACH_GRANDE
+fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_GJ.bin
+else
+ifdef CONFIG_MACH_IRON
+fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_GJ.bin
+else
 fw-shipped-$(CONFIG_VIDEO_S5C73M3) += SlimISP_ZD.bin \
 				      SlimISP_GD.bin
+endif
+endif
+endif
+endif
+endif
 
 fw-shipped-$(CONFIG_3C359) += 3com/3C359.bin
 fw-shipped-$(CONFIG_ACENIC) += $(acenic-objs)
@@ -145,10 +171,20 @@ fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 fw-shipped-$(CONFIG_EPEN_WACOM_G5SP) += epen/W8501.bin epen/W8501_P48.bin
+fw-shipped-$(CONFIG_EPEN_WACOM_G9PM) += epen/W9001_B746.bin epen/W9001_B713.bin epen/W9001_B660.bin \
+			epen/W9001_B746S.bin epen/W9001_B746L.bin \
+			epen/W9001_B746JD.bin \
+			epen/W9001_B746VZW.bin \
+			epen/W9001_0700.bin
+
+#for sensorhub
+fw-shipped-$(CONFIG_SENSORS_SSP) += ssp.fw
+fw-shipped-$(CONFIG_SENSORS_SSP) += ssp_crashed.fw
 
 TSPFIRMWARE_DIRECTORY = firmware/tsp_atmel
 ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY) && echo yes),yes)
 fw-shipped-$(CONFIG_TOUCHSCREEN_ATMEL_MXT540E) += tsp_atmel/mXT540E.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_ATMEL_MXT540S) += tsp_atmel/mXT540S.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_MXT768E) += tsp_atmel/mXT768E.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_ATMEL_MXT1664S) += tsp_atmel/mXT1664S.fw
 else
@@ -169,28 +205,28 @@ ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY_MEL_GC) && echo yes),yes)
 fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/A_CORE.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/A_PRIV.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/A_PUBL.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/B_CORE.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/B_PRIV.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/B_PUBL.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/C_CORE.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/C_PRIV.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_GC) += tsp_melfas/gc/C_PUBL.fw
 else
 $(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
 endif
 
 TSPFIRMWARE_DIRECTORY_MEL_NOTE = firmware/tsp_melfas/note
 ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY_MEL_NOTE) && echo yes),yes)
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/melfas.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/BOOT.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/CORE.fw
-fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/PRIV.fw
-fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/PUBL.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/CONF.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_NOTE) += tsp_melfas/note/mms_boot.fw
 else
 $(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
 endif
 
-ifeq ($(CONFIG_MACH_C1VZW),y)
-fw-shipped-$(CONFIG_AUDIENCE_ES305) += audience/es305_fw_c1vzw.bin
-else
-ifeq ($(CONFIG_MACH_C2),y)
-fw-shipped-$(CONFIG_AUDIENCE_ES305) += audience/es305_fw_c1vzw.bin
-else
 fw-shipped-$(CONFIG_AUDIENCE_ES305) += audience/es305_fw.bin
-endif
-endif
 
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 

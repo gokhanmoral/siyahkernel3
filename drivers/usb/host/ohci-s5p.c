@@ -173,16 +173,18 @@ static int ohci_hcd_s5p_drv_runtime_resume(struct device *dev)
 	struct s5p_ohci_platdata *pdata = pdev->dev.platform_data;
 	struct s5p_ohci_hcd *s5p_ohci = platform_get_drvdata(pdev);
 	struct usb_hcd *hcd = s5p_ohci->hcd;
+	int ret = 0;
 
 	if (dev->power.is_suspended)
 		return 0;
 
 	if (pdata->phy_resume)
-		pdata->phy_resume(pdev, S5P_USB_PHY_HOST);
-	/* Mark hardware accessible again as we are out of D3 state by now */
-	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+		ret = pdata->phy_resume(pdev, S5P_USB_PHY_HOST);
 
-	ohci_finish_controller_resume(hcd);
+	if (!ret) {
+		set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+		ohci_finish_controller_resume(hcd);
+	}
 
 	return 0;
 }
@@ -191,16 +193,26 @@ static int ohci_hcd_s5p_drv_runtime_resume(struct device *dev)
 #define ohci_hcd_s5p_drv_runtime_resume		NULL
 #endif
 
+static int ohci_s5p_init(struct usb_hcd *hcd)
+{
+        struct ohci_hcd *ohci = hcd_to_ohci(hcd);
+        int ret;
+
+        ohci_dbg(ohci, "ohci_s5p_init, ohci:%p", ohci);
+
+        ret = ohci_init(ohci);
+        if (ret < 0)
+                return ret;
+
+        return 0;
+}
+
 static int ohci_s5p_start(struct usb_hcd *hcd)
 {
 	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
 	int ret;
 
 	ohci_dbg(ohci, "ohci_s5p_start, ohci:%p", ohci);
-
-	ret = ohci_init(ohci);
-	if (ret < 0)
-		return ret;
 
 	ret = ohci_run(ohci);
 	if (ret < 0) {
@@ -220,6 +232,7 @@ static const struct hc_driver ohci_s5p_hc_driver = {
 	.irq			= ohci_irq,
 	.flags			= HCD_MEMORY|HCD_USB11,
 
+	.reset                  = ohci_s5p_init,
 	.start			= ohci_s5p_start,
 	.stop			= ohci_stop,
 	.shutdown		= ohci_shutdown,
@@ -267,6 +280,10 @@ static ssize_t store_ohci_power(struct device *dev,
 	device_lock(dev);
 	if (!power_on && s5p_ohci->power_on) {
 		printk(KERN_DEBUG "%s: OHCI turns off\n", __func__);
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_LINK_DEVICE_USB)
+		if (hcd->self.root_hub)
+			pm_runtime_forbid(&hcd->self.root_hub->dev);
+#endif
 		pm_runtime_forbid(dev);
 		s5p_ohci->power_on = 0;
 		usb_remove_hcd(hcd);
@@ -447,7 +464,12 @@ static void ohci_hcd_s5p_drv_shutdown(struct platform_device *pdev)
 {
 	struct s5p_ohci_platdata *pdata = pdev->dev.platform_data;
 	struct s5p_ohci_hcd *s5p_ohci = platform_get_drvdata(pdev);
-	struct usb_hcd *hcd = s5p_ohci->hcd;
+	struct usb_hcd *hcd;
+
+	if (!pdata || !s5p_ohci)
+		return;
+
+	hcd = s5p_ohci->hcd;
 
 	if (!s5p_ohci->power_on)
 		return;

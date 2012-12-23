@@ -51,6 +51,15 @@
 #define SIOP_ACTIVE_CHARGE_CURRENT		450
 #define SIOP_DEACTIVE_CHARGE_CURRENT		1500
 
+#if defined(CONFIG_TARGET_LOCALE_KOR) || \
+defined(CONFIG_TARGET_LOCALE_USA)
+#define ADC_TA_TH_L	800
+#define ADC_TA_TH_H	2100
+#else
+#define ADC_TA_TH_L	800
+#define ADC_TA_TH_H	1800
+#endif
+
 enum {
 	SIOP_DEACTIVE = 0,
 	SIOP_ACTIVE,
@@ -62,27 +71,79 @@ enum {
 
 #if defined(CONFIG_MACH_P4NOTE)
 #define P4_CHARGING_FEATURE_01	/* SMB347 + MAX17042, use TA_nCON */
+#if defined(CONFIG_TARGET_LOCALE_USA)
+enum abs_charging_property {
+	ABS_CHARGING_PROP_CHARGING,
+	ABS_CHARGING_PROP_PRE_FULL_CHARGING,
+	ABS_CHARGING_PROP_REAL_FULL_CHARGING,
+};
+#endif
+
+#if defined(CONFIG_TARGET_LOCALE_KOR)
+#define PRE_FULL_CHARGING
+#endif
 #endif
 
 #if defined(CONFIG_MACH_P8) || defined(CONFIG_MACH_P8LTE)
 #define P8_CHARGING_FEATURE_01   /* MAX8903 + MAX17042, use TA_nCON */
 #endif
 
+/*for CTIA test*/
+#define USE_CALL			(0x1 << 0)
+#define USE_VIDEO			(0x1 << 1)
+#define USE_MUSIC			(0x1 << 2)
+#define USE_BROWSER		(0x1 << 3)
+#define USE_HOTSPOT			(0x1 << 4)
+#define USE_CAMERA			(0x1 << 5)
+#define USE_DATA_CALL		(0x1 << 6)
+#define USE_GPS			(0x1 << 7)
+#define USE_LTE			(0x1 << 8)
+#define USE_WIFI			(0x1 << 9)
+
+#define TOTAL_EVENT_TIME  (10 * 60)	/* 10 minites */
+
+static int is_charging_disabled;
+
 static char *supply_list[] = {
 	"battery",
 };
 
+/* Get LP charging mode state */
+unsigned int lpcharge;
+#if defined(CONFIG_MACH_P4NOTE) && defined(CONFIG_QC_MODEM)
+static int battery_get_lpm_state(char *str)
+{
+	get_option(&str, &lpcharge);
+	pr_info("%s: Low power charging mode: %d\n", __func__, lpcharge);
+
+	return lpcharge;
+}
+__setup("lpcharge=", battery_get_lpm_state);
+#endif
+
 static enum power_supply_property sec_battery_properties[] = {
 	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_CHARGE_TYPE,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_TECHNOLOGY,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_CURRENT_AVG,
 	POWER_SUPPLY_PROP_CAPACITY,
 };
 
 static enum power_supply_property sec_power_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 };
+
+#ifdef PRE_FULL_CHARGING
+enum pre_charging_property {
+	PRE_CHARGING_PROP_CHARGING,
+	PRE_CHARGING_PROP_PRE_FULL_CHARGING,
+	PRE_CHARGING_PROP_REAL_FULL_CHARGING,
+};
+#endif
 
 struct battery_info {
 	u32 batt_id;		/* Battery ID from ADC */
@@ -103,8 +164,12 @@ struct battery_info {
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 	u32 batt_vfsoc;
 	u32 batt_soc;
-	u32 batt_current_avg;
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	u32 batt_current_avg;
+#if defined(CONFIG_SMB347_CHARGER)
+	u32 aicl_current;	/* get aicl current state*/
+	u32 input_current;
+#endif
 };
 
 struct battery_data {
@@ -136,6 +201,8 @@ struct battery_data {
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 	struct proc_dir_entry *entry;
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	/*for CTIA test*/
+	struct alarm		event_alarm;
 	enum charger_type	current_cable_status;
 	enum charger_type	previous_cable_status;
 	int		present;
@@ -159,7 +226,27 @@ struct battery_data {
 	/* 0:Default, 1:Only charger, 2:Only PMIC */
 	int cable_detect_source;
 	int pmic_cable_state;
+	int dock_type;
 	bool is_low_batt_alarm;
+	/*for extended charger type*/
+	int cable_sub_type;
+	int cable_pwr_type;
+	int cable_type;
+	/*for CTIA test*/
+	ktime_t	cur_time;
+	unsigned int batt_use;
+	unsigned int batt_use_wait;
+#if defined(CONFIG_MACH_P4NOTELTE_USA_SPR)
+	bool slate_mode;
+#endif
+#ifdef PRE_FULL_CHARGING
+	enum pre_charging_property pre_charging_status;
+#endif
+#if (defined(CONFIG_MACH_P4NOTE) && \
+	defined(CONFIG_TARGET_LOCALE_USA))
+	enum abs_charging_property abs_timer_status;
+#endif
+	int charge_type;
 };
 
 struct battery_data *debug_batterydata;
@@ -187,6 +274,7 @@ static int bat_temp_force_state;
 
 static bool check_UV_charging_case(void);
 static void sec_bat_status_update(struct power_supply *bat_ps);
+static void fullcharge_discharge_comp(struct battery_data *battery);
 
 static int get_cached_charging_status(struct battery_data *battery)
 {
@@ -239,8 +327,12 @@ static int check_ta_conn(struct battery_data *battery)
 #ifdef CONFIG_SAMSUNG_LPM_MODE
 static void lpm_mode_check(struct battery_data *battery)
 {
-	battery->charging_mode_booting = \
+#if defined(CONFIG_MACH_P4NOTE) && defined(CONFIG_QC_MODEM)
+	battery->charging_mode_booting = lpcharge;
+#else
+	battery->charging_mode_booting = lpcharge =
 				battery->pdata->check_lp_charging_boot();
+#endif
 	pr_info("%s : charging_mode_booting(%d)\n", __func__,
 			battery->charging_mode_booting);
 }
@@ -268,6 +360,79 @@ static void sec_set_charging(struct battery_data *battery, int charger_type)
 			battery->info.charging_current);
 }
 #endif
+
+/*for CTIA test*/
+static void  sec_bat_program_alarm(struct battery_data *battery,
+								int seconds)
+{
+	ktime_t low_interval = ktime_set(seconds - 10, 0);
+	ktime_t slack = ktime_set(20, 0);
+	ktime_t next;
+
+	next = ktime_add(battery->cur_time, low_interval);
+	alarm_start_range(&battery->event_alarm, next, ktime_add(next, slack));
+}
+
+static void sec_bat_use_timer_func(struct alarm *alarm)
+{
+	struct battery_data *battery =
+		container_of(alarm, struct battery_data, event_alarm);
+	battery->batt_use &= (~battery->batt_use_wait);
+	pr_info("/BATT/ timer expired (0x%x)\n", battery->batt_use);
+}
+
+static void sec_bat_use_module(struct battery_data *battery,
+						int module, int enable)
+{
+	struct timespec ts;
+
+	/* ignore duplicated deactivation of same event  */
+	if (!enable && (battery->batt_use == battery->batt_use_wait)) {
+		pr_info("/BATT/ ignore duplicated same event\n");
+		return;
+	}
+
+	/*del_timer_sync(&info->bat_use_timer);*/
+	alarm_cancel(&battery->event_alarm);
+	battery->batt_use &= (~battery->batt_use_wait);
+
+	if (enable) {
+		battery->batt_use_wait = 0;
+		battery->batt_use |= module;
+
+		/* debug msg */
+		if (module == USE_CALL)
+			pr_info("/BATT/ call 0x%x\n", battery->batt_use);
+		else if (module == USE_VIDEO)
+			pr_info("/BATT/ video 0x%x\n", battery->batt_use);
+		else if (module == USE_MUSIC)
+			pr_info("/BATT/ music 0x%x\n", battery->batt_use);
+		else if (module == USE_BROWSER)
+			pr_info("/BATT/ browser 0x%x\n", battery->batt_use);
+		else if (module == USE_HOTSPOT)
+			pr_info("/BATT/ hotspot 0x%x\n", battery->batt_use);
+		else if (module == USE_CAMERA)
+			pr_info("/BATT/ camera 0x%x\n", battery->batt_use);
+		else if (module == USE_DATA_CALL)
+			pr_info("/BATT/ datacall 0x%x\n", battery->batt_use);
+		else if (module == USE_LTE)
+			pr_info("/BATT/ lte 0x%x\n", battery->batt_use);
+		else if (module == USE_WIFI)
+			pr_info("/BATT/ wifi 0x%x\n", battery->batt_use);
+	} else {
+		if (battery->batt_use == 0) {
+			pr_info("/BATT/ nothing to clear\n");
+			return;	/* nothing to clear */
+		}
+		battery->batt_use_wait = module;
+		battery->cur_time = alarm_get_elapsed_realtime();
+		ts = ktime_to_timespec(battery->cur_time);
+
+		sec_bat_program_alarm(battery, TOTAL_EVENT_TIME);
+		pr_info("/BATT/ start timer (curr 0x%x, wait 0x%x)\n",
+			battery->batt_use, battery->batt_use_wait);
+	}
+}
 
 static void sec_battery_alarm(struct alarm *alarm)
 {
@@ -301,11 +466,57 @@ enum charger_type sec_get_dedicted_charger_type(struct battery_data *battery)
 	int adc_1, adc_2;
 	int vol_1, vol_2;
 	int accessory_line;
-
+#if defined(P4_CHARGING_FEATURE_01)
+	int online_val;
+	int i;
+#endif
 	mutex_lock(&battery->work_lock);
 
+/*check */
+#if defined(P4_CHARGING_FEATURE_01)
+	accessory_line = gpio_get_value(
+			battery->pdata->charger.accessory_line);
+	pr_info("[BATT] get acc val (%d)\n", accessory_line);
+	if (!accessory_line && !(lpcharge)) {
+		pr_info("[BATT] count dock_detction(%d)\n", i);
+		for (i = 0; i < 8; i++) {
+			msleep(200);
+			if (battery->cable_type ==
+				POWER_SUPPLY_TYPE_DOCK) {
+				if (battery->cable_sub_type ==
+					ONLINE_SUB_TYPE_KBD) {
+					if (battery->cable_pwr_type ==
+						ONLINE_POWER_TYPE_TA)
+						result = CHARGER_DOCK;
+					else if (battery->cable_pwr_type ==
+						ONLINE_POWER_TYPE_USB)
+							result = CHARGER_USB;
+					else
+						result = CHARGER_BATTERY;
+					pr_info("%s: m(%d), s(%d), p(%d)\n",
+						__func__, battery->cable_type,
+						battery->cable_sub_type,
+						battery->cable_pwr_type);
+					goto update_finish;
+				} else if (battery->cable_sub_type ==
+						ONLINE_SUB_TYPE_DESK)
+						result = CHARGER_DOCK;
+						break;
+			}
+		}
+	}
+
+	if ((lpcharge) &&
+		battery->cable_type == POWER_SUPPLY_TYPE_DOCK) {
+		battery->cable_sub_type = ONLINE_SUB_TYPE_DESK;
+		pr_info("[BATT]%s: m(%d), s(%d), p(%d) acc(%d) pwr(%d)\n",
+			__func__, battery->cable_type, battery->cable_sub_type,
+			battery->cable_pwr_type, accessory_line,
+			battery->charging_mode_booting);
+	}
+#endif
 	/* ADC check margin (300~500ms) */
-	msleep(300);
+	msleep(150);
 
 	usb_switch_lock();
 	usb_switch_set_path(USB_PATH_ADCCHECK);
@@ -325,16 +536,15 @@ enum charger_type sec_get_dedicted_charger_type(struct battery_data *battery)
 #endif
 	avg_vol = (vol_1 + vol_2)/2;
 
-	if ((avg_vol > 800) && (avg_vol < 1800)) {
+	if ((avg_vol > ADC_TA_TH_L) && (avg_vol < ADC_TA_TH_H)) {
 #if defined(P4_CHARGING_FEATURE_01)
-		accessory_line = gpio_get_value(
-			battery->pdata->charger.accessory_line);
-		pr_info("%s: accessory line(%d)\n", __func__, accessory_line);
-
-		if (accessory_line == 0)	/* HDMI dock cable connected*/
-			result = CHARGER_DOCK;
-		else
-			result = CHARGER_AC;
+		if (battery->cable_type == POWER_SUPPLY_TYPE_DOCK) {
+				pr_info("%s: deskdock(%d) charging\n",
+					__func__, battery->cable_sub_type);
+				result = CHARGER_DOCK;
+			} else {
+				result = CHARGER_AC;
+			}
 #else
 		result = CHARGER_AC;                      /* TA connected. */
 #endif
@@ -345,7 +555,7 @@ enum charger_type sec_get_dedicted_charger_type(struct battery_data *battery)
 
 	usb_switch_clr_path(USB_PATH_ADCCHECK);
 	usb_switch_unlock();
-
+update_finish:
 	mutex_unlock(&battery->work_lock);
 
 	pr_info("%s : result(%d), avg_vol(%d)\n", __func__, result, avg_vol);
@@ -354,6 +564,14 @@ enum charger_type sec_get_dedicted_charger_type(struct battery_data *battery)
 
 static void sec_get_cable_status(struct battery_data *battery)
 {
+#if defined(CONFIG_MACH_P4NOTELTE_USA_SPR)
+	if (battery->current_cable_status != CHARGER_BATTERY &&
+		is_charging_disabled == 1) {
+		battery->current_cable_status = CHARGER_BATTERY;
+		battery->info.batt_improper_ta = 0;
+		goto skip;
+	}
+#endif /* CONFIG_MACH_P4NOTELTE_USA_SPR */
 	if (check_ta_conn(battery)) {
 		battery->current_cable_status =
 			sec_get_dedicted_charger_type(battery);
@@ -361,12 +579,22 @@ static void sec_get_cable_status(struct battery_data *battery)
 	} else {
 		battery->current_cable_status = CHARGER_BATTERY;
 		battery->info.batt_improper_ta = 0;
+		battery->charge_type = POWER_SUPPLY_CHARGE_TYPE_NONE;
 	}
 
 	if (battery->pdata->inform_charger_connection)
+#if defined(P4_CHARGING_FEATURE_01)
+		battery->pdata->inform_charger_connection(
+					battery->current_cable_status,
+					battery->cable_sub_type);
+#else
 		battery->pdata->inform_charger_connection(
 					battery->current_cable_status);
+#endif
 
+#if defined(CONFIG_MACH_P4NOTELTE_USA_SPR)
+skip:
+#endif /* CONFIG_MACH_P4NOTELTE_USA_SPR */
 	pr_info("%s: current_status : %d\n",
 		__func__, battery->current_cable_status);
 }
@@ -382,6 +610,9 @@ static void sec_TA_work_handler(struct work_struct *work)
 	/* Prevent unstable VBUS signal from PC */
 	ta_state =  check_ta_conn(battery);
 	if (ta_state == 0) {
+		/* Check for immediate discharge after fullcharge */
+		fullcharge_discharge_comp(battery);
+
 		msleep(TA_DISCONNECT_RECHECK_TIME);
 		if (ta_state != check_ta_conn(battery)) {
 			pr_info("%s: unstable ta_state(%d), ignore it.\n",
@@ -469,6 +700,29 @@ static int is_over_abs_time(struct battery_data *battery)
 		return 0;
 }
 
+/* fullcharge_discharge_comp: During the small window between
+ *  Full Charge and Recharge if the cable is connected , we always show
+ *  100% SOC to the UI , evven though in background its discharging.
+ * If the user pulls out the TA in between this small window he should
+ * see a sudden drop from 100% to a disacharged state of 95% - 98%.
+ * We fake the SOC on Fulll cap and let FG manage the differences on
+ * long run.
+ * Also during the start of recharging phase if the TA is disconnected SOC
+ * can sudden;y drop down to a lower value. In that case also the user
+ * expects to see a 100% so we update Full Cap again.
+*/
+static void fullcharge_discharge_comp(struct battery_data *battery)
+{
+	int fg_vcell = get_fuelgauge_value(FG_VOLTAGE);
+
+	if (battery->info.batt_is_full) {
+		pr_info("%s: Resetting FULLCAP !!\n", __func__);
+		fg_reset_fullcap_in_fullcharge();
+	}
+
+	return;
+}
+
 static int sec_get_bat_level(struct power_supply *bat_ps)
 {
 	struct battery_data *battery = container_of(bat_ps,
@@ -541,8 +795,38 @@ static int sec_get_bat_level(struct power_supply *bat_ps)
 	fg_vfsoc = get_fuelgauge_value(FG_VF_SOC);
 #if defined(CONFIG_TARGET_LOCALE_KOR)
 	battery->info.batt_vfsoc = fg_vfsoc;
-	battery->info.batt_current_avg = avg_current;
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	battery->info.batt_current_avg = avg_current;
+
+#ifdef PRE_FULL_CHARGING
+	/* Algorithm for reducing time to fully charged (from MAXIM) */
+	if (battery->info.charging_enabled &&	/* Charging is enabled */
+		!battery->info.batt_is_recharging &&	/* Not Recharging */
+		((battery->info.charging_source == CHARGER_AC) ||
+		(battery->info.charging_source == CHARGER_MISC) ||
+		(battery->info.charging_source == CHARGER_DOCK)) &&
+		!battery->is_first_check &&	/* Skip the first check */
+		(fg_vcell > 4000 && fg_soc > 95 && fg_vfsoc > 70) &&
+		((fg_current > 20 && fg_current < 330) &&
+		(avg_current > 20 && avg_current < 350))) {
+
+		if (battery->full_check_flag == 2) {
+			pr_info("%s: force fully charged SOC !! (%d)", __func__,
+					battery->full_check_flag);
+			fg_set_full_charged();
+			fg_soc = get_fuelgauge_value(FG_LEVEL);
+			battery->pre_charging_status |=
+				PRE_CHARGING_PROP_PRE_FULL_CHARGING;
+		} else if (battery->full_check_flag < 2)
+			pr_info("%s: full_check_flag (%d)", __func__,
+					battery->full_check_flag);
+
+		/* prevent overflow */
+		if (battery->full_check_flag++ > 10000)
+			battery->full_check_flag = 3;
+	} else
+		battery->full_check_flag = 0;
+#endif
 
 /* P4-Creative does not set full flag by force */
 #if !defined(CONFIG_MACH_P4NOTE)
@@ -569,6 +853,31 @@ static int sec_get_bat_level(struct power_supply *bat_ps)
 			battery->full_check_flag = 3;
 	} else
 		battery->full_check_flag = 0;
+#elif (defined(CONFIG_MACH_P4NOTE) && \
+	defined(CONFIG_TARGET_LOCALE_USA))
+	if (battery->info.charging_enabled && /* Charging is enabled */
+		((battery->info.charging_source == CHARGER_AC) ||
+		(battery->info.charging_source == CHARGER_MISC) ||
+		(battery->info.charging_source == CHARGER_DOCK)) &&
+		!battery->is_first_check &&
+		(fg_vcell > 4000 && fg_soc >= 100 && fg_vfsoc > 70)) {
+			pr_info("%s: [BATT]fully charged by abs timer\n",
+				__func__);
+			if (!battery->abs_timer_status &&
+				battery->full_check_flag == 2) {
+				fg_set_full_charged();
+				fg_soc = get_fuelgauge_value(FG_LEVEL);
+				battery->abs_timer_status |=
+				ABS_CHARGING_PROP_PRE_FULL_CHARGING;
+			} else if (battery->full_check_flag < 2)
+				pr_info("%s: full_check_flag (%d)", __func__,
+					battery->full_check_flag);
+
+		/* prevent overflow */
+		if (battery->full_check_flag++ > 10000)
+			battery->full_check_flag = 3;
+		} else
+			battery->full_check_flag = 0;
 #endif
 
 	if (battery->info.charging_source == CHARGER_AC &&
@@ -832,10 +1141,21 @@ static void sec_set_chg_en(struct battery_data *battery, int enable)
 		else if (battery->current_cable_status == CHARGER_MISC)
 			battery->pdata->set_charging_state(enable,
 			CABLE_TYPE_STATION);
-		else if (battery->current_cable_status == CHARGER_DOCK)
-			battery->pdata->set_charging_state(enable,
-			CABLE_TYPE_DESKDOCK);
-		else
+		else if (battery->current_cable_status == CHARGER_DOCK) {
+			if (battery->cable_sub_type == ONLINE_SUB_TYPE_KBD) {
+				if (battery->cable_pwr_type ==
+					ONLINE_POWER_TYPE_TA)
+					battery->pdata->set_charging_state(
+					enable, CABLE_TYPE_TA);
+				else if  (battery->cable_pwr_type ==
+					ONLINE_POWER_TYPE_USB)
+					battery->pdata->set_charging_state(
+					enable, CABLE_TYPE_USB);
+			} else {
+				battery->pdata->set_charging_state(enable,
+				CABLE_TYPE_DESKDOCK);
+			}
+		} else
 			battery->pdata->set_charging_state(enable,
 			CABLE_TYPE_USB);
 	}
@@ -848,6 +1168,7 @@ static void sec_set_chg_en(struct battery_data *battery, int enable)
 
 	if (!enable)
 		battery->info.batt_is_recharging = 0;
+
 #else
 	if (system_rev >= 2) {
 		if (battery->pdata->set_charging_state) {
@@ -949,10 +1270,29 @@ static int sec_get_bat_temp(struct power_supply *bat_ps)
 
 	battery_temp = get_fuelgauge_value(FG_TEMPERATURE);
 
+#if defined(CONFIG_TARGET_LOCALE_USA)
+	if (battery->charging_mode_booting) {
+		temp_high_threshold = battery->pdata->temp_lpm_high_threshold;
+		temp_high_recovery = battery->pdata->temp_lpm_high_recovery;
+		temp_low_threshold = battery->pdata->temp_lpm_low_threshold;
+		temp_low_recovery = battery->pdata->temp_lpm_low_recovery;
+	} else if (battery->batt_use) {
+		temp_high_threshold = battery->pdata->temp_event_threshold;
+		temp_high_recovery = battery->pdata->temp_high_recovery;
+		temp_low_threshold = battery->pdata->temp_low_threshold;
+		temp_low_recovery = battery->pdata->temp_low_recovery;
+	} else {
+		temp_high_threshold = battery->pdata->temp_high_threshold;
+		temp_high_recovery = battery->pdata->temp_high_recovery;
+		temp_low_threshold = battery->pdata->temp_low_threshold;
+		temp_low_recovery = battery->pdata->temp_low_recovery;
+	}
+#else
 	temp_high_threshold = battery->pdata->temp_high_threshold;
 	temp_high_recovery = battery->pdata->temp_high_recovery;
 	temp_low_threshold = battery->pdata->temp_low_threshold;
 	temp_low_recovery = battery->pdata->temp_low_recovery;
+#endif /* CONFIG_TARGET_LOCALE_USA */
 
 #ifdef __TEST_DEVICE_DRIVER__
 	switch (bat_temp_force_state) {
@@ -1012,9 +1352,17 @@ static int sec_bat_get_charging_status(struct battery_data *battery)
 	case CHARGER_AC:
 	case CHARGER_MISC:
 	case CHARGER_DOCK:
-		if (battery->info.batt_is_full ||
-			battery->info.level == 100)
+#if defined(PRE_FULL_CHARGING)
+		if (battery->pre_charging_status)
 			return POWER_SUPPLY_STATUS_FULL;
+#elif (defined(CONFIG_MACH_P4NOTE) && \
+	defined(CONFIG_TARGET_LOCALE_USA))
+		if (battery->abs_timer_status)
+			return POWER_SUPPLY_STATUS_FULL;
+#else
+		if (battery->info.batt_is_full)
+			return POWER_SUPPLY_STATUS_FULL;
+#endif
 		else if (battery->info.batt_improper_ta)
 			return POWER_SUPPLY_STATUS_DISCHARGING;
 		else
@@ -1030,11 +1378,37 @@ static int sec_bat_set_property(struct power_supply *ps,
 				enum power_supply_property psp,
 				const union power_supply_propval *val)
 {
+	int online_val;
 	struct battery_data *battery = container_of(ps,
 				struct battery_data, psy_battery);
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
+#if defined(CONFIG_MACH_P4NOTE)
+		pr_info("[BATT] get val (%d)\n", val->intval);
+		online_val = val->intval;
+		online_val &= ~(ONLINE_TYPE_RSVD_MASK);
+		battery->cable_type = ((online_val &
+				ONLINE_TYPE_MAIN_MASK) >>
+				ONLINE_TYPE_MAIN_SHIFT);
+		battery->cable_sub_type = ((online_val &
+				ONLINE_TYPE_SUB_MASK) >>
+				ONLINE_TYPE_SUB_SHIFT);
+		battery->cable_pwr_type = ((online_val &
+				ONLINE_TYPE_PWR_MASK) >>
+				ONLINE_TYPE_PWR_SHIFT);
+
+		if (battery->cable_type == POWER_SUPPLY_TYPE_DOCK) {
+			sec_get_cable_status(battery);
+			sec_cable_changed(battery);
+		}
+		/*battery->dock_type = val->intval;
+		pr_info("dock type(%d)\n", battery->dock_type);
+		if (battery->dock_type == DOCK_DESK) {
+			sec_get_cable_status(battery);
+			sec_cable_changed(battery);
+		}*/
+#else
 		battery->pmic_cable_state = val->intval;
 		pr_info("PMIC cable state: %d\n", battery->pmic_cable_state);
 		if (battery->cable_detect_source == 2) {
@@ -1044,6 +1418,7 @@ static int sec_bat_set_property(struct power_supply *ps,
 			sec_cable_changed(battery);
 		}
 		battery->cable_detect_source = 0;
+#endif
 		break;
 	default:
 		return -EINVAL;
@@ -1063,14 +1438,26 @@ static int sec_bat_get_property(struct power_supply *bat_ps,
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = sec_bat_get_charging_status(battery);
 		break;
+	case POWER_SUPPLY_PROP_CHARGE_TYPE:
+		val->intval = battery->charge_type;
+		break;
 	case POWER_SUPPLY_PROP_HEALTH:
 		val->intval = battery->info.batt_health;
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
 		val->intval = battery->present;
 		break;
+	case POWER_SUPPLY_PROP_ONLINE: /*add here for online prop*/
+		val->intval = battery->cable_type;
+		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+		val->intval = battery->info.batt_current;
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_AVG:
+		val->intval = battery->info.batt_current_avg;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 #if defined(CONFIG_MACH_P4NOTE)
@@ -1168,6 +1555,7 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(batt_full_check),
 	SEC_BATTERY_ATTR(batt_current_now),
 	SEC_BATTERY_ATTR(siop_activated),
+	SEC_BATTERY_ATTR(batt_read_raw_soc),
 #ifdef CONFIG_SAMSUNG_LPM_MODE
 	SEC_BATTERY_ATTR(batt_lp_charging),
 	SEC_BATTERY_ATTR(voltage_now),
@@ -1181,6 +1569,21 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(batt_current_adc),
 	SEC_BATTERY_ATTR(batt_current_avg),
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	/*for CTIA test*/
+	SEC_BATTERY_ATTR(call),
+	SEC_BATTERY_ATTR(video),
+	SEC_BATTERY_ATTR(music),
+	SEC_BATTERY_ATTR(browser),
+	SEC_BATTERY_ATTR(hotspot),
+	SEC_BATTERY_ATTR(camera),
+	SEC_BATTERY_ATTR(data_call),
+	SEC_BATTERY_ATTR(gps),
+	SEC_BATTERY_ATTR(lte),
+	SEC_BATTERY_ATTR(wifi),
+	SEC_BATTERY_ATTR(batt_use),
+#if defined(CONFIG_MACH_P4NOTELTE_USA_SPR)
+	SEC_BATTERY_ATTR(batt_slate_mode),
+#endif /* CONFIG_MACH_P4NOTELTE_USA_SPR */
 };
 
 enum {
@@ -1199,6 +1602,7 @@ enum {
 	BATT_FULL_CHECK,
 	BATT_CURRENT_NOW,
 	SIOP_ACTIVATED,
+	BATT_READ_RAW_SOC,
 #ifdef CONFIG_SAMSUNG_LPM_MODE
 	BATT_LP_CHARGING,
 	VOLTAGE_NOW,
@@ -1212,6 +1616,24 @@ enum {
 	BATT_CURRENT_ADC,
 	BATT_CURRENT_AVG,
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	/*for CTIA test*/
+	BATT_WCDMA_CALL,
+	BATT_GSM_CALL,
+	BATT_CALL,
+	BATT_VIDEO,
+	BATT_MUSIC,
+	BATT_BROWSER,
+	BATT_HOTSPOT,
+	BATT_CAMERA,
+	BATT_DATA_CALL,
+	BATT_GPS,
+	BATT_LTE,
+	BATT_WIFI,
+	BATT_USE,
+#if defined(CONFIG_MACH_P4NOTELTE_USA_SPR)
+	BATT_SLATE_MODE,
+#endif /* CONFIG_MACH_P4NOTELTE_USA_SPR */
+
 };
 
 static int sec_bat_create_attrs(struct device *dev)
@@ -1235,6 +1657,7 @@ static ssize_t sec_bat_show_property(struct device *dev,
 			struct device_attribute *attr,
 			char *buf)
 {
+	struct battery_data *battery = dev_get_drvdata(dev->parent);
 	int i = 0;
 #ifdef CONFIG_MACH_SAMSUNG_P5
 	s32 temp = 0;
@@ -1272,6 +1695,9 @@ static ssize_t sec_bat_show_property(struct device *dev,
 		else if (get_fuelgauge_value(FG_BATTERY_TYPE) ==
 			ATL_BATTERY_TYPE)
 			sprintf(batt_str, "ATL");
+		else if (get_fuelgauge_value(FG_BATTERY_TYPE) ==
+			BYD_BATTERY_TYPE)
+			sprintf(batt_str, "BYD");
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%s_%s\n",
 		batt_str, batt_str);
 		break;
@@ -1290,6 +1716,10 @@ static ssize_t sec_bat_show_property(struct device *dev,
 	case SIOP_ACTIVATED:
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 		debug_batterydata->info.siop_activated);
+		break;
+	case BATT_READ_RAW_SOC:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+		get_fuelgauge_value(FG_RAW_LEVEL));
 		break;
 #ifdef CONFIG_SAMSUNG_LPM_MODE
 	case BATT_LP_CHARGING:
@@ -1335,6 +1765,60 @@ static ssize_t sec_bat_show_property(struct device *dev,
 			get_fuelgauge_value(FG_CURRENT_AVG));
 		break;
 #endif /* CONFIG_TARGET_LOCALE_KOR */
+	/*for CTIA test*/
+	case BATT_WCDMA_CALL:
+	case BATT_GSM_CALL:
+	case BATT_CALL:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_CALL) ? 1 : 0);
+		break;
+	case BATT_VIDEO:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_VIDEO) ? 1 : 0);
+		break;
+	case BATT_MUSIC:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_MUSIC) ? 1 : 0);
+		break;
+	case BATT_BROWSER:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_BROWSER) ? 1 : 0);
+		break;
+	case BATT_HOTSPOT:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_HOTSPOT) ? 1 : 0);
+		break;
+	case BATT_CAMERA:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_CAMERA) ? 1 : 0);
+		break;
+	case BATT_DATA_CALL:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_DATA_CALL) ? 1 : 0);
+		break;
+	case BATT_GPS:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_GPS) ? 1 : 0);
+		break;
+	case BATT_LTE:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & USE_GPS) ? 1 : 0);
+		break;
+	case BATT_WIFI:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			(battery->batt_use & BATT_WIFI) ? 1 : 0);
+		break;
+	case BATT_USE:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			battery->batt_use);
+		break;
+#if defined(CONFIG_MACH_P4NOTELTE_USA_SPR)
+	case BATT_SLATE_MODE:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+			       battery->slate_mode);
+		break;
+#endif
+
 	default:
 		i = -EINVAL;
 	}
@@ -1348,6 +1832,7 @@ static ssize_t sec_bat_store(struct device *dev,
 {
 	int x = 0;
 	int ret = 0;
+	struct battery_data *battery = dev_get_drvdata(dev->parent);
 	const ptrdiff_t off = attr - sec_battery_attrs;
 
 	switch (off) {
@@ -1415,6 +1900,103 @@ static ssize_t sec_bat_store(struct device *dev,
 		}
 		break;
 #endif
+	/*for CTIA test*/
+	case BATT_WCDMA_CALL:
+	case BATT_GSM_CALL:
+	case BATT_CALL:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_CALL, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: camera = %d\n", __func__, x);
+		break;
+	case BATT_VIDEO:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_VIDEO, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: mp3 = %d\n", __func__, x);
+		break;
+	case BATT_MUSIC:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_MUSIC, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: video = %d\n", __func__, x);
+		break;
+	case BATT_BROWSER:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_BROWSER, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: voice call 2G = %d\n", __func__, x);
+		break;
+	case BATT_HOTSPOT:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_HOTSPOT, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: voice call 3G = %d\n", __func__, x);
+		break;
+	case BATT_CAMERA:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_CAMERA, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: data call = %d\n", __func__, x);
+		break;
+	case BATT_DATA_CALL:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_DATA_CALL, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: wifi = %d\n", __func__, x);
+		break;
+	case BATT_GPS:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_GPS, x);
+			ret = count;
+		}
+		break;
+	case BATT_LTE:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_LTE, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: gps = %d\n", __func__, x);
+		break;
+	case BATT_WIFI:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			sec_bat_use_module(battery, USE_WIFI, x);
+			ret = count;
+		}
+		pr_debug("[BAT]:%s: gps = %d\n", __func__, x);
+		break;
+#if defined(CONFIG_MACH_P4NOTELTE_USA_SPR)
+	case BATT_SLATE_MODE:
+		{
+			pr_info("%s : BATT_SLATE_MODE %s\n",
+				__func__, buf);
+			if (sscanf(buf, "%d\n", &x) == 1) {
+				if (x == 1) {
+					battery->slate_mode = true;
+					is_charging_disabled = 1;
+					battery->info.charging_source =
+						CHARGER_BATTERY;
+					sec_get_cable_status(battery);
+					sec_cable_changed(battery);
+				} else if (x == 0) {
+					battery->slate_mode = false;
+					is_charging_disabled = 0;
+					sec_get_cable_status(battery);
+					sec_cable_changed(battery);
+				} else
+					pr_info("%s:Invalid\n", __func__);
+				ret = count;
+			}
+		}
+		break;
+#endif /* CONFIG_MACH_P4NOTELTE_USA_SPR */
 	default:
 		ret = -EINVAL;
 	}
@@ -1584,7 +2166,7 @@ static void sec_bat_status_update(struct power_supply *bat_ps)
 	struct battery_data *battery = container_of(bat_ps,
 				struct battery_data, psy_battery);
 
-	int old_level, old_temp, old_health, old_is_full;
+	int old_level, old_temp, old_health, old_is_full, charging_status = 0;
 
 	if (!battery->sec_battery_initial)
 		return;
@@ -1609,15 +2191,47 @@ static void sec_bat_status_update(struct power_supply *bat_ps)
 	battery->info.batt_vol = sec_get_bat_vol(bat_ps);
 
 	if (battery->pdata->get_charging_state)
-		battery->pdata->get_charging_state();
+		charging_status = battery->pdata->get_charging_state();
+	else
+		charging_status = 0;
+
+#if defined(CONFIG_SMB347_CHARGER) && \
+	defined(CONFIG_MACH_P4NOTELTE_USA_VZW)
+	if (battery->pdata->get_aicl_current)
+		battery->info.aicl_current = \
+				battery->pdata->get_aicl_current();
+	if (battery->pdata->get_input_current)
+		battery->info.input_current = \
+				battery->pdata->get_input_current();
+
+	/* check fast or slow charge state */
+	if (charging_status == POWER_SUPPLY_STATUS_CHARGING &&
+			battery->info.aicl_current) {
+		if (battery->info.input_current > battery->info.aicl_current) {
+			battery->charge_type =
+				POWER_SUPPLY_CHARGE_TYPE_SLOW;
+			pr_info("[BATT] set slow charge state!##(%d) (%d)\n",
+				battery->info.input_current,
+				battery->info.aicl_current);
+		} else {
+			battery->charge_type =
+				POWER_SUPPLY_CHARGE_TYPE_FAST;
+			pr_info("[BATT] set fast charge state!##(%d) (%d)\n",
+				battery->info.input_current,
+				battery->info.aicl_current);
+		}
+	}
+#endif /* CONFIG_SMB347_CHARGER */
 
 	power_supply_changed(bat_ps);
 	pr_debug("call power_supply_changed");
 
-	pr_info("BAT : soc(%d), vcell(%dmV), curr(%dmA), temp(%d.%d), chg(%d)",
+	pr_info("BAT : soc(%d), vcell(%dmV), curr(%dmA), "
+		"avg curr(%dmA), temp(%d.%d), chg(%d)",
 		battery->info.level,
 		battery->info.batt_vol,
 		battery->info.batt_current,
+		battery->info.batt_current_avg,
 		battery->info.batt_temp/10,
 		battery->info.batt_temp%10,
 		battery->info.charging_enabled);
@@ -1659,6 +2273,14 @@ static void sec_cable_check_status(struct battery_data *battery)
 	} else {
 		status = CHARGER_BATTERY;
 		sec_set_chg_en(battery, 0);
+#ifdef PRE_FULL_CHARGING
+		battery->pre_charging_status = PRE_CHARGING_PROP_CHARGING;
+#endif
+#if (defined(CONFIG_MACH_P4NOTE) && \
+	defined(CONFIG_TARGET_LOCALE_USA))
+		battery->abs_timer_status =
+			ABS_CHARGING_PROP_CHARGING;
+#endif
 	}
 __end__:
 	sec_cable_status_update(battery, status);
@@ -1759,6 +2381,15 @@ void sec_cable_charging(struct battery_data *battery)
 		battery->info.batt_health == POWER_SUPPLY_HEALTH_GOOD) {
 		sec_set_chg_en(battery, 0);
 		battery->info.batt_is_full = 1;
+#ifdef PRE_FULL_CHARGING
+		battery->pre_charging_status |=
+			PRE_CHARGING_PROP_REAL_FULL_CHARGING;
+#endif
+#if (defined(CONFIG_MACH_P4NOTE) && \
+	defined(CONFIG_TARGET_LOCALE_USA))
+		battery->abs_timer_status |=
+			ABS_CHARGING_PROP_REAL_FULL_CHARGING;
+#endif
 		/* full charge compensation algorithm by MAXIM */
 		fg_fullcharged_compensation(
 			battery->full_charge_comp_recharge_info, 1);
@@ -1794,17 +2425,15 @@ void fuelgauge_recovery_handler(struct work_struct *work)
 
 	if (battery->info.level > 0) {
 		pr_err("%s: Reduce the Reported SOC by 1 unit, wait for 30s\n",
-		__func__);
+								__func__);
 		if (!battery->info.charging_enabled)
 			wake_lock_timeout(&battery->vbus_wake_lock, HZ);
 		current_soc = get_fuelgauge_value(FG_LEVEL);
 		if (current_soc) {
 			pr_info("%s: Returning to Normal discharge path.\n",
 				__func__);
-			pr_info(" Actual SOC(%d) non-zero.\n",
-			current_soc);
+			pr_info(" Actual SOC(%d) non-zero.\n", current_soc);
 			battery->is_low_batt_alarm = false;
-			return;
 		} else {
 			battery->info.level--;
 			pr_err("%s: New Reduced Reported SOC  (%d).\n",
@@ -1816,12 +2445,22 @@ void fuelgauge_recovery_handler(struct work_struct *work)
 		}
 	} else {
 		if (!get_charger_status(battery)) {
-			pr_err("Set battery level as 0, power off.\n");
+			pr_err("%s: 0%% wo/ charging, will be power off\n",
+								__func__);
 			battery->info.level = 0;
 			wake_lock_timeout(&battery->vbus_wake_lock, HZ);
 			power_supply_changed(&battery->psy_battery);
+		} else {
+			pr_info("%s: 0%% w/ charging, exit low bat alarm\n",
+								__func__);
+			/* finish low battery alarm state */
+			battery->is_low_batt_alarm = false;
 		}
 	}
+
+	pr_info("%s: low batt alarm(%d)\n", __func__,
+				battery->is_low_batt_alarm);
+	return;
 }
 
 #define STABLE_LOW_BATTERY_DIFF	3
@@ -1966,17 +2605,27 @@ static int sec_bat_read_proc(char *buf, char **start,
 	cur_time = ktime_to_timespec(ktime);
 
 	len = sprintf(buf,
-		"%lu\t%u\t%u\t%u\t%u\t%u\t%d\t%d\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
+#ifdef PRE_FULL_CHARGING
+		"%lu\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t%d\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t0x%04x\t0x%04x\n",
+#else
+		"%lu\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t%d\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t0x%04x\t0x%04x\n",
+#endif
 		cur_time.tv_sec,
 		battery->info.batt_vol, battery->info.level,
 		battery->info.batt_soc, battery->info.batt_vfsoc,
+		max17042_chip_data->info.psoc,
 		battery->info.batt_temp,
 		battery->info.batt_current, battery->info.batt_current_avg,
 		battery->info.charging_source, battery->info.batt_improper_ta,
 		battery->info.charging_enabled, battery->info.charging_current,
 		sec_bat_get_charging_status(battery), battery->info.batt_health,
 		battery->info.batt_is_full, battery->info.batt_is_recharging,
-		battery->info.abstimer_is_active, battery->info.siop_activated
+		battery->info.abstimer_is_active, battery->info.siop_activated,
+#ifdef PRE_FULL_CHARGING
+		battery->pre_charging_status,
+#endif
+		get_fuelgauge_capacity(CAPACITY_TYPE_FULL),
+		get_fuelgauge_capacity(CAPACITY_TYPE_REP)
 		);
 
 	return len;
@@ -2101,12 +2750,25 @@ static int __devinit sec_bat_probe(struct platform_device *pdev)
 	/* create sec detail attributes */
 	sec_bat_create_attrs(battery->psy_battery.dev);
 
+	/*for CTIA test*/
+	alarm_init(&battery->event_alarm,
+			ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP,
+			sec_bat_use_timer_func);
+
 #ifdef __TEST_DEVICE_DRIVER__
 	sec_batt_test_create_attrs(battery->psy_ac.dev);
 #endif /* __TEST_DEVICE_DRIVER__ */
 
 	battery->sec_battery_initial = 1;
 	battery->low_batt_boot_flag = 0;
+
+#ifdef PRE_FULL_CHARGING
+	battery->pre_charging_status = PRE_CHARGING_PROP_CHARGING;
+#endif
+#if (defined(CONFIG_MACH_P4NOTE) && \
+	defined(CONFIG_TARGET_LOCALE_USA))
+	battery->abs_timer_status = ABS_CHARGING_PROP_CHARGING;
+#endif
 
 	/* Get initial cable status */
 	sec_get_cable_status(battery);
@@ -2206,6 +2868,7 @@ static int __devexit sec_bat_remove(struct platform_device *pdev)
 	free_irq(gpio_to_irq(battery->pdata->charger.connect_line), NULL);
 
 	alarm_cancel(&battery->alarm);
+	alarm_cancel(&battery->event_alarm);
 	power_supply_unregister(&battery->psy_ac);
 	power_supply_unregister(&battery->psy_usb);
 	power_supply_unregister(&battery->psy_battery);

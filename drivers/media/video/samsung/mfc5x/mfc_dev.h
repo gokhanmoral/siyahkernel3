@@ -99,6 +99,12 @@ struct mfc_dev {
 
 	struct mfc_fw		fw;
 
+#if defined(CONFIG_DMA_CMA) && defined(CONFIG_USE_MFC_CMA)
+	/* NEW CMA */
+	void            *cma_vaddr;
+	dma_addr_t      cma_dma_addr;
+#endif
+
 	struct s5p_vcm_mmu	*_vcm_mmu;
 
 	struct device		*device;
@@ -107,6 +113,10 @@ struct mfc_dev {
 #endif
 #if defined(CONFIG_BUSFREQ)
 	atomic_t		busfreq_lock_cnt; /* Bus frequency Lock count */
+#endif
+#if defined(CONFIG_MACH_GC1) && defined(CONFIG_EXYNOS4_CPUFREQ)
+	atomic_t		cpufreq_lock_cnt; /* CPU frequency Lock count */
+	int				cpufreq_level; /* CPU frequency leve */
 #endif
 #if defined(CONFIG_CPU_EXYNOS4210) && defined(CONFIG_EXYNOS4_CPUFREQ)
 	atomic_t		cpufreq_lock_cnt; /* CPU frequency Lock count */

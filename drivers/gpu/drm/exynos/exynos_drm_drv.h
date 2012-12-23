@@ -59,12 +59,14 @@ enum exynos_drm_output_type {
  *
  * @mode_set: copy drm overlay info to hw specific overlay info.
  * @commit: apply hardware specific overlay data to registers.
+ * @enable: enable hardware specific overlay.
  * @disable: disable hardware specific overlay.
  */
 struct exynos_drm_overlay_ops {
 	void (*mode_set)(struct device *subdrv_dev,
 			 struct exynos_drm_overlay *overlay);
 	void (*commit)(struct device *subdrv_dev, int zpos);
+	void (*enable)(struct device *subdrv_dev, int zpos);
 	void (*disable)(struct device *subdrv_dev, int zpos);
 };
 
@@ -220,16 +222,11 @@ struct iommu_info_node {
  * Exynos drm g2d private structure
  *
  * @dev: device object to device driver for using iommu.
- * @iommu_map_list: list head to iommu map information.
- *	each device driver using iommu should have its own iommu_map_list
- *	because device drivers have their own device address space and
- *	the device address spaces could be duplicated echo other.
  */
 struct exynos_drm_g2d_private {
 	struct device		*dev;
 	struct list_head	inuse_cmdlist;
 	struct list_head	event_list;
-	struct list_head	iommu_map_list;
 };
 
 /*
@@ -238,18 +235,17 @@ struct exynos_drm_g2d_private {
  * @dev: device object to device driver for using driver data.
  * @ippdrv: link used ippdrv.
  * @event_list: list head to event.
- * @iommu_list: list head to iommu map information.
  */
 struct exynos_drm_ipp_private {
 	struct device	*dev;
 	void *ippdrv;
 	struct list_head	event_list;
-	struct list_head	iommu_list;
 };
 
 struct drm_exynos_file_private {
 	struct exynos_drm_g2d_private	*g2d_priv;
 	struct exynos_drm_ipp_private	*ipp_priv;
+	pid_t				tgid;
 };
 
 /*
@@ -272,6 +268,12 @@ struct exynos_drm_private {
 	 * - as default, this has 16MB and only root user can change it.
 	 */
 	unsigned long userptr_limit;
+
+	/* a iovmm object for iommu support. */
+	void *vmm;
+
+	struct drm_property *plane_zpos_property;
+	struct drm_property *crtc_mode_property;
 };
 
 /*
@@ -299,7 +301,7 @@ struct exynos_drm_subdrv {
 	struct exynos_drm_manager *manager;
 
 	int (*probe)(struct drm_device *drm_dev, struct device *dev);
-	void (*remove)(struct drm_device *dev);
+	void (*remove)(struct drm_device *drm_dev, struct device *dev);
 	int (*open)(struct drm_device *drm_dev, struct device *dev,
 			struct drm_file *file);
 	void (*close)(struct drm_device *drm_dev, struct device *dev,
@@ -344,4 +346,5 @@ extern struct platform_driver g2d_driver;
 extern struct platform_driver rotator_driver;
 extern struct platform_driver fimc_driver;
 extern struct platform_driver gsc_driver;
+extern struct platform_driver ipp_driver;
 #endif

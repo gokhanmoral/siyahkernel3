@@ -221,12 +221,24 @@ static int diagchar_close(struct inode *inode, struct file *file)
 		pr_alert("diag: Invalid file pointer");
 		return -ENOMEM;
 	}
+#ifdef CONFIG_DIAG_HSIC_PIPE
+	if (driver->logging_mode == MEMORY_DEVICE_MODE)
+		queue_work(driver->diag_hsic_wq, &driver->diag_disconnect_work);
+
+	if (driver->silent_log_pid) {
+		put_pid(driver->silent_log_pid);
+		driver->silent_log_pid = NULL;
+	}
+#endif
 
 #ifdef CONFIG_DIAG_OVER_USB
 	/* If the SD logging process exits, change logging to USB mode */
 	if (driver->logging_process_id == current->tgid) {
 		driver->logging_mode = USB_MODE;
+#ifndef CONFIG_DIAG_HSIC_PIPE
+		/* HSIC PIPE use case, connect over usb is not required */
 		diagfwd_connect();
+#endif
 	}
 #endif /* DIAG over USB */
 	/* Delete the pkt response table entry for the exiting process */
@@ -414,8 +426,14 @@ long diagchar_ioctl(struct file *filp,
 		if (driver->logging_mode == UART_MODE) {
 			driver->mask_check = 0;
 			driver->logging_mode = MEMORY_DEVICE_MODE;
-		}
+			driver->sub_logging_mode = UART_MODE;
+		} else
+			driver->sub_logging_mode = NO_LOGGING_MODE;
 		driver->logging_process_id = current->tgid;
+
+#ifdef CONFIG_DIAG_HSIC_PIPE
+		driver->silent_log_pid = get_pid(task_pid(current));
+#endif
 		mutex_unlock(&driver->diagchar_mutex);
 		if (temp == MEMORY_DEVICE_MODE && driver->logging_mode
 							== NO_LOGGING_MODE) {
@@ -427,6 +445,10 @@ long diagchar_ioctl(struct file *filp,
 			driver->in_busy_wcnss_2 = 1;
 #ifdef CONFIG_DIAG_SDIO_PIPE
 			driver->in_busy_sdio = 1;
+#endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+			driver->in_busy_hsic_read = 1;
+			driver->in_busy_hsic_write = 1;
 #endif
 		} else if (temp == NO_LOGGING_MODE && driver->logging_mode
 							== MEMORY_DEVICE_MODE) {
@@ -453,6 +475,12 @@ long diagchar_ioctl(struct file *filp,
 				queue_work(driver->diag_sdio_wq,
 					&(driver->diag_read_sdio_work));
 #endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+			driver->in_busy_hsic_read = 0;
+			if (driver->hsic_ch)
+				queue_work(driver->diag_hsic_wq,
+						&driver->diag_read_hsic_work);
+#endif
 		}
 #ifdef CONFIG_DIAG_OVER_USB
 		else if (temp == USB_MODE && driver->logging_mode
@@ -464,6 +492,9 @@ long diagchar_ioctl(struct file *filp,
 		else if (temp == USB_MODE && driver->logging_mode
 							== MEMORY_DEVICE_MODE) {
 			diagfwd_disconnect();
+#ifdef CONFIG_DIAG_HSIC_PIPE
+			diagfwd_connect_hsic(WRITE_TO_SD);
+#endif
 			driver->in_busy_1 = 0;
 			driver->in_busy_2 = 0;
 			driver->in_busy_qdsp_1 = 0;
@@ -487,6 +518,11 @@ long diagchar_ioctl(struct file *filp,
 				queue_work(driver->diag_sdio_wq,
 					&(driver->diag_read_sdio_work));
 #endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+			if (driver->hsic_ch)
+				queue_work(driver->diag_hsic_wq,
+					&driver->diag_read_hsic_work);
+#endif
 			} else if (temp == MEMORY_DEVICE_MODE &&
 					 driver->logging_mode == USB_MODE)
 				diagfwd_connect();
@@ -496,6 +532,16 @@ long diagchar_ioctl(struct file *filp,
 
 	return success;
 }
+
+void silent_log_panic_handler(void)
+{
+	if (driver->silent_log_pid) {
+		pr_info("%s: killing silent log...\n", __func__);
+		kill_pid(driver->silent_log_pid, SIGTERM, 1);
+		driver->silent_log_pid = NULL;
+	}
+}
+EXPORT_SYMBOL(silent_log_panic_handler);
 
 static int diagchar_read(struct file *file, char __user *buf, size_t count,
 			  loff_t *ppos)
@@ -645,6 +691,16 @@ drop:
 			driver->in_busy_sdio = 0;
 		}
 #endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+		num_data++;
+		/*Copy the length of data being passed*/
+		COPY_USER_SPACE_OR_EXIT(buf+ret,
+			 (driver->write_ptr_mdm->length), 4);
+		/*Copy the actual data being passed*/
+		COPY_USER_SPACE_OR_EXIT(buf+ret,
+				*(driver->buf_in_hsic),
+				 driver->write_ptr_mdm->length);
+#endif
 		/* copy number of data fields */
 		COPY_USER_SPACE_OR_EXIT(buf+4, num_data, 4);
 		ret -= 4;
@@ -662,6 +718,12 @@ drop:
 		if (driver->sdio_ch)
 			queue_work(driver->diag_sdio_wq,
 					   &(driver->diag_read_sdio_work));
+#endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+		/* driver->in_busy_hsic_read = 0; */
+		if (driver->hsic_ch)
+			queue_work(driver->diag_hsic_wq,
+						&driver->diag_read_hsic_work);
 #endif
 		APPEND_DEBUG('n');
 		goto exit;
@@ -758,6 +820,11 @@ static int diagchar_write(struct file *file, const char __user *buf,
 			}
 		}
 		buf = buf + 4;
+
+		/* To removed "0x7E", when received only "0x7E" */
+		if (0x7e == *(((unsigned char *)buf)))
+			return 0;
+
 #ifdef DIAG_DEBUG
 		pr_debug("diag: user space data %d\n", payload_size);
 		for (i = 0; i < payload_size; i++)
@@ -775,10 +842,40 @@ static int diagchar_write(struct file *file, const char __user *buf,
 			}
 		}
 #endif
+#ifdef CONFIG_DIAG_HSIC_PIPE
+	if (driver->hsic_ch) {
+		// QXDM Logging zero_pkt (with silent log on) second fix by JAGADISH KRISHNAMOORTHY
+	        pr_info("%s: hsic line busy %d \n",__func__,driver->in_busy_hsic_write);
+		/* wait till write is succesfully written to CP */
+		if (driver->in_busy_hsic_write)
+			wait_event_interruptible(driver->wait_q,
+				(driver->in_busy_hsic_write != 1));
+
+		if (!driver->in_busy_hsic_write) {
+			driver->in_busy_hsic_write = 1;
+			err = diag_bridge_write((driver->user_space_data),
+								payload_size);
+			if (err) {
+				pr_err("%s: data on hsic write err: %d\n",
+								__func__, err);
+				/*
+				 * If the error is recoverable, then clear
+				 * the write flag, so we will resubmit a
+				 * write on the next frame.  Otherwise, don't
+				 * resubmit a write on the next frame.
+				 */
+				if ((-ESHUTDOWN) != err)
+					driver->in_busy_hsic_write = 0;
+			}
+		}
+	}
+#endif
+#if 0
 		/* send masks to modem now */
 		diag_process_hdlc((void *)(driver->user_space_data),
 							 payload_size);
-		return 0;
+#endif
+		return count;
 	}
 
 	if (payload_size > itemsize) {
@@ -901,7 +998,7 @@ static int diagchar_write(struct file *file, const char __user *buf,
 		timer_in_progress = 1;
 		ret = mod_timer(&drain_timer, jiffies + msecs_to_jiffies(500));
 	}
-	return 0;
+	return count;
 
 fail_free_hdlc:
 	buf_hdlc = NULL;

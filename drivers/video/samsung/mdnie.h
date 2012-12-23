@@ -68,6 +68,13 @@ enum POWER_LUT {
 	LUT_MAX,
 };
 
+enum POWER_LUT_LEVEL {
+	LUT_LEVEL_MANUAL_AND_INDOOR,
+	LUT_LEVEL_OUTDOOR_1,
+	LUT_LEVEL_OUTDOOR_2,
+	LUT_LEVEL_MAX,
+};
+
 enum NEGATIVE {
 	NEGATIVE_OFF,
 	NEGATIVE_ON,
@@ -91,6 +98,8 @@ struct mdnie_info {
 	struct lcd_platform_data	*lcd_pd;
 	struct backlight_device		*bd;
 	unsigned int			bd_enable;
+	unsigned int			auto_brightness;
+	unsigned int			power_lut_idx;
 #endif
 	struct mutex			lock;
 	struct mutex			dev_lock;
@@ -111,7 +120,6 @@ struct mdnie_info {
 extern struct mdnie_info *g_mdnie;
 
 int mdnie_send_sequence(struct mdnie_info *mdnie, const unsigned short *seq);
-extern void set_mdnie_value(struct mdnie_info *mdnie, u8 force);
 #if defined(CONFIG_FB_MDNIE_PWM)
 extern void set_mdnie_pwm_value(struct mdnie_info *mdnie, int value);
 #endif

@@ -38,12 +38,30 @@ struct sec_battery_platform_data {
 	int (*get_charging_current) (void);
 	int (*get_charger_is_full)(void);
 
+#if defined(CONFIG_SMB347_CHARGER)
+	int (*get_aicl_current)(void);
+	int (*get_input_current)(void);
+#endif
+
 	void (*init_charger_gpio) (void);
+#if defined(CONFIG_MACH_P4NOTE)
+	void (*inform_charger_connection) (int, int);
+#else
 	void (*inform_charger_connection) (int);
+#endif
 	int temp_high_threshold;
 	int temp_high_recovery;
 	int temp_low_recovery;
 	int temp_low_threshold;
+
+#if defined(CONFIG_TARGET_LOCALE_USA)
+	int temp_event_threshold;
+	int temp_lpm_high_threshold;
+	int temp_lpm_high_recovery;
+	int temp_lpm_low_recovery;
+	int temp_lpm_low_threshold;
+#endif /* CONFIG_TARGET_LOCALE_USA */
+
 	int charge_duration;
 	int recharge_duration;
 	int recharge_voltage;
@@ -60,6 +78,12 @@ enum capacity_type {
 	CAPACITY_TYPE_MIX,
 	CAPACITY_TYPE_AV,
 	CAPACITY_TYPE_REP,
+};
+
+enum dock_type {
+	DOCK_NONE = 0,
+	DOCK_DESK,
+	DOCK_KEYBOARD,
 };
 
 extern int low_batt_compensation(int fg_soc, int fg_vcell, int fg_current);

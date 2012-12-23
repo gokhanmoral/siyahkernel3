@@ -865,9 +865,13 @@ static int unuse_pte(struct vm_area_struct *vma, pmd_t *pmd,
 		ret = 0;
 		goto out;
 	}
-
+#ifdef CONFIG_LOWMEM_CHECK
+	dec_mm_counter(vma->vm_mm, MM_SWAPENTS, page);
+	inc_mm_counter(vma->vm_mm, MM_ANONPAGES, page);
+#else
 	dec_mm_counter(vma->vm_mm, MM_SWAPENTS);
 	inc_mm_counter(vma->vm_mm, MM_ANONPAGES);
+#endif
 	get_page(page);
 	set_pte_at(vma->vm_mm, addr, pte,
 		   pte_mkold(mk_pte(page, vma->vm_page_prot)));

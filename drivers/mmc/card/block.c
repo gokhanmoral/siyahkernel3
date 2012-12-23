@@ -50,16 +50,15 @@
 MODULE_ALIAS("mmc:block");
 
 #if defined(CONFIG_MMC_CPRM)
-#define MMC_ENABLE_CPRM
-#endif
-
-#ifdef MMC_ENABLE_CPRM
 #include "cprmdrv_samsung.h"
 #include <linux/ioctl.h>
 #define MMC_IOCTL_BASE		0xB3 /* Same as MMC block device major number */
 #define MMC_IOCTL_GET_SECTOR_COUNT	_IOR(MMC_IOCTL_BASE, 100, int)
 #define MMC_IOCTL_GET_SECTOR_SIZE		_IOR(MMC_IOCTL_BASE, 101, int)
 #define MMC_IOCTL_GET_BLOCK_SIZE		_IOR(MMC_IOCTL_BASE, 102, int)
+#define MMC_IOCTL_SET_RETRY_AKE_PROCESS		_IOR(MMC_IOCTL_BASE, 104, int)
+
+static int cprm_ake_retry_flag;
 #endif
 
 #ifdef MOVI_DEBUG
@@ -464,18 +463,26 @@ cmd_done:
 static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
 	unsigned int cmd, unsigned long arg)
 {
-#ifdef MMC_ENABLE_CPRM
+#if defined(CONFIG_MMC_CPRM)
 	struct mmc_blk_data *md = bdev->bd_disk->private_data;
 	struct mmc_card *card = md->queue.card;
+
+	static int i;
+	static unsigned long temp_arg[16] = {0};
 #endif
 	int ret = -EINVAL;
 	if (cmd == MMC_IOC_CMD)
 		ret = mmc_blk_ioctl_cmd(bdev, (struct mmc_ioc_cmd __user *)arg);
 
-#ifdef MMC_ENABLE_CPRM
+#if defined(CONFIG_MMC_CPRM)
 	printk(KERN_DEBUG " %s ], %x ", __func__, cmd);
 
 	switch (cmd) {
+	case MMC_IOCTL_SET_RETRY_AKE_PROCESS:
+		cprm_ake_retry_flag = 1;
+		ret = 0;
+		break;
+
 	case MMC_IOCTL_GET_SECTOR_COUNT: {
 		int size = 0;
 
@@ -486,6 +493,7 @@ static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
 		return copy_to_user((void *)arg, &size, sizeof(u64));
 		}
 		break;
+
 	case ACMD13:
 	case ACMD18:
 	case ACMD25:
@@ -497,10 +505,51 @@ static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
 	case ACMD48: {
 		struct cprm_request *req = (struct cprm_request *)arg;
 
-		printk(KERN_DEBUG "[%s]: cmd [%x]\n", __func__, cmd);
-		return stub_sendcmd(card, req->cmd, req->arg, \
-				req->len, req->buff);
+		printk(KERN_DEBUG "%s:cmd [%x]\n",
+			__func__, cmd);
+
+		if (cmd == ACMD43) {
+			printk(KERN_DEBUG"storing acmd43 arg[%d] = %ul\n",
+				i, (unsigned int)req->arg);
+			temp_arg[i] = req->arg;
+			i++;
+			if (i >= 16) {
+				printk(KERN_DEBUG"reset acmd43 i = %d\n", i);
+					i = 0;
+			}
 		}
+
+		if (cmd == ACMD45 && cprm_ake_retry_flag == 1) {
+			cprm_ake_retry_flag = 0;
+			printk(KERN_DEBUG"ACMD45.. I'll call ACMD43 and ACMD44 first\n");
+
+			for (i = 0; i < 16; i++) {
+				printk(KERN_DEBUG"calling ACMD43 with arg[%d] = %ul\n",
+					i, (unsigned int)temp_arg[i]);
+				if (stub_sendcmd(card, ACMD43, temp_arg[i],
+					512, NULL) < 0) {
+					printk(KERN_DEBUG"error ACMD43 %d\n",
+						 i);
+					return -EINVAL;
+				}
+			}
+
+			printk(KERN_DEBUG"calling ACMD44\n");
+			if (stub_sendcmd(card, ACMD44, 0, 8, NULL) < 0) {
+
+				printk(KERN_DEBUG"error in ACMD44 %d\n",
+					i);
+				return -EINVAL;
+			}
+		}
+		return stub_sendcmd(card, req->cmd,
+					req->arg, req->len, req->buff);
+		}
+		break;
+
+	default:
+		printk(KERN_DEBUG"%s: Invalid ioctl command\n", __func__);
+		break;
 	}
 #endif
 	return ret;
@@ -1355,6 +1404,11 @@ static u8 mmc_blk_prep_packed_list(struct mmc_queue *mq, struct request *req)
 	}
 
 	while (reqs < max_packed_rw - 1) {
+		/* We should stop no-more packing its nopacked_period */
+		if ((card->host->caps2 & MMC_CAP2_ADAPT_PACKED)
+				&& mmc_is_nopacked_period(mq))
+			break;
+
 		spin_lock_irq(q->queue_lock);
 		next = blk_fetch_request(q);
 		spin_unlock_irq(q->queue_lock);
@@ -2018,7 +2072,8 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		/* complete ongoing async transfer before issuing discard */
 		if (card->host->areq)
 			mmc_blk_issue_rw_rq(mq, NULL);
-		if (req->cmd_flags & REQ_SECURE)
+		if (req->cmd_flags & REQ_SECURE &&
+			!(card->quirks & MMC_QUIRK_MOVINAND_SECURE))
 			ret = mmc_blk_issue_secdiscard_rq(mq, req);
 		else
 			ret = mmc_blk_issue_discard_rq(mq, req);
@@ -2291,6 +2346,8 @@ static int mmc_add_disk(struct mmc_blk_data *md)
 	return ret;
 }
 
+#define CID_MANFID_SAMSUNG	0x15
+
 static const struct mmc_fixup blk_fixups[] =
 {
 	MMC_FIXUP("SEM02G", 0x2, 0x100, add_quirk, MMC_QUIRK_INAND_CMD38),
@@ -2313,6 +2370,28 @@ static const struct mmc_fixup blk_fixups[] =
 		  MMC_QUIRK_BLK_NO_CMD23),
 	MMC_FIXUP("MMC32G", 0x11, CID_OEMID_ANY, add_quirk_mmc,
 		  MMC_QUIRK_BLK_NO_CMD23),
+
+	/*
+	 * Some issue about secure erase/secure trim for Samsung MoviNAND
+	 */
+
+	MMC_FIXUP("M8G2FA", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+	MMC_FIXUP("MAG4FA", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+	MMC_FIXUP("MBG8FA", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+	MMC_FIXUP("MCGAFA", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+	MMC_FIXUP("VAL00M", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+	MMC_FIXUP("VYL00M", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+	MMC_FIXUP("KYL00M", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+	MMC_FIXUP("VZL00M", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_MOVINAND_SECURE),
+
 	END_FIXUP
 };
 

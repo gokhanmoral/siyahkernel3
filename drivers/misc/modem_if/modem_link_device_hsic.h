@@ -36,6 +36,7 @@ enum {
 #define IOCTL_LINK_GET_HOSTWAKE		_IO('o', 0x32)
 #define IOCTL_LINK_CONNECTED		_IO('o', 0x33)
 #define IOCTL_LINK_SET_BIAS_CLEAR	_IO('o', 0x34)
+#define IOCTL_LINK_GET_PHONEACTIVE	_IO('o', 0x35)
 
 /* VID,PID for IMC - XMM6260, XMM6262*/
 #define IMC_BOOT_VID		0x058b
@@ -102,6 +103,8 @@ struct link_pm_data {
 	unsigned ipc_debug_cnt;
 	unsigned long tx_cnt;
 	unsigned long rx_cnt;
+
+	void (*ehci_reg_dump)(struct device *);
 };
 
 struct if_usb_devdata {

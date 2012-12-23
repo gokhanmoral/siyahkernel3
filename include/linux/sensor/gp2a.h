@@ -28,6 +28,11 @@
 
 #define ADC_BUFFER_NUM	6
 
+#define DEFAULT_LO_THR	0x07 /* sharp recommand Loff */
+#define DEFAULT_HI_THR	0x08 /* sharp recommand Lon */
+
+#define OFFSET_ARRAY_LENGTH		10
+
 /* 16 level for premium model*/
 enum {
 	LIGHT_DIM   = 0,
@@ -58,11 +63,11 @@ extern char proximity_sensor_detection;
 /* prototype */
 int opt_i2c_read(u8 reg, unsigned char *rbuf, int len);
 int opt_i2c_write(u8 reg, u8 *val);
-int lightsensor_get_adcvalue(void);
 int is_gp2a030a(void);
 
 struct gp2a_platform_data {
 	int (*gp2a_led_on) (bool);
 	int p_out; /* proximity-sensor-output gpio */
+	unsigned long (*gp2a_get_threshold)(u8 *);
 };
 #endif

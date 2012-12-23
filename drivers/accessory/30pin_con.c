@@ -15,6 +15,7 @@
 #include <linux/wakelock.h>
 #include <plat/adc.h>
 #include <linux/earlysuspend.h>
+#include <linux/power_supply.h>
 
 #include <asm/irq.h>
 #include <linux/mfd/tps6586x.h>
@@ -66,10 +67,15 @@ struct acc_con_info {
 	struct switch_dev ear_jack_switch;
 	struct wake_lock wake_lock;
 	struct s3c_adc_client *padc;
+	struct sec_30pin_callbacks callbacks;
 	enum accessory_type current_accessory;
+	enum accessory_type univ_kdb_accessory;
 	enum dock_type current_dock;
 	int accessory_irq;
 	int dock_irq;
+	int cable_type;
+	int cable_sub_type;
+	int cable_pwr_type;
 #if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 	int mhl_irq;
 	bool mhl_pwr_state;
@@ -137,6 +143,8 @@ static int acc_get_accessory_id(struct acc_con_info *acc)
 
 	for (i = 0; i < 5; i++) {
 		adc_val = acc_get_adc_accessroy_id(acc->padc);
+		ACC_CONDEV_DBG("ACCESSORY_ID adc_val[%d] value = %d",
+			i, adc_val);
 		adc_buff[i] = adc_val;
 		adc_sum += adc_buff[i];
 		if (i == 0) {
@@ -150,7 +158,8 @@ static int acc_get_accessory_id(struct acc_con_info *acc)
 		}
 		msleep(20);
 	}
-	adc = (adc_sum - adc_max - adc_min)/3;
+	/* adc = (adc_sum - adc_max - adc_min)/3; */
+	adc = adc_buff[4];
 	ACC_CONDEV_DBG("ACCESSORY_ID ADC value = %d", adc);
 	return (int)adc;
 }
@@ -314,6 +323,75 @@ static void acc_dock_uevent(struct acc_con_info *acc, bool connected)
 	ACC_CONDEV_DBG("%s : %s", env_ptr, stat_ptr);
 }
 
+/* power supply name for set state */
+#define PSY_NAME	"battery"
+static void acc_dock_psy(struct acc_con_info *acc)
+{
+	struct power_supply *psy = power_supply_get_by_name(PSY_NAME);
+	union power_supply_propval value;
+
+/* only support p4note(high current charging) */
+#ifndef CONFIG_MACH_P4NOTE
+	return;
+#endif
+
+	if (!psy || !psy->set_property) {
+		pr_err("%s: fail to get %s psy\n", __func__, PSY_NAME);
+		return;
+	}
+
+	value.intval = 0;
+	value.intval = (acc->cable_type << 16) + (acc->cable_sub_type << 8) +
+			(acc->cable_pwr_type << 0);
+	pr_info("[BATT]30 cx(%d), sub(%d), pwr(%d)\n",
+		acc->cable_type, acc->cable_sub_type, acc->cable_pwr_type);
+
+	psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE, &value);
+}
+
+void acc_otg_enable_by_univkbd(struct acc_con_info *acc, bool val)
+{
+	char *env_ptr;
+	char *stat_ptr;
+	char *envp[3];
+
+	if (val == true) {
+		if (acc->univ_kdb_accessory == ACCESSORY_NONE) {
+			env_ptr = "ACCESSORY=OTG";
+			stat_ptr = "STATE=online";
+			acc->univ_kdb_accessory = ACCESSORY_OTG;
+
+			if (acc->pdata->usb_ldo_en)
+				acc->pdata->usb_ldo_en(1);
+			if (acc->pdata->otg_en)
+				acc->pdata->otg_en(1);
+
+			envp[0] = env_ptr;
+			envp[1] = stat_ptr;
+			envp[2] = NULL;
+			kobject_uevent_env(&acc->acc_dev->kobj,
+					KOBJ_CHANGE, envp);
+			ACC_CONDEV_DBG("%s : %s", env_ptr, stat_ptr);
+		}
+	} else {
+		if (acc->univ_kdb_accessory == ACCESSORY_OTG) {
+			env_ptr = "ACCESSORY=OTG";
+			stat_ptr = "STATE=offline";
+
+			envp[0] = env_ptr;
+			envp[1] = stat_ptr;
+			envp[2] = NULL;
+			kobject_uevent_env(&acc->acc_dev->kobj,
+					KOBJ_CHANGE, envp);
+			ACC_CONDEV_DBG("%s : %s", env_ptr, stat_ptr);
+
+			if (acc->pdata->otg_en)
+				acc->pdata->otg_en(0);
+
+			acc->univ_kdb_accessory = ACCESSORY_NONE;
+		}
+	}
+}
 
 static void acc_check_dock_detection(struct acc_con_info *acc)
 {
@@ -321,23 +399,30 @@ static void acc_check_dock_detection(struct acc_con_info *acc)
 		ACC_CONDEV_DBG("[30PIN] failed to get acc state!!!");
 		return;
 	}
-
 	if (!acc->pdata->get_dock_state()) {
 #ifdef CONFIG_SEC_KEYBOARD_DOCK
 		if (acc->pdata->check_keyboard &&
 			acc->pdata->check_keyboard(true)) {
+			if (DOCK_KEYBOARD == acc->current_dock) {
+				switch_set_state(&acc->dock_switch,
+					UEVENT_DOCK_NONE);
+				acc_dock_uevent(acc, false);
+			}
+
 			acc->current_dock = DOCK_KEYBOARD;
 			ACC_CONDEV_DBG
-			("[30PIN] keyboard dock station attached!!!");
+			("The dock proves to be a keyboard dock..!");
 			switch_set_state(&acc->dock_switch,
 				UEVENT_DOCK_KEYBOARD);
 		} else
 #endif
 		{
 			ACC_CONDEV_DBG
-				("[30PIN] desktop dock station attached!!!");
+			("The dock proves to be a desktop dock..!");
 			switch_set_state(&acc->dock_switch, UEVENT_DOCK_DESK);
 			acc->current_dock = DOCK_DESK;
+			acc->cable_type = POWER_SUPPLY_TYPE_DOCK;
+			acc->cable_sub_type = ONLINE_SUB_TYPE_DESK;
 
 #if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 			mutex_lock(&acc->lock);
@@ -355,12 +440,21 @@ static void acc_check_dock_detection(struct acc_con_info *acc)
 		acc_dock_uevent(acc, true);
 	} else {
 
-		ACC_CONDEV_DBG("[30PIN] dock station detached!!!");
+		ACC_CONDEV_DBG("dock station detached.. !");
 
 		switch_set_state(&acc->dock_switch, UEVENT_DOCK_NONE);
+		acc->current_dock = DOCK_NONE;
+		acc->cable_type = POWER_SUPPLY_TYPE_BATTERY;
+		acc->cable_sub_type = ONLINE_SUB_TYPE_UNKNOWN;
 #ifdef CONFIG_SEC_KEYBOARD_DOCK
 		if (acc->pdata->check_keyboard)
 			acc->pdata->check_keyboard(false);
+		if (acc->univ_kdb_accessory == ACCESSORY_OTG) {
+			acc_otg_enable_by_univkbd(acc, false);
+			acc->current_dock = DOCK_NONE;
+			acc->cable_type = POWER_SUPPLY_TYPE_BATTERY;
+			acc->cable_sub_type = ONLINE_SUB_TYPE_UNKNOWN;
+		}
 #endif
 #if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 		/*call MHL deinit */
@@ -373,16 +467,18 @@ static void acc_check_dock_detection(struct acc_con_info *acc)
 			acc->mhl_pwr_state = false;
 		}
 #endif
-		/*TVout_LDO_ctrl(false); */
 		acc_dock_uevent(acc, false);
 
 	}
+	acc_dock_psy(acc);
 }
 
 static irqreturn_t acc_dock_isr(int irq, void *ptr)
 {
 	struct acc_con_info *acc = ptr;
 	wake_lock(&acc->wake_lock);
+	ACC_CONDEV_DBG
+		("A dock station attached or detached..");
 	acc_check_dock_detection(acc);
 	wake_unlock(&acc->wake_lock);
 	return IRQ_HANDLED;
@@ -405,7 +501,8 @@ static int acc_init_dock_int(struct acc_con_info *acc)
 	int ret = 0;
 	acc->accessory_irq = gpio_to_irq(acc->pdata->accessory_irq_gpio);
 	ret = request_threaded_irq(acc->accessory_irq, NULL, acc_dock_isr,
-			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING
+			| IRQF_NO_SUSPEND,
 			"accessory_detect", acc);
 	if (ret)
 		ACC_CONDEV_DBG("request_irq(accessory_irq) return : %d\n", ret);
@@ -476,6 +573,48 @@ err_irq_dock:
 	return ;
 }
 
+static int acc_noti_univkbd_dock(struct sec_30pin_callbacks *cb,
+	unsigned int code)
+{
+	struct acc_con_info *acc =
+		container_of(cb, struct acc_con_info, callbacks);
+
+	char *env_ptr;
+	char *stat_ptr;
+	char *envp[3];
+
+	ACC_CONDEV_DBG("universal keyboard noti. callback 0x%x", code);
+
+	switch (code) {
+	case 0x68: /*dock is con*/
+		acc_otg_enable_by_univkbd(acc, true);
+		acc->cable_type = POWER_SUPPLY_TYPE_DOCK;
+		acc->cable_sub_type = ONLINE_SUB_TYPE_KBD;
+		acc_dock_psy(acc);
+		break;
+	case 0x69: /*usb charging*/
+		acc->cable_pwr_type = ONLINE_POWER_TYPE_USB;
+		acc_dock_psy(acc);
+		break;
+	case 0x6a: /*USB cable attached */
+		acc_otg_enable_by_univkbd(acc, false);
+		acc->cable_pwr_type = ONLINE_POWER_TYPE_USB;
+		acc_dock_psy(acc);
+		break;
+	case 0x6b: /*TA connection*/
+		acc->cable_pwr_type = ONLINE_POWER_TYPE_TA;
+		acc_dock_psy(acc);
+		break;
+	case 0x6c: /* USB cable detached */
+		acc_otg_enable_by_univkbd(acc, true);
+		acc->cable_pwr_type = ONLINE_POWER_TYPE_BATTERY;
+		acc_dock_psy(acc);
+		break;
+	}
+
+	return 0;
+}
+
 static void acc_dwork_accessory_detect(struct work_struct *work)
 {
 	struct acc_con_info *acc = container_of(work,
@@ -483,6 +622,7 @@ static void acc_dwork_accessory_detect(struct work_struct *work)
 
 	int adc_val = 0;
 	int acc_state = 0;
+	int acc_state2 = 0;
 
 	acc_state = acc->pdata->get_acc_state();
 
@@ -490,9 +630,16 @@ static void acc_dwork_accessory_detect(struct work_struct *work)
 		ACC_CONDEV_DBG("Accessory detached");
 		acc_accessory_uevent(acc, false);
 	} else {
-		ACC_CONDEV_DBG("Accessory attached");
 		adc_val = acc_get_accessory_id(acc);
+
+		acc_state2 = acc->pdata->get_acc_state();
+		if (acc_state2) {
+			ACC_CONDEV_DBG("Accessory detached2.");
+			acc_accessory_uevent(acc, false);
+		} else {
+		ACC_CONDEV_DBG("Accessory attached");
 		acc_accessory_uevent(acc, adc_val);
+		}
 	}
 }
 
@@ -533,6 +680,7 @@ static int acc_con_probe(struct platform_device *pdev)
 	acc->pdata = pdata;
 	acc->current_dock = DOCK_NONE;
 	acc->current_accessory = ACCESSORY_NONE;
+	acc->univ_kdb_accessory = ACCESSORY_NONE;
 #if defined(CONFIG_MHL_SII9234) || defined(CONFIG_SAMSUNG_MHL_9290)
 	acc->mhl_irq = gpio_to_irq(pdata->mhl_irq_gpio);
 	acc->mhl_pwr_state = false;
@@ -549,6 +697,10 @@ static int acc_con_probe(struct platform_device *pdev)
 #elif defined(CONFIG_S3C_ADC)
 	acc->padc = s3c_adc_register(pdev, NULL, NULL, 0);
 #endif
+
+	acc->callbacks.noti_univ_kdb_dock = acc_noti_univkbd_dock;
+	if (pdata->register_cb)
+		pdata->register_cb(&acc->callbacks);
 
 #ifdef CONFIG_MHL_SII9234
 	retval = i2c_add_driver(&SII9234A_i2c_driver);

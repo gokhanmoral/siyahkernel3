@@ -208,7 +208,11 @@
 #define DELAY_DEFAULT			200
 #define DELAY_MINIMUM			40
 /* calibration file path */
+#ifdef CONFIG_SLP
+#define CALIBRATION_FILE_PATH		"/csa/sensor/baro_cal_data"
+#else
 #define CALIBRATION_FILE_PATH		"/efs/FactoryApp/baro_delta"
+#endif
 
 static const struct {
 	unsigned int cutoff_ms;

@@ -28,7 +28,7 @@
 #include <linux/firmware.h>
 #include <video/mipi_display.h>
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
 #include <linux/devfreq/exynos4_display.h>
 #endif
 
@@ -41,8 +41,8 @@
 #define MAX_READ_LENGTH		64
 #define MIN_BRIGHTNESS		(0)
 #define MAX_BRIGHTNESS		(0xff)
-#define S6D6AA1_DSCTL_VFLIP	(1 << 7)
-#define S6D6AA1_DSCTL_HFLIP	(1 << 6)
+#define DSCTL_VFLIP	(1 << 7)
+#define DSCTL_HFLIP	(1 << 6)
 
 /*
  * FIXME:!!simple init vs full init
@@ -85,7 +85,7 @@ struct s6d6aa1 {
 	struct regulator	*reg_vddi;
 	struct regulator	*reg_vdd;
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
 	struct notifier_block	nb_disp;
 #endif
 	struct mutex	lock;
@@ -220,14 +220,14 @@ static void s6d6aa1_disp_ctl(struct s6d6aa1 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 	struct lcd_property	*property = lcd->property;
-	int cfg = 0;
+	unsigned char cfg = 0;
 
 	if (property) {
 		if (property->flip & LCD_PROPERTY_FLIP_VERTICAL)
-			cfg |= S6D6AA1_DSCTL_VFLIP;
+			cfg |= DSCTL_VFLIP;
 
 		if (property->flip & LCD_PROPERTY_FLIP_HORIZONTAL)
-			cfg |= S6D6AA1_DSCTL_HFLIP;
+			cfg |= DSCTL_HFLIP;
 	}
 
 	ops->cmd_write(lcd_to_master(lcd),
@@ -695,7 +695,7 @@ static struct panel_model s6d6aa1_model[] = {
 	}
 };
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
+#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
 static int s6d6aa1_notifier_callback(struct notifier_block *this,
 			unsigned long event, void *_data)
 {
@@ -704,8 +704,6 @@ static int s6d6aa1_notifier_callback(struct notifier_block *this,
 	if (lcd->power == FB_BLANK_POWERDOWN)
 		return NOTIFY_DONE;
 
-	/* chulspro_dbg log */
-	printk(KERN_INFO"[S6D6AA0]%s:event[%ld]\n", __func__, event);
 	switch (event) {
 	case EXYNOS4_DISPLAY_LV_HF:
 		s6d6aa1_panel_ctl(lcd, 1);
@@ -724,6 +722,7 @@ static int s6d6aa1_notifier_callback(struct notifier_block *this,
 static void s6d6aa1_regulator_ctl(struct s6d6aa1 *lcd, bool enable)
 {
 	mutex_lock(&lcd->lock);
+
 	if (enable) {
 		if (lcd->reg_vddi)
 			regulator_enable(lcd->reg_vddi);
@@ -737,6 +736,7 @@ static void s6d6aa1_regulator_ctl(struct s6d6aa1 *lcd, bool enable)
 		if (lcd->reg_vddi)
 			regulator_disable(lcd->reg_vddi);
 	}
+
 	mutex_unlock(&lcd->lock);
 }
 
@@ -764,6 +764,7 @@ static void s6d6aa1_power_on(struct mipi_dsim_lcd_device *dsim_dev,
 		if (lcd->ddi_pd->reset)
 			lcd->ddi_pd->reset(lcd->ld);
 
+		/* lcd power off */
 		s6d6aa1_regulator_ctl(lcd, false);
 	}
 }
@@ -850,18 +851,23 @@ static int s6d6aa1_probe(struct mipi_dsim_lcd_device *dsim_dev)
 	}
 
 	s6d6aa1_regulator_ctl(lcd, true);
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
-	lcd->nb_disp.notifier_call = s6d6aa1_notifier_callback;
-	ret = exynos4_display_register_client(&lcd->nb_disp);
-	if (ret < 0)
-		dev_warn(&lcd->ld->dev, "failed to register exynos-display notifier\n");
+
+	if (lcd->ddi_pd)
+		lcd->property = lcd->ddi_pd->pdata;
+
+#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
+	if (lcd->property && lcd->property->dynamic_refresh) {
+		lcd->nb_disp.notifier_call = s6d6aa1_notifier_callback;
+		ret = exynos4_display_register_client(&lcd->nb_disp);
+		if (ret < 0)
+			dev_warn(&lcd->ld->dev, "failed to register exynos-display notifier\n");
+	}
 #endif
+
 	lcd->bd->props.max_brightness = MAX_BRIGHTNESS;
 	lcd->bd->props.brightness = MAX_BRIGHTNESS;
 	lcd->power = FB_BLANK_UNBLANK;
 	lcd->wm_mode = WM_MODE_CONSERVATIVE;
-	if (lcd->ddi_pd)
-		lcd->property = lcd->ddi_pd->pdata;
 	lcd->model = s6d6aa1_model;
 	lcd->model_count = ARRAY_SIZE(s6d6aa1_model);
 	for (i = 0; i < ARRAY_SIZE(device_attrs); i++) {
@@ -901,8 +907,9 @@ static void s6d6aa1_remove(struct mipi_dsim_lcd_device *dsim_dev)
 	regulator_put(lcd->reg_vdd);
 	regulator_put(lcd->reg_vddi);
 
-#ifdef CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ
-	exynos4_display_unregister_client(&lcd->nb_disp);
+#if defined(CONFIG_ARM_EXYNOS4_DISPLAY_DEVFREQ) || defined(CONFIG_DISPFREQ_OPP)
+	if (lcd->property && lcd->property->dynamic_refresh)
+		exynos4_display_unregister_client(&lcd->nb_disp);
 #endif
 	kfree(lcd);
 }

@@ -13,12 +13,24 @@
 
 extern struct device *sensors_classdev_register(char *sensors_name);
 extern void sensors_classdev_unregister(struct device *dev);
+extern int sensors_register(struct device *dev,
+	void *drvdata, struct device_attribute *attributes[], char *name);
+extern void sensors_unregister(struct device *dev);
 
 struct accel_platform_data {
 	int (*accel_get_position) (void);
 	 /* Change axis or not for user-level
 	 * If it is true, driver reports adjusted axis-raw-data
 	 * to user-space based on accel_get_position() value,
+	 * or if it is false, driver reports original axis-raw-data */
+	bool axis_adjust;
+};
+
+struct gyro_platform_data {
+	int (*gyro_get_position) (void);
+	 /* Change axis or not for user-level
+	 * If it is true, driver reports adjusted axis-raw-data
+	 * to user-space based on gyro_get_position() value,
 	 * or if it is false, driver reports original axis-raw-data */
 	bool axis_adjust;
 };

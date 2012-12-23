@@ -17,15 +17,113 @@ if CPU_EXYNOS4210 || CPU_EXYNOS4212 || CPU_EXYNOS4412
 	source "drivers/media/video/samsung/fimc/Kconfig"
 	source "drivers/media/video/samsung/tvout/Kconfig"
 	source "drivers/media/video/samsung/mfc5x/Kconfig"
-	source "drivers/media/video/samsung/ump/Kconfig"
-	source "drivers/media/video/samsung/tsi/Kconfig"
 endif
-if (CPU_EXYNOS4210 || CPU_EXYNOS4212 || CPU_EXYNOS4412) && !SLP
-	source "drivers/media/video/samsung/mali/Kconfig"
-endif
-if SLP
-	source "drivers/media/video/samsung/mali_r3p0/Kconfig"
-endif
+
+#For MALI
+config VIDEO_MALI400MP_UMP
+	bool "Enable MALI and UMP integration"
+	depends on VIDEO_SAMSUNG
+	default y
+	---help---
+		This enables MALI and UMP integration in the multimedia device driver
+
+choice
+depends on VIDEO_MALI400MP_UMP
+prompt "MALI MEMORY OPTION"
+default MALI_OSMEM_ONLY
+config MALI_DED_ONLY
+	bool "mali dedicated memory only"
+	---help---
+		This enables MALI dedicated memory only option
+config MALI_DED_MMU
+	bool "mali dedicated memory with mmu enable"
+	---help---
+		This enables MALI dedicated memory with mmu enable option
+config MALI_OSMEM_ONLY
+	bool "mali OS memory only"
+	---help---
+		This enables MALI OS memory only option
+config MALI_DED_OSMEM
+	bool "mali dedicated memory and OS memory"
+	---help---
+		This enables MALI dedicated memory and OS memory option
+endchoice
+
+config MALI_MEM_SIZE
+	int "Dedicated Memory Size"
+	depends on VIDEO_MALI400MP_UMP && (MALI_DED_ONLY || MALI_DED_MMU || MALI_DED_OSMEM)
+	default "128"
+	---help---
+		This value is dedicated memory size of Mali GPU(unit is MByte).
+
+# For UMP
+config UMP_VCM_ALLOC
+	bool "Enable ump-vcm(virtual contiguous memory) memory"
+	depends on VIDEO_MALI400MP_UMP && VCM
+	default y
+	---help---
+		Use VCM(virtual-contiguous-memory) to allocate physical memory.
+
+choice
+depends on VIDEO_MALI400MP_UMP
+prompt "UMP MEMEMORY OPTION"
+default UMP_OSMEM_ONLY
+config UMP_DED_ONLY
+	bool "ump dedicated memory only"
+	---help---
+		This enables UMP dedicated memory only option
+config UMP_OSMEM_ONLY
+	bool "ump OS memory only"
+	---help---
+		This enables UMP OS memory only option
+config UMP_VCM_ONLY
+	bool "ump VCM memory"
+	---help---
+		This enables UMP VCM memory only option
+
+endchoice
+config UMP_MEM_SIZE
+	int "UMP Memory Size"
+	depends on VIDEO_MALI400MP_UMP
+	default "512"
+	---help---
+		This value is dedicated memory size of UMP (unit is MByte).
+
+choice
+	depends on VIDEO_MALI400MP_UMP
+	prompt "Select MALI Version"
+	default MALI_UMP_R2P4_LSI
+config MALI_UMP_R2P4_LSI
+	bool "Uses the R2P4 kernel module"
+	---help---
+		This uses the r2p4 as a UMP and MALI kernel module
+config MALI_UMP_R3P1_LSI
+	bool "Uses the R3P1 kernel module"
+	---help---
+		This uses the r3p1 as a UMP and MALI kernel module
+endchoice
+
+# For MALI_UMP_DEBUG
+config VIDEO_MALI400MP_UMP_DEBUG
+	bool "Enables mali and ump debug messages"
+	depends on VIDEO_MALI400MP_UMP
+	default n
+	---help---
+		This enables Mali and UMP driver debug messages.
+
+config VIDEO_MALI400MP_STREAMLINE_PROFILING
+	bool "Enables mali streamline profiling"
+	depends on VIDEO_MALI400MP_UMP
+	default n
+	---help---
+		This enables Mali streamline profiling.
+
+config VIDEO_MALI400MP_DVFS
+	bool "Enables DVFS"
+	depends on VIDEO_MALI400MP_UMP && PM
+	default y
+	---help---
+		This enables Mali driver DVFS.
 
 config VIDEO_FIMG2D
 	bool

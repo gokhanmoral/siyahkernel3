@@ -2,7 +2,12 @@
 #include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/sensor/sensors_core.h>
+#ifdef CONFIG_SENSORS_AK8975C
 #include <linux/sensor/ak8975.h>
+#endif
+#ifdef CONFIG_SENSORS_AK8963C
+#include <linux/sensor/ak8963.h>
+#endif
 #include <linux/sensor/k3dh.h>
 #include <linux/sensor/gp2a.h>
 #include <linux/sensor/lsm330dlc_accel.h>
@@ -17,12 +22,23 @@
 #include <mach/gpio.h>
 #include "midas.h"
 
-static int accel_get_position(void);
+#if defined(CONFIG_SENSORS_LSM330DLC) ||\
+	defined(CONFIG_SENSORS_K3DH)
+static int stm_get_position(void);
 
 static struct accel_platform_data accel_pdata = {
-	.accel_get_position = accel_get_position,
+	.accel_get_position = stm_get_position,
 	.axis_adjust = true,
 };
+#endif
+
+#ifdef CONFIG_SENSORS_LSM330DLC
+static struct gyro_platform_data gyro_pdata = {
+	.gyro_get_position = stm_get_position,
+	.axis_adjust = true,
+};
+#endif
+
 
 static struct i2c_board_info i2c_devs1[] __initdata = {
 #ifdef CONFIG_SENSORS_LSM330DLC
@@ -32,6 +48,7 @@ static struct i2c_board_info i2c_devs1[] __initdata = {
 	},
 	{
 		I2C_BOARD_INFO("lsm330dlc_gyro", (0xD6 >> 1)),
+		.platform_data = &gyro_pdata,
 	},
 #elif defined(CONFIG_SENSORS_K3DH)
 	{
@@ -41,11 +58,11 @@ static struct i2c_board_info i2c_devs1[] __initdata = {
 #endif
 };
 
-static int accel_get_position(void)
+static int stm_get_position(void)
 {
 	int position = 0;
 
-#if defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#if defined(CONFIG_MACH_M3)
 	if (system_rev == 1)
 		position = 3; /* top/lower-left */
 	else
@@ -69,8 +86,13 @@ static int accel_get_position(void)
 		position = 3; /* top/lower-left */
 #elif defined(CONFIG_MACH_P4NOTE)
 	position = 4; /* bottom/upper-left */
-#elif defined(CONFIG_MACH_M0_GRANDECTC) || defined(CONFIG_MACH_IRON)
-	position = 5; /* bottom/upper-right */
+#elif defined(CONFIG_MACH_M0_GRANDECTC)
+	if (system_rev == 13)
+		position = 0; /* top/upper-left */
+	else
+		position = 4;
+#elif defined(CONFIG_MACH_IRON)
+	position = 7;  /* bottom/lower-left */
 #elif defined(CONFIG_MACH_M0)
 	if (system_rev == 3 || system_rev == 0)
 		position = 6; /* bottom/lower-right */
@@ -211,7 +233,7 @@ static u8 cm36651_get_threshold(void)
 	defined(CONFIG_MACH_C1_KOR_LGT)
 	if (system_rev >= 6)
 		threshold = 13;
-#elif defined(CONFIG_MACH_C1VZW) || defined(CONFIG_MACH_C2)
+#elif defined(CONFIG_MACH_M3)
 	if (system_rev >= 11)
 		threshold = 13;
 #elif defined(CONFIG_MACH_C1)
@@ -296,6 +318,42 @@ static int ak8975c_gpio_init(void)
 			__func__, ret);
 		return ret;
 	}
+
+	s5p_register_gpio_interrupt(GPIO_MSENSOR_INT);
+	s3c_gpio_setpull(GPIO_MSENSOR_INT, S3C_GPIO_PULL_DOWN);
+	s3c_gpio_cfgpin(GPIO_MSENSOR_INT, S3C_GPIO_SFN(0xF));
+	i2c_devs10_emul[0].irq = gpio_to_irq(GPIO_MSENSOR_INT);
+	return ret;
+}
+#endif
+
+#ifdef CONFIG_SENSORS_AK8963C
+static struct akm8963_platform_data akm8963_pdata = {
+	.gpio_data_ready_int = GPIO_MSENSOR_INT,
+	.layout = 1,
+	.outbit = 1,
+};
+
+static struct i2c_board_info i2c_devs10_emul[] __initdata = {
+	{
+		I2C_BOARD_INFO("ak8963", 0x0C),
+		.platform_data = &akm8963_pdata,
+	},
+};
+
+static int ak8963c_gpio_init(void)
+{
+	int ret = gpio_request(GPIO_MSENSOR_INT, "gpio_akm_int");
+
+	pr_info("%s\n", __func__);
+
+	if (ret) {
+		pr_err("%s, Failed to request gpio akm_int.(%d)\n",
+			__func__, ret);
+		return ret;
+	}
+
+	gpio_set_value(GPIO_MSENSE_RST_N, 1);
 
 	s5p_register_gpio_interrupt(GPIO_MSENSOR_INT);
 	s3c_gpio_setpull(GPIO_MSENSOR_INT, S3C_GPIO_PULL_DOWN);
@@ -399,6 +457,19 @@ static int __init midas_sensor_init(void)
 	/* Magnetic Sensor */
 #ifdef CONFIG_SENSORS_AK8975C
 	ret = ak8975c_gpio_init();
+	if (ret < 0) {
+		pr_err("%s, ak8975c_gpio_init fail(err=%d)\n", __func__, ret);
+		return ret;
+	}
+	ret = i2c_add_devices(10, i2c_devs10_emul, ARRAY_SIZE(i2c_devs10_emul));
+	if (ret < 0) {
+		pr_err("%s, i2c10 adding i2c fail(err=%d)\n", __func__, ret);
+		return ret;
+	}
+#endif
+		/* Magnetic Sensor */
+#ifdef CONFIG_SENSORS_AK8963C
+	ret = ak8963c_gpio_init();
 	if (ret < 0) {
 		pr_err("%s, ak8975c_gpio_init fail(err=%d)\n", __func__, ret);
 		return ret;

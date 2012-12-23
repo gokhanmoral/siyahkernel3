@@ -255,6 +255,7 @@ long has_wake_lock(int type)
 {
 	long ret;
 	unsigned long irqflags;
+
 	spin_lock_irqsave(&list_lock, irqflags);
 	ret = has_wake_lock_locked(type);
 	if (ret && (debug_mask & DEBUG_WAKEUP) && type == WAKE_LOCK_SUSPEND)

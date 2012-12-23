@@ -27,13 +27,44 @@
 
 #define AUTOSUSPEND_DELAY_MS			500
 #define HOST_WAKEUP_TIMEOUT_JIFFIES		msecs_to_jiffies(500)
-#define WAIT_ENUMURATION_TIMEOUT_JIFFIES	msecs_to_jiffies(20000)
+#define WAIT_ENUMURATION_TIMEOUT_JIFFIES	msecs_to_jiffies(30000)
 #define MAX_RETRY	3
 
 enum RESUME_STATUS {
 	CP_INITIATED_RESUME,
 	AP_INITIATED_RESUME,
 };
+
+enum {
+	EDC_MAX_ERRORS = 5,
+	EDC_ERROR_TIMEFRAME = HZ,
+};
+
+struct edc {
+	unsigned long timestart;
+	u16 errorcount;
+};
+
+static inline void edc_init(struct edc *edc)
+{
+	edc->timestart = jiffies;
+}
+
+static inline int edc_inc(struct edc *edc, u16 max_err, u16 timeframe)
+{
+	unsigned long now;
+
+	now = jiffies;
+	if (now - edc->timestart > timeframe) {
+		edc->errorcount = 1;
+		edc->timestart = now;
+	} else if (++edc->errorcount > max_err) {
+		edc->errorcount = 0;
+		edc->timestart = now;
+		return 1;
+	}
+	return 0;
+}
 
 struct if_usb_devdata {
 	struct usb_interface *data_intf;
@@ -91,6 +122,8 @@ struct usb_link_device {
 	/* maybe -list of io devices for the link device to use */
 	/* to find where to send incoming packets to */
 	struct list_head list_of_io_devices;
+
+	struct edc urb_edc;
 };
 /* converts from struct link_device* to struct xxx_link_device* */
 #define to_usb_link_device(linkdev) \

@@ -43,20 +43,21 @@ enum ATH6K_DEBUG_MASK {
 	ATH6KL_DBG_WMI_DUMP	= BIT(19),
 	ATH6KL_DBG_SUSPEND	= BIT(20),
 	ATH6KL_DBG_USB		= BIT(21),
+	ATH6KL_DBG_RECOVERY	= BIT(22),
+	ATH6KL_DBG_STACK_DUMP	= BIT(23),
 	ATH6KL_DBG_ANY	        = 0xffffffff  /* enable all logs */
 };
 
 extern unsigned int debug_mask;
 extern __printf(2, 3)
 int ath6kl_printk(const char *level, const char *fmt, ...);
-char *sec_conv_mac(const u8 *mac);
 
 #define ath6kl_info(fmt, ...)				\
 	ath6kl_printk(KERN_INFO, fmt, ##__VA_ARGS__)
 #define ath6kl_err(fmt, ...)					\
-	ath6kl_printk(KERN_INFO, fmt, ##__VA_ARGS__)
+	ath6kl_printk(KERN_ERR, fmt, ##__VA_ARGS__)
 #define ath6kl_warn(fmt, ...)					\
-	ath6kl_printk(KERN_INFO, fmt, ##__VA_ARGS__)
+	ath6kl_printk(KERN_WARNING, fmt, ##__VA_ARGS__)
 
 #define AR_DBG_LVL_CHECK(mask)	(debug_mask & mask)
 

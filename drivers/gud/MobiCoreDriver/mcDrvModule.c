@@ -121,7 +121,7 @@ static int isUserlandCallerPrivileged(
 	 * http://android-dls.com/wiki/index.php?title=Android_UIDs_and_GIDs
 	 */
 #ifdef MC_ANDROID_UID_CHECK
-	return (current_euid() <= AID_SYSTEM);
+	return (current_euid() == AID_SYSTEM);
 #else
 	/* capable should cover all possibilities, root or sudo, uid checking
 	 * was not very reliable */
@@ -183,7 +183,7 @@ static inline int lockUserPages(
 
 		/* lock user pages, must hold the mmap_sem to do this. */
 		down_read(&(pTask->mm->mmap_sem));
-		lockedPages = get_user_pages(
+		lockedPages = get_user_pages_nocma(
 				      pTask,
 				      pTask->mm,
 				      (unsigned long)virtStartPageAddr,
@@ -486,7 +486,7 @@ static struct mcL2TablesDescr *allocateWsmL2TableContainer(
 			SetPageReserved(pPage);
 
 			/* allocate a descriptor */
-			pWsmL2TablesChunk = kmalloc(sizeof(*pWsmL2TablesChunk),
+			pWsmL2TablesChunk = kmalloc(sizeof(struct mcL2TablesChunk),
 						    GFP_KERNEL);
 			if (NULL == pWsmL2TablesChunk) {
 				kfree(pWsmL2Page);
@@ -526,7 +526,8 @@ static struct mcL2TablesDescr *allocateWsmL2TableContainer(
 	if (0 != ret) {
 		if (NULL != pWsmL2TableDescr) {
 			/* remove from list */
-			list_del(&(pWsmL2TablesChunk->list));
+			if (pWsmL2TablesChunk != NULL)
+				list_del(&(pWsmL2TablesChunk->list));
 			/* free memory */
 			kfree(pWsmL2TableDescr);
 			pWsmL2TableDescr = NULL;

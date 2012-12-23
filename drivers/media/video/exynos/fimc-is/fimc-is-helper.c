@@ -31,6 +31,7 @@
 #include <linux/gpio.h>
 #include <linux/gpio_event.h>
 #include <plat/gpio-cfg.h>
+#include <plat/cpu.h>
 
 #include "fimc-is-core.h"
 #include "fimc-is-regs.h"
@@ -882,11 +883,9 @@ int fimc_is_hw_wait_intsr0_intsd0(struct fimc_is_dev *dev)
 	u32 timeout;
 	u32 cfg = readl(dev->regs + INTSR0);
 	u32 status = INTSR0_GET_INTSD0(cfg);
-	timeout = 50000;
+	timeout = 10000;
 
 	while (status) {
-
-		printk(KERN_INFO "%s check status \n", __func__);
 		cfg = readl(dev->regs + INTSR0);
 		status = INTSR0_GET_INTSD0(cfg);
 		if (timeout == 0) {
@@ -905,11 +904,9 @@ int fimc_is_hw_wait_intmsr0_intmsd0(struct fimc_is_dev *dev)
 	u32 cfg = readl(dev->regs + INTMSR0);
 	u32 status = INTMSR0_GET_INTMSD0(cfg);
 
-	timeout = 50000;
+	timeout = 10000;
 
 	while (status) {
-		printk(KERN_INFO "%s check status \n", __func__);
-
 		cfg = readl(dev->regs + INTMSR0);
 		status = INTMSR0_GET_INTMSD0(cfg);
 		if (timeout == 0) {
@@ -1039,18 +1036,46 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 	writel(id, dev->regs + ISSR1);
 	switch (sensor_index) {
 	case SENSOR_S5K3H2_CSI_A:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 1;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 0;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K3H2_CSI_A;
 		writel(SENSOR_NAME_S5K3H2, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C0, dev->regs + ISSR3);
-		writel(0x0, dev->regs + ISSR4);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K3H2_CSI_B:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 1;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 0;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K3H2_CSI_B;
 		writel(SENSOR_NAME_S5K3H2, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C1, dev->regs + ISSR3);
-		writel(0x0, dev->regs + ISSR4);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K6A3_CSI_A:
 		sensor_ext = (struct sensor_open_extended *)
@@ -1061,6 +1086,10 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 		sensor_ext->mipi_speed = 0;
 		sensor_ext->fast_open_sensor = 0;
 		sensor_ext->self_calibration_mode = 1;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
 		fimc_is_mem_cache_clean((void *)dev->is_p_region,
 							IS_PARAM_SIZE);
 		dev->af.use_af = 0;
@@ -1078,6 +1107,10 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 		sensor_ext->mipi_speed = 0;
 		sensor_ext->fast_open_sensor = 0;
 		sensor_ext->self_calibration_mode = 1;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
 		fimc_is_mem_cache_clean((void *)dev->is_p_region,
 							IS_PARAM_SIZE);
 		dev->af.use_af = 0;
@@ -1095,6 +1128,10 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 		sensor_ext->mipi_speed = 0;
 		sensor_ext->fast_open_sensor = 0;
 		sensor_ext->self_calibration_mode = 0;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
 		fimc_is_mem_cache_clean((void *)dev->is_p_region,
 							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
@@ -1112,6 +1149,10 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 		sensor_ext->mipi_speed = 0;
 		sensor_ext->fast_open_sensor = 0;
 		sensor_ext->self_calibration_mode = 0;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
 		fimc_is_mem_cache_clean((void *)dev->is_p_region,
 							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
@@ -1121,18 +1162,46 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K4E5_CSI_A:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 1;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 0;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K4E5_CSI_A;
 		writel(SENSOR_NAME_S5K4E5, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C0, dev->regs + ISSR3);
-		writel(0x0, dev->regs + ISSR4);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K4E5_CSI_B:
+		sensor_ext = (struct sensor_open_extended *)
+						&dev->is_p_region->shared;
+		sensor_ext->actuator_type = 1;
+		sensor_ext->mclk = 0;
+		sensor_ext->mipi_lane_num = 0;
+		sensor_ext->mipi_speed = 0;
+		sensor_ext->fast_open_sensor = 0;
+		sensor_ext->self_calibration_mode = 0;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
+		fimc_is_mem_cache_clean((void *)dev->is_p_region,
+							IS_PARAM_SIZE);
 		dev->af.use_af = 1;
 		dev->sensor.sensor_type = SENSOR_S5K4E5_CSI_B;
 		writel(SENSOR_NAME_S5K4E5, dev->regs + ISSR2);
 		writel(SENSOR_CONTROL_I2C1, dev->regs + ISSR3);
-		writel(0x0, dev->regs + ISSR4);
+		writel(virt_to_phys(sensor_ext), dev->regs + ISSR4);
 		break;
 	case SENSOR_S5K6A3_CSI_B_CUSTOM:
 		sensor_ext = (struct sensor_open_extended *)
@@ -1143,6 +1212,10 @@ void fimc_is_hw_open_sensor(struct fimc_is_dev *dev, u32 id, u32 sensor_index)
 		sensor_ext->mipi_speed = 0;
 		sensor_ext->fast_open_sensor = 6;
 		sensor_ext->self_calibration_mode = 1;
+		if (samsung_rev() >= EXYNOS4412_REV_2_0)
+			sensor_ext->i2c_sclk = 88000000;
+		else
+			sensor_ext->i2c_sclk = 80000000;
 		fimc_is_mem_cache_clean((void *)dev->is_p_region,
 							IS_PARAM_SIZE);
 		dev->af.use_af = 0;

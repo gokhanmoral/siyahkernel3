@@ -17,33 +17,46 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-short TblX_CCW_LLeft_44[] = {
-#include "wacom_i2c_coordX_CCW_LLeft_44.h"
-};
-short TblY_CCW_LLeft_44[] = {
-#include "wacom_i2c_coordY_CCW_LLeft_44.h"
-};
 
-short TblX_CW_LRight_44[] = {
-#include "wacom_i2c_coordX_CW_LRight_44.h"
-};
-short TblY_CW_LRight_44[] = {
-#include "wacom_i2c_coordY_CW_LRight_44.h"
-};
+/*Tables*/
+#if defined(CONFIG_MACH_Q1_BD)
+#include "table-q1.h"
+#elif defined(CONFIG_MACH_T0)
 
-short TblX_PLeft_44[] = {
-#include "wacom_i2c_coordX_PLeft_44.h"
-};
-short TblY_PLeft_44[] = {
-#include "wacom_i2c_coordY_PLeft_44.h"
-};
+/*Locale*/
+#if defined(CONFIG_TARGET_LOCALE_KOR)
+#include "table-t0ltekors.h"
+#elif defined(CONFIG_MACH_T0_JPN_LTE_DCM)
+#include "table-t0ltedcm.h"
+#elif defined(CONFIG_MACH_T0_USA_VZW) \
+	|| defined(CONFIG_MACH_T0_USA_SPR)
+#include "table-t0vzw.h"
+#elif defined(CONFIG_MACH_T0_USA_USCC)
+#include "table-t0uscc.h"
+#elif defined(CONFIG_MACH_T0_CHN_CTC)
+#include "table-t0chnctc.h"
+#else
+/*CONFIG_MACH_T0_EUR_OPEN*/
+#include "table-t03g.h"
+#endif
 
-short TblX_PRight_44[] = {
-#include "wacom_i2c_coordX_PRight_44.h"
-};
-short TblY_PRight_44[] = {
-#include "wacom_i2c_coordY_PRight_44.h"
-};
+#endif
+
+
+/* Origin Shift */
+#if defined(CONFIG_MACH_Q1_BD)
+short origin_offset[] = {600, 620};
+short origin_offset_48[] = {720, 760};
+#elif defined(CONFIG_MACH_T0)
+short origin_offset[] = {676, 724};
+
+short tilt_offsetX_B713[MAX_HAND][MAX_ROTATION] = \
+{{85, 100, -50, -85, }, {-85, 85, 100, -50, } };
+short tilt_offsetY_B713[MAX_HAND][MAX_ROTATION] = \
+{{-90, 120, 100, -80, }, {-80, -90, 120, 100, } };
+
+char *tuning_version_B713 = "0730";
+#endif
 
 /* Distance Offset Table */
 short *tableX[MAX_HAND][MAX_ROTATION] = \
@@ -53,15 +66,3 @@ short *tableX[MAX_HAND][MAX_ROTATION] = \
 short *tableY[MAX_HAND][MAX_ROTATION] = \
 	{{TblY_PLeft_44, TblY_CCW_LLeft_44, TblY_CW_LRight_44, TblY_PRight_44},
 	{TblY_PRight_44, TblY_PLeft_44, TblY_CCW_LLeft_44, TblY_CW_LRight_44} };
-
-/* Tilt offset */
-/* 0: Left, 1: Right */
-/* 0: Portrait 0, 1: Landscape 90, 2: Portrait 180 3: Landscape 270*/
-short tilt_offsetX[MAX_HAND][MAX_ROTATION] = \
-	{{120, 110, -85, -110, }, {-120, 120, 60, -130, } };
-short tilt_offsetY[MAX_HAND][MAX_ROTATION] = \
-	{{-110, 110, 110, -150, }, {-130, -110, 130, 70, } };
-
-/* Origin Shift */
-short origin_offset[] = {600, 620};
-short origin_offset_48[] = {720, 760};

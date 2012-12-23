@@ -32,7 +32,8 @@
 #include <plat/pm.h>
 #include <plat/cpu.h>
 
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD)
+#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD) ||\
+	defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_GC1)
 #include <mach/sec_debug.h>
 #endif
 
@@ -142,21 +143,13 @@ static int exynos_target(struct cpufreq_policy *policy,
 #endif
 
 	freqs.new = freq_table[index].frequency;
-/* MVP Begins */
-#if !defined(CONFIG_VMWARE_MVP)
 	freqs.cpu = policy->cpu;
-#endif
-/* MVP Ends */	
+
 	safe_arm_volt = exynos_get_safe_armvolt(old_index, index);
 
 	arm_volt = volt_table[index];
 
-/* MVP Begins */
-#if defined(CONFIG_VMWARE_MVP)
-	for_each_online_cpu(freqs.cpu)
-#endif
-/* MVP Ends */	
-		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
+	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
 	/* When the new frequency is higher than current frequency */
 	if ((freqs.new > freqs.old) && !safe_arm_volt) {
@@ -171,12 +164,7 @@ static int exynos_target(struct cpufreq_policy *policy,
 	if (freqs.new != freqs.old)
 		exynos_info->set_freq(old_index, index);
 
-/* MVP Begins */
-#if defined(CONFIG_VMWARE_MVP)
-	for_each_online_cpu(freqs.cpu)
-#endif
-/* MVP Ends */	
-		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
+	cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 
 	/* When the new frequency is lower than current frequency */
 	if ((freqs.new < freqs.old) ||
@@ -334,10 +322,6 @@ int exynos_cpufreq_lock(unsigned int nId,
 	freq_old = policy->cur;
 	freq_new = freq_table[cpufreq_level].frequency;
 
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD)
-	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
-			"%s +: cpufreq: %d ", __func__, freq_old);
-#endif
 	if (freq_old < freq_new) {
 		/* Find out current level index */
 		for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
@@ -354,12 +338,7 @@ int exynos_cpufreq_lock(unsigned int nId,
 
 		freqs.old = freq_old;
 		freqs.new = freq_new;
-/* MVP Begins */		
-#if defined(CONFIG_VMWARE_MVP)
-		for_each_online_cpu(freqs.cpu)
-#endif
-/* MVP Ends */
-			cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
+		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
 		/* get the voltage value */
 		safe_arm_volt = exynos_get_safe_armvolt(old_idx, cpufreq_level);
@@ -372,18 +351,10 @@ int exynos_cpufreq_lock(unsigned int nId,
 				     arm_volt + 25000);
 
 		exynos_info->set_freq(old_idx, cpufreq_level);
-/* MVP Begins */
-#if defined(CONFIG_VMWARE_MVP)
-		for_each_online_cpu(freqs.cpu)
-#endif
-/* MVP Ends */
-			cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
+
+		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 	}
 
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD)
-	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
-		"%s -: cpufreq: %d ", __func__, freq_new);
-#endif
 	mutex_unlock(&set_freq_lock);
 
 	return ret;
@@ -507,11 +478,6 @@ int exynos_cpufreq_upper_limit(unsigned int nId,
 	freq_old = policy->cur;
 	freq_new = freq_table[cpufreq_level].frequency;
 
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD)
-	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
-			"%s +: cpufreq: %d ", __func__, freq_old);
-#endif
-
 	if (freq_old > freq_new) {
 		/* Find out current level index */
 		for (i = 0; i <= exynos_info->min_support_idx; i++) {
@@ -530,12 +496,7 @@ int exynos_cpufreq_upper_limit(unsigned int nId,
 		freqs.old = freq_old;
 		freqs.new = freq_new;
 
-/* MVP Begins */
-#if defined(CONFIG_VMWARE_MVP)
-		for_each_online_cpu(freqs.cpu)
-#endif
-/* MVP Ends */
-			cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
+		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
 		exynos_info->set_freq(old_idx, cpufreq_level);
 
@@ -547,18 +508,8 @@ int exynos_cpufreq_upper_limit(unsigned int nId,
 		arm_volt = volt_table[cpufreq_level];
 		regulator_set_voltage(arm_regulator, arm_volt, arm_volt + 25000);
 
-/* MVP Begins */
-#if defined(CONFIG_VMWARE_MVP)
-		for_each_online_cpu(freqs.cpu)
-#endif
-/* MVP Ends */
-			cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
+		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 	}
-
-#if defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_Q1_BD)
-	sec_debug_aux_log(SEC_DEBUG_AUXLOG_DVFS_LOCK_CHANGE,
-			"%s -: cpufreq: %d ", __func__, freq_new);
-#endif
 
 	mutex_unlock(&set_freq_lock);
 

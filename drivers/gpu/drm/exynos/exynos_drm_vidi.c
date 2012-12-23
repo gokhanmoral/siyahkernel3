@@ -468,7 +468,7 @@ static int vidi_subdrv_probe(struct drm_device *drm_dev, struct device *dev)
 	return 0;
 }
 
-static void vidi_subdrv_remove(struct drm_device *drm_dev)
+static void vidi_subdrv_remove(struct drm_device *drm_dev, struct device *dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 

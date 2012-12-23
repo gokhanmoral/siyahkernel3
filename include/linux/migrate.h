@@ -12,9 +12,19 @@ typedef struct page *new_page_t(struct page *, unsigned long private, int **);
 extern void putback_lru_pages(struct list_head *l);
 extern int migrate_page(struct address_space *,
 			struct page *, struct page *);
+#ifndef CONFIG_DMA_CMA
 extern int migrate_pages(struct list_head *l, new_page_t x,
 			unsigned long private, bool offlining,
 			bool sync);
+#else
+extern int migrate_pages(struct list_head *l, new_page_t x,
+			unsigned long private, bool offlining,
+			bool sync, int tries);
+
+extern int migrate_replace_cma_page(struct page *oldpage,
+				       struct page **newpage);
+#endif
+
 extern int migrate_huge_pages(struct list_head *l, new_page_t x,
 			unsigned long private, bool offlining,
 			bool sync);
@@ -34,9 +44,19 @@ extern int migrate_huge_page_move_mapping(struct address_space *mapping,
 #define PAGE_MIGRATION 0
 
 static inline void putback_lru_pages(struct list_head *l) {}
+#ifndef CONFIG_DMA_CMA
 static inline int migrate_pages(struct list_head *l, new_page_t x,
 		unsigned long private, bool offlining,
 		bool sync) { return -ENOSYS; }
+#else
+static inline int migrate_pages(struct list_head *l, new_page_t x,
+		unsigned long private, bool offlining,
+		bool sync, int tries) { return -ENOSYS; }
+
+static inline int migrate_replace_cma_page(struct page *oldpage,
+		struct page **newpage) { return -ENOSYS; }
+#endif
+
 static inline int migrate_huge_pages(struct list_head *l, new_page_t x,
 		unsigned long private, bool offlining,
 		bool sync) { return -ENOSYS; }

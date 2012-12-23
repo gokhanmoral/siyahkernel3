@@ -38,7 +38,11 @@
 #include <mach/mipi_ddi.h>
 #include <mach/dsim.h>
 #endif
+#if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
+#include <../../../drivers/video/samsung_duallcd/s3cfb.h>
+#else
 #include <../../../drivers/video/samsung/s3cfb.h>
+#endif
 
 #ifdef CONFIG_FB_S5P_MDNIE
 #include <linux/mdnie.h>
@@ -506,7 +510,11 @@ static struct s3cfb_lcd s6e8aa0 = {
 static struct s3cfb_lcd s6e63m0 = {
 	.name = "s6e63m0",
 	.width = 480,
+#if 1 /* Only for S6E63M0X03 DDI */
+	.height = 802,		/* Originally 800 (due to 2 Line in LCD below issue) */
+#else
 	.height = 800,
+#endif
 	.p_width = 60,		/* 59.76 mm */
 	.p_height = 106,	 /* 106.24 mm */
 	.bpp = 24,
@@ -683,18 +691,19 @@ static int lcd_power_on(void *ld, int enable)
 	if (enable) {
 		gpio_set_value(GPIO_LCD_22V_EN_00, GPIO_LEVEL_HIGH);
 
-		regulator = regulator_get(NULL, "vlcd_3.3v");
+		regulator = regulator_get(NULL, "vlcd_2.8v");
 		if (IS_ERR(regulator))
 			goto out;
 		regulator_enable(regulator);
 		regulator_put(regulator);
 	} else {
-		regulator = regulator_get(NULL, "vlcd_3.3v");
+		regulator = regulator_get(NULL, "vlcd_2.8v");
 		if (IS_ERR(regulator))
 			goto out;
 		if (regulator_is_enabled(regulator))
 			regulator_force_disable(regulator);
 		regulator_put(regulator);
+
 		gpio_set_value(GPIO_LCD_22V_EN_00, GPIO_LEVEL_LOW);
 		gpio_set_value(GPIO_MLCD_RST, 0);
 	}
@@ -798,7 +807,9 @@ void __init mipi_fb_init(void)
 	dsim_lcd_info->mipi_ddi_pd;
 	mipi_ddi_pd->lcd_reset = reset_lcd;
 	mipi_ddi_pd->lcd_power_on = lcd_power_on;
-
+#if defined(CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD)
+	mipi_ddi_pd->lcd_sel_pin = GPIO_LCD_SEL;
+#endif	/* CONFIG_S5P_DSIM_SWITCHABLE_DUAL_LCD */
 	platform_device_register(&s5p_device_dsim);
 
 	/*s3cfb_set_platdata(&fb_platform_data);*/

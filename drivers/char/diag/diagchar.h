@@ -54,6 +54,7 @@
 #define DIAG_CTRL_MSG_LOG_MASK	9
 #define DIAG_CTRL_MSG_EVENT_MASK	10
 #define DIAG_CTRL_MSG_F3_MASK	11
+#define ZERO_CFG_SUBPACKET_MAX 15 // zero_pky.patch by jagadish
 
 /* Maximum number of pkt reg supported at initialization*/
 extern unsigned int diag_max_reg;
@@ -224,6 +225,7 @@ struct diagchar_dev {
 	struct diag_request *write_ptr_wcnss_1;
 	struct diag_request *write_ptr_wcnss_2;
 	int logging_mode;
+	int sub_logging_mode;
 	int mask_check;
 	int logging_process_id;
 #ifdef CONFIG_DIAG_SDIO_PIPE
@@ -254,15 +256,20 @@ struct diagchar_dev {
 	int in_busy_hsic_write;
 	int in_busy_hsic_read;
 	int usb_mdm_connected;
+	unsigned int zero_cfg_mode; // zero_pky.patch by jagadish
+	unsigned int zero_cfg_index; // zero_pky.patch by jagadish
+	unsigned int zero_cfg_packet_lens_index; // zero_pky.patch by jagadish
 	struct usb_diag_ch *mdm_ch;
 	struct workqueue_struct *diag_hsic_wq;
 	struct work_struct diag_read_mdm_work;
 	struct work_struct diag_read_hsic_work;
+	struct work_struct diag_zero_cfg_hsic_work; // zero_pky.patch by jagadish
 	struct work_struct diag_disconnect_work;
 	struct work_struct diag_usb_read_complete_work;
 	struct diag_request *usb_read_mdm_ptr;
 	struct diag_request *write_ptr_mdm;
-#endif
+	struct pid *silent_log_pid;
+	#endif
 };
 
 extern struct diagchar_dev *driver;

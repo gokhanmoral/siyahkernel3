@@ -580,7 +580,7 @@ static int __devinit sdhci_s3c_probe(struct platform_device *pdev)
 	if (!host->ioaddr) {
 		dev_err(dev, "failed to map registers\n");
 		ret = -ENXIO;
-		goto err_req_regs;
+		goto err_add_host;
 	}
 
 	/* Ensure we have minimal gpio selected CMD/CLK/Detect */
@@ -713,8 +713,9 @@ static int __devinit sdhci_s3c_probe(struct platform_device *pdev)
 	return 0;
 
  err_add_host:
-	release_resource(sc->ioarea);
-	kfree(sc->ioarea);
+	if (host->ioaddr)
+		iounmap(host->ioaddr);
+	release_mem_region(sc->ioarea->start, resource_size(sc->ioarea));
 
  err_req_regs:
 	for (ptr = 0; ptr < MAX_BUS_CLK; ptr++) {
@@ -781,6 +782,13 @@ static int sdhci_s3c_suspend(struct platform_device *dev, pm_message_t pm)
 	return ret;
 }
 
+static void sdhci_s3c_shutdown(struct platform_device *dev)
+{
+	struct sdhci_host *host = platform_get_drvdata(dev);
+
+	sdhci_shutdown_host(host);
+}
+
 static int sdhci_s3c_resume(struct platform_device *dev)
 {
 	struct sdhci_host *host = platform_get_drvdata(dev);
@@ -800,6 +808,7 @@ static struct platform_driver sdhci_s3c_driver = {
 	.remove		= __devexit_p(sdhci_s3c_remove),
 	.suspend	= sdhci_s3c_suspend,
 	.resume	        = sdhci_s3c_resume,
+	.shutdown	= sdhci_s3c_shutdown,
 	.driver		= {
 		.owner	= THIS_MODULE,
 		.name	= "s3c-sdhci",

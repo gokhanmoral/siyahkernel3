@@ -473,8 +473,7 @@ static void s3c24xx_serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 
 #if defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_MIDAS) || \
 	defined(CONFIG_MACH_SLP_PQ) || defined(CONFIG_MACH_P10) || \
-	defined(CONFIG_MACH_U1CAMERA_BD) || defined(CONFIG_MACH_PX) || \
-	defined(CONFIG_MACH_TRATS)
+	defined(CONFIG_MACH_PX) || defined(CONFIG_MACH_TRATS)
 	unsigned int umcon = 0;
 	umcon = rd_regl(port, S3C2410_UMCON);
 

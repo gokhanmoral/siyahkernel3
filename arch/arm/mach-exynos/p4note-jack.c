@@ -24,14 +24,15 @@ static void sec_set_jack_micbias(bool on)
 	gpio_set_value(GPIO_EAR_MIC_BIAS_EN, on);
 }
 
+#ifdef CONFIG_TARGET_LOCALE_KOR
 static struct sec_jack_zone sec_jack_zones[] = {
 	{
 		/* adc == 0, unstable zone, default to 3pole if it stays
 		 * in this range for 300ms (15ms delays, 20 samples)
 		 */
 		.adc_high = 0,
-		.delay_ms = 15,
-		.check_count = 20,
+		.delay_ms = 10,
+		.check_count = 10,
 		.jack_type = SEC_HEADSET_3POLE,
 	},
 	{
@@ -40,12 +41,12 @@ static struct sec_jack_zone sec_jack_zones[] = {
 		 */
 		.adc_high = 1200,
 		.delay_ms = 10,
-		.check_count = 80,
+		.check_count = 10,
 		.jack_type = SEC_HEADSET_3POLE,
 	},
 	{
 		/* 1200 < adc <= 2600, unstable zone, default to 4pole if it
-		 * stays in this range for 800ms (10ms delays, 80 samples)
+		 * stays in this range for 100ms (10ms delays, 80 samples)
 		 */
 		.adc_high = 2600,
 		.delay_ms = 10,
@@ -53,7 +54,7 @@ static struct sec_jack_zone sec_jack_zones[] = {
 		.jack_type = SEC_HEADSET_4POLE,
 	},
 	{
-		/* 2600 < adc <= 3800, 3 pole zone, default to 3pole if it
+		/* 2600 < adc <= 3800, 4 pole zone, default to 4pole if it
 		 * stays in this range for 100ms (10ms delays, 10 samples)
 		 */
 		.adc_high = 3800,
@@ -71,6 +72,55 @@ static struct sec_jack_zone sec_jack_zones[] = {
 		.jack_type = SEC_HEADSET_3POLE,
 	},
 };
+#else
+static struct sec_jack_zone sec_jack_zones[] = {
+	{
+		/* adc == 0, unstable zone, default to 3pole if it stays
+		 * in this range for 100ms (10ms delays, 10 samples)
+		 */
+		.adc_high = 0,
+		.delay_ms = 10,
+		.check_count = 10,
+		.jack_type = SEC_HEADSET_3POLE,
+	},
+	{
+		/* 0 < adc <= 1200, unstable zone, default to 3pole if it stays
+		 * in this range for 100ms (10ms delays, 10 samples)
+		 */
+		.adc_high = 1200,
+		.delay_ms = 10,
+		.check_count = 10,
+		.jack_type = SEC_HEADSET_3POLE,
+	},
+	{
+		/* 1200 < adc <= 2600, unstable zone, default to 4pole if it
+		 * stays in this range for 100ms (10ms delays, 10 samples)
+		 */
+		.adc_high = 2600,
+		.delay_ms = 10,
+		.check_count = 10,
+		.jack_type = SEC_HEADSET_4POLE,
+	},
+	{
+		/* 2600 < adc <= 3800, 4 pole zone, default to 4pole if it
+		 * stays in this range for 50ms (10ms delays, 5 samples)
+		 */
+		.adc_high = 3800,
+		.delay_ms = 10,
+		.check_count = 5,
+		.jack_type = SEC_HEADSET_4POLE,
+	},
+	{
+		/* adc > 3800, unstable zone, default to 3pole if it stays
+		 * in this range for two seconds (10ms delays, 200 samples)
+		 */
+		.adc_high = 0x7fffffff,
+		.delay_ms = 10,
+		.check_count = 200,
+		.jack_type = SEC_HEADSET_3POLE,
+	},
+};
+#endif
 
 /* To support 3-buttons earjack */
 static struct sec_jack_buttons_zone sec_jack_buttons_zones[] = {

@@ -25,7 +25,7 @@ endif
 
 
 # For UMP Debug
-ifeq ($(CONFIG_VIDEO_UMP_DEBUG),y)
+ifeq ($(CONFIG_VIDEO_MALI400MP_UMP_DEBUG),y)
 DEFINES += -DDEBUG
 endif
 
@@ -41,7 +41,7 @@ KBUILDROOT =
 
 # linux build system integration
 
-obj-$(CONFIG_VIDEO_UMP)	+= ump.o
+obj-$(CONFIG_VIDEO_MALI400MP_UMP)	+= ump.o
 
 # For customer releases the Linux Device Drivers will be provided as ARM proprietary and GPL releases:
 # The ARM proprietary product will only include the license/proprietary directory

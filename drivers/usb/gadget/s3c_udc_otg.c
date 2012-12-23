@@ -218,6 +218,21 @@ udc_proc_read(char *page, char **start, off_t off, int count,
 #include "s3c_udc_otg_xfer_dma.c"
 
 /*
+*  udc_core_disconnect
+*  Ask On Connection - Vzw requirement
+*/
+static void udc_core_disconect(struct s3c_udc *dev)
+{
+	u32 uTemp;
+
+	printk(KERN_DEBUG "usb: %s -dev->softconnect=%d\n",
+						__func__, dev->softconnect);
+	uTemp = __raw_readl(dev->regs + S3C_UDC_OTG_DCTL);
+	uTemp |= SOFT_DISCONNECT;
+	__raw_writel(uTemp, dev->regs + S3C_UDC_OTG_DCTL);
+}
+
+/*
  *	udc_disable - disable USB device controller
  */
 static void udc_disable(struct s3c_udc *dev)
@@ -336,18 +351,20 @@ int s3c_vbus_enable(struct usb_gadget *gadget, int is_active)
 			wake_lock_timeout(&dev->usbd_wake_lock, HZ * 5);
 			wake_lock_timeout(&dev->usb_cb_wake_lock, HZ * 5);
 		} else {
-			printk(KERN_DEBUG "usb: %s is_active=%d(udc_enable)\n",
-					__func__, is_active);
+			printk(KERN_DEBUG "usb: %s is_active=%d(udc_enable),"
+							"softconnect=%d\n",
+					__func__, is_active, dev->softconnect);
 			wake_lock(&dev->usb_cb_wake_lock);
 			udc_reinit(dev);
 			udc_enable(dev);
+			if (!dev->softconnect)
+				udc_core_disconect(dev);
 		}
 	} else {
 		printk(KERN_DEBUG "usb: %s, udc_enabled : %d, is_active : %d\n",
 				__func__, dev->udc_enabled, is_active);
 
 	}
-
 
 	mutex_unlock(&dev->mutex);
 	return 0;
@@ -907,6 +924,9 @@ static void s3c_udc_soft_disconnect(void)
 
 static int s3c_udc_pullup(struct usb_gadget *gadget, int is_on)
 {
+	struct s3c_udc *dev = container_of(gadget, struct s3c_udc, gadget);
+	dev->softconnect = is_on;
+
 	if (is_on)
 		s3c_udc_soft_connect();
 	else
@@ -1297,7 +1317,7 @@ static int s3c_udc_probe(struct platform_device *pdev)
 	create_proc_files();
 
 	INIT_DELAYED_WORK(&dev->usb_ready_work, usb_ready);
-	schedule_delayed_work(&dev->usb_ready_work, msecs_to_jiffies(20000));
+	schedule_delayed_work(&dev->usb_ready_work, msecs_to_jiffies(15000));
 	mutex_init(&dev->mutex);
 
 	return retval;
