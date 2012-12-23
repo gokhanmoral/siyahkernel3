@@ -1,12 +1,6 @@
 #
 #
 #
-menuconfig J4FS
-	tristate "Samsung J4FS support"
-	default m
-	help
-	  Say Y to enable Samsung J4FS support.
-
 menuconfig FM_RADIO
 	tristate "FM Radio Driver"
 	default n
