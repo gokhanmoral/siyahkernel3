@@ -7570,12 +7570,21 @@ static struct s5p_platform_cec hdmi_cec_data __initdata = {
 #endif
 
 #if defined(CONFIG_S5P_MEM_CMA)
+extern struct cma_region *p_regions;
+extern struct cma_region *p_regions_secure;
+extern int size_p_regions;
+extern int size_p_regions_secure;
 static void __init exynos4_cma_region_reserve(struct cma_region *regions_normal,
 					      struct cma_region *regions_secure)
 {
 	struct cma_region *reg;
 	size_t size_secure = 0, align_secure = 0;
 	phys_addr_t paddr = 0;
+
+	p_regions = regions_normal;
+	p_regions_secure = regions_secure;
+	size_p_regions = 0; size_p_regions_secure = 0;
+	for (reg = regions_normal; reg->size != 0; reg++) size_p_regions++;
 
 	for (reg = regions_normal; reg->size != 0; reg++) {
 		if (WARN_ON(cma_early_region_register(reg)))

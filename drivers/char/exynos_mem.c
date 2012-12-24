@@ -241,6 +241,8 @@ static struct vm_operations_struct exynos_mem_ops = {
 	.close	= exynos_mem_mmap_close,
 };
 
+extern int s5p_is_cma_region(phys_addr_t addr, size_t size);
+
 int exynos_mem_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	struct exynos_mem *mem = (struct exynos_mem *)filp->private_data;
@@ -256,6 +258,9 @@ int exynos_mem_mmap(struct file *filp, struct vm_area_struct *vma)
 		start = mem->phybase << PAGE_SHIFT;
 		pfn = mem->phybase;
 	}
+
+	if(!s5p_is_cma_region(start, size))
+		return -EINVAL;
 
 	/* TODO: currently lowmem is only avaiable */
 	if ((phys_to_virt(start) < (void *)PAGE_OFFSET) ||

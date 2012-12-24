@@ -22,12 +22,55 @@
 
 #ifdef CONFIG_CMA
 #include <linux/cma.h>
+
+struct cma_region *p_regions;
+struct cma_region *p_regions_secure;
+int size_p_regions, size_p_regions_secure;
+
+#define return1IfNotInRange(addr, size, cma_addr, cma_size) \
+	if(addr >= cma_addr && addr + size <= cma_addr + cma_size) return 1;
+
+int s5p_is_cma_region(phys_addr_t addr, size_t size)
+{
+	int i;
+	for(i=0; i < size_p_regions; i++)
+		return1IfNotInRange(addr, size, p_regions[i].start, p_regions[i].size);
+	for(i=0; i < size_p_regions_secure; i++)
+		return1IfNotInRange(addr, size, p_regions_secure[i].start, p_regions_secure[i].size);
+
+#if defined(CONFIG_MACH_M0)
+#ifdef CONFIG_USE_FIMC_CMA
+	return1IfNotInRange(addr, size, 0x65800000, CONFIG_VIDEO_SAMSUNG_MEMSIZE_FIMC1 * SZ_1K);
+#endif
+#if defined(CONFIG_USE_MFC_CMA)
+	return1IfNotInRange(addr, size, 0x5C800000, 0x02800000);
+#endif
+#endif
+
+#if defined(CONFIG_MACH_U1)
+#ifdef CONFIG_USE_TVOUT_CMA
+	return1IfNotInRange(addr, size, 0x65800000, CONFIG_VIDEO_SAMSUNG_MEMSIZE_TVOUT * SZ_1K);
+#endif
+#ifdef CONFIG_USE_MFC_CMA
+	return1IfNotInRange(addr, size, 0x67800000, 40 * SZ_1M);
+#endif
+#endif
+
+	return 0;
+}
+
 void __init s5p_cma_region_reserve(struct cma_region *regions_normal,
 				      struct cma_region *regions_secure,
 				      size_t align_secure, const char *map)
 {
 	struct cma_region *reg;
 	phys_addr_t paddr_last = 0xFFFFFFFF;
+
+	p_regions = regions_normal;
+	p_regions_secure = regions_secure;
+	size_p_regions = 0; size_p_regions_secure = 0;
+	for (reg = regions_normal; reg->size != 0; reg++) size_p_regions++;
+	for (reg = regions_secure; reg->size != 0; reg++) size_p_regions_secure++;
 
 	for (reg = regions_normal; reg->size != 0; reg++) {
 		phys_addr_t paddr;
