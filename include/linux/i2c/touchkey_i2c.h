@@ -63,9 +63,6 @@
 #elif defined(CONFIG_MACH_SUPERIOR_KOR_SKT)
 #define TK_FIRMWARE_VER	 0x03
 #define TK_MODULE_VER    0x04
-#elif defined(CONFIG_MACH_U1_KOR_LGT)
-#define TK_FIRMWARE_VER	 0x09
-#define TK_MODULE_VER    0x00
 #else
 #define TK_FIRMWARE_VER	 0x04
 #define TK_MODULE_VER    0x00

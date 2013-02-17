@@ -1890,6 +1890,10 @@ static void sec_bat_check_vf(struct sec_bat_info *info)
 			if (info->batt_health == POWER_SUPPLY_HEALTH_GOOD)
 				info->batt_health =
 				    POWER_SUPPLY_HEALTH_UNSPEC_FAILURE;
+#if defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
+			if (pm_power_off)
+				pm_power_off();
+#endif
 		}
 	} else {
 		info->present = BAT_DETECTED;

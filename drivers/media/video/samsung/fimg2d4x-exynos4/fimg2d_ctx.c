@@ -18,6 +18,9 @@
 #include "fimg2d_ctx.h"
 #include "fimg2d_cache.h"
 #include "fimg2d_helper.h"
+#if defined(CONFIG_CMA)
+#include <linux/cma.h>
+#endif
 
 static int fimg2d_check_params(struct fimg2d_bltcmd *cmd)
 {
@@ -53,6 +56,14 @@ static int fimg2d_check_params(struct fimg2d_bltcmd *cmd)
 			r->x1 >= w || r->y1 >= h ||
 			r->x1 >= r->x2 || r->y1 >= r->y2)
 			return -1;
+#if defined(CONFIG_CMA)
+		if (img->addr.type == ADDR_PHYS) {
+			if (!cma_is_registered_region(img->addr.start, (h * img->stride))) {
+				printk(KERN_ERR "[%s] Surface[%d] is not included in CMA region\n", __func__, i);
+				return -1;
+			}
+		}
+#endif
 	}
 
 	clp = &p->clipping;

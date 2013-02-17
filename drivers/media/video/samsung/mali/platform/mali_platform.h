@@ -159,6 +159,8 @@ int mali_dvfs_bottom_lock_pop(void);
 
 int mali_dvfs_get_vol(int step);
 
+int mali_dvfs_get_vol(int step);
+
 #if MALI_VOLTAGE_LOCK
 int mali_voltage_lock_push(int lock_vol);
 int mali_voltage_lock_pop(void);

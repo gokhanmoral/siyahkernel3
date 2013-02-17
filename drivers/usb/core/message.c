@@ -135,7 +135,8 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
 {
 	struct usb_ctrlrequest *dr;
 	int ret;
-#if defined(CONFIG_LINK_DEVICE_HSIC) && defined(CONFIG_UMTS_MODEM_XMM6262)
+#if defined(CONFIG_LINK_DEVICE_HSIC) && (defined(CONFIG_UMTS_MODEM_XMM6262)\
+					|| defined(CONFIG_UMTS_MODEM_XMM6260))
 	int limit_timeout;
 #endif
 
@@ -151,7 +152,8 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
 
 	/* dbg("usb_control_msg"); */
 
-#if defined(CONFIG_LINK_DEVICE_HSIC) && defined(CONFIG_UMTS_MODEM_XMM6262)
+#if defined(CONFIG_LINK_DEVICE_HSIC) && (defined(CONFIG_UMTS_MODEM_XMM6262)\
+					|| defined(CONFIG_UMTS_MODEM_XMM6260))
 	/* Sometimes AP can't received the HSIC descriptor when AP L3->L0
 	 * reset-resume, then got the dpm_timeout panic caused 5sec * retry
 	 * timeout. we can get the cp dump after dpm resume.

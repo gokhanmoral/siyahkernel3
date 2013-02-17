@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfgp2p.c 357864 2012-09-20 06:41:42Z $
+ * $Id: wl_cfgp2p.c 363164 2012-10-16 11:12:13Z $
  *
  */
 #include <typedefs.h>
@@ -63,7 +63,7 @@ static int wl_cfgp2p_if_stop(struct net_device *net);
 static s32 wl_cfgp2p_cancel_listen(struct wl_priv *wl, struct net_device *ndev,
 	bool notify);
 
-static const struct net_device_ops wl_cfgp2p_if_ops = {
+struct net_device_ops wl_cfgp2p_if_ops = {
 	.ndo_open		= wl_cfgp2p_if_open,
 	.ndo_stop		= wl_cfgp2p_if_stop,
 	.ndo_do_ioctl		= wl_cfgp2p_do_ioctl,
@@ -409,7 +409,7 @@ wl_cfgp2p_ifadd(struct wl_priv *wl, struct ether_addr *mac, u8 if_type,
 	memcpy(ifreq.addr.octet, mac->octet, sizeof(ifreq.addr.octet));
 
 	CFGP2P_DBG(("---wl p2p_ifadd "MACDBG" %s %u\n",
-		STR_TO_MACD(ifreq.addr.octet),
+		MAC2STRDBG(ifreq.addr.octet),
 		(if_type == WL_P2P_IF_GO) ? "go" : "client",
 	        (chspec & WL_CHANSPEC_CHAN_MASK) >> WL_CHANSPEC_CHAN_SHIFT));
 
@@ -438,7 +438,7 @@ wl_cfgp2p_ifdisable(struct wl_priv *wl, struct ether_addr *mac)
 	struct net_device *netdev = wl_to_prmry_ndev(wl);
 
 	CFGP2P_INFO(("------primary idx %d : wl p2p_ifdis "MACDBG"\n",
-		netdev->ifindex, STR_TO_MACD(mac->octet)));
+		netdev->ifindex, MAC2STRDBG(mac->octet)));
 	ret = wldev_iovar_setbuf(netdev, "p2p_ifdis", mac, sizeof(*mac),
 		wl->ioctl_buf, WLC_IOCTL_MAXLEN, &wl->ioctl_buf_sync);
 	if (unlikely(ret < 0)) {
@@ -459,7 +459,7 @@ wl_cfgp2p_ifdel(struct wl_priv *wl, struct ether_addr *mac)
 	struct net_device *netdev = wl_to_prmry_ndev(wl);
 
 	CFGP2P_INFO(("------primary idx %d : wl p2p_ifdel "MACDBG"\n",
-	    netdev->ifindex, STR_TO_MACD(mac->octet)));
+	    netdev->ifindex, MAC2STRDBG(mac->octet)));
 	ret = wldev_iovar_setbuf(netdev, "p2p_ifdel", mac, sizeof(*mac),
 		wl->ioctl_buf, WLC_IOCTL_MAXLEN, &wl->ioctl_buf_sync);
 	if (unlikely(ret < 0)) {
@@ -488,7 +488,7 @@ wl_cfgp2p_ifchange(struct wl_priv *wl, struct ether_addr *mac, u8 if_type,
 	memcpy(ifreq.addr.octet, mac->octet, sizeof(ifreq.addr.octet));
 
 	CFGP2P_INFO(("---wl p2p_ifchange "MACDBG" %s %u"
-		" chanspec 0x%04x\n", STR_TO_MACD(ifreq.addr.octet),
+		" chanspec 0x%04x\n", MAC2STRDBG(ifreq.addr.octet),
 		(if_type == WL_P2P_IF_GO) ? "go" : "client",
 		(chspec & WL_CHANSPEC_CHAN_MASK) >> WL_CHANSPEC_CHAN_SHIFT,
 		ifreq.chspec));
@@ -520,7 +520,7 @@ wl_cfgp2p_ifidx(struct wl_priv *wl, struct ether_addr *mac, s32 *index)
 	u8 getbuf[64];
 	struct net_device *dev = wl_to_prmry_ndev(wl);
 
-	CFGP2P_INFO(("---wl p2p_if "MACDBG"\n", STR_TO_MACD(mac->octet)));
+	CFGP2P_INFO(("---wl p2p_if "MACDBG"\n", MAC2STRDBG(mac->octet)));
 
 	ret = wldev_iovar_getbuf_bsscfg(dev, "p2p_if", mac, sizeof(*mac), getbuf,
 		sizeof(getbuf), wl_to_p2p_bss_bssidx(wl, P2PAPI_BSSCFG_PRIMARY), NULL);
@@ -677,7 +677,7 @@ wl_cfgp2p_deinit_discovery(struct wl_priv *wl)
 	/* Clear the saved bsscfg index of the discovery BSSCFG to indicate we
 	 * have no discovery BSS.
 	 */
-	wl_to_p2p_bss_bssidx(wl, P2PAPI_BSSCFG_DEVICE) = 0;
+	wl_to_p2p_bss_bssidx(wl, P2PAPI_BSSCFG_DEVICE) = WL_INVALID;
 	wl_to_p2p_bss_ndev(wl, P2PAPI_BSSCFG_DEVICE) = NULL;
 
 	return ret;
@@ -1262,15 +1262,25 @@ exit:
 s32
 wl_cfgp2p_clear_management_ie(struct wl_priv *wl, s32 bssidx)
 {
+
+	s32 vndrie_flag[] = {VNDR_IE_BEACON_FLAG, VNDR_IE_PRBRSP_FLAG, VNDR_IE_ASSOCRSP_FLAG,
+		VNDR_IE_PRBREQ_FLAG, VNDR_IE_ASSOCREQ_FLAG};
+	s32 index = -1;
+	struct net_device *ndev = wl_cfgp2p_find_ndev(wl, bssidx);
 #define INIT_IE(IE_TYPE, BSS_TYPE)		\
 	do {							\
 		memset(wl_to_p2p_bss_saved_ie(wl, BSS_TYPE).p2p_ ## IE_TYPE ## _ie, 0, \
 		   sizeof(wl_to_p2p_bss_saved_ie(wl, BSS_TYPE).p2p_ ## IE_TYPE ## _ie)); \
 		wl_to_p2p_bss_saved_ie(wl, BSS_TYPE).p2p_ ## IE_TYPE ## _ie_len = 0; \
 	} while (0);
-	if (bssidx < 0) {
-		CFGP2P_ERR(("invalid bssidx\n"));
+
+	if (bssidx < 0 || ndev == NULL) {
+		CFGP2P_ERR(("invalid %s\n", (bssidx < 0) ? "bssidx" : "ndev"));
 		return BCME_BADARG;
+	}
+	for (index = 0; index < ARRAYSIZE(vndrie_flag); index++) {
+		/* clean up vndr ies in dongle */
+		wl_cfgp2p_set_management_ie(wl, ndev, bssidx, vndrie_flag[index], NULL, 0);
 	}
 	INIT_IE(probe_req, bssidx);
 	INIT_IE(probe_res, bssidx);
@@ -1441,6 +1451,27 @@ wl_cfgp2p_find_idx(struct wl_priv *wl, struct net_device *ndev)
 exit:
 	return index;
 }
+struct net_device *
+wl_cfgp2p_find_ndev(struct wl_priv *wl, s32 bssidx)
+{
+	u32 i;
+	struct net_device *ndev = NULL;
+	if (bssidx < 0) {
+		CFGP2P_ERR((" bsscfg idx is invalid\n"));
+		goto exit;
+	}
+
+	for (i = 0; i < P2PAPI_BSSCFG_MAX; i++) {
+		if (bssidx == wl_to_p2p_bss_bssidx(wl, i)) {
+			ndev = wl_to_p2p_bss_ndev(wl, i);
+			break;
+		}
+	}
+
+exit:
+	return ndev;
+}
+
 /*
  * Callback function for WLC_E_P2P_DISC_LISTEN_COMPLETE
  */
@@ -1893,10 +1924,14 @@ wl_cfgp2p_supported(struct wl_priv *wl, struct net_device *ndev)
 s32
 wl_cfgp2p_down(struct wl_priv *wl)
 {
-
+	s32 i = 0, index = -1;
 	wl_cfgp2p_cancel_listen(wl,
 		wl->p2p_net ? wl->p2p_net : wl_to_prmry_ndev(wl), TRUE);
-
+	for (i = 0; i < P2PAPI_BSSCFG_MAX; i++) {
+			index = wl_to_p2p_bss_bssidx(wl, i);
+			if (index != WL_INVALID)
+				wl_cfgp2p_clear_management_ie(wl, index);
+	}
 	wl_cfgp2p_deinit_priv(wl);
 	return 0;
 }
@@ -2046,6 +2081,8 @@ wl_cfgp2p_set_p2p_ps(struct wl_priv *wl, struct net_device *ndev, char* buf, int
 				WLC_SET_PM, &legacy_ps, sizeof(legacy_ps), true);
 			if (unlikely(ret)) {
 				CFGP2P_ERR(("error (%d)\n", ret));
+			} else {
+				wl_cfg80211_update_power_mode(ndev);
 			}
 		}
 		else
@@ -2296,21 +2333,22 @@ static int wl_cfgp2p_do_ioctl(struct net_device *net, struct ifreq *ifr, int cmd
 
 static int wl_cfgp2p_if_open(struct net_device *net)
 {
+	extern struct wl_priv *wlcfg_drv_priv;
 	struct wireless_dev *wdev = net->ieee80211_ptr;
-
-	if (!wdev)
+	struct wl_priv *wl = NULL;
+	wl = wlcfg_drv_priv;
+	if (!wdev || !wl || !wl->p2p)
 		return -EINVAL;
-
+	WL_TRACE(("Enter\n"));
 	/* If suppose F/W download (ifconfig wlan0 up) hasn't been done by now,
 	 * do it here. This will make sure that in concurrent mode, supplicant
 	 * is not dependent on a particular order of interface initialization.
 	 * i.e you may give wpa_supp -iwlan0 -N -ip2p0 or wpa_supp -ip2p0 -N
 	 * -iwlan0.
 	 */
-	wl_cfg80211_do_driver_init(net);
-
 	wdev->wiphy->interface_modes |= (BIT(NL80211_IFTYPE_P2P_CLIENT)
 		| BIT(NL80211_IFTYPE_P2P_GO));
+	wl_cfg80211_do_driver_init(net);
 
 	return 0;
 }
@@ -2341,10 +2379,5 @@ static int wl_cfgp2p_if_stop(struct net_device *net)
 	wdev->wiphy->interface_modes = (wdev->wiphy->interface_modes)
 					& (~(BIT(NL80211_IFTYPE_P2P_CLIENT)|
 					BIT(NL80211_IFTYPE_P2P_GO)));
-#if defined(CUSTOMER_HW4)
-	if (net->flags & IFF_UP)
-		net->flags &= ~IFF_UP;
-#endif
-
 	return 0;
 }

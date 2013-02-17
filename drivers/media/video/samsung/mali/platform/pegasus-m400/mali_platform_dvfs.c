@@ -198,9 +198,6 @@ static unsigned int asv_3d_volt_9_table[MALI_DVFS_STEPS-1][ASV_LEVEL] = {
 	{ 1050000, 1025000, 1000000, 1000000,  975000,  950000,  950000,  950000,  925000,  925000,  925000,  900000},  /* L1(350Mhz) */
 #if (MALI_DVFS_STEPS > 3)
 	{ 1100000, 1075000, 1050000, 1050000, 1050000, 1025000, 1025000, 1000000, 1000000, 1000000,  975000,  950000},  /* L0(440Mhz) */
-#if (MALI_DVFS_STEPS > 4)
-	{ 1150000, 1125000, 1100000, 1100000, 1100000, 1075000, 1075000, 1050000, 1050000, 1050000, 1025000, 1025000},  /* L0(533Mhz) */
-#endif
 #endif
 #endif
 #endif
@@ -227,7 +224,7 @@ static unsigned int asv_3d_volt_9_table_for_prime[MALI_DVFS_STEPS][ASV_LEVEL_PRI
 mali_dvfs_currentstatus maliDvfsStatus;
 int mali_dvfs_control=0;
 
-u32 mali_dvfs_utilization = 255;
+static u32 mali_dvfs_utilization = 255;
 
 static void mali_dvfs_work_handler(struct work_struct *w);
 
@@ -351,15 +348,13 @@ static mali_bool set_mali_dvfs_status(u32 step,mali_bool boostup)
 	/*for future use*/
 	maliDvfsStatus.pCurrentDvfs = &mali_dvfs[validatedStep];
 
-#if CPUFREQ_LOCK_DURING_440
 	/* lock/unlock CPU freq by Mali */
 	if (mali_dvfs[step].clock >= 533)
-		err = cpufreq_lock_by_mali(1200);
+		err = cpufreq_lock_by_mali(1400);
 	else if (mali_dvfs[step].clock == 440)
-		err = cpufreq_lock_by_mali(1000);
+		err = cpufreq_lock_by_mali(1200);
 	else
 		cpufreq_unlock_by_mali();
-#endif
 
 	return MALI_TRUE;
 }
@@ -402,8 +397,8 @@ static mali_bool mali_dvfs_table_update(void)
 	unsigned int i;
 	unsigned int step_num = MALI_DVFS_STEPS;
 
-//	if (samsung_rev() < EXYNOS4412_REV_2_0)
-//		step_num = MALI_DVFS_STEPS - 1;
+	if (samsung_rev() < EXYNOS4412_REV_2_0)
+		step_num = MALI_DVFS_STEPS - 1;
 
 	if (soc_is_exynos4412()) {
 		if (exynos_armclk_max == 1000000) {
@@ -466,10 +461,9 @@ static unsigned int decideNextStatus(unsigned int utilization)
 		if (utilization > (int)(255 * mali_dvfs_threshold[maliDvfsStatus.currentStep].upthreshold / 100) &&
 				level < MALI_DVFS_STEPS - 1) {
 			level++;
-// this prevents the usage of 5th step -gm
-//			if ((samsung_rev() < EXYNOS4412_REV_2_0) && (maliDvfsStatus.currentStep == 3)) {
-//				level=get_mali_dvfs_status();
-//			}
+			if ((samsung_rev() < EXYNOS4412_REV_2_0) && (maliDvfsStatus.currentStep == 3)) {
+				level=get_mali_dvfs_status();
+			}
 		}
 		if (utilization < (int)(255 * mali_dvfs_threshold[maliDvfsStatus.currentStep].downthreshold / 100) &&
 				level > 0) {
@@ -481,7 +475,7 @@ static unsigned int decideNextStatus(unsigned int utilization)
 			step[i].clk = mali_dvfs_all[i].clock;
 		}
 #ifdef EXYNOS4_ASV_ENABLED
-//		mali_dvfs_table_update();
+		mali_dvfs_table_update();
 #endif
 		i = 0;
 		for (i = 0; i < MALI_DVFS_STEPS; i++) {
@@ -767,8 +761,6 @@ int change_dvfs_tableset(int change_clk, int change_step)
 {
 	int err;
 
-	mali_dvfs[change_step].clock = change_clk;
-/* comment this part to be able to use different freq steps than the set -gm
 	if (change_clk < mali_dvfs_all[1].clock) {
 		mali_dvfs[change_step].clock = mali_dvfs_all[0].clock;
 	} else if (change_clk < mali_dvfs_all[2].clock && change_clk >= mali_dvfs_all[1].clock) {
@@ -780,7 +772,7 @@ int change_dvfs_tableset(int change_clk, int change_step)
 	} else {
 		mali_dvfs[change_step].clock = mali_dvfs_all[4].clock;
 	}
-*/
+
 	MALI_PRINT((":::mali dvfs step %d clock and voltage = %d Mhz, %d V\n",change_step, mali_dvfs[change_step].clock, mali_dvfs[change_step].vol));
 
 	if (maliDvfsStatus.currentStep == change_step) {
@@ -791,15 +783,13 @@ int change_dvfs_tableset(int change_clk, int change_step)
 		/*change the clock*/
 		mali_clk_set_rate(mali_dvfs[change_step].clock, mali_dvfs[change_step].freq);
 
-#if CPUFREQ_LOCK_DURING_440
 		/* lock/unlock CPU freq by Mali */
 		if (mali_dvfs[change_step].clock >= 533)
-			err = cpufreq_lock_by_mali(1200);
+			err = cpufreq_lock_by_mali(1400);
 		else if (mali_dvfs[change_step].clock == 440)
-			err = cpufreq_lock_by_mali(1000);
+			err = cpufreq_lock_by_mali(1200);
 		else
 			cpufreq_unlock_by_mali();
-#endif
 	}
 
 	return mali_dvfs[change_step].clock;
@@ -821,7 +811,6 @@ int mali_dvfs_bottom_lock_push(int lock_step)
 		MALI_PRINT(("gpu bottom lock status is not valid for push\n"));
 		return -1;
 	}
-	// not a bad idea to limit locking to 4th step, so let's leave this -gm
 	if (samsung_rev() < EXYNOS4412_REV_2_0)
 		lock_step = min(lock_step, MALI_DVFS_STEPS - 2);
 	else

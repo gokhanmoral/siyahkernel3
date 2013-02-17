@@ -1,0 +1,692 @@
+#include "ffu.h"
+#include "movinand.h"
+#include <linux/delay.h>
+#include <linux/mmc/card.h>
+#include "cs6.h"
+
+#define MMC_CMD_RETRIES 3
+static inline void mmc_delay(unsigned int ms)
+{
+	if (ms < 1000 / HZ) {
+		cond_resched();
+		mdelay(ms);
+	} else {
+		msleep(ms);
+	}
+}
+
+int mmc_go_idle(struct mmc_host *host)
+{
+	int err;
+	struct mmc_command cmd = {0};
+	cmd.opcode = MMC_GO_IDLE_STATE;
+	cmd.arg = 0;
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_NONE | MMC_CMD_BC;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, 0);
+	host->claimed = 0;
+
+	mmc_delay(1);
+
+	host->use_spi_crc = 0;
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+	return err;
+}
+
+int mmc_send_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
+{
+	struct mmc_command cmd = {0};
+	int i, err = 0;
+
+	BUG_ON(!host);
+
+	cmd.opcode = MMC_SEND_OP_COND;
+	cmd.arg = mmc_host_is_spi(host) ? 0 : ocr;
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R3 | MMC_CMD_BCR;
+
+	for (i = 100; i; i--) {
+		host->claimed = 1;
+		err = mmc_wait_for_cmd(host, &cmd, 0);
+		host->claimed = 0;
+		if (err)
+			break;
+
+		/* if we're just probing, do a single pass */
+		if (ocr == 0)
+			break;
+
+		/* otherrise wait until reset completes */
+		if (mmc_host_is_spi(host)) {
+			if (!(cmd.resp[0] & R1_SPI_IDLE))
+				break;
+		} else {
+			if (cmd.resp[0] & MMC_CARD_BUSY)
+				break;
+		}
+
+		err = -ETIMEDOUT;
+
+		mmc_delay(10);
+	}
+
+	if (rocr && !mmc_host_is_spi(host))
+		*rocr = cmd.resp[0];
+
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+	return err;
+}
+
+int mmc_all_send_cid(struct mmc_host *host, u32 *cid)
+{
+	int err;
+	struct mmc_command cmd = {0};
+
+	BUG_ON(!host);
+	BUG_ON(!cid);
+
+	cmd.opcode = MMC_ALL_SEND_CID;
+	cmd.arg = 0;
+	cmd.flags = MMC_RSP_R2 | MMC_CMD_BCR;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, 3);
+	host->claimed = 0;
+
+	if (err)
+		return err;
+
+	memcpy(cid, cmd.resp, sizeof(u32) * 4);
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return 0;
+}
+
+int ffu_mmc_switch(struct mmc_host *host, u8 set, u8 index, u8 value)
+{
+	int err;
+	int arg;
+	struct mmc_command cmd = {0};
+
+	arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
+		(index << 16) |
+		(value << 8);
+
+	cmd.opcode = MMC_SWITCH;
+	cmd.arg = arg;
+	cmd.flags = MMC_RSP_R1B;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, 3);
+	host->claimed = 0;
+
+	return err;
+}
+
+int mmc_set_relative_addr(struct mmc_card *card)
+{
+	int err;
+	struct mmc_host *host = card->host;
+	struct mmc_command cmd = {0};
+
+	cmd.opcode = MMC_SET_RELATIVE_ADDR;
+	cmd.arg = card->rca << 16;
+	cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(card->host, &cmd, 3);
+	host->claimed = 0;
+	if (err)
+		return err;
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return 0;
+}
+
+static int
+mmc_send_cxd_native(struct mmc_host *host, u32 arg, u32 *cxd, int opcode)
+{
+	int err;
+	struct mmc_command cmd = {0};
+
+	BUG_ON(!host);
+	BUG_ON(!cxd);
+
+	cmd.opcode = opcode;
+	cmd.arg = arg;
+	cmd.flags = MMC_RSP_R2 | MMC_CMD_AC;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
+	host->claimed = 0;
+	if (err)
+		return err;
+
+	memcpy(cxd, cmd.resp, sizeof(u32) * 4);
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return 0;
+}
+static int
+mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
+		u32 opcode, void *buf, unsigned len)
+{
+	struct mmc_request mrq = {0};
+	struct mmc_command cmd = {0};
+	struct mmc_data data = {0};
+	struct scatterlist sg;
+	void *data_buf;
+
+	/* dma onto stack is unsafe/nonportable, but callers to this
+	 * routine normally provide temporary on-stack buffers ...
+	 */
+	data_buf = kmalloc(len, GFP_KERNEL);
+	if (data_buf == NULL)
+		return -ENOMEM;
+
+	mrq.cmd = &cmd;
+	mrq.data = &data;
+
+	cmd.opcode = opcode;
+	cmd.arg = 0;
+
+	/* NOTE HACK:  the MMC_RSP_SPI_R1 is always correct here, but we
+	 * rely on callers to never use this with "native" calls for reading
+	 * CSD or CID.  Native versions of those commands use the R2 type,
+	 * not R1 plus a data block.
+	 */
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
+
+	data.blksz = len;
+	data.blocks = 1;
+	data.flags = MMC_DATA_READ;
+	data.sg = &sg;
+	data.sg_len = 1;
+
+	sg_init_one(&sg, data_buf, len);
+
+	if (opcode == MMC_SEND_CSD || opcode == MMC_SEND_CID) {
+		/*
+		 * The spec states that CSR and CID accesses have a timeout
+		 * of 64 clock cycles.
+		 */
+		data.timeout_ns = 0;
+		data.timeout_clks = 64;
+	} else
+		mmc_set_data_timeout(&data, card);
+
+	host->claimed = 1;
+	mmc_wait_for_req(host, &mrq);
+	host->claimed = 0;
+
+	memcpy(buf, data_buf, len);
+	kfree(data_buf);
+
+	if (cmd.error)
+		return cmd.error;
+	if (data.error)
+		return data.error;
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return 0;
+}
+
+int mmc_send_csd(struct mmc_card *card, u32 *csd)
+{
+	int ret, i;
+
+	if (!mmc_host_is_spi(card->host))
+		return mmc_send_cxd_native(card->host, card->rca << 16,
+				csd, MMC_SEND_CSD);
+
+	ret = mmc_send_cxd_data(card, card->host, MMC_SEND_CSD, csd, 16);
+	if (ret)
+		return ret;
+
+	for (i = 0;i < 4;i++)
+		csd[i] = be32_to_cpu(csd[i]);
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return 0;
+}
+
+int mmc_send_cid(struct mmc_host *host, u32 *cid)
+{
+	int ret, i;
+
+	if (!mmc_host_is_spi(host)) {
+		if (!host->card)
+			return -EINVAL;
+		return mmc_send_cxd_native(host, host->card->rca << 16,
+				cid, MMC_SEND_CID);
+	}
+
+	ret = mmc_send_cxd_data(NULL, host, MMC_SEND_CID, cid, 16);
+	if (ret)
+		return ret;
+
+	for (i = 0;i < 4;i++)
+		cid[i] = be32_to_cpu(cid[i]);
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return 0;
+}
+
+int mmc_send_ext_csd(struct mmc_card *card, u8 *ext_csd)
+{
+	return mmc_send_cxd_data(card, card->host, MMC_SEND_EXT_CSD,
+			ext_csd, 512);
+}
+
+int mmc_select_card(struct mmc_host *host, struct mmc_card *card)
+{
+	int err;
+	struct mmc_command cmd = {0};
+
+	BUG_ON(!host);
+
+	cmd.opcode = MMC_SELECT_CARD;
+
+	if (card) {
+		cmd.arg = card->rca << 16;
+		cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+	} else {
+		cmd.arg = 0;
+		cmd.flags = MMC_RSP_NONE | MMC_CMD_AC;
+	}
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
+	host->claimed = 0;
+
+	if (err)
+		return err;
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return 0;
+}
+
+#define EXT_CSD_BUS_WIDTH       183     /* R/W */
+#define EXT_CSD_HS_TIMING       185     /* R/W */
+#define EXT_CSD_CARD_TYPE       196     /* RO */
+#define EXT_CSD_REV             192     /* RO */
+#define EXT_CSD_SEC_CNT         212     /* RO, 4 bytes */
+
+int mmc_startup_fast(void)
+{
+	struct mmc_host *host = ffu_mmc_host();
+	int ocr,rocr;
+	int cid[4];
+	char *ext_csd = kmalloc(512, GFP_KERNEL);
+	int ret = 0;
+	int bit;
+
+	if( (ret = mmc_go_idle(host)) ) // 0
+		goto out;
+	if( (ret = mmc_send_op_cond(host, 0, &ocr)) ) // 1
+		goto out;
+
+	ocr &= host->ocr_avail;
+	bit = ffs(ocr);
+	if (bit) { 
+		bit -= 1;
+		ocr &= 3 << bit;
+	}
+
+	setLowClock();
+	if( (ret = mmc_go_idle(host)) ) // 0
+		goto out;
+	if( (ret = mmc_send_op_cond(host, ocr | (1 << 30), &rocr)) ) // 1
+		goto out;
+	if( (ret = mmc_all_send_cid(host, cid)) ) // 2
+		goto out;
+	if( (ret = mmc_set_relative_addr(host->card)) ) // 3
+		goto out;
+	if( (ret = mmc_send_csd(host->card, host->card->raw_csd)) ) // 9
+		goto out;
+	if( (ret = mmc_select_card(host, host->card)) ) // 7
+		goto out;
+
+	ret = ffu_mmc_switch(host, 0, EXT_CSD_HS_TIMING, 0);
+	ret = ffu_mmc_switch(host, 0,
+			EXT_CSD_BUS_WIDTH,0);
+
+	if( (ret = mmc_send_ext_csd(host->card, ext_csd)) ) // 8
+		goto out;
+
+out:
+	kfree(ext_csd);
+	printk(KERN_ALERT"FFU : %s %s\n",__FUNCTION__,ret?"Failed":"Complete");
+
+	return ret;
+}
+int mmc_vendor_cmd60(unsigned int arg)
+{
+	int err;
+	struct mmc_host *host = ffu_mmc_host();
+	unsigned int claim = 0;
+	int resp;
+	struct mmc_command cmd = {0};
+
+	if( host )
+	{
+		
+		claim = host->claimed;
+		cmd.opcode = 60;
+		cmd.arg = arg;
+		cmd.flags = MMC_RSP_SPI_R1B;
+
+		host->claimed = 1;
+		err = mmc_wait_for_cmd(host, &cmd, 3);
+		host->claimed = claim;
+		if (err)
+		{
+			printk(KERN_ALERT"FFU : CMD60 error with arg : %x\n",arg);
+			return err;
+		}
+			
+		do{
+			mmc_send_status(&resp);
+		}while(resp != 0x900);
+
+		printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+		return 0;
+	}
+
+	return -1;
+}
+int mmc_vendor_cmd62(unsigned int arg)
+{
+	int err;
+	struct mmc_host *host = ffu_mmc_host();
+	unsigned int claim = 0;
+	int resp;
+	struct mmc_command cmd = {0};
+
+	if( host )
+	{
+		
+		claim = host->claimed;
+		cmd.opcode = 62;
+		cmd.arg = arg;
+		cmd.flags = MMC_RSP_SPI_R1B;
+
+		host->claimed = 1;
+		err = mmc_wait_for_cmd(host, &cmd, 3);
+		host->claimed = claim;
+		if (err)
+		{
+			printk(KERN_ALERT"FFU : CMD62 error with arg : %x\n",arg);
+			return err;
+		}
+			
+		do{
+			mmc_send_status(&resp);
+		}while(resp != 0x900);
+
+		printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+		return 0;
+	}
+
+	return -1;
+}
+
+
+int mmc_smartreport(void)
+{
+	struct mmc_host *host;
+	int resp;
+	char *buff = kmalloc(512, GFP_KERNEL);
+
+	if(!buff)
+	{
+		printk(KERN_ALERT"[%s] Memory allocation fail\n",__FUNCTION__);
+		return -1;
+	}
+
+	host = ffu_mmc_host();
+
+	if( !host )
+		goto errout;
+
+	if(mmc_vendor_cmd62(0xEFAC62EC))
+	{
+		printk(KERN_ALERT "[FFU] error while smart report step 1.\n");
+		goto errout;
+	}
+
+//	do{
+		mmc_send_status(&resp);
+		printk(KERN_ALERT"ffu mmc status %x\n",resp);
+//	}while(resp != 0x900);
+
+	if(mmc_vendor_cmd62(0x0000CCEE))
+	{
+		printk(KERN_ALERT "[FFU] error while smart report step 2.\n");
+		goto errout;
+	}
+
+//	do{
+		mmc_send_status(&resp);
+		printk(KERN_ALERT"ffu mmc status %x\n",resp);
+//	}while(resp != 0x900);
+
+	
+	mmc_send_rw_cmd(host,MMC_READ_SINGLE_BLOCK, buff, 0x1000, 512);
+
+	if(mmc_vendor_cmd62(0xEFAC62EC))
+	{
+		printk(KERN_ALERT "[FFU] error while smart report step 3.\n");
+		goto errout;
+	}
+
+//	do{
+		mmc_send_status(&resp);
+		printk(KERN_ALERT"ffu mmc status %x\n",resp);
+//	}while(resp != 0x900);
+
+	if(mmc_vendor_cmd62(0x00DECCEE))
+	{
+		printk(KERN_ALERT "[FFU] error while smart report step 4.\n");
+		goto errout;
+	}
+
+//	do{
+		mmc_send_status(&resp);
+		printk(KERN_ALERT"ffu mmc status %x\n",resp);
+//	}while(resp != 0x900);
+
+	{
+		struct struct_smart *smart = (struct struct_smart*)buff;
+		int n1, n2, n3;
+		n1 = smart->patch_version[12];
+		n2 = smart->patch_version[13];
+		n3 = smart->patch_version[14];
+
+		printk(KERN_ALERT "Smart Report Result : %x %x %x\n",n1,n2,n3);
+	}
+
+	if( buff )
+		kfree(buff);
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+	return 0;
+
+errout:
+	if( buff )
+		kfree(buff);
+	return -1;
+}
+
+int mmc_reset_erase(struct mmc_host *host,unsigned int start, 
+		unsigned int end,unsigned int arg)
+{
+	int err;
+	struct mmc_command cmd = {0};
+	int resp;
+
+	//start
+	cmd.opcode = 35;
+	cmd.arg = start;
+	cmd.flags = MMC_RSP_R1;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, 0);
+	host->claimed = 0;
+
+	mmc_delay(1);
+
+	printk(KERN_ALERT "FFU : check %s, %d\n",__FUNCTION__, __LINE__);
+	if( err )
+		printk(KERN_ALERT"FFU : %s, %d error\n",__FUNCTION__, __LINE__);
+
+	do
+	{
+		mmc_send_status(&resp);
+	}while(resp != 0x900);
+
+	//end
+	cmd.opcode = 36;
+	cmd.arg = end;
+	cmd.flags = MMC_RSP_R1;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, 0);
+	host->claimed = 0;
+
+	printk(KERN_ALERT "FFU : check %s, %d\n",__FUNCTION__, __LINE__);
+	if( err )
+		printk(KERN_ALERT"FFU : %s, %d error\n",__FUNCTION__, __LINE__);
+	do
+	{
+		mmc_send_status(&resp);
+	}while(resp != 0x900);
+
+	//erase
+	cmd.opcode = 38;
+	cmd.arg = arg;
+	cmd.flags = MMC_RSP_R1;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, 0);
+	host->claimed = 0;
+	mmc_delay(1);
+
+	if( err )
+		printk(KERN_ALERT"FFU : %s, %d error\n",__FUNCTION__, __LINE__);
+
+	do
+	{
+		mmc_send_status(&resp);
+	}while(resp != 0x900);
+
+	printk(KERN_ALERT "FFU : Finished, %s\n",__FUNCTION__);
+
+	return err;
+
+}
+
+int mmc_patch_write(struct mmc_host *host, const void *buff, int size)
+{
+	int err;
+	int blkcnt;
+	struct mmc_command cmd = {0};
+
+	blkcnt = (size+512-1)/512;
+
+	cmd.opcode= 23;
+	cmd.arg = blkcnt;
+	cmd.flags = MMC_RSP_R1;
+
+	host->claimed = 1;
+	err = mmc_wait_for_cmd(host, &cmd, 0);
+	host->claimed = 0;
+
+	if( err )
+		printk(KERN_ALERT"FFU : %s, %d error\n",__FUNCTION__, __LINE__);
+
+	mmc_delay(1);
+
+	cmd.opcode = 25;
+	cmd.arg =0;
+	cmd.flags = MMC_RSP_R1; /*MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;*/
+
+	err = mmc_send_cmd( &cmd, MMC_DATA_WRITE, (int*)buff, size);
+
+	if( err )
+		printk(KERN_ALERT"FFU : %s, %d error\n",__FUNCTION__, __LINE__);
+
+	host->use_spi_crc = 0;
+	printk(KERN_ALERT"FFU : %s complete\n",__FUNCTION__);
+
+	return err;
+}
+
+//#define PATCH_NORMAL
+int mmc_patch_normal(void)
+{
+	struct mmc_host *host;
+	char *buff;
+	int resp;
+
+	host = ffu_mmc_host();
+
+	buff = (char*)kmalloc(GFP_KERNEL, sizeof(movinand_fw));
+	if( !buff )
+		return -1;
+
+	if(mmc_vendor_cmd60(0xEFAC60FC))
+		return -1;
+
+	do
+	{
+		mmc_send_status(&resp);
+	}while(resp != 0x900);
+
+#ifdef PATCH_NORMAL
+	if(mmc_vendor_cmd60(0xcbad1160))
+		return -1;
+
+	do
+	{
+		mmc_send_status(&resp);
+	}while(resp != 0x900);
+
+	mmc_reset_erase(host,0,0,0);
+#else
+	if(mmc_vendor_cmd60(0x1BFC3360))
+		return -1;
+#endif
+
+	printk(KERN_ALERT"FFU start memcpy\n");
+	memcpy(buff,movinand_fw,sizeof(movinand_fw));
+
+	if( mmc_patch_write(host, buff, sizeof(movinand_fw)) )
+	{
+		kfree(buff);
+		return -1;
+	}
+
+	do
+	{
+		mmc_send_status(&resp);
+	}while(resp != 0x900);
+
+	kfree(buff);
+	return 0;
+}
+int movinand_fwUpdate(void)
+{
+
+	if( mmc_startup_fast() )
+		return -1;
+
+	if( mmc_smartreport() )
+		return -1;
+
+	if( mmc_patch_normal() )
+		return -1;
+
+	return 0;
+}
