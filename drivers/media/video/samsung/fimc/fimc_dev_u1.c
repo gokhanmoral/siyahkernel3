@@ -576,7 +576,7 @@ struct fimc_control *fimc_register_controller(struct platform_device *pdev)
 
 	/* CMA */
 #ifdef CONFIG_ION_EXYNOS
-	if  (id != 2) {
+//	if  (id != 2) {
 #endif
 		sprintf(ctrl->cma_name, "%s%d", FIMC_CMA_NAME, ctrl->id);
 	err = cma_info(&mem_info, ctrl->dev, 0);
@@ -594,7 +594,7 @@ struct fimc_control *fimc_register_controller(struct platform_device *pdev)
 			(ctrl->dev, ctrl->cma_name, (size_t)ctrl->mem.size, 0);
 	}
 #ifdef CONFIG_ION_EXYNOS
-	}
+//	}
 #endif
 	printk(KERN_INFO "ctrl->mem.size = 0x%x\n", ctrl->mem.size);
 	printk(KERN_INFO "ctrl->mem.base = 0x%x\n", ctrl->mem.base);
