@@ -38,6 +38,14 @@ config FB_S5P_VSYNC_THREAD
 	bool "S5P Framebuffer vsync thread"
 	depends on FB_S5P
 
+config FB_S5P_VSYNC_SYSFS
+	bool "S5P Framebuffer vsync via sysfs"
+	depends on FB_S5P_VSYNC_THREAD
+	default n
+	help
+	  A more efficient method of passing vsync to userspace that doesn't
+	  broadcast uevents.
+
 config FB_S5P_TRACE_UNDERRUN
 	bool "S5P Framebuffer FIFO underrun trace"
 	depends on FB_S5P
