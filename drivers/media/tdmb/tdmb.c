@@ -56,8 +56,7 @@
 static struct wake_lock tdmb_ant_wlock;
 #endif
 
-#define TDMB_WAKE_LOCK_ENABLE
-#ifdef TDMB_WAKE_LOCK_ENABLE
+#ifdef CONFIG_MACH_C1
 static struct wake_lock tdmb_wlock;
 #endif
 #include "tdmb.h"
@@ -99,7 +98,7 @@ static bool tdmb_power_on(void)
 	}
 
 	DPRINTK("power_on success\n");
-#ifdef TDMB_WAKE_LOCK_ENABLE
+#ifdef CONFIG_MACH_C1
 	wake_lock(&tdmb_wlock);
 #endif
 	tdmb_pwr_on = true;
@@ -122,7 +121,7 @@ static bool tdmb_power_off(void)
 		tdmbdrv_func->power_off();
 		tdmb_destroy_workqueue();
 		tdmb_destroy_databuffer();
-#ifdef TDMB_WAKE_LOCK_ENABLE
+#ifdef CONFIG_MACH_C1
 		wake_unlock(&tdmb_wlock);
 #endif
 		tdmb_pwr_on = false;
@@ -795,7 +794,7 @@ static int tdmb_probe(struct platform_device *pdev)
 #if TDMB_PRE_MALLOC
 	tdmb_make_ring_buffer();
 #endif
-#ifdef TDMB_WAKE_LOCK_ENABLE
+#ifdef CONFIG_MACH_C1
 	wake_lock_init(&tdmb_wlock, WAKE_LOCK_SUSPEND, "tdmb_wlock");
 #endif
 
@@ -891,7 +890,7 @@ static void __exit tdmb_exit(void)
 	platform_driver_unregister(&tdmb_driver);
 
 	tdmb_exit_bus();
-#ifdef TDMB_WAKE_LOCK_ENABLE
+#ifdef CONFIG_MACH_C1
 	wake_lock_destroy(&tdmb_wlock);
 #endif
 }

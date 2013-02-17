@@ -556,14 +556,14 @@ static int rx_iodev_skb_raw(struct sk_buff *skb)
 	const char source[ETH_ALEN] = SOURCE_MAC_ADDR;
 
 	/* check the real_iod is open? */
-#if defined(CONFIG_MACH_U1_KOR_LGT)
+	/*
 	if (atomic_read(&iod->opened) == 0) {
 		mif_err("<%s> is not opened.\n",
 			iod->name);
 		pr_skb("drop packet", skb);
 		return -ENOENT;
 	}
-#endif /* CONFIG_MACH_U1_KOR_LGT */
+	*/
 
 	switch (iod->io_typ) {
 	case IODEV_MISC:

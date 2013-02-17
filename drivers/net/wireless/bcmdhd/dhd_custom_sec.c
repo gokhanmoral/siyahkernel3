@@ -97,6 +97,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"SI", "SI", 1},
 	{"SK", "SK", 1},
 	{"TR", "TR", 7},
+	{"UA", "UA", 2},
 	{"TW", "TW", 2},
 	{"IR", "XZ", 11},	/* Universal if Country code is IRAN, (ISLAMIC REPUBLIC OF) */
 	{"SD", "XZ", 11},	/* Universal if Country code is SUDAN */

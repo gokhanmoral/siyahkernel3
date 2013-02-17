@@ -1222,10 +1222,8 @@ static irqreturn_t qc_dpram_irq_handler(int irq, void *data)
 	struct mem_status stat;
 	u16 int2ap = 0;
 
-	if (ld->mode == LINK_MODE_OFFLINE) {
-		int2ap = dpld->recv_intr(dpld);
+	if (unlikely(ld->mode == LINK_MODE_OFFLINE))
 		return IRQ_HANDLED;
-	}
 
 	dpld->get_dpram_status(dpld, RX, &stat);
 	int2ap = stat.int2ap;

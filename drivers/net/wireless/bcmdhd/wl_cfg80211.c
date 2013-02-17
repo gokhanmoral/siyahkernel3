@@ -971,16 +971,11 @@ wl_cfg80211_40MHz_to_20MHz_Channel(chanspec_t chspec)
 		case 46:
 		case 54:
 		case 62:
-		case 102:
-		case 110:
-		case 118:
-		case 126:
-		case 134:
 		case 151:
 		case 159:
-			if (chspec & WL_LCHANSPEC_CTL_SB_LOWER)
+			if (chspec & WL_CHANSPEC_CTL_SB_LOWER)
 				channel = channel - CH_10MHZ_APART;
-			else if (chspec & WL_LCHANSPEC_CTL_SB_UPPER)
+			else if (chspec & WL_CHANSPEC_CTL_SB_UPPER)
 				channel = channel + CH_10MHZ_APART;
 			break;
 		default:
@@ -6400,7 +6395,6 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 	/* if link down, bsscfg is disabled. */
 	if (event == WLC_E_LINK && reason == WLC_E_LINK_BSSCFG_DIS &&
 		wl_get_p2p_status(wl, IF_DELETING) && (ndev != wl_to_prmry_ndev(wl))) {
-		wl_add_remove_eventmsg(ndev, WLC_E_PROBREQ_MSG, false);
 		WL_INFO(("AP mode link down !! \n"));
 		complete(&wl->iface_disable);
 		return 0;
@@ -8403,8 +8397,6 @@ static void wl_cfg80211_determine_vsdb_mode(struct wl_priv *wl)
 	u32 connected_cnt  = wl_get_drv_status_all(wl, CONNECTED);
 	if (connected_cnt > 1) {
 		wl->vsdb_mode = true;
-	} else {
-		wl->vsdb_mode = false;
 	}
 	return;
 #else
@@ -8487,9 +8479,9 @@ static s32 wl_notifier_change_state(struct wl_priv *wl, struct net_info *_net_in
 			/* Save the current power mode */
 			iter->pm_restore = true;
 			err = wldev_ioctl(iter->ndev, WLC_GET_PM, &iter->pm,
-				sizeof(iter->pm), false);
+				sizeof(iter->pm), true);
 			WL_DBG(("%s:power save %s\n", iter->ndev->name,
-				iter->pm ? "enabled" : "disabled"));
+				pm ? "enabled" : "disabled"));
 			if ((err = wldev_ioctl(iter->ndev, WLC_SET_PM, &pm,
 				sizeof(pm), true)) != 0) {
 				if (err == -ENODEV)

@@ -2306,11 +2306,6 @@ wl_cfgp2p_unregister_ndev(struct wl_priv *wl)
 static int wl_cfgp2p_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	CFGP2P_DBG(("(%s) is not used for data operations. Droping the packet. \n", ndev->name));
-    if(skb)
-    {
-        printk("%s : %s skb free call.\n",__FUNCTION__,ndev->name);
-        dev_kfree_skb_any(skb);
-    }
 	return 0;
 }
 

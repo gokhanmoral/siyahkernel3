@@ -4681,7 +4681,6 @@ static struct sec_bat_adc_table_data temper_table_ADC7[] = {
 };
 #endif
 
-#define ADC_CH_VF	2
 #define ADC_CH_TEMPERATURE_PMIC	6
 #define ADC_CH_TEMPERATURE_LCD	7
 
@@ -4728,10 +4727,6 @@ static struct sec_bat_platform_data sec_bat_pdata = {
 	.adc_sub_table		= temper_table_ADC7,
 	.adc_sub_channel	= ADC_CH_TEMPERATURE_LCD,
 	.get_lpcharging_state	= sec_bat_get_lpcharging_state,
-#if defined(CONFIG_TARGET_LOCALE_NAATT) || \
-	defined(CONFIG_TARGET_LOCALE_NAATT_TEMP)
-	.adc_vf_channel = ADC_CH_VF,
-#endif
 #if defined(CONFIG_MACH_Q1_BD)
 	.initial_check		= sec_bat_initial_check,
 #else

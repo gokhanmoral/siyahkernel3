@@ -1858,10 +1858,6 @@ EXPORT_SYMBOL(mmc_can_erase);
 
 int mmc_can_trim(struct mmc_card *card)
 {
-#if defined(CONFIG_MACH_U1_KOR_SKT) || defined(CONFIG_MACH_U1_KOR_KT) || defined(CONFIG_MACH_U1_KOR_LGT)
-	return 0;
-#endif
-
 	if (card->ext_csd.sec_feature_support & EXT_CSD_SEC_GB_CL_EN)
 		return 1;
 	if (mmc_can_discard(card))

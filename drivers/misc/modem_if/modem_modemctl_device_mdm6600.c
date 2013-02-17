@@ -187,6 +187,11 @@ static irqreturn_t phone_active_irq_handler(int irq, void *_mc)
 	} else if (phone_reset && !phone_active_value) {
 		if (count == 1) {
 			phone_state = STATE_CRASH_EXIT;
+			if (mc->iod) {
+				ld = get_current_link(mc->iod);
+				if (ld->terminate_comm)
+					ld->terminate_comm(ld, mc->iod);
+			}
 			if (mc->iod && mc->iod->modem_state_changed)
 				mc->iod->modem_state_changed
 				    (mc->iod, phone_state);
