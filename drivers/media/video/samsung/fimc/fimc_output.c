@@ -2726,7 +2726,7 @@ static int fimc_update_in_queue_addr(struct fimc_control *ctrl,
 
 int fimc_qbuf_output(void *fh, struct v4l2_buffer *b)
 {
-	struct fimc_buf *buf;
+	struct fimc_buf *buf = (struct fimc_buf *)b->m.userptr;
 	struct fimc_ctx *ctx;
 	struct fimc_control *ctrl = ((struct fimc_prv_data *)fh)->ctrl;
 	int ctx_id = ((struct fimc_prv_data *)fh)->ctx_id;
