@@ -62,6 +62,8 @@ struct gpio_keys_drvdata {
 	/* WARNING: this area can be expanded. Do NOT add any member! */
 };
 
+struct gpio_keys_drvdata *p_gpio_keys_drvdata;
+
 /*
  * SYSFS interface for enabling/disabling keys and switches:
  *
@@ -390,9 +392,30 @@ out:
 static DEVICE_ATTR(sec_key_pressed, 0664, key_pressed_show, NULL);
 static DEVICE_ATTR(wakeup_keys, 0664, NULL, wakeup_enable);
 
+#ifdef CONFIG_MACH_U1
+static ssize_t change_homekey(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct gpio_keys_drvdata *ddata = dev_get_drvdata(dev);
+	int i = 0;
+	
+	struct gpio_button_data *button = &ddata->data[3];
+	sscanf(buf, "%d", &i);
+	if(i != 102 && i != 172) i = 172;
+	button->button->code = i;
+	input_set_capability(ddata->input, EV_KEY, i);
+	return count;
+}
+
+static DEVICE_ATTR(set_homekey, 0664, NULL, change_homekey);
+#endif
+
 static struct attribute *sec_key_attrs[] = {
 	&dev_attr_sec_key_pressed.attr,
 	&dev_attr_wakeup_keys.attr,
+#ifdef CONFIG_MACH_U1
+	&dev_attr_set_homekey.attr,
+#endif
 	NULL,
 };
 
