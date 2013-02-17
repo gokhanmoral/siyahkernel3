@@ -190,7 +190,6 @@ static struct snd_soc_ops u1_hifi_ops = {
 };
 
 static struct snd_soc_dai_link u1_dai[] = {
-#if defined(CONFIG_SND_SAMSUNG_LP) || defined(CONFIG_SND_SAMSUNG_ALP)
 	{ /* Sec_Fifo DAI i/f */
 		.name = "MC1N2 Sec_FIFO TX",
 		.stream_name = "Sec_Dai",
@@ -205,7 +204,6 @@ static struct snd_soc_dai_link u1_dai[] = {
 		.init = u1_hifiaudio_init,
 		.ops = &u1_hifi_ops,
 	},
-#endif
 	{ /* Primary DAI i/f */
 		.name = "MC1N2 AIF1",
 		.stream_name = "hifiaudio",
@@ -238,7 +236,7 @@ extern void set_mc1n2_codec_data(struct mc1n2_setup *setup);
 
 static struct platform_device *u1_snd_device;
 
-static int __init u1_audio_init(void)
+int u1_audio_init(void)
 {
 	int ret;
 
@@ -247,6 +245,12 @@ static int __init u1_audio_init(void)
 	u1_snd_device = platform_device_alloc("soc-audio", -1);
 	if (!u1_snd_device)
 		return -ENOMEM;
+
+AOSPROM
+{
+	u1_snd_card.dai_link += 1;
+	u1_snd_card.num_links -= 1;
+}
 
 	platform_set_drvdata(u1_snd_device, &u1_snd_card);
 
@@ -263,7 +267,6 @@ static void __exit u1_audio_exit(void)
 	platform_device_unregister(u1_snd_device);
 }
 
-module_init(u1_audio_init);
 
 MODULE_AUTHOR("aitdark, aitdark.park@samsung.com");
 MODULE_DESCRIPTION("ALSA SoC U1 MC1N2");
